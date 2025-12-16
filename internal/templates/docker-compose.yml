@@ -1,0 +1,32 @@
+services:
+  construct-box:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: construct-box:latest
+
+    # Interactive TTY session
+    stdin_open: true
+    tty: true
+
+    # Persistent volumes for agent installations
+    volumes:
+      - ${PWD}:/app                                      # Current project
+      - ~/.config/construct-cli/home:/home/construct    # Entire home directory (configs, caches, etc.)
+      - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
+
+    # Environment variables
+    environment:
+      - HOME=/home/construct
+      - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.local/share/uv/bin:/home/construct/.local/share/pipx/bin:/home/construct/.npm-global/bin:/home/construct/.composer/vendor/bin:/home/construct/.local/share/composer/vendor/bin:${PATH}
+
+    # Network mode (overridden by config.toml [network] section)
+    # network_mode: bridge  # permissive (default)
+    # network_mode: none    # airgapped
+
+    # Working directory
+    working_dir: /app
+
+# Named volumes for persistent agent and packages storage
+volumes:
+  construct-packages:  # Persists packages & agents (claude, cursor-cli, ast-grep, yq, etc.)

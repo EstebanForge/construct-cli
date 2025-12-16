@@ -1,0 +1,117 @@
+name: Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.25.5'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Run unit and integration tests
+      run: make test
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v4
+      with:
+        version: latest
+        args: --timeout=5m
+      continue-on-error: true
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Get build info
+      id: build_info
+      run: |
+        VERSION=$(grep -E 'const version' main.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+        echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
+    - name: Clean workspace
+      run: |
+        rm -rf dist/ || true
+        rm -f coverage.out || true
+        go clean -cache
+
+    - name: Build binary
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+        CGO_ENABLED: 0
+        VERSION: ${{ steps.build_info.outputs.version }}
+        COMMIT: ${{ steps.build_info.outputs.commit }}
+        DATE: ${{ steps.build_info.outputs.date }}
+      run: |
+        BINARY_NAME="construct"
+        FINAL_NAME="construct-${GOOS}-${GOARCH}"
+        if [ "$GOOS" = "windows" ]; then
+          BINARY_NAME="construct.exe"
+          FINAL_NAME="construct-windows-${GOARCH}.exe"
+        fi
+
+        mkdir -p dist
+
+        GOOS="${GOOS}" GOARCH="${GOARCH}" CGO_ENABLED=0 make BINARY_NAME="${BINARY_NAME}" build
+
+        mv "${BINARY_NAME}" "dist/${FINAL_NAME}"
+
+        ls -la dist/
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: construct-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: dist/*
+        retention-days: 30
