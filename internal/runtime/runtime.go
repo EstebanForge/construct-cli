@@ -1,0 +1,653 @@
+package runtime
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/errors"
+	"github.com/EstebanForge/construct-cli/internal/ui"
+)
+
+// ContainerState represents the state of a container
+type ContainerState string
+
+const (
+	ContainerStateRunning ContainerState = "running"
+	ContainerStateExited  ContainerState = "exited"
+	ContainerStateMissing ContainerState = "missing"
+)
+
+func DetectRuntime(preferredEngine string) string {
+	runtimes := []string{"container", "podman", "docker"}
+
+	if preferredEngine != "auto" && preferredEngine != "" {
+		runtimes = append([]string{preferredEngine}, runtimes...)
+	}
+
+	// First pass: check if runtime is available
+	for _, rt := range runtimes {
+		if _, err := exec.LookPath(rt); err == nil {
+			if IsRuntimeRunning(rt) {
+				return rt
+			}
+		}
+	}
+
+	// Second pass: try to start runtimes in order
+	fmt.Fprintln(os.Stderr, "No container runtime running. Attempting to start...")
+
+	for _, rt := range runtimes {
+		if _, err := exec.LookPath(rt); err == nil {
+			if startRuntime(rt) {
+				if IsRuntimeRunning(rt) {
+					fmt.Fprintf(os.Stderr, "✓ Started %s\n", rt)
+					return rt
+				}
+			}
+		}
+	}
+
+	fmt.Fprintln(os.Stderr, "Error: No container runtime available. Please install Docker, Podman, or use macOS container runtime.")
+	os.Exit(1)
+	return ""
+}
+
+func IsRuntimeRunning(runtimeName string) bool {
+	var cmd *exec.Cmd
+
+	switch runtimeName {
+	case "container":
+		// macOS container runtime - check if we're on macOS 26+
+		if runtime.GOOS == "darwin" {
+			return checkMacOSVersion() >= 26
+		}
+		return false
+	case "podman":
+		// Try podman machine list on macOS, podman info on Linux
+		if runtime.GOOS == "darwin" {
+			cmd = exec.Command("podman", "machine", "list")
+		} else {
+			cmd = exec.Command("podman", "info", "--format", "{{.Host.HostSocket.Exists}}")
+		}
+	case "docker":
+		// Check if docker daemon is responding
+		cmd = exec.Command("docker", "info")
+	default:
+		return false
+	}
+
+	if cmd == nil {
+		return false
+	}
+
+	// Run command without output
+	return cmd.Run() == nil
+}
+
+func checkMacOSVersion() int {
+	// Get macOS version (e.g., 14.2.1 = macOS Sonoma)
+	cmd := exec.Command("sw_vers", "-productVersion")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0
+	}
+
+	versionStr := strings.TrimSpace(string(output))
+	// Parse major version
+	parts := strings.Split(versionStr, ".")
+	if len(parts) > 0 {
+		if major, err := strconv.Atoi(parts[0]); err == nil {
+			return major
+		}
+	}
+
+	return 0
+}
+
+func startRuntime(runtimeName string) bool {
+	switch runtimeName {
+	case "container":
+		if runtime.GOOS == "darwin" && checkMacOSVersion() >= 26 {
+			fmt.Fprintln(os.Stderr, "macOS container runtime is built-in and should be available")
+			return true
+		}
+		return false
+
+	case "podman":
+		if runtime.GOOS == "darwin" {
+			// Try to start Podman machine on macOS
+			fmt.Fprintln(os.Stderr, "Starting Podman machine...")
+			cmd := exec.Command("podman", "machine", "start")
+			cmd.Stdout = os.Stderr
+			cmd.Stderr = os.Stderr
+			return cmd.Run() == nil
+		} else {
+			// On Linux (including WSL), try to start podman socket
+			fmt.Fprintln(os.Stderr, "Starting Podman socket...")
+			cmd := exec.Command("systemctl", "--user", "start", "podman.socket")
+			if cmd.Run() == nil {
+				return true
+			}
+			// Fallback: try podman systemd
+			cmd = exec.Command("systemctl", "start", "podman")
+			return cmd.Run() == nil
+		}
+
+	case "docker":
+		// Try to start Docker Desktop on macOS
+		if runtime.GOOS == "darwin" {
+			fmt.Fprintln(os.Stderr, "Attempting to start Docker Desktop...")
+			cmd := exec.Command("open", "-a", "Docker")
+			if err := cmd.Run(); err != nil {
+				// Try OrbStack
+				fmt.Fprintln(os.Stderr, "Attempting to start OrbStack...")
+				cmd = exec.Command("open", "-a", "OrbStack")
+				return cmd.Run() == nil
+			}
+			return true
+		} else {
+			// On Linux (including WSL), try to start docker service
+			fmt.Fprintln(os.Stderr, "Starting Docker service...")
+			cmd := exec.Command("systemctl", "start", "docker")
+			if cmd.Run() == nil {
+				// Give it a moment to start
+				time.Sleep(3 * time.Second)
+				return true
+			}
+			// Fallback: try docker via service command
+			cmd = exec.Command("service", "docker", "start")
+			return cmd.Run() == nil
+		}
+	}
+
+	return false
+}
+
+func BuildImage(cfg *config.Config) {
+	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+	configPath := config.GetConfigDir()
+
+	// Create log file for build output
+	logFile, err := config.CreateLogFile("build")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)
+	}
+	logPath := ""
+	if logFile != nil {
+		defer logFile.Close()
+		logPath = logFile.Name()
+		if ui.GumAvailable() {
+			fmt.Printf("%sBuild log: %s%s\n", ui.ColorGrey, logPath, ui.ColorReset)
+		} else {
+			fmt.Printf("Build log: %s\n", logPath)
+		}
+	}
+	fmt.Println() // Spacer
+
+	var cmd *exec.Cmd
+
+	composeArgs := GetComposeFileArgs(configPath)
+
+	// Use docker-compose or podman-compose based on detected runtime
+	if containerRuntime == "docker" {
+		// Check if docker-compose or docker compose is available
+		if _, err := exec.LookPath("docker-compose"); err == nil {
+			args := append(composeArgs, "build")
+			cmd = exec.Command("docker-compose", args...)
+		} else {
+			// Try docker compose (newer syntax)
+			args := []string{"compose"}
+			args = append(args, composeArgs...)
+			args = append(args, "build")
+			cmd = exec.Command("docker", args...)
+		}
+	} else if containerRuntime == "podman" {
+		args := append(composeArgs, "build")
+		cmd = exec.Command("podman-compose", args...)
+	} else if containerRuntime == "container" {
+		// macOS container runtime - use docker fallback for build
+		fmt.Println("Note: macOS container runtime detected, using docker for build")
+		args := []string{"compose"}
+		args = append(args, composeArgs...)
+		args = append(args, "build")
+		cmd = exec.Command("docker", args...)
+	}
+
+	cmd.Dir = configPath
+
+	// Use helper to run with spinner and handle logging
+	if err := ui.RunCommandWithSpinner(cmd, fmt.Sprintf("Building Construct image using %s...", containerRuntime), logFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Build failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if ui.GumAvailable() {
+		ui.GumSuccess("Construct image built successfully!")
+	} else {
+		fmt.Println("\n✓ Construct image built successfully!")
+	}
+
+	// Check if agents are installed and install them if needed
+	if !AreAgentsInstalled(cfg) {
+		if ui.GumAvailable() {
+			fmt.Println()
+			fmt.Printf("%s🔧 Agents not detected - installing now...%s\n", ui.ColorOrange, ui.ColorReset)
+			fmt.Printf("%sThis will take 5-10 minutes...%s\n", ui.ColorGrey, ui.ColorReset)
+		} else {
+			fmt.Println("\n🔧 Agents not detected - installing now...")
+			fmt.Println("This will take 5-10 minutes...")
+		}
+		if err := InstallAgentsAfterBuild(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err) // Simple logging for now
+			if ui.GumAvailable() {
+				ui.GumError("Agent installation failed.")
+			} else {
+				fmt.Fprintf(os.Stderr, "\n❌ Agent installation failed.\n")
+			}
+			os.Exit(1)
+		}
+		if ui.GumAvailable() {
+			ui.GumSuccess("Agents installation complete!")
+		} else {
+			fmt.Println("✅ Agents installation complete!")
+		}
+	} else {
+		if ui.GumAvailable() {
+			ui.GumSuccess("Agents already installed in persistent volumes")
+		} else {
+			fmt.Println("\n✅ Agents already installed in persistent volumes")
+		}
+	}
+}
+
+// AreAgentsInstalled checks if the agents marker file exists in the construct-agents volume
+func AreAgentsInstalled(cfg *config.Config) bool {
+	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+
+	// Check if the marker file exists in the construct-agents volume
+	var cmd *exec.Cmd
+	if containerRuntime == "docker" {
+		cmd = exec.Command("docker", "run",
+			"-v", "construct-agents:/target",
+			"alpine:latest",
+			"test", "-f", "/target/.agents-installed")
+	} else if containerRuntime == "podman" {
+		cmd = exec.Command("podman", "run",
+			"-v", "construct-agents:/target",
+			"alpine:latest",
+			"test", "-f", "/target/.agents-installed")
+	} else if containerRuntime == "container" {
+		cmd = exec.Command("docker", "run",
+			"-v", "construct-agents:/target",
+			"alpine:latest",
+			"test", "-f", "/target/.agents-installed")
+	}
+
+	// Run command - if it fails, marker doesn't exist
+	return cmd.Run() == nil
+}
+
+// InstallAgentsAfterBuild runs the container once to install agents
+func InstallAgentsAfterBuild(cfg *config.Config) error {
+	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+	configPath := config.GetConfigDir()
+
+	// Prepare runtime environment (network, overrides)
+	if err := Prepare(cfg, containerRuntime, configPath); err != nil {
+		return &errors.ConstructError{
+			Category:   errors.ErrorCategoryRuntime,
+			Operation:  "prepare runtime for agent installation",
+			Runtime:    containerRuntime,
+			Err:        err,
+			Suggestion: "Run 'construct doctor' to diagnose",
+		}
+	}
+
+	composeArgs := GetComposeFileArgs(configPath)
+
+	// Determine compose command
+	var composeCmd []string
+	if containerRuntime == "docker" {
+		if _, err := exec.LookPath("docker-compose"); err == nil {
+			composeCmd = append([]string{"docker-compose"}, composeArgs...)
+		} else {
+			composeCmd = []string{"docker", "compose"}
+			composeCmd = append(composeCmd, composeArgs...)
+		}
+	} else if containerRuntime == "podman" {
+		composeCmd = append([]string{"podman-compose"}, composeArgs...)
+	} else if containerRuntime == "container" {
+		composeCmd = []string{"docker", "compose"}
+		composeCmd = append(composeCmd, composeArgs...)
+	}
+
+	// Run the container with entrypoint to install agents
+	args := append(composeCmd, "run", "--rm", "construct-box", "/usr/local/bin/entrypoint.sh", "echo", "Installation complete")
+	cmd := exec.Command(args[0], args[1:]...)
+	cmd.Dir = config.GetContainerDir()
+
+	agentLogFile, err := config.CreateLogFile("agent_install")
+	if err == nil {
+		defer agentLogFile.Close()
+		if ui.GumAvailable() {
+			fmt.Printf("%sAgent install log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
+		} else {
+			fmt.Printf("Agent install log: %s\n", agentLogFile.Name())
+		}
+	}
+
+	if err := ui.RunCommandWithSpinner(cmd, "Installing AI agents...", agentLogFile); err != nil {
+		return &errors.ConstructError{
+			Category:   errors.ErrorCategoryContainer,
+			Operation:  "install agents",
+			Command:    fmt.Sprintf("%s run --rm construct-box /usr/local/bin/entrypoint.sh", containerRuntime),
+			Runtime:    containerRuntime,
+			Err:        err,
+			Suggestion: "Check logs or run 'construct doctor'",
+		}
+	}
+
+	return nil
+}
+
+func GetComposeFileArgs(configPath string) []string {
+	containerDir := filepath.Join(configPath, "container")
+	basePath := filepath.Join(containerDir, "docker-compose.yml")
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+
+	args := []string{"-f", basePath}
+	if _, err := os.Stat(overridePath); err == nil {
+		args = append(args, "-f", overridePath)
+	}
+	return args
+}
+
+func GetCheckImageCommand(containerRuntime string) []string {
+	imageName := "construct-box:latest"
+
+	switch containerRuntime {
+	case "docker", "container":
+		return []string{"docker", "image", "inspect", imageName}
+	case "podman":
+		return []string{"podman", "image", "inspect", imageName}
+	default:
+		return []string{"docker", "image", "inspect", imageName}
+	}
+}
+
+// Prepare ensures the runtime environment is ready
+// - Creates custom network for strict mode if needed
+// - Generates docker-compose override for OS-specific settings and network isolation
+func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
+	// Ensure custom network exists for strict mode
+	if cfg.Network.Mode == "strict" {
+		if err := EnsureCustomNetwork(containerRuntime); err != nil {
+			return fmt.Errorf("failed to create custom network: %w", err)
+		}
+	}
+
+	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
+	if err := GenerateDockerComposeOverride(configPath, cfg.Network.Mode); err != nil {
+		return fmt.Errorf("failed to generate docker-compose override: %w", err)
+	}
+
+	return nil
+}
+
+// EnsureCustomNetwork creates the construct-net custom network if it doesn't exist
+func EnsureCustomNetwork(containerRuntime string) error {
+	// Check if network exists
+	var checkCmd *exec.Cmd
+	if containerRuntime == "docker" || containerRuntime == "container" {
+		checkCmd = exec.Command("docker", "network", "inspect", "construct-net")
+	} else if containerRuntime == "podman" {
+		checkCmd = exec.Command("podman", "network", "inspect", "construct-net")
+	}
+
+	// Network exists, nothing to do
+	if checkCmd.Run() == nil {
+		return nil
+	}
+
+	// Create network
+	fmt.Println("Creating custom network for strict mode...")
+	var createCmd *exec.Cmd
+	if containerRuntime == "docker" || containerRuntime == "container" {
+		createCmd = exec.Command("docker", "network", "create",
+			"--driver", "bridge",
+			"--subnet", "172.28.0.0/16",
+			"construct-net")
+	} else if containerRuntime == "podman" {
+		createCmd = exec.Command("podman", "network", "create",
+			"--driver", "bridge",
+			"--subnet", "172.28.0.0/16",
+			"construct-net")
+	}
+
+	if err := createCmd.Run(); err != nil {
+		return fmt.Errorf("failed to create custom network: %w", err)
+	}
+
+	fmt.Println("✓ Custom network 'construct-net' created")
+	return nil
+}
+
+// GenerateDockerComposeOverride creates a docker-compose.override.yml file
+func GenerateDockerComposeOverride(configPath string, networkMode string) error {
+	var override strings.Builder
+
+	override.WriteString("# Auto-generated docker-compose.override.yml\n")
+	override.WriteString("# This file provides runtime-specific configurations\n\n")
+	override.WriteString("services:\n  construct-box:\n")
+
+	// Determine SELinux suffix
+	selinuxSuffix := ""
+	if IsSELinuxEnabled() {
+		selinuxSuffix = ":z"
+		fmt.Println("✓ SELinux detected - volume mounts configured with :z labels")
+	}
+
+	// Linux-specific: UID/GID mapping
+	if runtime.GOOS == "linux" {
+		uid := os.Getuid()
+		gid := os.Getgid()
+
+		override.WriteString(fmt.Sprintf("    user: \"%d:%d\"\n", uid, gid))
+		fmt.Printf("✓ Linux UID/GID mapping configured (%d:%d)\n", uid, gid)
+	}
+
+	// Volumes block
+	override.WriteString("    volumes:\n")
+
+	// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
+	if runtime.GOOS == "linux" {
+		override.WriteString(fmt.Sprintf("      - ${PWD}:/app%s\n", selinuxSuffix))
+		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
+		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
+	}
+
+	// Network isolation mode
+	if networkMode == "offline" {
+		override.WriteString("    network_mode: none\n")
+		fmt.Println("✓ Network isolation: offline (no network access)")
+	} else if networkMode == "strict" {
+		override.WriteString("    networks:\n")
+		override.WriteString("      - construct-net\n")
+		override.WriteString("    cap_add:\n")
+		override.WriteString("      - NET_ADMIN\n")
+		fmt.Println("✓ Network isolation: strict (allowlist mode)")
+
+		// Add network definition for strict mode
+		override.WriteString("\nnetworks:\n  construct-net:\n    name: construct-cli\n    driver: bridge\n")
+	}
+
+	// Write override file
+	overridePath := filepath.Join(configPath, "container", "docker-compose.override.yml")
+	if err := os.WriteFile(overridePath, []byte(override.String()), 0644); err != nil {
+		return fmt.Errorf("failed to write docker-compose.override.yml: %w", err)
+	}
+
+	return nil
+}
+
+// IsSELinuxEnabled checks if SELinux is enabled on the system
+func IsSELinuxEnabled() bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+
+	// Check if SELinux is enforcing or permissive
+	cmd := exec.Command("getenforce")
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	status := strings.TrimSpace(string(output))
+	return status == "Enforcing" || status == "Permissive"
+}
+
+// ExecInContainer executes a command in a running container
+func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		args := append([]string{"exec", containerName}, cmdArgs...)
+		cmd = exec.Command("docker", args...)
+	case "podman":
+		args := append([]string{"exec", containerName}, cmdArgs...)
+		cmd = exec.Command("podman", args...)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("failed to exec in container: %w", err)
+	}
+
+	return string(output), nil
+}
+
+// GetContainerState checks the state of a container
+func GetContainerState(containerRuntime, containerName string) ContainerState {
+	if !ContainerExists(containerRuntime, containerName) {
+		return ContainerStateMissing
+	}
+
+	if IsContainerRunning(containerRuntime, containerName) {
+		return ContainerStateRunning
+	}
+
+	return ContainerStateExited
+}
+
+// ContainerExists checks if a container exists (running or stopped)
+func ContainerExists(containerRuntime, containerName string) bool {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "ps", "-a", "--filter", fmt.Sprintf("name=^%s$", containerName), "--format", "{{.Names}}")
+	case "podman":
+		cmd = exec.Command("podman", "ps", "-a", "--filter", fmt.Sprintf("name=^%s$", containerName), "--format", "{{.Names}}")
+	default:
+		return false
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(string(output)) == containerName
+}
+
+// IsContainerRunning checks if a container is currently running
+func IsContainerRunning(containerRuntime, containerName string) bool {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "ps", "--filter", fmt.Sprintf("name=^%s$", containerName), "--format", "{{.Names}}")
+	case "podman":
+		cmd = exec.Command("podman", "ps", "--filter", fmt.Sprintf("name=^%s$", containerName), "--format", "{{.Names}}")
+	default:
+		return false
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(string(output)) == containerName
+}
+
+// CleanupExitedContainer removes a stopped container
+func CleanupExitedContainer(containerRuntime, containerName string) error {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "rm", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "rm", containerName)
+	default:
+		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to remove container: %w", err)
+	}
+
+	return nil
+}
+
+// StartContainer starts a stopped container
+func StartContainer(containerRuntime, containerName string) error {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "start", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "start", containerName)
+	default:
+		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to start container: %w", err)
+	}
+
+	return nil
+}
+
+// StopContainer stops a running container
+func StopContainer(containerRuntime, containerName string) error {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "stop", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "stop", containerName)
+	default:
+		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to stop container: %w", err)
+	}
+
+	return nil
+}

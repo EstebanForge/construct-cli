@@ -1,0 +1,159 @@
+---
+name: Release
+
+on:
+  push:
+    tags:
+      - '*.*.*'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  GO_VERSION: '1.25.5'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Detected version: $VERSION"
+          if [ -z "$VERSION" ]; then
+            echo "Error: VERSION is empty"
+            exit 1
+          fi
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Run tests
+        run: make test
+
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+        continue-on-error: true
+
+      - name: Build release artifacts
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          make VERSION="${VERSION}" release
+          ls -la dist/
+
+      - name: Verify release outputs
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          set -e
+
+          expected_files=(
+            "dist/construct-darwin-arm64"
+            "dist/construct-darwin-amd64"
+            "dist/construct-linux-amd64"
+            "dist/construct-linux-arm64"
+            "dist/construct-darwin-arm64-${VERSION}.tar.gz"
+            "dist/construct-darwin-amd64-${VERSION}.tar.gz"
+            "dist/construct-linux-amd64-${VERSION}.tar.gz"
+            "dist/construct-linux-arm64-${VERSION}.tar.gz"
+            "dist/checksums.txt"
+          )
+
+          for file in "${expected_files[@]}"; do
+            if [ -f "${file}" ]; then
+              size=$(stat -c%s "${file}")
+              echo "✅ ${file} (size: ${size} bytes)"
+            else
+              echo "❌ Missing expected artifact: ${file}"
+              missing="yes"
+            fi
+          done
+
+          if [ "${missing:-no}" = "yes" ]; then
+            echo "One or more release artifacts are missing."
+            exit 1
+          fi
+
+          echo "All release artifacts verified."
+
+      - name: Show checksums
+        run: cat dist/checksums.txt
+
+      - name: Create Release Notes
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          cat > release_notes.md << 'EOF'
+          ## ${{ env.VERSION }} Release Notes
+
+          Quick Install (Linux/macOS/WSL)
+          ```bash
+          curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
+          ```
+
+          Verify install
+          ```bash
+          construct version
+          ```
+
+          ## Changes
+          EOF
+          if [ -f CHANGELOG.md ]; then
+            awk '/^## \[.*\] - / {if (found) exit; found=1} found' CHANGELOG.md | head -n -1 >> release_notes.md
+          else
+            echo "- See commit history for details." >> release_notes.md
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Construct CLI ${{ env.VERSION }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: false
+          files: |
+            dist/construct-darwin-arm64-${{ env.VERSION }}.tar.gz
+            dist/construct-darwin-amd64-${{ env.VERSION }}.tar.gz
+            dist/construct-linux-amd64-${{ env.VERSION }}.tar.gz
+            dist/construct-linux-arm64-${{ env.VERSION }}.tar.gz
+            dist/checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update VERSION file
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          echo "$VERSION" > VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "chore: update VERSION to $VERSION" || echo "No changes to commit"
+          git push origin HEAD:main || echo "Failed to push VERSION file update"
+
+      - name: Notify completion
+        run: |
+          echo "✅ Release ${{ env.VERSION }} created successfully!"
+          echo "📦 Assets uploaded for Linux and macOS (amd64/arm64)"

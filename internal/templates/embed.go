@@ -1,0 +1,34 @@
+// Package templates provides embedded template files for Docker, Compose, and configuration.
+package templates
+
+import _ "embed"
+
+// Dockerfile is the embedded content of the Dockerfile template.
+//
+//go:embed Dockerfile
+var Dockerfile string
+
+// DockerCompose is the embedded content of the docker-compose.yml template.
+//
+//go:embed docker-compose.yml
+var DockerCompose string
+
+// Config is the embedded content of the default config.toml template.
+//
+//go:embed config.toml
+var Config string
+
+// Entrypoint is the embedded content of the entrypoint.sh script.
+//
+//go:embed entrypoint.sh
+var Entrypoint string
+
+// UpdateAll is the embedded content of the update-all.sh script.
+//
+//go:embed update-all.sh
+var UpdateAll string
+
+// NetworkFilter is the embedded content of the network-filter.sh script.
+//
+//go:embed network-filter.sh
+var NetworkFilter string
