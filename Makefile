@@ -1,0 +1,166 @@
+.PHONY: help build test test-unit test-integration clean clean-docker clean-all install uninstall release cross-compile lint fmt vet
+
+# Variables
+BINARY_NAME := construct
+ALIAS_NAME := ct
+VERSION := $(shell grep 'Version.*=' internal/constants/constants.go | sed 's/.*"\(.*\)".*/\1/')
+BUILD_DIR := build
+DIST_DIR := dist
+
+# Go parameters
+GOCMD := go
+GOBUILD := $(GOCMD) build
+GOCLEAN := $(GOCMD) clean
+GOTEST := $(GOCMD) test
+GOGET := $(GOCMD) get
+GOMOD := $(GOCMD) mod
+GOFMT := $(GOCMD) fmt
+GOVET := $(GOCMD) vet
+
+# Build flags
+LDFLAGS := -ldflags "-s -w"
+
+# Default target
+.DEFAULT_GOAL := help
+
+help: ## Show this help message
+	@echo "Construct CLI - Build System"
+	@echo ""
+	@echo "Usage: make [target]"
+	@echo ""
+	@echo "Targets:"
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+
+build: ## Build the binary
+	@echo "Building $(BINARY_NAME)..."
+	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/construct
+	@echo "✓ Built: $(BINARY_NAME)"
+	@echo "  Note: Run './$(BINARY_NAME) sys init' to auto-create 'ct' alias"
+
+test: test-unit test-integration ## Run all tests
+
+test-unit: ## Run Go unit tests
+	@echo "Running unit tests..."
+	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
+	@echo "✓ Unit tests passed"
+
+test-integration: build ## Run integration tests
+	@echo "Running integration tests..."
+	@./scripts/integration.sh ./$(BINARY_NAME)
+	@echo "✓ Integration tests passed"
+
+test-coverage: ## Run tests with coverage report
+	@echo "Generating coverage report..."
+	$(GOTEST) -race -coverprofile=coverage.out -covermode=atomic ./internal/...
+	$(GOCMD) tool cover -html=coverage.out -o coverage.html
+	@echo "✓ Coverage report generated: coverage.html"
+
+bench: ## Run benchmarks
+	@echo "Running benchmarks..."
+	$(GOTEST) -bench=. -benchmem ./internal/...
+
+clean: ## Clean build artifacts
+	@echo "Cleaning..."
+	$(GOCLEAN)
+	rm -f $(BINARY_NAME)
+	rm -rf $(BUILD_DIR) $(DIST_DIR)
+	rm -f coverage.out coverage.html
+	@echo "✓ Cleaned"
+
+clean-docker: ## Clean all Docker resources (containers, images, volumes, networks)
+	@echo "Cleaning Docker resources..."
+	@./scripts/reset-environment.sh
+	@echo "✓ Docker resources cleaned"
+
+clean-all: clean clean-docker ## Clean everything (build artifacts + Docker + config)
+	@echo "Cleaning everything (including config)..."
+	@./scripts/reset-environment.sh --all
+	@echo "✓ Full cleanup complete"
+
+install: build ## Install binary and ct alias to /usr/local/bin
+	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
+	@sudo cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	@sudo ln -sf /usr/local/bin/$(BINARY_NAME) /usr/local/bin/$(ALIAS_NAME)
+	@echo "✓ Installed: /usr/local/bin/$(BINARY_NAME)"
+	@echo "✓ Alias: /usr/local/bin/$(ALIAS_NAME)"
+	@echo ""
+	@echo "Verify with: construct version && ct version"
+
+uninstall: ## Uninstall binary from /usr/local/bin
+	@echo "Uninstalling $(BINARY_NAME)..."
+	@sudo rm -f /usr/local/bin/$(BINARY_NAME)
+	@sudo rm -f /usr/local/bin/$(ALIAS_NAME)
+	@echo "✓ Uninstalled"
+
+deps: ## Download dependencies
+	@echo "Downloading dependencies..."
+	$(GOMOD) download
+	$(GOMOD) tidy
+	@echo "✓ Dependencies updated"
+
+fmt: ## Format Go code
+	@echo "Formatting code..."
+	$(GOFMT) ./...
+	@echo "✓ Code formatted"
+
+vet: ## Run go vet
+	@echo "Running go vet..."
+	$(GOVET) ./...
+	@echo "✓ Vet passed"
+
+lint: fmt vet ## Run linters
+	@echo "✓ Linting complete"
+
+cross-compile: ## Build for all platforms
+	@echo "Cross-compiling for all platforms..."
+	@mkdir -p $(DIST_DIR)
+
+	@echo "Building for macOS (Apple Silicon)..."
+	GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-arm64 ./cmd/construct
+
+	@echo "Building for macOS (Intel)..."
+	GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-amd64 ./cmd/construct
+
+	@echo "Building for Linux (amd64)..."
+	GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-amd64 ./cmd/construct
+
+	@echo "Building for Linux (arm64)..."
+	GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-arm64 ./cmd/construct
+
+	@echo "✓ Cross-compilation complete"
+	@ls -lh $(DIST_DIR)/
+
+release: clean test cross-compile ## Create release build
+	@echo "Creating release archives..."
+	@mkdir -p $(DIST_DIR)
+
+	@cd $(DIST_DIR) && \
+		tar -czf $(BINARY_NAME)-darwin-arm64-$(VERSION).tar.gz $(BINARY_NAME)-darwin-arm64 && \
+		tar -czf $(BINARY_NAME)-darwin-amd64-$(VERSION).tar.gz $(BINARY_NAME)-darwin-amd64 && \
+		tar -czf $(BINARY_NAME)-linux-amd64-$(VERSION).tar.gz $(BINARY_NAME)-linux-amd64 && \
+		tar -czf $(BINARY_NAME)-linux-arm64-$(VERSION).tar.gz $(BINARY_NAME)-linux-arm64
+
+	@cd $(DIST_DIR) && \
+		shasum -a 256 *.tar.gz > checksums.txt
+
+	@echo "✓ Release $(VERSION) ready in $(DIST_DIR)/"
+	@echo ""
+	@echo "Release files:"
+	@ls -lh $(DIST_DIR)/*.tar.gz
+	@echo ""
+	@cat $(DIST_DIR)/checksums.txt
+
+version: ## Show version
+	@echo "$(BINARY_NAME) version $(VERSION)"
+
+run: build ## Build and run
+	./$(BINARY_NAME)
+
+dev: ## Development mode - build and init
+	@$(MAKE) build
+	@./$(BINARY_NAME) sys init
+	@echo "✓ Development environment ready"
+
+ci: lint test ## Run CI checks (lint + test)
+	@echo "✓ CI checks passed"
