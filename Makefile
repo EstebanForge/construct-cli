@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration clean clean-docker clean-all install uninstall release cross-compile lint fmt vet
+.PHONY: help build test test-unit test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
 
 # Variables
 BINARY_NAME := construct
@@ -24,7 +24,7 @@ LDFLAGS := -ldflags "-s -w"
 .DEFAULT_GOAL := help
 
 help: ## Show this help message
-	@echo "Construct CLI - Build System"
+	@echo "The Construct CLI - Build System"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
@@ -35,6 +35,10 @@ help: ## Show this help message
 build: ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/construct
+	@# Ad-hoc code sign on macOS (required for Gatekeeper)
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		codesign -s - -f $(BINARY_NAME) 2>/dev/null || true; \
+	fi
 	@echo "✓ Built: $(BINARY_NAME)"
 	@echo "  Note: Run './$(BINARY_NAME) sys init' to auto-create 'ct' alias"
 
@@ -92,6 +96,15 @@ uninstall: ## Uninstall binary from /usr/local/bin
 	@sudo rm -f /usr/local/bin/$(BINARY_NAME)
 	@sudo rm -f /usr/local/bin/$(ALIAS_NAME)
 	@echo "✓ Uninstalled"
+
+install-local: ## Install to ~/.local/bin with backup and verification (no sudo)
+	@./scripts/install-local.sh
+
+install-dev: ## Quick dev install to ~/.local/bin (no backup, no confirmations)
+	@./scripts/dev-install.sh
+
+uninstall-local: ## Uninstall from ~/.local/bin with backup options
+	@./scripts/uninstall-local.sh
 
 deps: ## Download dependencies
 	@echo "Downloading dependencies..."

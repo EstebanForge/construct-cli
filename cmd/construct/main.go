@@ -9,6 +9,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/daemon"
 	"github.com/EstebanForge/construct-cli/internal/doctor"
+	"github.com/EstebanForge/construct-cli/internal/migration"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
@@ -40,6 +41,16 @@ func main() {
 				ui.PrintHelp()
 				os.Exit(1)
 			}
+		}
+	}
+
+	// Check for version migrations before loading config
+	// This ensures config files are updated before we try to parse them
+	if migration.NeedsMigration() {
+		if err := migration.CheckAndMigrate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error during migration: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
+			os.Exit(1)
 		}
 	}
 
@@ -83,7 +94,7 @@ func main() {
 	switch command {
 	case "sys":
 		if len(args) < 2 {
-			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check>")
+			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|refresh>")
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -214,6 +225,13 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		update.RecordUpdateCheck()
+	case "refresh":
+		// Force refresh configuration and templates from binary
+		if err := migration.ForceRefresh(); err != nil {
+			ui.GumError(fmt.Sprintf("Refresh failed: %v", err))
+			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
+			os.Exit(1)
+		}
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		os.Exit(1)

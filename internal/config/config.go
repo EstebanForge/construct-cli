@@ -139,6 +139,9 @@ func Load() (*Config, bool, error) {
 		fmt.Println()
 	}
 
+	// Note: Migration check is handled separately in main.go before config.Load()
+	// to ensure it runs early in the application lifecycle
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, createdNew, fmt.Errorf("failed to read config file: %w", err)
@@ -221,12 +224,23 @@ func Init() {
 	createFile(filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644)
 
 	if ui.GumAvailable() {
-		ui.GumSuccess("Construct initialized successfully!")
+		ui.GumSuccess("The Construct initialized successfully!")
 		cmd := ui.GetGumCommand("style", "--foreground", "242", fmt.Sprintf("Config directory: %s", configPath))
 		cmd.Stdout = os.Stdout
 		cmd.Run()
 	} else {
-		fmt.Println("\nConstruct initialized successfully!")
+		fmt.Println("\nThe Construct initialized successfully!")
 		fmt.Printf("Config directory: %s\n", configPath)
 	}
+
+	// Set initial version for new installations
+	// This allows future migrations to detect version changes
+	SetInitialVersion()
+}
+
+// SetInitialVersion writes the current version to .version file
+// This is called during initial setup to track the installed version
+func SetInitialVersion() {
+	versionPath := filepath.Join(GetConfigDir(), ".version")
+	os.WriteFile(versionPath, []byte(constants.Version+"\n"), 0644)
 }

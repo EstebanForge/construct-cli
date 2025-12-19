@@ -186,7 +186,7 @@ main() {
     ensure_path_hint "$dest_dir"
 
     echo
-    success "Construct installed."
+    success "The Construct installed."
     echo "Verify with: ${BINARY} --version"
     echo "Then run:    ${BINARY} sys init"
 }

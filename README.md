@@ -1,6 +1,6 @@
-# Construct CLI
+# The Construct CLI
 
-**Construct** is a single-binary CLI that boots a clean and isolated container, preloaded with AI agents. It keeps your host free of dependency sprawl, adds optional network isolation, and works with Docker, Podman, or macOS native container runtime.
+**The Construct** is a single-binary CLI that boots a clean and isolated container, preloaded with AI agents. It keeps your host free of dependency sprawl, adds optional network isolation, and works with Docker, Podman, or macOS native container runtime.
 
 But, **most importantly**, it keeps your local machine safe from LLM prompt injection attacks, malware distributed this way, credentials stolen this way, and dangerous derps still being committed by AGENTS that can leave you [without any of your files](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/).
 
@@ -9,9 +9,10 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Self-building: embedded Dockerfile/compose/config templates are written on first run, then built automatically. First `construct sys init` will build the containers and install the agents. Subsequent uses will be instant.
 - Runtime auto-detection: if macOS is detected and `container` exists, it will use it. Then, on Linux, WSL, and macOS, `podman`, then `docker` (compatible with OrbStack).
 - Persistent volumes for agent installs, but ephemeral containers so your host stays clean.
-- Your agents’ configuration lives outside of the containers, so you never lose them.
+- Your agents' configuration lives outside of the containers, so you never lose them.
 - Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist.
 - Live application of network rules while the AGENT is running.
+- **Clipboard integration** for pasting images into agents (shared directory for all platforms, direct access on Linux X11/Wayland).
 
 ## Screenshots
 
@@ -95,6 +96,21 @@ When an update is available, you'll see a notification like:
 ```
 ℹ Update available: 0.3.0 → 0.4.0 (run 'construct sys self-update')
 ```
+
+### Automatic Migrations
+
+**Upgrades are completely automatic!** When you update to a new version, Construct:
+
+1. **Detects the version change** on first run
+2. **Backs up your config** (saved as `config.toml.backup`)
+3. **Merges new defaults** while preserving all your custom settings
+4. **Updates container templates** with new features
+5. **Rebuilds the Docker image** with the new Dockerfile
+
+All this happens automatically the first time you run any `construct` command after updating. Zero manual intervention required!
+
+**Manual Refresh:**
+Need to debug or force a config refresh? Use `construct sys refresh` to manually trigger the migration process.
 
 ## Configuration
 Main configuration lives at `~/.config/construct-cli/config.toml`. Key sections are:
@@ -271,6 +287,30 @@ sha256sum construct
 ```
 
 **Trust, but verify.** Always download from official GitHub releases and verify checksums.
+
+## Development
+
+Building and testing Construct locally:
+
+```bash
+# Quick dev build and install
+make install-dev          # Installs to ~/.local/bin (no sudo)
+
+# Full install with backup
+sudo make install-local   # Installs to /usr/local/bin with backup
+
+# Run tests
+make test
+
+# Full CI checks
+make ci
+```
+
+See [DEVELOPMENT.md](DEVELOPMENT.md) for complete development guide including:
+- Installation methods for testing
+- Development workflow
+- Troubleshooting
+- Build commands
 
 ## Contributing
 Issues and PRs are welcome. See `CONTRIBUTING.md` for guidelines.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # entrypoint.sh - Install agents and packages on first run only
 
-# Ensure Homebrew and local bins are in PATH
-export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:$PATH"
+# Ensure all required paths are in PATH
+export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
 
 MARKER_FILE="/home/construct/.local/.agents-installed"
 

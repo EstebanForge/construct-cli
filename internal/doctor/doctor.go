@@ -42,11 +42,11 @@ type DoctorReport struct {
 func Run() {
 	fmt.Println()
 	if ui.GumAvailable() {
-		cmd := exec.Command("gum", "style", "--border", "rounded", "--padding", "1 2", "--bold", "Construct Doctor")
+		cmd := exec.Command("gum", "style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
 		cmd.Stdout = os.Stdout
 		cmd.Run()
 	} else {
-		fmt.Println("=== Construct Doctor ===")
+		fmt.Println("=== The Construct Doctor ===")
 	}
 	fmt.Println()
 

@@ -13,7 +13,7 @@ func PrintCCHelp(cfg *config.Config) {
 	help := `Construct CC - Claude Code Provider Aliases
 
 Usage:
-  construct cc <provider> [args...]     # Run Claude with provider config
+  construct cc <provider> [args...]      # Run Claude with provider config
   construct claude <provider> [args...]  # Alias for cc command
 
 Available Providers:
@@ -43,8 +43,8 @@ Available Providers:
 	}
 
 	help += "\nExamples:\n"
-	help += "  construct cc zai new-project        # Use zai provider\n"
-	help += "  construct claude minimax --help      # Use minimax provider\n"
+	help += "  construct cc zai new-project      # Use zai provider\n"
+	help += "  construct claude minimax --help   # Use minimax provider\n"
 
 	if ui.GumAvailable() {
 		cmd := ui.GetGumCommand("format", help)

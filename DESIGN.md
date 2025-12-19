@@ -4,14 +4,14 @@
 ---
 
 ## 1. Executive Summary
-Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds its own Dockerfile, docker-compose, and helper scripts, writes them to `~/.config/construct-cli/` on first run, builds the image, and installs agents into persistent volumes. Runtime detection prefers macOS `container`, then `podman`, then `docker` (OrbStack compatible). Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists.
+Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds its own Dockerfile, docker-compose, and helper scripts, writes them to `~/.config/construct-cli/` on first run, builds the image, and installs agents into persistent volumes. Its runtime engine is configurable (defaults to auto-detecting `podman` or `docker`), and it can be pre-configured by the user. Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists.
 
 ---
 
 ## 2. Goals & Requirements
 - **Zero-trace host**: Containers run with `--rm`; only named volumes persist installs/state.
-- **One binary, all runtimes**: Auto-detect `container` → `podman` → `docker`.
-- **Fast subsequent runs**: Agents and tools live in volumes (`construct-agents`, `construct-packages`).
+- **Flexible runtime support**: User-configurable engine with auto-detection and auto-start capabilities.
+- **Fast subsequent runs**: Agents and tools live in a persistent named volume (`construct-packages`).
 - **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[claude]`.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts.
@@ -28,7 +28,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Claude provider system for configurable API endpoints with environment variable management.
   - Self-update mechanism with GitHub Releases API, fallback to VERSION file, SHA256 verification, and atomic binary replacement.
 - **Templates**: `templates/`
-  - Dockerfile uses Debian slim + Homebrew (non-root) for tools; disables brew auto-update.
+  - Dockerfile uses `debian:trixie-slim` + Homebrew (non-root) for tools; disables brew auto-update.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
   - entrypoint installs agents/tools on first run; network filter script for strict mode; update-all for maintenance.
 - **Scripts**: `scripts/`
@@ -41,12 +41,12 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `logs/` (timestamped build/update logs)
   - `cache/` (binary backups for self-update rollback)
   - `last-update-check` (timestamp for rate-limiting update checks)
-- **Volumes**: `construct-agents`, `construct-packages` (persist installs/caches).
+- **Volumes**: `construct-packages` (persists Homebrew installs, packages, and caches).
 
 ---
 
 ## 4. Runtimes & Isolation
-- **Detection order**: `container` (macOS Tahoe) → `podman` → `docker`.
+- **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `docker`, `podman`). If set to `auto` (the default), it first checks for an active runtime in the order of `podman`, then `docker`. If no runtime is active, it attempts to start one in the same order. The macOS-native `container` runtime is not yet fully integrated but is part of the detection framework.
 - **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts.
 - **Mounts**: current workdir → `/app`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
 - **Network modes**:
@@ -109,14 +109,10 @@ API_TIMEOUT_MS = "3000000"
   - mcp-cli-ent installer via curl.
   - Homebrew: `brew update/upgrade/cleanup` (all packages).
   - npm: `npm update -g` (all globals).
-- **Self-Update** (`sys self-update` / `sys update-check`):
-  - Passive: Automatic background checks (configurable, default 24h interval)
-  - Active: Explicit `sys update-check` and `sys self-update` commands
-  - Downloads platform-specific binaries from GitHub releases
-  - SHA256 checksum verification against checksums.txt
-  - Atomic binary replacement with backup to `~/.config/construct-cli/cache/`
-  - Smart permission handling (tries without sudo first)
-  - Fallback to raw VERSION file when GitHub API unavailable
+- **Update Check** (`sys update-check` / automatic):
+  - Passively checks for new versions on GitHub releases on a configurable interval (default 24h).
+  - Actively checks when `construct sys update-check` is run.
+  - If a new version is found, it notifies the user to run the (currently manual) update command.
 - **Reset**: `sys reset` removes volumes for a clean reinstall.
 
 ---
@@ -139,8 +135,8 @@ make cross-compile   # all platforms
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
 - `install-aliases`: One-step command to add `claude`, `gemini`, etc., and `cc-*` aliases to host shell.
-- `sys self-update`: Binary self-update with gum prompts, progress indicators, and permission handling.
-- `sys update-check`: Manual update checking with clear version comparison.
+- `sys update-check`: Manual command to check for new versions.
+- `sys self-update`: Update the Construct binary itself.
 - Long operations use gum spinners; logs go to `~/.config/construct-cli/logs/` (timestamped).
 - Containers are ephemeral; volumes persist `/home/construct` installs/state.
 - Environment management: Claude providers automatically reset environment variables to prevent conflicts.
@@ -148,22 +144,13 @@ make cross-compile   # all platforms
 ---
 
 ## 9. Implementation Details
-- Version string: `version = "0.3.0"` in `main.go`.
+- Version string: `version = "0.4.0"` in `internal/constants/constants.go`.
 - Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.
 
 ### 9.1 Self-Update Implementation
-- **Version Comparison**: Semantic versioning with padding for incomplete versions
-- **Update Sources**: GitHub Releases API (primary) → Raw VERSION file (fallback)
-- **Rate Limiting**: Timestamp-based checks with configurable interval (default 24h)
-- **Security**: SHA256 checksum verification against checksums.txt before installation
-- **Platform Detection**: Auto-detects OS (darwin/linux) and arch (amd64/arm64) with validation
-- **Download Flow**: Platform-specific tar.gz download → checksum verification → extraction → binary replacement
-- **Permission Handling**: Tries update without sudo first; provides helpful error with instructions
-- **Atomic Replacement**: Uses `os.Rename()` for atomic binary swap with automatic backup
-- **Verification**: Post-install verification that new binary works correctly
-- **Config Integration**: `auto_update_check` and `update_check_interval` in `[runtime]` section
+Full self-update mechanism (download, verification, and installation).
 
 ### 9.2 Claude Provider System Implementation
 - **Config Schema**: `ClaudeConfig` struct with `Providers map[string]map[string]string` for TOML parsing
@@ -182,4 +169,4 @@ make cross-compile   # all platforms
 - Network strict mode relies on UFW in-container; ensure compatibility with runtime/host firewall expectations.
 - Claude provider system maintains backward compatibility but may need updates for new Claude API features.
 - Environment variable naming convention (`CNSTR_` prefix) should be consistently applied to prevent conflicts.
-- Self-update considers rollback command in future releases (user can manually restore from cache).
+- Self-update update to considers rollback command in future releases (user can manually restore from cache).

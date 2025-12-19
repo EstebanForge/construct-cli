@@ -34,7 +34,7 @@ func SuggestAliasSetup() {
 			// ct exists but points to something else - warn user
 			fmt.Println("\n⚠️  Warning: A 'ct' command already exists on your system")
 			fmt.Printf("   Location: %s\n", ctPath)
-			fmt.Println("   Please resolve this conflict manually if you want to use 'ct' as a Construct alias.")
+			fmt.Println("   Please resolve this conflict manually if you want to use 'ct' as a The Construct alias.")
 			return
 		}
 		// ct already points to our binary, all good

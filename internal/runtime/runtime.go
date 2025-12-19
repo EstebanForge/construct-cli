@@ -223,15 +223,15 @@ func BuildImage(cfg *config.Config) {
 	cmd.Dir = configPath
 
 	// Use helper to run with spinner and handle logging
-	if err := ui.RunCommandWithSpinner(cmd, fmt.Sprintf("Building Construct image using %s...", containerRuntime), logFile); err != nil {
+	if err := ui.RunCommandWithSpinner(cmd, fmt.Sprintf("Building The Construct image using %s...", containerRuntime), logFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Build failed: %v\n", err)
 		os.Exit(1)
 	}
 
 	if ui.GumAvailable() {
-		ui.GumSuccess("Construct image built successfully!")
+		ui.GumSuccess("The Construct image built successfully!")
 	} else {
-		fmt.Println("\n✓ Construct image built successfully!")
+		fmt.Println("\n✓ The Construct image built successfully!")
 	}
 
 	// Check if agents are installed and install them if needed
@@ -466,13 +466,19 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 	// Volumes block
 	override.WriteString("    volumes:\n")
 
-	// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
+	// Platform-specific volume declarations
 	if runtime.GOOS == "linux" {
+		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
+		override.WriteString(fmt.Sprintf("      - ${PWD}:/app%s\n", selinuxSuffix))
+		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
+		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
+	} else if runtime.GOOS == "darwin" {
 		override.WriteString(fmt.Sprintf("      - ${PWD}:/app%s\n", selinuxSuffix))
 		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 
+	
 	// Network isolation mode
 	if networkMode == "offline" {
 		override.WriteString("    network_mode: none\n")
@@ -651,3 +657,4 @@ func StopContainer(containerRuntime, containerName string) error {
 
 	return nil
 }
+

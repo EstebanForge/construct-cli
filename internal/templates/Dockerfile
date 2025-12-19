@@ -6,7 +6,8 @@ RUN useradd -m -s /bin/bash construct && \
     curl git procps file build-essential \
     vim nano python3 python3-pip python3-venv python3-dev pipx \
     fd-find ripgrep jq bat tmux sudo \
-    ufw iptables dnsutils && \
+    ufw iptables dnsutils \
+    xclip xsel wl-clipboard imagemagick && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password
@@ -52,7 +53,8 @@ USER root
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
 COPY network-filter.sh /usr/local/bin/network-filter.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh
+COPY clipper /usr/local/bin/clipper
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper
 
 # Switch back to construct user
 USER construct
