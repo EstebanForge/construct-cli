@@ -32,3 +32,13 @@ var UpdateAll string
 //
 //go:embed network-filter.sh
 var NetworkFilter string
+
+// Clipper is the embedded content of the clipper script.
+//
+//go:embed clipper
+var Clipper string
+
+// Osascript is the embedded content of the osascript shim script.
+//
+//go:embed osascript
+var Osascript string

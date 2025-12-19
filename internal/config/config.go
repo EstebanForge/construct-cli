@@ -108,6 +108,8 @@ func Load() (*Config, bool, error) {
 	entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
 	updateAllPath := filepath.Join(containerDir, "update-all.sh")
 	networkFilterPath := filepath.Join(containerDir, "network-filter.sh")
+	clipperPath := filepath.Join(containerDir, "clipper")
+	osascriptPath := filepath.Join(containerDir, "osascript")
 
 	// Check if any required file is missing
 	configMissing := false
@@ -127,6 +129,12 @@ func Load() (*Config, bool, error) {
 		configMissing = true
 	}
 	if _, err := os.Stat(networkFilterPath); os.IsNotExist(err) {
+		configMissing = true
+	}
+	if _, err := os.Stat(clipperPath); os.IsNotExist(err) {
+		configMissing = true
+	}
+	if _, err := os.Stat(osascriptPath); os.IsNotExist(err) {
 		configMissing = true
 	}
 
@@ -219,6 +227,8 @@ func Init() {
 	createFile(filepath.Join(containerDir, "entrypoint.sh"), []byte(templates.Entrypoint), 0755)
 	createFile(filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755)
 	createFile(filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755)
+	createFile(filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755)
+	createFile(filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755)
 
 	// Create config.toml in root config dir
 	createFile(filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644)

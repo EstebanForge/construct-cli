@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Fake osascript shim for Construct
+# Tricks macOS-centric agents into thinking they are on macOS 
+# and provides access to the host clipboard.
+
+# DEBUG LOGGING
+LOGFILE="/app/osascript_debug.log"
+echo "[$(date)] osascript called with args: $@" >> "$LOGFILE"
+
+# Combine arguments to handle multi-line scripts passed via -e
+SCRIPT="$@"
+
+# 1. Handle "clipboard info" request
+if [[ "$SCRIPT" == *"clipboard info"* ]]; then
+    # Fake a clipboard that contains a PNG
+    echo "«class PNGf», TIFF picture, JPEG picture"
+    exit 0
+fi
+
+# 2. Handle image save request
+# We look for the intent to write a file and the target path
+if [[ "$SCRIPT" == *"write imageData to"* ]]; then
+    # echo "  -> Detected save request" >> "$LOGFILE"
+    
+    # Extract the target path using sed
+    # Matches: ... POSIX file "/path/to/file" ...
+    # We take only the first match (head -n 1) as the path might appear twice in the script
+    TARGET_PATH=$(echo "$SCRIPT" | sed -n 's/.*POSIX file "\([^"]*\)".*/\1/p' | head -n 1)
+    
+    if [ -z "$TARGET_PATH" ]; then
+        # Try alternate pattern (single quotes)
+        TARGET_PATH=$(echo "$SCRIPT" | sed -n "s/.*POSIX file '\([^']*\)'.*/\1/p" | head -n 1)
+    fi
+
+    echo "  -> Extracted path: $TARGET_PATH" >> "$LOGFILE"
+    
+    if [ -n "$TARGET_PATH" ]; then
+        # Ensure parent directory exists
+        mkdir -p "$(dirname "$TARGET_PATH")" 2>/dev/null
+
+        # Check if token exists
+        if [ -z "$CONSTRUCT_CLIPBOARD_TOKEN" ]; then
+             echo "  -> Error: CONSTRUCT_CLIPBOARD_TOKEN is empty" >> "$LOGFILE"
+        fi
+
+        # Fetch the image from our host bridge and save it to the target path
+        curl -s -f \
+            -H "X-Construct-Clip-Token: ${CONSTRUCT_CLIPBOARD_TOKEN}" \
+            "${CONSTRUCT_CLIPBOARD_URL}/paste?type=image/png" -o "$TARGET_PATH"
+        
+        CURL_EXIT=$?
+        if [ $CURL_EXIT -eq 0 ]; then
+            # echo "  -> Curl success" >> "$LOGFILE"
+            echo "success"
+            exit 0
+        else
+            echo "  -> Curl failed with exit code: $CURL_EXIT" >> "$LOGFILE"
+        fi
+    else
+        echo "  -> Failed to extract target path" >> "$LOGFILE"
+    fi
+    # echo "  -> Failed to fetch/save image" >> "$LOGFILE"
+    echo "error"
+    exit 1
+fi
+
+# Fallback: do nothing or return error
+exit 1

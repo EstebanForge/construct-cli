@@ -40,6 +40,14 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !containsString(Config, "[sandbox]") {
 		t.Error("config.toml template missing [sandbox] section")
 	}
+
+	// Test Clipper template
+	if Clipper == "" {
+		t.Error("clipper template is empty")
+	}
+	if !containsString(Clipper, "#!/bin/bash") {
+		t.Error("clipper template missing shebang")
+	}
 }
 
 // Helper function to check if string contains substring

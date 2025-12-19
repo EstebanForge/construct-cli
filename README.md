@@ -12,7 +12,8 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Your agents' configuration lives outside of the containers, so you never lose them.
 - Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist.
 - Live application of network rules while the AGENT is running.
-- **Clipboard integration** for pasting images into agents (shared directory for all platforms, direct access on Linux X11/Wayland).
+- **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
+- **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
 
 ## Screenshots
 

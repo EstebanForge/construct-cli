@@ -36,5 +36,5 @@ build/
 # Test artifacts
 test-results/
 .test-cache/
-/.gemini-clipboard
-/reference-only-mcp-cli-ent
+/gemini-cli-main
+/qwen-code-main

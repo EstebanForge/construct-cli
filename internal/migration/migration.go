@@ -146,29 +146,18 @@ func updateContainerTemplates() error {
 		"entrypoint.sh":        templates.Entrypoint,
 		"update-all.sh":        templates.UpdateAll,
 		"network-filter.sh":    templates.NetworkFilter,
-	}
-
-	binaryFiles := map[string][]byte{
-		"clipper": templates.ClipperBinary,
+		"clipper":              templates.Clipper,
+		"osascript":            templates.Osascript,
 	}
 
 	for filename, content := range containerFiles {
 		path := filepath.Join(containerDir, filename)
 		perm := os.FileMode(0644)
-		if strings.HasSuffix(filename, ".sh") {
+		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" {
 			perm = 0755
 		}
 		if err := os.WriteFile(path, []byte(content), perm); err != nil {
 			return fmt.Errorf("failed to write %s: %w", filename, err)
-		}
-	}
-
-	// Write binary files (e.g., clipper)
-	for filename, content := range binaryFiles {
-		path := filepath.Join(containerDir, filename)
-		perm := os.FileMode(0755)
-		if err := os.WriteFile(path, content, perm); err != nil {
-			return fmt.Errorf("failed to write binary %s: %w", filename, err)
 		}
 	}
 

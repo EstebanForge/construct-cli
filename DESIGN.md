@@ -162,6 +162,21 @@ Full self-update mechanism (download, verification, and installation).
 - **Container Execution**: `runWithProviderEnv()` unified function with optional provider environment injection
 - **Test Coverage**: Comprehensive unit tests for config parsing, variable expansion, and environment reset
 
+### 9.3 Cross-Boundary Clipboard Architecture
+Construct implements a secure "Host-Wrapper" bridge to enable rich media (images) and text pasting into isolated, headless containers.
+
+- **Host-Side Resource Server**:
+  - A secure Go HTTP server starts on a random port at launch.
+  - Implements OS-native clipboard access: `pbpaste`/Cocoa (macOS), `wl-paste`/`xclip` (Linux), PowerShell/.NET (Windows).
+  - Uses ephemeral authentication tokens injected into the container via environment variables (`CONSTRUCT_CLIPBOARD_TOKEN`).
+- **In-Container Shimming**:
+  - **Binary Interception**: System-wide shims for `xclip`, `xsel`, and `wl-paste` redirect all clipboard calls to the bridge script (`clipper`).
+  - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Gemini/Qwen's `clipboardy` dependency).
+  - **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux.
+- **Dynamic Content Bridging**:
+  - **Smart Fallback**: If an agent asks for text but the host clipboard contains an image, the bridge automatically saves the image to a local directory (`.gemini-clipboard/`) and returns the `@path` reference expected by multimodal agents.
+  - **Runtime Patching**: `entrypoint.sh` automatically patches agent source code at launch to bypass `process.platform !== 'darwin'` checks that would otherwise disable image support on Linux.
+
 ---
 
 ## 10. Future Notes / Risks

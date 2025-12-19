@@ -5,7 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	stdruntime "runtime"
 
+	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/errors"
@@ -237,6 +239,20 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
 
+	// Start Clipboard Server
+	cbServer, err := clipboard.StartServer()
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
+		}
+	} else {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Clipboard server running at %s\n", cbServer.URL)
+		}
+		osEnv = append(osEnv, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		osEnv = append(osEnv, "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+	}
+
 	// Network configuration
 	osEnv = network.InjectEnv(osEnv, cfg)
 
@@ -271,6 +287,15 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	if containerRuntime == "docker" {
 		if _, err := exec.LookPath("docker-compose"); err == nil {
 			runArgs := append(composeArgs, "run", "--rm")
+			// Add host.docker.internal for Linux
+			if stdruntime.GOOS == "linux" {
+				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
+			}
+			// Inject clipboard env vars
+			if cbServer != nil {
+				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
 				runArgs = append(runArgs, "-e", envVar)
@@ -282,6 +307,15 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			runArgs := []string{"compose"}
 			runArgs = append(runArgs, composeArgs...)
 			runArgs = append(runArgs, "run", "--rm")
+			// Add host.docker.internal for Linux
+			if stdruntime.GOOS == "linux" {
+				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
+			}
+			// Inject clipboard env vars
+			if cbServer != nil {
+				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
 				runArgs = append(runArgs, "-e", envVar)
@@ -292,6 +326,15 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		}
 	} else if containerRuntime == "podman" {
 		runArgs := append(composeArgs, "run", "--rm")
+		// Add host.docker.internal for Linux
+		if stdruntime.GOOS == "linux" {
+			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
+		}
+		// Inject clipboard env vars
+		if cbServer != nil {
+			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {
 			runArgs = append(runArgs, "-e", envVar)
@@ -303,6 +346,15 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		runArgs := []string{"compose"}
 		runArgs = append(runArgs, composeArgs...)
 		runArgs = append(runArgs, "run", "--rm")
+		// Add host.docker.internal for Linux
+		if stdruntime.GOOS == "linux" {
+			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
+		}
+		// Inject clipboard env vars
+		if cbServer != nil {
+			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {
 			runArgs = append(runArgs, "-e", envVar)

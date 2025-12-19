@@ -54,7 +54,16 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
 COPY network-filter.sh /usr/local/bin/network-filter.sh
 COPY clipper /usr/local/bin/clipper
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper
+COPY osascript /usr/local/bin/osascript
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/osascript
+
+# 5. Setup Clipboard Shim
+# Rename original tools and link them to clipper
+RUN mv /usr/bin/xclip /usr/bin/xclip-real && \
+    ln -s /usr/local/bin/clipper /usr/bin/xclip && \
+    mv /usr/bin/xsel /usr/bin/xsel-real && \
+    ln -s /usr/local/bin/clipper /usr/bin/xsel && \
+    if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -s /usr/local/bin/clipper /usr/bin/wl-paste; fi
 
 # Switch back to construct user
 USER construct

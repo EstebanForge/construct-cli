@@ -1,0 +1,89 @@
+#!/bin/bash
+
+# Clipper: A bridge script to fetch clipboard data from the Construct host
+
+# Configuration from environment
+HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
+AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
+
+if [ -z "$HOST_URL" ]; then
+    echo "Error: CONSTRUCT_CLIPBOARD_URL not set" >&2
+    exit 1
+fi
+
+CALL_NAME=$(basename $0)
+TARGET_MIME=""
+IS_OUTPUT_MODE=false
+REQUESTED_TARGETS=false
+
+# Simple arg parsing for xclip/xsel/wl-paste patterns
+for arg in "$@"; do
+    if [[ "$arg" == "image/png" ]]; then
+        TARGET_MIME="image/png"
+    fi
+    if [[ "$arg" == "TARGETS" ]] || [[ "$arg" == "atoms" ]]; then
+        REQUESTED_TARGETS=true
+    fi
+    if [[ "$arg" == "-o" ]] || [[ "$arg" == "--output" ]] || [[ "$arg" == "-p" ]] || [[ "$arg" == "--paste" ]]; then
+        IS_OUTPUT_MODE=true
+    fi
+done
+
+# If agent is asking for available targets, we MUST include image/png
+if [[ "$REQUESTED_TARGETS" == "true" ]]; then
+    # Always report supported types for the bridge
+    echo "TIMESTAMP"
+    echo "TARGETS"
+    echo "MULTIPLE"
+    echo "UTF8_STRING"
+    echo "STRING"
+    echo "TEXT"
+    echo "image/png"
+    echo "image/tiff"
+    exit 0
+fi
+
+# Determine content type to fetch
+CONTENT_TYPE="text/plain"
+if [[ "$TARGET_MIME" == "image/png" ]]; then
+    CONTENT_TYPE="image/png"
+fi
+
+# Fetch from host
+OUTPUT=$(curl -s -f \
+    -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
+    "${HOST_URL}/paste?type=${CONTENT_TYPE}")
+
+EXIT_CODE=$?
+
+# If we requested text and got empty output, check if we have an image
+if [[ "$CONTENT_TYPE" == "text/plain" ]] && [[ -z "$OUTPUT" ]]; then
+    # Check if we are in a directory where we can write .gemini-clipboard
+    mkdir -p .gemini-clipboard 2>/dev/null
+    
+    # Try fetching image
+    TIMESTAMP=$(date +%s%3N)
+    IMG_NAME="clipboard-${TIMESTAMP}.png"
+    IMG_PATH=".gemini-clipboard/${IMG_NAME}"
+    
+    curl -s -f \
+        -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
+        "${HOST_URL}/paste?type=image/png" -o "$IMG_PATH"
+    
+    IMG_EXIT=$?
+    if [ $IMG_EXIT -eq 0 ]; then
+        # We found an image! Return the path in Gemini format
+        echo -n "@${IMG_PATH}"
+        exit 0
+    fi
+fi
+
+# Otherwise output what we got
+echo -n "$OUTPUT"
+
+# If curl failed with HTTP error (like 404), exit with error
+if [ $EXIT_CODE -eq 22 ]; then
+    exit 1
+fi
+
+exit $EXIT_CODE

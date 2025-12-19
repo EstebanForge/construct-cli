@@ -16,14 +16,15 @@ All notable changes to Construct CLI will be documented in this file.
   - Backup of old config created during migration (`config.toml.backup`)
   - Clear migration progress output with success/error reporting
   - New `construct sys refresh` command for manual config/template refresh (useful for debugging)
-- **Automatic Clipboard Integration**: Completely transparent clipboard access for pasting images into AI agents
-  - **Linux**: Direct X11/Wayland socket access with zero configuration
-  - **macOS**: Built-in Clipper daemon bundled with The Construct
-    - No installation required - daemon is embedded in the binary
-    - Automatically starts when needed
-    - Works with all container runtimes (Docker, OrbStack, Podman)
-    - Transparent socket forwarding via `~/.clipper.sock`
-  - Just copy and paste directly into agents - no commands, no setup
+- **Cross-Boundary Clipboard Bridge**: Unified host-container clipboard for seamless text and image pasting
+  - **Secure Host-Wrapper Bridge**: A secure Go HTTP server on the host provides authenticated clipboard access to the container via ephemeral tokens.
+  - **Universal Image Support**: Robust support for pasting images directly into agents across macOS, Linux, and Windows (WSL).
+  - **Multi-Agent Interception**: Automatic shimming of `xclip`, `xsel`, and `wl-paste` inside the container to redirect calls to the bridge.
+  - **Dependency Patching**: `entrypoint.sh` automatically finds and shims nested clipboard binaries in `node_modules` (fixes Gemini/Qwen `clipboardy` issues).
+  - **Tool Emulation**: Fake `osascript` shim allows agents to use macOS-native "save image" logic while running on Linux.
+  - **Smart Path Fallback**: Automatically saves host images to `.gemini-clipboard/` and returns multimodal `@path` references for agents expecting text.
+  - **Runtime Code Patching**: Automatically bypasses agent-level `process.platform` checks that would otherwise disable image support on Linux.
+  - **Zero Config**: Transparently handles all platform-specific clipboard complexities with no user setup required.
 - **Development Installation Scripts**: New tools for local testing and debugging
   - `install-local.sh`: Full-featured install with automatic backups and verification (defaults to `~/.local/bin`)
   - `dev-install.sh`: Lightning-fast dev install for rapid iteration (no confirmations, no backups)
@@ -33,7 +34,6 @@ All notable changes to Construct CLI will be documented in this file.
   - New `DEVELOPMENT.md` with complete development workflow guide
   - Detailed installation methods, testing procedures, and troubleshooting
   - VS Code tasks configuration examples
-- **Clipboard Documentation**: Extensive `CLIPBOARD.md` guide covering all usage scenarios
 
 ### Changed
 - **Help Text Alignment**: All CLI help descriptions now properly aligned for better readability
@@ -42,10 +42,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Installation Defaults**: Local installation scripts now default to `~/.local/bin` (no sudo required)
   - Users can override with `INSTALL_DIR` environment variable
   - Improved user experience for development workflows
-- **Clipboard Integration Architecture**: Redesigned from manual sync to automatic background sync
-  - No user intervention required - daemon auto-starts on first agent run
-  - Clipboard directory automatically created at `~/.config/construct-cli/clipboard/`
-  - Scripts directory created at `~/.config/construct-cli/scripts/`
+- **Clipboard Integration Architecture**: Upgraded from manual directory sync to a secure, real-time HTTP bridge.
+  - Transparent redirection of all terminal clipboard tools to the host system.
+  - Integrated support for multimodal agents (Claude, Gemini, Qwen).
 
 ### Fixed
 - **Runtime Package Conflicts**: Resolved naming collision in `internal/agent/runner.go`
@@ -55,11 +54,10 @@ All notable changes to Construct CLI will be documented in this file.
   - Version now correctly documented as `internal/constants/constants.go` (not `main.go`)
 
 ### Documentation
-- Updated README.md with automatic clipboard sync instructions
-- Added CLIPBOARD.md with comprehensive clipboard integration guide
+- Updated README.md with cross-boundary clipboard bridge instructions
 - Added DEVELOPMENT.md with development workflow and testing guide
 - Updated AGENTS.md with correct file paths and new clipboard features
-- Updated DESIGN.md with current version information
+- Updated DESIGN.md with detailed clipboard bridge architecture
 
 ## [0.3.0] - 2025-12-18
 
