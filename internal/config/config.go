@@ -14,10 +14,11 @@ import (
 )
 
 type Config struct {
-	Runtime RuntimeConfig `toml:"runtime"`
-	Sandbox SandboxConfig `toml:"sandbox"`
-	Network NetworkConfig `toml:"network"`
-	Claude  ClaudeConfig  `toml:"claude"`
+	Runtime     RuntimeConfig     `toml:"runtime"`
+	Sandbox     SandboxConfig     `toml:"sandbox"`
+	Network     NetworkConfig     `toml:"network"`
+	Maintenance MaintenanceConfig `toml:"maintenance"`
+	Claude      ClaudeConfig      `toml:"claude"`
 }
 
 type RuntimeConfig struct {
@@ -37,6 +38,12 @@ type NetworkConfig struct {
 	AllowedIPs     []string `toml:"allowed_ips"`
 	BlockedDomains []string `toml:"blocked_domains"`
 	BlockedIPs     []string `toml:"blocked_ips"`
+}
+
+type MaintenanceConfig struct {
+	CleanupEnabled         bool `toml:"cleanup_enabled"`
+	CleanupIntervalSeconds int  `toml:"cleanup_interval_seconds"`
+	LogRetentionDays       int  `toml:"log_retention_days"`
 }
 
 type ClaudeConfig struct {

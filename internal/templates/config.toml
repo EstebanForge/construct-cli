@@ -14,6 +14,17 @@ auto_update_check = true
 # Update check interval in seconds (default: 86400 = 24 hours)
 update_check_interval = 86400
 
+# Maintenance Settings
+[maintenance]
+# Enable periodic cleanup of old log files (true/false)
+cleanup_enabled = true
+
+# Cleanup interval in seconds (default: 86400 = 24 hours)
+cleanup_interval_seconds = 86400
+
+# Delete logs older than this many days (default: 15)
+log_retention_days = 15
+
 # Sandbox Settings
 [sandbox]
 # Mount the entire home directory? (Dangerous, default: false)

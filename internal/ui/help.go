@@ -26,7 +26,7 @@ Global Flags:
 [sys] System Commands:
   construct sys init             # Initialize environment and install agents
   construct sys update           # Update agents to latest versions
-  construct sys refresh          # Refresh config and templates from binary (useful for debugging)
+  construct sys migrate          # Re-run migrations to sync config/templates with the binary
   construct sys reset            # Delete volumes and reinstall
   construct sys shell            # Interactive shell with all agents
   construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.)

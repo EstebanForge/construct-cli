@@ -9,6 +9,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/daemon"
 	"github.com/EstebanForge/construct-cli/internal/doctor"
+	"github.com/EstebanForge/construct-cli/internal/logs"
 	"github.com/EstebanForge/construct-cli/internal/migration"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
@@ -60,6 +61,9 @@ func main() {
 		// If new config, suggest alias setup
 		sys.SuggestAliasSetup()
 	}
+	if cfg != nil {
+		logs.RunCleanupIfDue(cfg)
+	}
 
 	// Passive update check (non-blocking, runs in background)
 	if cfg != nil && update.ShouldCheckForUpdates(cfg) {
@@ -94,7 +98,7 @@ func main() {
 	switch command {
 	case "sys":
 		if len(args) < 2 {
-			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|refresh>")
+			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|migrate>")
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -225,10 +229,10 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		update.RecordUpdateCheck()
-	case "refresh":
+	case "migrate":
 		// Force refresh configuration and templates from binary
 		if err := migration.ForceRefresh(); err != nil {
-			ui.GumError(fmt.Sprintf("Refresh failed: %v", err))
+			ui.GumError(fmt.Sprintf("Migration failed: %v", err))
 			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
 			os.Exit(1)
 		}

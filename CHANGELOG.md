@@ -15,7 +15,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Persistent volumes preserved (agents, packages, configurations)
   - Backup of old config created during migration (`config.toml.backup`)
   - Clear migration progress output with success/error reporting
-  - New `construct sys refresh` command for manual config/template refresh (useful for debugging)
+  - New `construct sys migrate` command for manual config/template refresh (useful for debugging)
 - **Cross-Boundary Clipboard Bridge**: Unified host-container clipboard for seamless text and image pasting
   - **Secure Host-Wrapper Bridge**: A secure Go HTTP server on the host provides authenticated clipboard access to the container via ephemeral tokens.
   - **Universal Image Support**: Robust support for pasting images directly into agents across macOS, Linux, and Windows (WSL).

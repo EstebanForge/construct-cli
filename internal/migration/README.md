@@ -126,12 +126,12 @@ merged := map[string]interface{}{
   Note: Container image will rebuild on next agent run
 ```
 
-## Manual Refresh
+## Manual Migration
 
-Users can manually trigger a refresh of configuration and templates using:
+Users can manually trigger a migration of configuration and templates using:
 
 ```bash
-construct sys refresh
+construct sys migrate
 ```
 
 This command:

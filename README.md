@@ -110,8 +110,8 @@ When an update is available, you'll see a notification like:
 
 All this happens automatically the first time you run any `construct` command after updating. Zero manual intervention required!
 
-**Manual Refresh:**
-Need to debug or force a config refresh? Use `construct sys refresh` to manually trigger the migration process.
+**Manual Migration:**
+Need to debug or force a config refresh? Use `construct sys migrate` to manually trigger the migration process.
 
 ## Configuration
 Main configuration lives at `~/.config/construct-cli/config.toml`. Key sections are:

@@ -46,7 +46,7 @@ func DetectRuntime(preferredEngine string) string {
 	for _, rt := range runtimes {
 		if _, err := exec.LookPath(rt); err == nil {
 			if startRuntime(rt) {
-				if IsRuntimeRunning(rt) {
+				if waitForRuntime(rt, 60*time.Second) {
 					fmt.Fprintf(os.Stderr, "✓ Started %s\n", rt)
 					return rt
 				}
@@ -141,17 +141,17 @@ func startRuntime(runtimeName string) bool {
 		}
 
 	case "docker":
-		// Try to start Docker Desktop on macOS
 		if runtime.GOOS == "darwin" {
+			if isOrbStackInstalled() {
+				fmt.Fprintln(os.Stderr, "Attempting to start OrbStack...")
+				cmd := exec.Command("open", "-a", "OrbStack")
+				if err := cmd.Run(); err == nil {
+					return true
+				}
+			}
 			fmt.Fprintln(os.Stderr, "Attempting to start Docker Desktop...")
 			cmd := exec.Command("open", "-a", "Docker")
-			if err := cmd.Run(); err != nil {
-				// Try OrbStack
-				fmt.Fprintln(os.Stderr, "Attempting to start OrbStack...")
-				cmd = exec.Command("open", "-a", "OrbStack")
-				return cmd.Run() == nil
-			}
-			return true
+			return cmd.Run() == nil
 		} else {
 			// On Linux (including WSL), try to start docker service
 			fmt.Fprintln(os.Stderr, "Starting Docker service...")
@@ -164,6 +164,47 @@ func startRuntime(runtimeName string) bool {
 			// Fallback: try docker via service command
 			cmd = exec.Command("service", "docker", "start")
 			return cmd.Run() == nil
+		}
+	}
+
+	return false
+}
+
+func waitForRuntime(runtimeName string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if IsRuntimeRunning(runtimeName) {
+			return true
+		}
+		time.Sleep(2 * time.Second)
+	}
+
+	return false
+}
+
+func isOrbStackInstalled() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+
+	if _, err := exec.LookPath("orbctl"); err == nil {
+		return true
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+
+	paths := []string{
+		"/Applications/OrbStack.app",
+		filepath.Join(home, "Applications", "OrbStack.app"),
+	}
+
+	for _, path := range paths {
+		if _, err := os.Stat(path); err == nil {
+			return true
 		}
 	}
 
@@ -657,4 +698,3 @@ func StopContainer(containerRuntime, containerName string) error {
 
 	return nil
 }
-
