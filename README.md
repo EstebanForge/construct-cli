@@ -14,6 +14,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Live application of network rules while the AGENT is running.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
 - **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
+- **Pro Toolchain**: Sandbox comes preloaded with Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, and more.
 
 ## Screenshots
 

@@ -9,13 +9,17 @@ All notable changes to Construct CLI will be documented in this file.
   - Version tracking via `.version` file in config directory
   - Automatic detection of version changes on startup
   - Smart detection of 0.3.0 → 0.4.0 upgrades (handles missing version file)
-  - Non-destructive config merging (preserves all user settings)
+  - **Improved Config Merging**: New template-first merge logic that preserves comments and layout while syncing supported user values.
   - Automatic replacement of container templates with new versions
   - Automatic removal of old Docker image (forces rebuild with new Dockerfile)
   - Persistent volumes preserved (agents, packages, configurations)
   - Backup of old config created during migration (`config.toml.backup`)
   - Clear migration progress output with success/error reporting
   - New `construct sys migrate` command for manual config/template refresh (useful for debugging)
+- **Expanded Container Toolchain**: Added comprehensive language support to the sandbox:
+  - **Languages**: Rust, Go, Java (OpenJDK), Kotlin, Swift, Zig, Ruby, PHP, Dart, Perl, Erlang, COBOL.
+  - **Build Tools**: Ninja, Gradle, UV, Composer.
+  - **Utilities**: `jq`, `fastmod`, `tailwindcss` CLI.
 - **Cross-Boundary Clipboard Bridge**: Unified host-container clipboard for seamless text and image pasting
   - **Secure Host-Wrapper Bridge**: A secure Go HTTP server on the host provides authenticated clipboard access to the container via ephemeral tokens.
   - **Universal Image Support**: Robust support for pasting images directly into agents across macOS, Linux, and Windows (WSL).
