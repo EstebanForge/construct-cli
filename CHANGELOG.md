@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.4.0] - 2025-12-19
+## [0.4.0] - 2025-12-21
 
 ### Added
 - **Automatic Migration System**: Seamless upgrades with zero user intervention
