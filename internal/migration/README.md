@@ -43,11 +43,11 @@ When migration is needed, `migration.CheckAndMigrate()`:
    - Safe to replace - no user modifications expected here
 
 2. **Merges Config File** (`mergeConfigFile`)
-   - Reads existing `config.toml` (user settings)
-   - Reads default `config.toml` template (new defaults)
-   - Deep merges them, preferring user values
-   - Creates backup at `config.toml.backup`
-   - Writes merged config back
+   - Deletes any existing `config.toml.backup`
+   - Moves current `config.toml` to `config.toml.backup`
+   - Writes a fresh `config.toml` from the embedded template
+   - Re-applies user values from the backup only for keys that exist in the template
+   - Preserves template layout/comments while syncing supported values
 
 3. **Marks Image for Rebuild** (`markImageForRebuild`)
    - Removes the old `construct-box:latest` Docker image
@@ -61,30 +61,9 @@ When migration is needed, `migration.CheckAndMigrate()`:
 
 ### Config Merging
 
-The `deepMerge` function recursively merges configuration maps:
-
-```go
-base := map[string]interface{}{
-    "runtime": map[string]interface{}{
-        "engine": "auto",
-        "auto_update_check": true,
-    },
-}
-
-override := map[string]interface{}{
-    "runtime": map[string]interface{}{
-        "engine": "docker",  // User changed this
-    },
-}
-
-// Result preserves user's engine choice while keeping auto_update_check
-merged := map[string]interface{}{
-    "runtime": map[string]interface{}{
-        "engine": "docker",           // From user
-        "auto_update_check": true,    // From default
-    },
-}
-```
+The merge process starts from the template (source of truth) and replaces only
+the matching option values from the user backup. Unsupported keys are dropped
+to keep the config aligned with current template options.
 
 ### Example Migration Output
 
@@ -135,7 +114,7 @@ construct sys migrate
 ```
 
 This command:
-- Merges new configuration defaults with existing user settings (non-destructively)
+- Replaces config.toml with the embedded template and re-applies supported user values
 - Replaces all container template files with versions from the binary
 - Removes the old Docker image to force rebuild
 - Updates the `.version` file to match the binary version

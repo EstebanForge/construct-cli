@@ -11,7 +11,6 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
-	"github.com/pelletier/go-toml/v2"
 )
 
 const versionFile = ".version"
@@ -141,13 +140,13 @@ func updateContainerTemplates() error {
 
 	// Container templates (safe to replace - no user modifications expected)
 	containerFiles := map[string]string{
-		"Dockerfile":           templates.Dockerfile,
-		"docker-compose.yml":   templates.DockerCompose,
-		"entrypoint.sh":        templates.Entrypoint,
-		"update-all.sh":        templates.UpdateAll,
-		"network-filter.sh":    templates.NetworkFilter,
-		"clipper":              templates.Clipper,
-		"osascript":            templates.Osascript,
+		"Dockerfile":         templates.Dockerfile,
+		"docker-compose.yml": templates.DockerCompose,
+		"entrypoint.sh":      templates.Entrypoint,
+		"update-all.sh":      templates.UpdateAll,
+		"network-filter.sh":  templates.NetworkFilter,
+		"clipper":            templates.Clipper,
+		"osascript":          templates.Osascript,
 	}
 
 	for filename, content := range containerFiles {
@@ -161,7 +160,6 @@ func updateContainerTemplates() error {
 		}
 	}
 
-	
 	if ui.GumAvailable() {
 		fmt.Printf("%s  ✓ Container templates updated%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
@@ -171,10 +169,11 @@ func updateContainerTemplates() error {
 	return nil
 }
 
-// mergeConfigFile merges new default config with existing user config
-// Preserves all user settings while adding new default fields
+// mergeConfigFile replaces config.toml with the template and reapplies user values.
+// Preserves template layout/comments while copying supported values.
 func mergeConfigFile() error {
 	configPath := filepath.Join(config.GetConfigDir(), "config.toml")
+	backupPath := configPath + ".backup"
 
 	if ui.GumAvailable() {
 		fmt.Printf("%sMerging configuration file...%s\n", ui.ColorCyan, ui.ColorReset)
@@ -182,46 +181,38 @@ func mergeConfigFile() error {
 		fmt.Println("→ Merging configuration file...")
 	}
 
-	// Read existing user config
-	var userConfig map[string]interface{}
-	if data, err := os.ReadFile(configPath); err == nil {
-		if err := toml.Unmarshal(data, &userConfig); err != nil {
-			return fmt.Errorf("failed to parse existing config: %w", err)
-		}
-	} else {
-		userConfig = make(map[string]interface{})
+	if _, err := os.Stat(backupPath); err == nil {
+		_ = os.Remove(backupPath)
 	}
 
-	// Parse default config
-	var defaultConfig map[string]interface{}
-	if err := toml.Unmarshal([]byte(templates.Config), &defaultConfig); err != nil {
-		return fmt.Errorf("failed to parse default config: %w", err)
-	}
-
-	// Merge: default config + user overrides
-	merged := deepMerge(defaultConfig, userConfig)
-
-	// Write merged config back
-	data, err := toml.Marshal(merged)
-	if err != nil {
-		return fmt.Errorf("failed to marshal merged config: %w", err)
-	}
-
-	// Create backup of old config
-	backupPath := configPath + ".backup"
+	// Backup current config if present
 	if _, err := os.Stat(configPath); err == nil {
-		if oldData, err := os.ReadFile(configPath); err == nil {
-			os.WriteFile(backupPath, oldData, 0644)
-			if ui.GumAvailable() {
-				fmt.Printf("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
-			} else {
-				fmt.Printf("  → Backup saved: %s\n", backupPath)
+		if err := os.Rename(configPath, backupPath); err != nil {
+			return fmt.Errorf("failed to backup config: %w", err)
+		}
+		if ui.GumAvailable() {
+			fmt.Printf("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
+		} else {
+			fmt.Printf("  → Backup saved: %s\n", backupPath)
+		}
+	}
+
+	// Write fresh template config
+	templateData := []byte(templates.Config)
+	if err := os.WriteFile(configPath, templateData, 0644); err != nil {
+		return fmt.Errorf("failed to write template config: %w", err)
+	}
+
+	// Apply user values from backup onto template
+	if backupData, err := os.ReadFile(backupPath); err == nil {
+		mergedData, err := mergeTemplateWithBackup(templateData, backupData)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to merge user config values: %v\n", err)
+		} else {
+			if err := os.WriteFile(configPath, mergedData, 0644); err != nil {
+				return fmt.Errorf("failed to write merged config: %w", err)
 			}
 		}
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write merged config: %w", err)
 	}
 
 	if ui.GumAvailable() {
@@ -231,33 +222,6 @@ func mergeConfigFile() error {
 	}
 
 	return nil
-}
-
-// deepMerge recursively merges two maps, preferring values from 'override'
-func deepMerge(base, override map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	// Start with base
-	for k, v := range base {
-		result[k] = v
-	}
-
-	// Override with user values
-	for k, v := range override {
-		if baseVal, exists := result[k]; exists {
-			// If both are maps, merge recursively
-			if baseMap, ok := baseVal.(map[string]interface{}); ok {
-				if overrideMap, ok := v.(map[string]interface{}); ok {
-					result[k] = deepMerge(baseMap, overrideMap)
-					continue
-				}
-			}
-		}
-		// Otherwise, use override value
-		result[k] = v
-	}
-
-	return result
 }
 
 // markImageForRebuild removes the old Docker image to force rebuild on next run

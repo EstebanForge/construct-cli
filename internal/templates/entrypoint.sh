@@ -25,9 +25,11 @@ if [ ! -f "$MARKER_FILE" ]; then
     brew install ast-grep yq sd fzf eza zoxide ripgrep \
         gh git-delta git-cliff procs python-setuptools httpie \
         yarn composer wget tree neovim gulp-cli unzip \
-        ffmpeg php php-cs-fixer wp-cli tailwindcss uv go prettier \
+        ffmpeg php php-cs-fixer wp-cli tailwindcss uv prettier \
+        go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
+        ninja gradle \
         fastmod shellcheck yamllint terraform awscli \
-        node@24 python@3 oven-sh/bun/bun \
+        node@24 python@3 oven-sh/bun/bun jq \
         vite webpack tlrc || true
 
     # Install AI agents via Homebrew
@@ -91,7 +93,7 @@ fix_clipboard_libs() {
     # The path usually ends in .../clipboardy/fallbacks/linux
     # We find directories matching this pattern.
     # We search both linuxbrew (for gemini-cli) and npm-global (for qwen, etc.)
-    
+
     # 1. Standard clipboardy structure
     find -L /home/linuxbrew/.linuxbrew "$HOME/.npm-global" -type d -path "*/clipboardy/fallbacks/linux" 2>/dev/null | while read -r dir; do
         # Shim xsel
@@ -102,7 +104,7 @@ fix_clipboard_libs() {
              rm -f "$xsel_bin" 2>/dev/null
              ln -sf /usr/local/bin/clipper "$xsel_bin"
         fi
-        
+
         # Shim xclip
         local xclip_bin="$dir/xclip"
         rm -f "$xclip_bin" 2>/dev/null
@@ -116,7 +118,7 @@ fix_clipboard_libs() {
         if [[ "$(readlink -f "$binary")" == *"/clipper"* ]]; then
             continue
         fi
-        
+
         rm -f "$binary"
         ln -sf /usr/local/bin/clipper "$binary"
     done
