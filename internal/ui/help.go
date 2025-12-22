@@ -65,7 +65,9 @@ For more information, visit: https://github.com/EstebanForge/construct-cli
 	if GumAvailable() {
 		cmd := GetGumCommand("format", help)
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render help: %v\n", err)
+		}
 	} else {
 		fmt.Print(help)
 	}
@@ -119,5 +121,5 @@ Examples:
 
 // PrintVersion prints the application version.
 func PrintVersion() {
-	fmt.Printf("%s version %s\n", constants.AppName, constants.Version)
+	fmt.Printf("The Construct CLI - Version %s\n", constants.Version)
 }

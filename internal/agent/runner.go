@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 	stdruntime "runtime"
+	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -16,6 +16,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
 	cfg, _, err := config.Load()
 	if err != nil {
@@ -59,6 +60,7 @@ func RunWithArgs(args []string, networkFlag string) {
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
 }
 
+// RunWithProvider executes Claude with a configured provider alias.
 func RunWithProvider(args []string, networkFlag, providerName string) {
 	cfg, _, err := config.Load()
 	if err != nil {
@@ -146,7 +148,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 				"Abort")
 			output, err := cmd.Output()
 			if err != nil {
-				fmt.Println("Operation cancelled.")
+				fmt.Println("Operation canceled.")
 				os.Exit(0)
 			}
 
@@ -182,7 +184,10 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			fmt.Println("3. Abort")
 			fmt.Print("Choice [1-3]: ")
 			var basicChoice string
-			fmt.Scanln(&basicChoice)
+			if _, err := fmt.Scanln(&basicChoice); err != nil {
+				fmt.Fprintln(os.Stderr, "Error: Failed to read choice")
+				os.Exit(1)
+			}
 
 			switch basicChoice {
 			case "1":
@@ -257,7 +262,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	osEnv = network.InjectEnv(osEnv, cfg)
 
 	// Provider configuration (if provided)
-	if providerEnv != nil && len(providerEnv) > 0 {
+	if len(providerEnv) > 0 {
 		// Reset any existing Claude environment variables to avoid conflicts
 		osEnv = env.ResetClaudeEnv(osEnv)
 

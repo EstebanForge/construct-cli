@@ -1,3 +1,4 @@
+// Package logs provides log rotation and cleanup helpers.
 package logs
 
 import (
@@ -13,6 +14,7 @@ import (
 
 const cleanupMarkerFile = ".logs_cleanup_last_run"
 
+// RunCleanupIfDue removes old logs based on maintenance settings.
 func RunCleanupIfDue(cfg *config.Config) {
 	if cfg == nil || !cfg.Maintenance.CleanupEnabled {
 		return
@@ -45,7 +47,9 @@ func RunCleanupIfDue(cfg *config.Config) {
 	}
 
 	cleanupLogs(cfg.Maintenance.LogRetentionDays, now)
-	_ = os.WriteFile(markerPath, []byte(strconv.FormatInt(now.Unix(), 10)), 0644)
+	if err := os.WriteFile(markerPath, []byte(strconv.FormatInt(now.Unix(), 10)), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write cleanup marker: %v\n", err)
+	}
 }
 
 func parseMarkerTimestamp(raw string) (time.Time, error) {
@@ -81,7 +85,9 @@ func cleanupLogs(retentionDays int, now time.Time) {
 			continue
 		}
 		if info.ModTime().Before(cutoff) {
-			_ = os.Remove(filepath.Join(logsDir, entry.Name()))
+			if err := os.Remove(filepath.Join(logsDir, entry.Name())); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to remove log file %s: %v\n", entry.Name(), err)
+			}
 		}
 	}
 }

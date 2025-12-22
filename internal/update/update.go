@@ -1,3 +1,4 @@
+// Package update handles update checks and notifications.
 package update
 
 import (
@@ -23,6 +24,7 @@ type GitHubRelease struct {
 	} `json:"assets"`
 }
 
+// ShouldCheckForUpdates reports whether the update interval has elapsed.
 func ShouldCheckForUpdates(cfg *config.Config) bool {
 	if !cfg.Runtime.AutoUpdateCheck {
 		return false
@@ -43,12 +45,17 @@ func ShouldCheckForUpdates(cfg *config.Config) bool {
 	return time.Since(info.ModTime()) > interval
 }
 
+// CheckForUpdates queries GitHub for the latest release.
 func CheckForUpdates() (*GitHubRelease, bool, error) {
 	resp, err := http.Get(constants.GithubAPIURL)
 	if err != nil {
 		return nil, false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			ui.LogWarning("Failed to close update response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, false, fmt.Errorf("GitHub API returned status: %s", resp.Status)
@@ -78,17 +85,23 @@ func CheckForUpdates() (*GitHubRelease, bool, error) {
 	return nil, false, nil
 }
 
+// RecordUpdateCheck updates the update-check timestamp file.
 func RecordUpdateCheck() {
 	checkFile := filepath.Join(config.GetConfigDir(), constants.UpdateCheckFile)
 	now := time.Now()
-	os.Chtimes(checkFile, now, now) // Update modification time
+	if err := os.Chtimes(checkFile, now, now); err != nil {
+		ui.LogWarning("Failed to update update-check timestamp: %v", err)
+	}
 
 	// Ensure file exists
 	if _, err := os.Stat(checkFile); os.IsNotExist(err) {
-		os.WriteFile(checkFile, []byte{}, 0644)
+		if err := os.WriteFile(checkFile, []byte{}, 0644); err != nil {
+			ui.LogWarning("Failed to write update-check file: %v", err)
+		}
 	}
 }
 
+// DisplayNotification prints an update notification.
 func DisplayNotification(release *GitHubRelease) {
 	msg := fmt.Sprintf("New version available: %s (current: %s)", release.TagName, constants.Version)
 	if ui.GumAvailable() {

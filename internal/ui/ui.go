@@ -109,11 +109,15 @@ func GumSpinner(title string, fn func() []string) []string {
 	spinner := GetGumCommand("spin", "--spinner", "dot", "--title", title, "--", "sleep", "10")
 	spinner.Stdout = os.Stdout
 	spinner.Stderr = os.Stderr
-	spinner.Start()
+	if err := spinner.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to start spinner: %v\n", err)
+	}
 
 	result := <-resultChan
 	if spinner.Process != nil {
-		spinner.Process.Kill()
+		if err := spinner.Process.Kill(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop spinner: %v\n", err)
+		}
 	}
 
 	return result
@@ -124,7 +128,9 @@ func GumConfirm(prompt string) bool {
 	if !GumAvailable() {
 		fmt.Printf("%s [y/N]: ", prompt)
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			return false
+		}
 		return response == "y" || response == "Y"
 	}
 
@@ -194,15 +200,22 @@ func RunCommandWithSpinner(cmd *exec.Cmd, title string, logFile *os.File) error 
 				if GumAvailable() {
 					GumError("Command failed. Last 20 lines of log:")
 					tailCmd := exec.Command("tail", "-n", "20", logFile.Name())
-					output, _ := tailCmd.CombinedOutput()
+					output, err := tailCmd.CombinedOutput()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
+					}
 					styleCmd := GetGumCommand("style", "--foreground", "242", "--border", "normal", "--padding", "0 1", string(output))
 					styleCmd.Stdout = os.Stdout
-					styleCmd.Run()
+					if err := styleCmd.Run(); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to render log tail: %v\n", err)
+					}
 				} else {
 					fmt.Printf("Command failed. Last 20 lines of log (%s):\n", logFile.Name())
 					tailCmd := exec.Command("tail", "-n", "20", logFile.Name())
 					tailCmd.Stdout = os.Stdout
-					tailCmd.Run()
+					if err := tailCmd.Run(); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
+					}
 				}
 			}
 			return err
@@ -214,7 +227,10 @@ func RunCommandWithSpinner(cmd *exec.Cmd, title string, logFile *os.File) error 
 
 			if logFile != nil {
 				tailCmd := exec.Command("tail", "-n", "10", logFile.Name())
-				output, _ := tailCmd.CombinedOutput()
+				output, err := tailCmd.CombinedOutput()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
+				}
 				fmt.Print(string(output))
 			} else {
 				fmt.Println("(No log file)")

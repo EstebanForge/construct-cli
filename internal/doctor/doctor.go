@@ -1,3 +1,4 @@
+// Package doctor provides system health checks.
 package doctor
 
 import (
@@ -14,6 +15,7 @@ import (
 // CheckStatus represents the result of a health check
 type CheckStatus string
 
+// CheckStatus values for health checks.
 const (
 	CheckStatusOK      CheckStatus = "OK"
 	CheckStatusWarning CheckStatus = "WARNING"
@@ -30,21 +32,23 @@ type CheckResult struct {
 	Suggestion string   // How to fix if failed
 }
 
-// DoctorReport contains all health check results
-type DoctorReport struct {
+// Report contains all health check results.
+type Report struct {
 	Checks      []CheckResult
 	Summary     string
 	HasErrors   bool
 	HasWarnings bool
 }
 
-// RunDoctor performs system health checks and prints a report
+// Run performs system health checks and prints a report.
 func Run() {
 	fmt.Println()
 	if ui.GumAvailable() {
 		cmd := exec.Command("gum", "style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
+		}
 	} else {
 		fmt.Println("=== The Construct Doctor ===")
 	}
@@ -54,7 +58,10 @@ func Run() {
 
 	// 1. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
-	cfg, _, _ := config.Load() // Ignore error here, we check config file later
+	cfg, _, err := config.Load() // Ignore error here, we check config file later
+	if err != nil {
+		ui.LogWarning("Failed to load config: %v", err)
+	}
 	// If config load failed, we might use default engine "auto"
 	engine := "auto"
 	if cfg != nil {
@@ -146,18 +153,24 @@ func printCheckResult(check CheckResult) {
 		// Use gum for status
 		cmd := exec.Command("gum", "style", "--foreground", color, fmt.Sprintf("%s %s: %s", statusIcon, check.Name, check.Message))
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render check: %v\n", err)
+		}
 
 		for _, detail := range check.Details {
 			cmd := exec.Command("gum", "style", "--foreground", "242", fmt.Sprintf("  • %s", detail))
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render detail: %v\n", err)
+			}
 		}
 
 		if check.Suggestion != "" {
 			cmd := exec.Command("gum", "style", "--foreground", "214", "--italic", fmt.Sprintf("  → Suggestion: %s", check.Suggestion))
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render suggestion: %v\n", err)
+			}
 		}
 	} else {
 		fmt.Printf("[%s] %s: %s\n", check.Status, check.Name, check.Message)

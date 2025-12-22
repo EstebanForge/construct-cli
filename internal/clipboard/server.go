@@ -11,9 +11,9 @@ import (
 
 // Server represents the clipboard server
 type Server struct {
-	Port  int
-	Token string
-	URL   string
+	Port     int
+	Token    string
+	URL      string
 	listener net.Listener
 }
 
@@ -21,11 +21,11 @@ type Server struct {
 func StartServer() (*Server, error) {
 	// Generate random token
 
-tokenBytes := make([]byte, 32)
+	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
-token := hex.EncodeToString(tokenBytes)
+	token := hex.EncodeToString(tokenBytes)
 
 	// Listen on random port (all interfaces to allow container access)
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
@@ -34,7 +34,7 @@ token := hex.EncodeToString(tokenBytes)
 	}
 
 	port := listener.Addr().(*net.TCPAddr).Port
-	
+
 	// Determine URL host (host.docker.internal is standard, but we return the port)
 	// The client inside container will use host.docker.internal
 	url := fmt.Sprintf("http://host.docker.internal:%d", port)
@@ -57,12 +57,14 @@ func (s *Server) serve() {
 	mux.HandleFunc("/paste", s.handlePaste)
 
 	// We use the existing listener
-	http.Serve(s.listener, mux)
+	if err := http.Serve(s.listener, mux); err != nil {
+		fmt.Fprintf(os.Stderr, "[Clipboard Server] serve error: %v\n", err)
+	}
 }
 
 func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(os.Stderr, "[Clipboard Server] Received paste request from %s\n", r.RemoteAddr)
-	
+
 	// Verify token
 	if r.Header.Get("X-Construct-Clip-Token") != s.Token {
 		fmt.Fprintf(os.Stderr, "[Clipboard Server] Unauthorized request (invalid token)\n")
@@ -71,7 +73,7 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	}
 
 	contentType := r.URL.Query().Get("type")
-	
+
 	if contentType == "text/plain" || contentType == "" {
 		data, err := GetText()
 		if err != nil {
@@ -81,7 +83,9 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(os.Stderr, "[Clipboard Server] Serving %d bytes of text data\n", len(data))
 		w.Header().Set("Content-Type", "text/plain")
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			fmt.Fprintf(os.Stderr, "[Clipboard Server] write text error: %v\n", err)
+		}
 		return
 	}
 
@@ -99,5 +103,7 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Fprintf(os.Stderr, "[Clipboard Server] Serving %d bytes of image data\n", len(data))
 	w.Header().Set("Content-Type", "image/png")
-	w.Write(data)
+	if _, err := w.Write(data); err != nil {
+		fmt.Fprintf(os.Stderr, "[Clipboard Server] write image error: %v\n", err)
+	}
 }

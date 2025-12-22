@@ -1,6 +1,9 @@
+// Package config manages configuration loading and persistence.
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// Config represents the root configuration.
 type Config struct {
 	Runtime     RuntimeConfig     `toml:"runtime"`
 	Sandbox     SandboxConfig     `toml:"sandbox"`
@@ -21,17 +25,20 @@ type Config struct {
 	Claude      ClaudeConfig      `toml:"claude"`
 }
 
+// RuntimeConfig holds container runtime settings.
 type RuntimeConfig struct {
 	Engine              string `toml:"engine"`
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
 }
 
+// SandboxConfig holds sandbox options.
 type SandboxConfig struct {
 	MountHome bool   `toml:"mount_home"`
 	Shell     string `toml:"shell"`
 }
 
+// NetworkConfig holds network allow/block settings.
 type NetworkConfig struct {
 	Mode           string   `toml:"mode"`
 	AllowedDomains []string `toml:"allowed_domains"`
@@ -40,16 +47,19 @@ type NetworkConfig struct {
 	BlockedIPs     []string `toml:"blocked_ips"`
 }
 
+// MaintenanceConfig holds log cleanup settings.
 type MaintenanceConfig struct {
 	CleanupEnabled         bool `toml:"cleanup_enabled"`
 	CleanupIntervalSeconds int  `toml:"cleanup_interval_seconds"`
 	LogRetentionDays       int  `toml:"log_retention_days"`
 }
 
+// ClaudeConfig stores Claude provider configuration.
 type ClaudeConfig struct {
 	Providers map[string]map[string]string `toml:"cc"`
 }
 
+// GetConfigDir returns the user config directory path.
 func GetConfigDir() string {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -59,10 +69,12 @@ func GetConfigDir() string {
 	return filepath.Join(homeDir, constants.ConfigDir)
 }
 
+// GetContainerDir returns the container template directory path.
 func GetContainerDir() string {
 	return filepath.Join(GetConfigDir(), "container")
 }
 
+// GetLogsDir returns the logs directory path.
 func GetLogsDir() string {
 	return filepath.Join(GetConfigDir(), "logs")
 }
@@ -186,6 +198,7 @@ func (c *Config) Save() error {
 	return nil
 }
 
+// Init creates the config directory and template files.
 func Init() {
 	configPath := GetConfigDir()
 	containerDir := GetContainerDir()
@@ -244,7 +257,9 @@ func Init() {
 		ui.GumSuccess("The Construct initialized successfully!")
 		cmd := ui.GetGumCommand("style", "--foreground", "242", fmt.Sprintf("Config directory: %s", configPath))
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render config path: %v\n", err)
+		}
 	} else {
 		fmt.Println("\nThe Construct initialized successfully!")
 		fmt.Printf("Config directory: %s\n", configPath)
@@ -253,11 +268,26 @@ func Init() {
 	// Set initial version for new installations
 	// This allows future migrations to detect version changes
 	SetInitialVersion()
+
+	// Set initial config template hash
+	hash := sha256.Sum256([]byte(templates.Config))
+	SetConfigTemplateHash(hex.EncodeToString(hash[:]))
 }
 
 // SetInitialVersion writes the current version to .version file
 // This is called during initial setup to track the installed version
 func SetInitialVersion() {
 	versionPath := filepath.Join(GetConfigDir(), ".version")
-	os.WriteFile(versionPath, []byte(constants.Version+"\n"), 0644)
+	if err := os.WriteFile(versionPath, []byte(constants.Version+"\n"), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write version file: %v\n", err)
+	}
+}
+
+// SetConfigTemplateHash writes the SHA256 hash of the config template
+// This is called during initial setup and migration to track template changes
+func SetConfigTemplateHash(hash string) {
+	hashPath := filepath.Join(GetConfigDir(), ".config_template_hash")
+	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write config template hash: %v\n", err)
+	}
 }

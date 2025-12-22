@@ -1,3 +1,4 @@
+// Package agent handles agent discovery and execution.
 package agent
 
 // Agent represents a supported AI agent tool

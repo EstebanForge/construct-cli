@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.4.1] - 2025-12-22
+
+### Added
+- `make lint` now runs golangci-lint for parity with CI checks.
+
+### Fixed
+- Migration merge now skips incompatible types and validates TOML, preventing corrupted config files after upgrades.
+- Improved error handling and warnings for clipboard server, daemon UI rendering, log cleanup, and shell alias flows.
+
 ## [0.4.0] - 2025-12-21
 
 ### Added

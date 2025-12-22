@@ -16,6 +16,7 @@ GOGET := $(GOCMD) get
 GOMOD := $(GOCMD) mod
 GOFMT := $(GOCMD) fmt
 GOVET := $(GOCMD) vet
+GOLANGCI_LINT := golangci-lint
 
 # Build flags
 LDFLAGS := -ldflags "-s -w"
@@ -123,6 +124,8 @@ vet: ## Run go vet
 	@echo "✓ Vet passed"
 
 lint: fmt vet ## Run linters
+	@echo "Running golangci-lint..."
+	$(GOLANGCI_LINT) run --timeout=5m
 	@echo "✓ Linting complete"
 
 cross-compile: ## Build for all platforms

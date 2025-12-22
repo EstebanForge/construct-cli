@@ -9,6 +9,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// PrintCCHelp prints Claude Code provider alias usage.
 func PrintCCHelp(cfg *config.Config) {
 	help := `Construct CC - Claude Code Provider Aliases
 
@@ -49,7 +50,9 @@ Available Providers:
 	if ui.GumAvailable() {
 		cmd := ui.GetGumCommand("format", help)
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render help: %v\n", err)
+		}
 	} else {
 		fmt.Print(help)
 	}

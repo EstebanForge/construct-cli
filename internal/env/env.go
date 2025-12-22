@@ -1,3 +1,4 @@
+// Package env provides environment variable utilities for provider configuration.
 package env
 
 import (

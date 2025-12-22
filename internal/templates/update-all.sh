@@ -25,7 +25,17 @@ brew cleanup || true
 
 # Update npm global packages (all)
 echo "Updating all npm global packages..."
-npm update -g || true
+# Clean up corrupted npm packages (invalid names with dots after scope)
+if command -v jq >/dev/null 2>&1; then
+    corrupted=$(npm list -g --json 2>/dev/null | jq -r '.dependencies | keys[] | select(startswith("@") and (split("/")[1] // "" | startswith(".")))' 2>/dev/null || echo "")
+    if [ -n "$corrupted" ]; then
+        echo "Cleaning up corrupted npm packages..."
+        echo "$corrupted" | while read -r pkg; do
+            [ -n "$pkg" ] && npm uninstall -g "$pkg" 2>/dev/null || true
+        done
+    fi
+fi
+npm update -g 2>&1 | grep -v "Invalid package name" || true
 
 echo ""
 echo "✅ All agents & packages updated!"

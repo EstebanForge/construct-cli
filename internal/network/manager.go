@@ -1,3 +1,4 @@
+// Package network manages allow/block rules and runtime network configuration.
 package network
 
 import (
@@ -40,7 +41,11 @@ func AddRule(target, action string) {
 		resolvedIPs = ui.GumSpinner(
 			fmt.Sprintf("Resolving %s...", target),
 			func() []string {
-				ips, _ := ResolveDomain(target)
+				ips, err := ResolveDomain(target)
+				if err != nil {
+					ui.LogWarning("Failed to resolve %s: %v", target, err)
+					return nil
+				}
 				return ips
 			},
 		)
@@ -158,24 +163,33 @@ func ListRules() {
 	cmd := exec.Command("gum", "style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Network Configuration")
 	cmd.Stdout = os.Stdout
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
+	}
 	fmt.Println()
 
 	cmd = exec.Command("gum", "style", "--foreground", "212",
 		fmt.Sprintf("Mode: %s", cfg.Network.Mode))
 	cmd.Stdout = os.Stdout
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to render mode: %v\n", err)
+	}
 	fmt.Println()
 
 	// Allowed Domains
 	if len(cfg.Network.AllowedDomains) > 0 {
 		cmd = exec.Command("gum", "style", "--foreground", "86", "--bold", "Allowed Domains:")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed domains header: %v\n", err)
+		}
 
 		for _, domain := range cfg.Network.AllowedDomains {
-			ips, _ := ResolveDomain(domain)
-			if len(ips) > 0 {
+			ips, err := ResolveDomain(domain)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to resolve %s: %v\n", domain, err)
+			}
+			if len(ips) > 0 && err == nil {
 				cmd = exec.Command("gum", "style", "--foreground", "242",
 					fmt.Sprintf("  • %s → %s", domain, strings.Join(ips, ", ")))
 			} else {
@@ -183,7 +197,9 @@ func ListRules() {
 					fmt.Sprintf("  • %s (unresolved)", domain))
 			}
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed domain: %v\n", err)
+			}
 		}
 		fmt.Println()
 	}
@@ -192,12 +208,16 @@ func ListRules() {
 	if len(cfg.Network.AllowedIPs) > 0 {
 		cmd = exec.Command("gum", "style", "--foreground", "86", "--bold", "Allowed IPs:")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed IPs header: %v\n", err)
+		}
 		for _, ip := range cfg.Network.AllowedIPs {
 			cmd = exec.Command("gum", "style", "--foreground", "242",
 				fmt.Sprintf("  • %s", ip))
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed IP: %v\n", err)
+			}
 		}
 		fmt.Println()
 	}
@@ -206,19 +226,25 @@ func ListRules() {
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
 		cmd = exec.Command("gum", "style", "--foreground", "196", "--bold", "Blocked:")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render blocked header: %v\n", err)
+		}
 
 		for _, domain := range cfg.Network.BlockedDomains {
 			cmd = exec.Command("gum", "style", "--foreground", "242",
 				fmt.Sprintf("  • %s", domain))
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render blocked domain: %v\n", err)
+			}
 		}
 		for _, ip := range cfg.Network.BlockedIPs {
 			cmd = exec.Command("gum", "style", "--foreground", "242",
 				fmt.Sprintf("  • %s", ip))
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render blocked IP: %v\n", err)
+			}
 		}
 		fmt.Println()
 	}
@@ -305,7 +331,7 @@ func ShowStatus() {
 // ClearRules clears all network rules with confirmation
 func ClearRules() {
 	if !ui.GumConfirm("Clear ALL network rules?") {
-		fmt.Println("Cancelled.")
+		fmt.Println("Canceled.")
 		return
 	}
 
@@ -395,9 +421,7 @@ func IsValidCIDR(target string) bool {
 // IsValidDomain checks if a string is a valid domain name
 func IsValidDomain(target string) bool {
 	// Allow wildcard domains
-	if strings.HasPrefix(target, "*.") {
-		target = target[2:]
-	}
+	target = strings.TrimPrefix(target, "*.")
 
 	// Domain must have at least one dot and valid characters
 	if !strings.Contains(target, ".") {
@@ -600,8 +624,12 @@ func RemoveRuleFromContainer(containerRuntime, containerName, target string) err
 	var ipsToRemove []string
 	if !IsValidIP(target) && !IsValidCIDR(target) {
 		// It's a domain, try to resolve
-		ips, _ := ResolveDomain(target)
-		ipsToRemove = ips
+		ips, err := ResolveDomain(target)
+		if err != nil {
+			ui.LogWarning("Failed to resolve %s: %v", target, err)
+		} else {
+			ipsToRemove = ips
+		}
 	}
 
 	if len(ipsToRemove) == 0 {

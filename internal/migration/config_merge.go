@@ -1,8 +1,10 @@
+// Package migration handles configuration and template migrations.
 package migration
 
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,17 +25,27 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 		return nil, fmt.Errorf("parse backup config: %w", err)
 	}
 
+	var templateConfig map[string]interface{}
+	if err := toml.Unmarshal(templateData, &templateConfig); err != nil {
+		return nil, fmt.Errorf("parse template config: %w", err)
+	}
+
 	templateRanges, err := buildTemplateValueRanges(templateData)
 	if err != nil {
 		return nil, fmt.Errorf("parse template config: %w", err)
 	}
 
 	backupValues := flattenTomlMap(backupConfig)
+	templateValues := flattenTomlMap(templateConfig)
 	replacements := make([]valueReplacement, 0, len(backupValues))
 
 	for key, value := range backupValues {
+		templateValue, ok := templateValues[key]
+		if !ok || !typesCompatible(templateValue, value) {
+			continue
+		}
 		valueRange, ok := templateRanges[key]
-		if !ok {
+		if !ok || valueRange.Length == 0 {
 			continue
 		}
 		formatted, err := formatTomlValue(value)
@@ -60,6 +72,14 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 	updated := append([]byte(nil), templateData...)
 	for _, replacement := range replacements {
 		updated = append(updated[:replacement.start], append(replacement.value, updated[replacement.end:]...)...)
+	}
+
+	if err := validateToml(updated); err != nil {
+		fallback, fallbackErr := mergeConfigData(templateConfig, backupConfig)
+		if fallbackErr != nil {
+			return nil, err
+		}
+		return fallback, nil
 	}
 
 	return updated, nil
@@ -162,4 +182,76 @@ func formatTomlValue(value interface{}) ([]byte, error) {
 	valueSection := strings.TrimSpace(string(encoded[idx+1:]))
 	valueSection = strings.TrimSuffix(valueSection, "\n")
 	return []byte(valueSection), nil
+}
+
+func validateToml(data []byte) error {
+	var check map[string]interface{}
+	return toml.Unmarshal(data, &check)
+}
+
+func mergeConfigData(templateConfig, backupConfig map[string]interface{}) ([]byte, error) {
+	merged := mergeMaps(templateConfig, backupConfig)
+	return toml.Marshal(merged)
+}
+
+func mergeMaps(templateConfig, backupConfig map[string]interface{}) map[string]interface{} {
+	merged := make(map[string]interface{}, len(templateConfig))
+	for key, templateValue := range templateConfig {
+		backupValue, ok := backupConfig[key]
+		if !ok {
+			merged[key] = templateValue
+			continue
+		}
+		templateMap, templateIsMap := templateValue.(map[string]interface{})
+		backupMap, backupIsMap := backupValue.(map[string]interface{})
+		if templateIsMap && backupIsMap {
+			merged[key] = mergeMaps(templateMap, backupMap)
+			continue
+		}
+		if typesCompatible(templateValue, backupValue) {
+			merged[key] = backupValue
+		} else {
+			merged[key] = templateValue
+		}
+	}
+	return merged
+}
+
+func typesCompatible(templateValue, backupValue interface{}) bool {
+	if templateValue == nil || backupValue == nil {
+		return false
+	}
+
+	templateType := reflect.TypeOf(templateValue)
+	backupType := reflect.TypeOf(backupValue)
+	if templateType == backupType {
+		return true
+	}
+
+	templateKind := templateType.Kind()
+	backupKind := backupType.Kind()
+	if templateKind == reflect.Map && backupKind == reflect.Map {
+		return true
+	}
+	if templateKind == reflect.Slice && backupKind == reflect.Slice {
+		return true
+	}
+	if isNumericKind(templateKind) && isNumericKind(backupKind) {
+		return true
+	}
+
+	return false
+}
+
+func isNumericKind(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return true
+	case reflect.Float32, reflect.Float64:
+		return true
+	default:
+		return false
+	}
 }
