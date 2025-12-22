@@ -2,27 +2,21 @@
 package update
 
 import (
-	"encoding/json"
+	"archive/tar"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
-
-// GitHubRelease represents a GitHub release response
-type GitHubRelease struct {
-	TagName string `json:"tag_name"`
-	Body    string `json:"body"`
-	Assets  []struct {
-		Name               string `json:"name"`
-		BrowserDownloadURL string `json:"browser_download_url"`
-	} `json:"assets"`
-}
 
 // ShouldCheckForUpdates reports whether the update interval has elapsed.
 func ShouldCheckForUpdates(cfg *config.Config) bool {
@@ -45,44 +39,58 @@ func ShouldCheckForUpdates(cfg *config.Config) bool {
 	return time.Since(info.ModTime()) > interval
 }
 
-// CheckForUpdates queries GitHub for the latest release.
-func CheckForUpdates() (*GitHubRelease, bool, error) {
-	resp, err := http.Get(constants.GithubAPIURL)
+// CheckForUpdates checks the VERSION file for the latest version.
+// Returns the latest version string, whether an update is available, and any error.
+func CheckForUpdates() (string, bool, error) {
+	resp, err := http.Get(constants.GithubRawURL)
 	if err != nil {
-		return nil, false, err
+		return "", false, err
 	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			ui.LogWarning("Failed to close update response body: %v", err)
-		}
-	}()
+	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, false, fmt.Errorf("GitHub API returned status: %s", resp.Status)
+		return "", false, fmt.Errorf("failed to fetch VERSION: %s", resp.Status)
 	}
 
-	var release GitHubRelease
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return nil, false, err
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, err
 	}
 
-	// Compare versions (simple string comparison for now, assuming vX.Y.Z)
-	// Remove 'v' prefix if present
-	latestVer := release.TagName
-	if len(latestVer) > 0 && latestVer[0] == 'v' {
-		latestVer = latestVer[1:]
+	latestVer := strings.TrimSpace(string(body))
+	currentVer := strings.TrimPrefix(constants.Version, "v")
+	latestVer = strings.TrimPrefix(latestVer, "v")
+
+	// Only report update available if remote version > current version
+	if compareVersions(latestVer, currentVer) > 0 {
+		return latestVer, true, nil
 	}
 
-	currentVer := constants.Version
-	if len(currentVer) > 0 && currentVer[0] == 'v' {
-		currentVer = currentVer[1:]
-	}
+	return latestVer, false, nil
+}
 
-	if latestVer != currentVer {
-		return &release, true, nil
-	}
+// compareVersions compares two semver strings
+// Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
+func compareVersions(v1, v2 string) int {
+	v1Parts := strings.Split(v1, ".")
+	v2Parts := strings.Split(v2, ".")
 
-	return nil, false, nil
+	for i := 0; i < 3; i++ {
+		var n1, n2 int
+		if i < len(v1Parts) {
+			fmt.Sscanf(v1Parts[i], "%d", &n1)
+		}
+		if i < len(v2Parts) {
+			fmt.Sscanf(v2Parts[i], "%d", &n2)
+		}
+
+		if n1 > n2 {
+			return 1
+		} else if n1 < n2 {
+			return -1
+		}
+	}
+	return 0
 }
 
 // RecordUpdateCheck updates the update-check timestamp file.
@@ -102,8 +110,8 @@ func RecordUpdateCheck() {
 }
 
 // DisplayNotification prints an update notification.
-func DisplayNotification(release *GitHubRelease) {
-	msg := fmt.Sprintf("New version available: %s (current: %s)", release.TagName, constants.Version)
+func DisplayNotification(latestVersion string) {
+	msg := fmt.Sprintf("New version available: %s (current: %s)", latestVersion, constants.Version)
 	if ui.GumAvailable() {
 		ui.GumInfo(msg)
 		ui.GumInfo("Run 'construct sys self-update' to upgrade")
@@ -113,4 +121,226 @@ func DisplayNotification(release *GitHubRelease) {
 		fmt.Println("Run 'construct sys self-update' to upgrade")
 		fmt.Println()
 	}
+}
+
+// SelfUpdate downloads and installs the latest version of the binary
+func SelfUpdate() error {
+	// Check for latest version
+	if ui.GumAvailable() {
+		ui.GumInfo("Checking for updates...")
+	} else {
+		fmt.Println("Checking for updates...")
+	}
+
+	latestVersion, updateAvailable, err := CheckForUpdates()
+	if err != nil {
+		return fmt.Errorf("failed to check for updates: %w", err)
+	}
+
+	// If no update available, ask user if they want to reinstall
+	if !updateAvailable {
+		if ui.GumAvailable() {
+			ui.GumSuccess(fmt.Sprintf("Already on latest version: %s", constants.Version))
+			if !ui.GumConfirm("Do you want to reinstall the current version?") {
+				fmt.Println("Update cancelled.")
+				return nil
+			}
+		} else {
+			fmt.Printf("Already on latest version: %s\n", constants.Version)
+			fmt.Print("Do you want to reinstall the current version? [y/N]: ")
+			var response string
+			fmt.Scanln(&response)
+			response = strings.ToLower(strings.TrimSpace(response))
+			if response != "y" && response != "yes" {
+				fmt.Println("Update cancelled.")
+				return nil
+			}
+		}
+	}
+
+	// Detect platform
+	platform := fmt.Sprintf("%s-%s", runtime.GOOS, runtime.GOARCH)
+	if ui.GumAvailable() {
+		ui.GumInfo(fmt.Sprintf("Platform: %s", platform))
+		ui.GumInfo(fmt.Sprintf("Version: %s → %s", constants.Version, latestVersion))
+	} else {
+		fmt.Printf("Platform: %s\n", platform)
+		fmt.Printf("Version: %s → %s\n", constants.Version, latestVersion)
+	}
+
+	// Construct download URL directly (no API call needed)
+	assetName := fmt.Sprintf("construct-%s-%s.tar.gz", platform, latestVersion)
+	downloadURL := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s",
+		constants.GithubRepo, latestVersion, assetName)
+
+	// Download the archive
+	if ui.GumAvailable() {
+		ui.GumInfo(fmt.Sprintf("Downloading %s...", assetName))
+	} else {
+		fmt.Printf("Downloading %s...\n", assetName)
+	}
+
+	tmpFile, err := downloadFile(downloadURL)
+	if err != nil {
+		return fmt.Errorf("failed to download update: %w", err)
+	}
+	defer os.Remove(tmpFile)
+
+	// Extract binary from archive
+	binaryPath, err := extractBinary(tmpFile, platform)
+	if err != nil {
+		return fmt.Errorf("failed to extract binary: %w", err)
+	}
+	defer os.Remove(binaryPath)
+
+	// Get current executable path
+	execPath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+	execPath, err = filepath.EvalSymlinks(execPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve executable path: %w", err)
+	}
+
+	// Backup current binary
+	backupPath := execPath + ".backup"
+	if err := os.Rename(execPath, backupPath); err != nil {
+		return fmt.Errorf("failed to backup current binary: %w", err)
+	}
+
+	// Install new binary
+	if err := copyFile(binaryPath, execPath, 0755); err != nil {
+		// Restore backup on failure
+		os.Rename(backupPath, execPath)
+		return fmt.Errorf("failed to install new binary: %w", err)
+	}
+
+	// Remove backup
+	os.Remove(backupPath)
+
+	if ui.GumAvailable() {
+		ui.GumSuccess(fmt.Sprintf("Successfully updated to %s", latestVersion))
+	} else {
+		fmt.Printf("✓ Successfully updated to %s\n", latestVersion)
+	}
+
+	return nil
+}
+
+// downloadFile downloads a file and returns the path to the temp file
+func downloadFile(url string) (string, error) {
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed with status: %s", resp.Status)
+	}
+
+	tmpFile, err := os.CreateTemp("", "construct-update-*.tar.gz")
+	if err != nil {
+		return "", err
+	}
+	defer tmpFile.Close()
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		os.Remove(tmpFile.Name())
+		return "", err
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// extractBinary extracts the construct binary from the tar.gz archive
+func extractBinary(archivePath, platform string) (string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return "", err
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+
+	// Look for the binary in the archive
+	expectedNames := []string{
+		fmt.Sprintf("construct-%s", platform),
+		"construct",
+	}
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+
+		// Check if this is the binary we're looking for
+		baseName := filepath.Base(header.Name)
+		found := false
+		for _, name := range expectedNames {
+			if baseName == name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			continue
+		}
+
+		// Extract to temp file
+		tmpFile, err := os.CreateTemp("", "construct-binary-*")
+		if err != nil {
+			return "", err
+		}
+
+		if _, err := io.Copy(tmpFile, tr); err != nil {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return "", err
+		}
+		tmpFile.Close()
+
+		// Make executable
+		if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+			os.Remove(tmpFile.Name())
+			return "", err
+		}
+
+		return tmpFile.Name(), nil
+	}
+
+	return "", fmt.Errorf("binary not found in archive")
+}
+
+// copyFile copies a file from src to dst with the given permissions
+func copyFile(src, dst string, perm os.FileMode) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+
+	return dstFile.Chmod(perm)
 }

@@ -215,12 +215,10 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "doctor":
 		doctor.Run()
 	case "self-update":
-		// Self-update implementation (placeholder for now as it wasn't fully implemented in original main.go snippet I saw)
-		// But check main.go I read...
-		// Ah, I missed 'self-update' implementation in previous reads?
-		// Let's implement a basic message or check if I missed it.
-		// Assuming it updates the binary.
-		fmt.Println("Self-update not fully implemented in this refactor. Please download latest binary.")
+		if err := update.SelfUpdate(); err != nil {
+			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
+			os.Exit(1)
+		}
 	case "update-check":
 		latest, available, err := update.CheckForUpdates()
 		if err != nil {

@@ -7,6 +7,7 @@
 # Flags via env:
 #   INSTALL_DIR=/path # override install dir (default: /usr/local/bin or ~/.local/bin)
 #   SKIP_SYMLINK=1    # skip creating ct symlink
+#   FORCE=1           # skip version check, always reinstall
 
 set -euo pipefail
 
@@ -26,6 +27,7 @@ BINARY="construct"
 ALIAS="ct"
 VERSION="latest"
 INSTALL_DIR="${INSTALL_DIR:-}"
+FORCE="${FORCE:-0}"
 
 require_cmd() {
     command -v "$1" >/dev/null 2>&1 || error "Missing required command: $1"
@@ -52,13 +54,32 @@ detect_platform() {
 }
 
 latest_version() {
-    local api="https://api.github.com/repos/${REPO}/releases/latest"
+    local url="https://raw.githubusercontent.com/${REPO}/main/VERSION"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$api" | grep '"tag_name":' | head -1 | cut -d'"' -f4
+        curl -fsSL "$url" | tr -d '[:space:]'
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "$api" | grep '"tag_name":' | head -1 | cut -d'"' -f4
+        wget -qO- "$url" | tr -d '[:space:]'
     else
         error "curl or wget required to resolve latest version"
+    fi
+}
+
+get_installed_version() {
+    local dest_dir="$1"
+    local version_file="${HOME}/.config/construct-cli/.version"
+    local binary_path="${dest_dir}/${BINARY}"
+
+    # Check .version file first (faster, more reliable)
+    if [[ -f "$version_file" ]]; then
+        cat "$version_file" | tr -d '[:space:]'
+        return
+    fi
+
+    # Fallback: query binary if .version file missing
+    if [[ -x "$binary_path" ]]; then
+        "$binary_path" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo ""
+    else
+        echo ""
     fi
 }
 
@@ -143,9 +164,31 @@ main() {
     local platform
     platform="$(detect_platform)"
 
+    local dest_dir
+    dest_dir="$(pick_install_dir)"
+
     if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
         info "Resolving latest version..."
         VERSION="$(latest_version)"
+    fi
+
+    # Check if same version is already installed
+    if [[ "$FORCE" != "1" ]]; then
+        local installed_version
+        installed_version="$(get_installed_version "$dest_dir")"
+
+        if [[ -n "$installed_version" && "$installed_version" == "$VERSION" ]]; then
+            success "Already on latest version: ${VERSION}"
+            echo -n "Do you want to reinstall? [y/N]: " >&2
+            read -r response
+            response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
+            if [[ "$response" != "y" && "$response" != "yes" ]]; then
+                info "Installation cancelled."
+                exit 0
+            fi
+        elif [[ -n "$installed_version" ]]; then
+            info "Upgrading: ${installed_version} → ${VERSION}"
+        fi
     fi
 
     local asset="construct-${platform}-${VERSION}.tar.gz"
@@ -175,8 +218,6 @@ main() {
 
     chmod +x "$tmp_bin"
 
-    local dest_dir
-    dest_dir="$(pick_install_dir)"
     info "Install dir: ${dest_dir}"
 
     install_binary "$tmp_bin" "$dest_dir"
