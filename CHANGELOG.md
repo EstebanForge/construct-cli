@@ -2,6 +2,33 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.5.0] - 2025-12-22
+
+### Added
+- **Self-Update Command**: `construct sys self-update` now downloads and installs the latest version directly from GitHub releases
+  - Automatic platform detection (darwin/linux, amd64/arm64)
+  - Prompts for confirmation when already on latest version
+  - Backup and restore on failure
+- **Smart Config Migration**: Config merging now only runs when template structure actually changes
+  - Hash-based detection of config template changes
+  - Skips unnecessary backup/merge cycles on patch version updates
+  - Container templates still update on every version bump (for bug fixes)
+
+### Changed
+- **Simplified Update Check**: Version checking now uses lightweight `VERSION` file instead of GitHub API
+  - Faster checks, no API rate limits
+  - Download URLs constructed directly from version string
+- **Install Script Improvements**:
+  - Checks for existing installation before downloading
+  - Prompts user if same version already installed
+  - Uses `VERSION` file for remote version lookup
+  - Reads local `.version` file first, falls back to querying binary
+  - New `FORCE=1` env var to skip version check
+
+### Fixed
+- Version command no longer triggers config initialization
+- Update check now uses proper semver comparison (was treating any version difference as "update available")
+
 ## [0.4.1] - 2025-12-22
 
 ### Added
