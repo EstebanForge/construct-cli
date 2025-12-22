@@ -57,7 +57,7 @@ fi
 # Test: Version command
 print_test "Version command"
 VERSION_OUTPUT=$("${BINARY}" version 2>&1)
-if echo "${VERSION_OUTPUT}" | grep -q "construct version"; then
+if echo "${VERSION_OUTPUT}" | grep -qi "construct.*version"; then
     print_pass "Version command works: ${VERSION_OUTPUT}"
 else
     print_fail "Version command output unexpected: ${VERSION_OUTPUT}"

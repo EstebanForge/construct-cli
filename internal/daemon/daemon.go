@@ -1,3 +1,4 @@
+// Package daemon manages the optional background daemon container.
 package daemon
 
 import (
@@ -54,7 +55,11 @@ func Start() {
 	}
 
 	// Prepare environment variables
-	cwd, _ := os.Getwd()
+	cwd, err := os.Getwd()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to get working directory: %v", err))
+		os.Exit(1)
+	}
 	env := os.Environ()
 	env = append(env, "PWD="+cwd)
 
@@ -98,8 +103,8 @@ func Start() {
 
 	ui.GumSuccess("Daemon started")
 	fmt.Println()
-	ui.GumInfo(fmt.Sprintf("Use 'construct daemon attach' to connect"))
-	ui.GumInfo(fmt.Sprintf("Use Ctrl+P Ctrl+Q to detach without stopping"))
+	ui.GumInfo("Use 'construct daemon attach' to connect")
+	ui.GumInfo("Use Ctrl+P Ctrl+Q to detach without stopping")
 }
 
 // Stop stops the daemon container
@@ -203,20 +208,26 @@ func Status() {
 	cmd := exec.Command("gum", "style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Daemon Status")
 	cmd.Stdout = os.Stdout
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to render status header: %v\n", err)
+	}
 	fmt.Println()
 
 	cmd = exec.Command("gum", "style", "--foreground", "242",
 		fmt.Sprintf("Container: %s", containerName))
 	cmd.Stdout = os.Stdout
-	cmd.Run()
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to render container label: %v\n", err)
+	}
 
 	switch state {
 	case runtime.ContainerStateRunning:
 		cmd = exec.Command("gum", "style", "--foreground", "212",
 			"Status: Running ✓")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
+		}
 
 		// Get uptime
 		var uptimeCmd *exec.Cmd
@@ -230,39 +241,55 @@ func Status() {
 				"--format", "{{.RunningFor}}")
 		}
 
-		output, _ := uptimeCmd.Output()
+		output, err := uptimeCmd.Output()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get uptime: %v\n", err)
+			output = []byte("unknown")
+		}
 		cmd = exec.Command("gum", "style", "--foreground", "242",
 			fmt.Sprintf("Uptime: %s", strings.TrimSpace(string(output))))
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render uptime: %v\n", err)
+		}
 
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
 			"💡 Use 'construct daemon attach' to connect")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
+		}
 
 	case runtime.ContainerStateExited:
 		cmd = exec.Command("gum", "style", "--foreground", "214",
 			"Status: Stopped")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
+		}
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
 			"💡 Use 'construct daemon start' to start")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
+		}
 
 	case runtime.ContainerStateMissing:
 		cmd = exec.Command("gum", "style", "--foreground", "196",
 			"Status: Not created")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
+		}
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
 			"💡 Use 'construct daemon start' to create")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
+		}
 	}
 
 	fmt.Println()
@@ -289,7 +316,11 @@ func statusBasic(state runtime.ContainerState, containerRuntime, containerName s
 				"--format", "{{.RunningFor}}")
 		}
 
-		output, _ := uptimeCmd.Output()
+		output, err := uptimeCmd.Output()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to get uptime: %v\n", err)
+			output = []byte("unknown")
+		}
 		fmt.Printf("Uptime: %s\n", strings.TrimSpace(string(output)))
 		fmt.Println()
 		fmt.Println("💡 Use 'construct daemon attach' to connect")

@@ -1,3 +1,4 @@
+// Package main is the entry point for the Construct CLI.
 package main
 
 import (
@@ -45,6 +46,18 @@ func main() {
 		}
 	}
 
+	// Handle version/help early - these don't require config loading
+	if len(args) >= 1 {
+		switch args[0] {
+		case "--version", "-v", "version":
+			ui.PrintVersion()
+			return
+		case "--help", "-h", "help":
+			ui.PrintHelp()
+			return
+		}
+	}
+
 	// Check for version migrations before loading config
 	// This ensures config files are updated before we try to parse them
 	if migration.NeedsMigration() {
@@ -56,7 +69,12 @@ func main() {
 	}
 
 	// Load config to check for updates (ignoring errors for now, will be handled by commands)
-	cfg, createdNew, _ := config.Load()
+	cfg, createdNew, err := config.Load()
+	if err != nil {
+		ui.LogError(err)
+		cfg = nil
+		createdNew = false
+	}
 	if createdNew {
 		// If new config, suggest alias setup
 		sys.SuggestAliasSetup()
@@ -81,18 +99,6 @@ func main() {
 	}
 
 	command := args[0]
-
-	// Check for --help flag first
-	if command == "--help" || command == "-h" || command == "help" {
-		ui.PrintHelp()
-		return
-	}
-
-	// Check for --version flag
-	if command == "--version" || command == "-v" || command == "version" {
-		ui.PrintVersion()
-		return
-	}
 
 	// Namespace routing
 	switch command {

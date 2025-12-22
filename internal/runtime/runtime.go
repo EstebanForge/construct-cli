@@ -1,3 +1,4 @@
+// Package runtime manages container runtime detection and operations.
 package runtime
 
 import (
@@ -15,15 +16,17 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// ContainerState represents the state of a container
+// ContainerState represents the state of a container.
 type ContainerState string
 
+// ContainerState values.
 const (
 	ContainerStateRunning ContainerState = "running"
 	ContainerStateExited  ContainerState = "exited"
 	ContainerStateMissing ContainerState = "missing"
 )
 
+// DetectRuntime selects an available container runtime.
 func DetectRuntime(preferredEngine string) string {
 	runtimes := []string{"container", "podman", "docker"}
 
@@ -59,6 +62,7 @@ func DetectRuntime(preferredEngine string) string {
 	return ""
 }
 
+// IsRuntimeRunning reports whether the runtime is available and responsive.
 func IsRuntimeRunning(runtimeName string) bool {
 	var cmd *exec.Cmd
 
@@ -128,17 +132,16 @@ func startRuntime(runtimeName string) bool {
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr
 			return cmd.Run() == nil
-		} else {
-			// On Linux (including WSL), try to start podman socket
-			fmt.Fprintln(os.Stderr, "Starting Podman socket...")
-			cmd := exec.Command("systemctl", "--user", "start", "podman.socket")
-			if cmd.Run() == nil {
-				return true
-			}
-			// Fallback: try podman systemd
-			cmd = exec.Command("systemctl", "start", "podman")
-			return cmd.Run() == nil
 		}
+		// On Linux (including WSL), try to start podman socket
+		fmt.Fprintln(os.Stderr, "Starting Podman socket...")
+		cmd := exec.Command("systemctl", "--user", "start", "podman.socket")
+		if cmd.Run() == nil {
+			return true
+		}
+		// Fallback: try podman systemd
+		cmd = exec.Command("systemctl", "start", "podman")
+		return cmd.Run() == nil
 
 	case "docker":
 		if runtime.GOOS == "darwin" {
@@ -152,19 +155,18 @@ func startRuntime(runtimeName string) bool {
 			fmt.Fprintln(os.Stderr, "Attempting to start Docker Desktop...")
 			cmd := exec.Command("open", "-a", "Docker")
 			return cmd.Run() == nil
-		} else {
-			// On Linux (including WSL), try to start docker service
-			fmt.Fprintln(os.Stderr, "Starting Docker service...")
-			cmd := exec.Command("systemctl", "start", "docker")
-			if cmd.Run() == nil {
-				// Give it a moment to start
-				time.Sleep(3 * time.Second)
-				return true
-			}
-			// Fallback: try docker via service command
-			cmd = exec.Command("service", "docker", "start")
-			return cmd.Run() == nil
 		}
+		// On Linux (including WSL), try to start docker service
+		fmt.Fprintln(os.Stderr, "Starting Docker service...")
+		cmd := exec.Command("systemctl", "start", "docker")
+		if cmd.Run() == nil {
+			// Give it a moment to start
+			time.Sleep(3 * time.Second)
+			return true
+		}
+		// Fallback: try docker via service command
+		cmd = exec.Command("service", "docker", "start")
+		return cmd.Run() == nil
 	}
 
 	return false
@@ -211,6 +213,7 @@ func isOrbStackInstalled() bool {
 	return false
 }
 
+// BuildImage builds the container image and installs agents if needed.
 func BuildImage(cfg *config.Config) {
 	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -222,7 +225,11 @@ func BuildImage(cfg *config.Config) {
 	}
 	logPath := ""
 	if logFile != nil {
-		defer logFile.Close()
+		defer func() {
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to close log file: %v\n", err)
+			}
+		}()
 		logPath = logFile.Name()
 		if ui.GumAvailable() {
 			fmt.Printf("%sBuild log: %s%s\n", ui.ColorGrey, logPath, ui.ColorReset)
@@ -376,7 +383,11 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 
 	agentLogFile, err := config.CreateLogFile("agent_install")
 	if err == nil {
-		defer agentLogFile.Close()
+		defer func() {
+			if closeErr := agentLogFile.Close(); closeErr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to close agent log file: %v\n", closeErr)
+			}
+		}()
 		if ui.GumAvailable() {
 			fmt.Printf("%sAgent install log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
 		} else {
@@ -398,6 +409,7 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 	return nil
 }
 
+// GetComposeFileArgs returns compose file args for the runtime.
 func GetComposeFileArgs(configPath string) []string {
 	containerDir := filepath.Join(configPath, "container")
 	basePath := filepath.Join(containerDir, "docker-compose.yml")
@@ -410,6 +422,7 @@ func GetComposeFileArgs(configPath string) []string {
 	return args
 }
 
+// GetCheckImageCommand returns a runtime-specific image inspect command.
 func GetCheckImageCommand(containerRuntime string) []string {
 	imageName := "construct-box:latest"
 
@@ -519,7 +532,6 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 
-	
 	// Network isolation mode
 	if networkMode == "offline" {
 		override.WriteString("    network_mode: none\n")

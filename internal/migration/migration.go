@@ -1,10 +1,14 @@
+// Package migration handles configuration and template migrations.
 package migration
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -14,6 +18,7 @@ import (
 )
 
 const versionFile = ".version"
+const configTemplateHashFile = ".config_template_hash"
 
 // GetInstalledVersion returns the currently installed version from the version file
 func GetInstalledVersion() string {
@@ -66,10 +71,14 @@ func compareVersions(v1, v2 string) int {
 	for i := 0; i < 3; i++ {
 		var n1, n2 int
 		if i < len(v1Parts) {
-			fmt.Sscanf(v1Parts[i], "%d", &n1)
+			if parsed, err := strconv.Atoi(v1Parts[i]); err == nil {
+				n1 = parsed
+			}
 		}
 		if i < len(v2Parts) {
-			fmt.Sscanf(v2Parts[i], "%d", &n2)
+			if parsed, err := strconv.Atoi(v2Parts[i]); err == nil {
+				n2 = parsed
+			}
 		}
 
 		if n1 > n2 {
@@ -79,6 +88,36 @@ func compareVersions(v1, v2 string) int {
 		}
 	}
 	return 0
+}
+
+// getConfigTemplateHash returns SHA256 hash of the embedded config template
+func getConfigTemplateHash() string {
+	hash := sha256.Sum256([]byte(templates.Config))
+	return hex.EncodeToString(hash[:])
+}
+
+// configTemplateChanged checks if embedded config template differs from last applied
+func configTemplateChanged() bool {
+	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
+
+	storedHash, err := os.ReadFile(hashPath)
+	if err != nil {
+		// No hash file - either fresh install or upgrade from old version
+		// If config.toml exists, assume template changed (be conservative)
+		configPath := filepath.Join(config.GetConfigDir(), "config.toml")
+		if _, err := os.Stat(configPath); err == nil {
+			return true
+		}
+		return false
+	}
+
+	return strings.TrimSpace(string(storedHash)) != getConfigTemplateHash()
+}
+
+// saveConfigTemplateHash stores the current template hash
+func saveConfigTemplateHash() error {
+	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
+	return os.WriteFile(hashPath, []byte(getConfigTemplateHash()+"\n"), 0644)
 }
 
 // RunMigrations performs all necessary migrations
@@ -96,21 +135,29 @@ func RunMigrations() error {
 		fmt.Printf("✓ Upgrading configuration: %s → %s\n", installed, current)
 	}
 
-	// 1. Update container templates (safe to replace)
+	// 1. Update container templates (always - may have bug fixes)
 	if err := updateContainerTemplates(); err != nil {
 		return fmt.Errorf("failed to update container templates: %w", err)
 	}
 
-	// 2. Merge config.toml (preserve user settings)
-	if err := mergeConfigFile(); err != nil {
-		return fmt.Errorf("failed to merge config file: %w", err)
+	// 2. Merge config.toml only if template structure changed
+	if configTemplateChanged() {
+		if err := mergeConfigFile(); err != nil {
+			return fmt.Errorf("failed to merge config file: %w", err)
+		}
+		if err := saveConfigTemplateHash(); err != nil {
+			return fmt.Errorf("failed to save config template hash: %w", err)
+		}
+	} else {
+		if ui.GumAvailable() {
+			fmt.Printf("%s  → Config structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
+		} else {
+			fmt.Println("  → Config structure unchanged, skipping merge")
+		}
 	}
 
 	// 3. Mark image for rebuild
-	// Delete the image marker so it gets rebuilt on next run
-	if err := markImageForRebuild(); err != nil {
-		return fmt.Errorf("failed to mark image for rebuild: %w", err)
-	}
+	markImageForRebuild()
 
 	// 4. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
@@ -182,7 +229,9 @@ func mergeConfigFile() error {
 	}
 
 	if _, err := os.Stat(backupPath); err == nil {
-		_ = os.Remove(backupPath)
+		if err := os.Remove(backupPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to remove backup: %v\n", err)
+		}
 	}
 
 	// Backup current config if present
@@ -225,7 +274,7 @@ func mergeConfigFile() error {
 }
 
 // markImageForRebuild removes the old Docker image to force rebuild on next run
-func markImageForRebuild() error {
+func markImageForRebuild() {
 	if ui.GumAvailable() {
 		fmt.Printf("%sRemoving old container image...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
@@ -238,18 +287,20 @@ func markImageForRebuild() error {
 	imageName := "construct-box:latest"
 
 	// Try docker
-	exec.Command("docker", "rmi", "-f", imageName).Run()
+	if err := exec.Command("docker", "rmi", "-f", imageName).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove Docker image: %v\n", err)
+	}
 
 	// Try podman
-	exec.Command("podman", "rmi", "-f", imageName).Run()
+	if err := exec.Command("podman", "rmi", "-f", imageName).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to remove Podman image: %v\n", err)
+	}
 
 	if ui.GumAvailable() {
 		fmt.Printf("%s  ✓ Image marked for rebuild%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
 		fmt.Println("  ✓ Image marked for rebuild")
 	}
-
-	return nil
 }
 
 // CheckAndMigrate checks if migration is needed and runs it
@@ -297,9 +348,25 @@ func ForceRefresh() error {
 	}
 	fmt.Println()
 
-	// Run the same migration process
-	if err := RunMigrations(); err != nil {
-		return err
+	// 1. Update container templates
+	if err := updateContainerTemplates(); err != nil {
+		return fmt.Errorf("failed to update container templates: %w", err)
+	}
+
+	// 2. Always merge config on force refresh (user explicitly requested)
+	if err := mergeConfigFile(); err != nil {
+		return fmt.Errorf("failed to merge config file: %w", err)
+	}
+	if err := saveConfigTemplateHash(); err != nil {
+		return fmt.Errorf("failed to save config template hash: %w", err)
+	}
+
+	// 3. Mark image for rebuild
+	markImageForRebuild()
+
+	// 4. Update installed version
+	if err := SetInstalledVersion(constants.Version); err != nil {
+		return fmt.Errorf("failed to update version file: %w", err)
 	}
 
 	fmt.Println()

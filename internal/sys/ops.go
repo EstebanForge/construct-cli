@@ -11,6 +11,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// UpdateAgents runs the update-all script inside the container.
 func UpdateAgents(cfg *config.Config) {
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -34,7 +35,11 @@ func UpdateAgents(cfg *config.Config) {
 	}
 	logPath := ""
 	if logFile != nil {
-		defer logFile.Close()
+		defer func() {
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to close log file: %v\n", err)
+			}
+		}()
 		logPath = logFile.Name()
 		if ui.GumAvailable() {
 			fmt.Printf("%sUpdate log: %s%s\n", ui.ColorGrey, logPath, ui.ColorReset)
@@ -95,9 +100,9 @@ func UpdateAgents(cfg *config.Config) {
 	} else {
 		fmt.Println("✅ All agents updated successfully!")
 	}
-
 }
 
+// ResetVolumes deletes persistent volumes to force agent reinstall on next run.
 func ResetVolumes(cfg *config.Config) {
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 
@@ -107,11 +112,13 @@ func ResetVolumes(cfg *config.Config) {
 			"⚠️  This will delete all installed agents from persistent volumes.",
 			"They will be reinstalled on next run (takes 5-10 minutes).")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render warning: %v\n", err)
+		}
 
 		fmt.Println()
 		if !ui.GumConfirm("Continue with reset?") {
-			fmt.Println("Reset cancelled.")
+			fmt.Println("Reset canceled.")
 			return
 		}
 	} else {
@@ -121,10 +128,13 @@ func ResetVolumes(cfg *config.Config) {
 		fmt.Print("\nContinue? [y/N]: ")
 
 		var response string
-		fmt.Scanln(&response)
+		if _, err := fmt.Scanln(&response); err != nil {
+			fmt.Fprintln(os.Stderr, "Error: Failed to read response")
+			os.Exit(1)
+		}
 
 		if response != "y" && response != "Y" {
-			fmt.Println("Reset cancelled.")
+			fmt.Println("Reset canceled.")
 			return
 		}
 	}
@@ -132,7 +142,9 @@ func ResetVolumes(cfg *config.Config) {
 	if ui.GumAvailable() {
 		cmd := ui.GetGumCommand("style", "--foreground", "242", "Deleting volumes...")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
+		}
 	} else {
 		fmt.Println("\nDeleting volumes...")
 	}
@@ -164,7 +176,9 @@ func ResetVolumes(cfg *config.Config) {
 			ui.GumSuccess("Volumes deleted successfully!")
 			cmd := ui.GetGumCommand("style", "--foreground", "242", "Agents will be reinstalled on next run.")
 			cmd.Stdout = os.Stdout
-			cmd.Run()
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render reinstall notice: %v\n", err)
+			}
 		} else {
 			fmt.Println()
 			fmt.Println("✅ Volumes deleted successfully!")

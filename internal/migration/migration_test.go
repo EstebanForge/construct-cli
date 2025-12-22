@@ -41,3 +41,18 @@ func TestCompareVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestGetConfigTemplateHash(t *testing.T) {
+	hash1 := getConfigTemplateHash()
+	hash2 := getConfigTemplateHash()
+
+	// Hash should be deterministic
+	if hash1 != hash2 {
+		t.Errorf("getConfigTemplateHash() not deterministic: %s != %s", hash1, hash2)
+	}
+
+	// Hash should be 64 hex characters (SHA256)
+	if len(hash1) != 64 {
+		t.Errorf("getConfigTemplateHash() length = %d, want 64", len(hash1))
+	}
+}

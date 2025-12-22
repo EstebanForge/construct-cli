@@ -1,3 +1,4 @@
+// Package sys provides system-level commands for the CLI.
 package sys
 
 import (

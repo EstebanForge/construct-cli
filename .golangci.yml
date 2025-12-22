@@ -18,7 +18,7 @@ linters:
     - unparam
     - nakedret
     - prealloc
-    - exportloopref
+    - copyloopvar
     - nolintlint
     - revive
     - whitespace
@@ -26,8 +26,6 @@ linters:
 linters-settings:
   errcheck:
     check-blank: true
-  govet:
-    check-shadowing: true
   gofmt:
     simplify: true
   misspell:

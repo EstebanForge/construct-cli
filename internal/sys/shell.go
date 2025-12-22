@@ -12,6 +12,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// SuggestAliasSetup attempts to install a ct alias or symlink for the user.
 func SuggestAliasSetup() {
 	// Get the full path to the current executable
 	exePath, err := os.Executable()
@@ -29,7 +30,12 @@ func SuggestAliasSetup() {
 	ctPath, err := exec.LookPath("ct")
 	if err == nil {
 		// ct exists - check if it's pointing to our binary
-		ctPath, _ = filepath.EvalSymlinks(ctPath)
+		resolvedPath, err := filepath.EvalSymlinks(ctPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to resolve ct symlink: %v\n", err)
+			return
+		}
+		ctPath = resolvedPath
 		if ctPath != exePath {
 			// ct exists but points to something else - warn user
 			fmt.Println("\n⚠️  Warning: A 'ct' command already exists on your system")
@@ -50,8 +56,10 @@ func SuggestAliasSetup() {
 
 	// Priority 2: Fall back to shell alias
 	aliasCmd := fmt.Sprintf("alias ct='%s'", exePath)
-	configFile, added, _ := addShellAlias("ct", aliasCmd)
-	if added {
+	configFile, added, err := addShellAlias("ct", aliasCmd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to add shell alias: %v\n", err)
+	} else if added {
 		fmt.Println("\n✓ Shell alias 'ct' created successfully!")
 		fmt.Printf("  Run: source %s\n", configFile)
 		return
@@ -95,9 +103,7 @@ func createSymlinkInLocalBin(exePath string) bool {
 
 	// Ensure ~/.local/bin is in PATH (add to shell configs if needed)
 	if err := ensureLocalBinInPath(localBin); err != nil {
-		// logWarning("Failed to add ~/.local/bin to PATH: %v", err)
-		// Not fatal - user can still use absolute path or ct alias
-		// We could log this if we had a logger here, for now just ignore
+		ui.LogWarning("Failed to add ~/.local/bin to PATH: %v", err)
 	}
 
 	return true
@@ -130,7 +136,7 @@ func ensureLocalBinInPath(localBin string) error {
 		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"~/.local/bin:$PATH\"\n"
 	} else if strings.Contains(shell, "bash") {
 		configFile = filepath.Join(homeDir, ".bashrc")
-		if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
 			configFile = filepath.Join(homeDir, ".bash_profile")
 		}
 		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"~/.local/bin:$PATH\"\n"
@@ -143,8 +149,8 @@ func ensureLocalBinInPath(localBin string) error {
 
 	// Check if PATH line already exists
 	if fileExists(configFile) {
-		content, err := os.ReadFile(configFile)
-		if err == nil && strings.Contains(string(content), ".local/bin") {
+		content, readErr := os.ReadFile(configFile)
+		if readErr == nil && strings.Contains(string(content), ".local/bin") {
 			return nil // Already added
 		}
 	}
@@ -154,7 +160,11 @@ func ensureLocalBinInPath(localBin string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := f.WriteString(pathLine); err != nil {
 		return err
@@ -163,6 +173,7 @@ func ensureLocalBinInPath(localBin string) error {
 	return nil
 }
 
+// InstallAliases writes shell aliases for supported agents.
 func InstallAliases() {
 	// Get current executable path
 	exePath, err := os.Executable()
@@ -178,7 +189,7 @@ func InstallAliases() {
 	}
 
 	// Standard agents
-	var agents []string
+	agents := make([]string, 0, len(agent.SupportedAgents))
 	for _, a := range agent.SupportedAgents {
 		agents = append(agents, a.Slug)
 	}
@@ -206,7 +217,9 @@ func InstallAliases() {
 			"...they will automatically run inside The Construct.",
 			"Your agents will be sandboxed, and will only have access to the current directory where you call them.")
 		cmd.Stdout = os.Stdout
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render alias info: %v\n", err)
+		}
 	} else {
 		fmt.Println("\nThis command will install shell aliases for all supported AI agents.")
 		fmt.Println("From now on, commands like 'claude', 'gemini', 'qwen' will run inside The Construct.")
@@ -228,7 +241,11 @@ func InstallAliases() {
 	fmt.Println()
 
 	// Check if block already exists
-	contentBytes, _ := os.ReadFile(configFile)
+	contentBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
+		os.Exit(1)
+	}
 	content := string(contentBytes)
 	if strings.Contains(content, "# construct-cli aliases start") {
 		if ui.GumAvailable() {
@@ -242,7 +259,7 @@ func InstallAliases() {
 	// Confirm
 	if ui.GumAvailable() {
 		if !ui.GumConfirm("Do you want to proceed?") {
-			fmt.Println("Cancelled.")
+			fmt.Println("Canceled.")
 			return
 		}
 	} else {
@@ -255,7 +272,7 @@ func InstallAliases() {
 		}
 		response = strings.TrimSpace(response)
 		if strings.ToLower(response) != "y" {
-			fmt.Println("Cancelled.")
+			fmt.Println("Canceled.")
 			return
 		}
 	}
@@ -282,7 +299,11 @@ func InstallAliases() {
 		fmt.Fprintf(os.Stderr, "Error opening config file: %v\n", err)
 		os.Exit(1)
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := f.WriteString(sb.String()); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing to config file: %v\n", err)
@@ -297,7 +318,11 @@ func InstallAliases() {
 	}
 
 	fmt.Println()
-	homeDir, _ := os.UserHomeDir()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error determining home directory: %v\n", err)
+		os.Exit(1)
+	}
 	displayPath := strings.Replace(configFile, homeDir, "~", 1)
 	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
 }
@@ -317,7 +342,7 @@ func getShellConfigFile() (string, error) {
 		return filepath.Join(homeDir, ".zshrc"), nil
 	} else if strings.Contains(shell, "bash") {
 		configFile := filepath.Join(homeDir, ".bashrc")
-		if _, err := os.Stat(configFile); os.IsNotExist(err) {
+		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
 			return filepath.Join(homeDir, ".bash_profile"), nil
 		}
 		return configFile, nil
@@ -336,8 +361,8 @@ func addShellAlias(aliasName, aliasLine string) (string, bool, error) {
 
 	// Check if alias already exists
 	if fileExists(configFile) {
-		content, err := os.ReadFile(configFile)
-		if err == nil && strings.Contains(string(content), fmt.Sprintf("alias %s=", aliasName)) {
+		content, readErr := os.ReadFile(configFile)
+		if readErr == nil && strings.Contains(string(content), fmt.Sprintf("alias %s=", aliasName)) {
 			return configFile, false, nil
 		}
 	}
@@ -346,7 +371,11 @@ func addShellAlias(aliasName, aliasLine string) (string, bool, error) {
 	if err != nil {
 		return configFile, false, err
 	}
-	defer f.Close()
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
+		}
+	}()
 
 	if _, err := f.WriteString(fmt.Sprintf("\n%s\n", aliasLine)); err != nil {
 		return configFile, false, err

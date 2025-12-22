@@ -1,3 +1,4 @@
+// Package clipboard provides host clipboard access helpers.
 package clipboard
 
 import (
@@ -11,7 +12,10 @@ import (
 	"runtime"
 )
 
+// ErrNoImage indicates the clipboard contains no image data.
 var ErrNoImage = errors.New("no image in clipboard")
+
+// ErrNoText indicates the clipboard contains no text data.
 var ErrNoText = errors.New("no text in clipboard")
 
 // GetText retrieves text data from the host clipboard
@@ -62,20 +66,20 @@ func getMacImage() ([]byte, error) {
 	// The output is usually «data PNGf89504E47...»
 	startMarker := []byte("«data PNGf")
 	endMarker := []byte("»")
-	
+
 	startIdx := bytes.Index(trimmed, startMarker)
 	if startIdx == -1 {
 		return nil, ErrNoImage
 	}
 	startIdx += len(startMarker)
-	
+
 	endIdx := bytes.LastIndex(trimmed, endMarker)
 	if endIdx == -1 {
 		endIdx = len(trimmed)
 	}
 
 	hexData := trimmed[startIdx:endIdx]
-	
+
 	// Decode hex
 	data := make([]byte, hex.DecodedLen(len(hexData)))
 	n, err := hex.Decode(data, hexData)
@@ -88,7 +92,7 @@ func getMacImage() ([]byte, error) {
 
 func getLinuxImage() ([]byte, error) {
 	// Try wl-paste (Wayland) first, then xclip (X11)
-	
+
 	// Check if we are in Wayland
 	if os.Getenv("WAYLAND_DISPLAY") != "" {
 		cmd := exec.Command("wl-paste", "-t", "image/png")
@@ -145,7 +149,7 @@ func getWindowsText() ([]byte, error) {
 func getWindowsImage() ([]byte, error) {
 	// Use PowerShell to get clipboard image
 	// We use a script to output base64 then decode
-	
+
 	psScript := `
 		Add-Type -AssemblyName System.Windows.Forms
 		$img = [System.Windows.Forms.Clipboard]::GetImage()
@@ -155,7 +159,7 @@ func getWindowsImage() ([]byte, error) {
 		$base64 = [Convert]::ToBase64String($ms.ToArray())
 		Write-Output $base64
 	`
-	
+
 	// Note: System.Windows.Forms requires STA mode (-Sta)
 	cmd := exec.Command("powershell", "-NoProfile", "-Sta", "-Command", psScript)
 	output, err := cmd.Output()
@@ -172,6 +176,6 @@ func getWindowsImage() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode base64 image data: %w", err)
 	}
-	
+
 	return data, nil
 }
