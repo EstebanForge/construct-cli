@@ -1,7 +1,7 @@
 # Plan: Rename Internal Container Mount Point
 
 ## Phase 1: Code and Template Updates
-- [ ] Task: Update `internal/templates/Dockerfile` `WORKDIR` from `/app` to `/workspace`.
+- [x] Task: Update `internal/templates/Dockerfile` `WORKDIR` from `/app` to `/workspace`. b6711f2
 - [ ] Task: Update `internal/templates/docker-compose.yml` mounts and `working_dir` to `/workspace`.
 - [ ] Task: Update `internal/runtime/runtime.go` to replace `/app` with `/workspace` in compose override generation.
 - [ ] Task: Update `internal/templates/osascript` to use `/workspace/osascript_debug.log`.
