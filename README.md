@@ -96,7 +96,7 @@ update_check_interval = 86400     # Check interval in seconds (24 hours)
 
 When an update is available, you'll see a notification like:
 ```
-ℹ Update available: 0.3.0 → 0.4.0 (run 'construct sys self-update')
+ℹ Update available: 0.6.0 → 0.7.0 (run 'construct sys self-update')
 ```
 
 ### Automatic Migrations

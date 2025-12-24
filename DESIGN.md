@@ -147,7 +147,7 @@ make cross-compile   # all platforms
 ---
 
 ## 9. Implementation Details
-- Version string: `version = "0.4.0"` in `internal/constants/constants.go`.
+- Version string: `version = "0.7.0"` in `internal/constants/constants.go`.
 - Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.

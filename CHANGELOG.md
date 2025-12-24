@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.7.0] - 2025-12-24
+
+### Changed
+- **Generic Workspace Path**: Renamed the internal container mount point and working directory from `/app` to `/workspace`.
+  - This reflects the project's evolution into a general-purpose sandbox for any CLI agent, not just those used for "app" development.
+  - Automatically updates all embedded templates (Dockerfile, docker-compose) and runtime override generation.
+  - Updated design and user documentation to reflect the new path.
+
 ## [0.6.0] - 2025-12-23
 
 ### Added

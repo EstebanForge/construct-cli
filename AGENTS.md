@@ -7,7 +7,7 @@ Guidance for code agents working in this repository.
 - **Core entrypoint**: `cmd/construct/main.go` (embeds templates, handles `sys/network/daemon` namespaces, runtime detection, build/run/update/reset).
 - **Templates**: `internal/templates/` (Dockerfile, docker-compose, entrypoint, update-all, network-filter, config, clipboard scripts).
 - **Scripts**: `scripts/` (install, reset helpers, integration tests, clipboard sync).
-- **Version**: Defined in `internal/constants/constants.go` as `0.4.0`.
+- **Version**: Defined in `internal/constants/constants.go` as `0.7.0`.
 
 ## Build & Test
 ```bash
