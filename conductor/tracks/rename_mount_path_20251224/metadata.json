@@ -1,0 +1,8 @@
+{
+  "track_id": "rename_mount_path_20251224",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2025-12-24T12:00:00Z",
+  "updated_at": "2025-12-24T12:00:00Z",
+  "description": "Rename internal container mount point from /app to /workspace for a more generic environment naming."
+}
