@@ -17,6 +17,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Self-Update**: Automatic checks and secure self-updates from GitHub releases with SHA256 verification.
+- **Pro Toolchain**: Preloaded with utilities including `url-to-markdown-cli-tool`, `ripgrep`, `bat`, `fzf`, `eza`, `zoxide`, `tree`, `httpie`, `gh`, `neovim`, `uv`, `prettier`, programming languages (Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang), cloud tools (AWS CLI, Terraform), and development utilities (git-delta, git-cliff, shellcheck, yamllint, webpack, vite, and many more).
 
 ---
 
@@ -27,12 +28,14 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Runtime detection/startup, build, update, reset, doctor, and agent execution.
   - Claude provider system for configurable API endpoints with environment variable management.
   - Self-update mechanism with GitHub Releases API, fallback to VERSION file, SHA256 verification, and atomic binary replacement.
-- **Templates**: `templates/`
+- **Templates**: `internal/templates/`
   - Dockerfile uses `debian:trixie-slim` + Homebrew (non-root) for tools; disables brew auto-update.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
   - entrypoint installs agents/tools on first run; network filter script for strict mode; update-all for maintenance.
 - **Scripts**: `scripts/`
   - install.sh (curl-able installer to system bins), reset helpers, integration tests.
+- **Agent Documentation**: `AGENTS.md`
+  - Developer-focused guidance for working with the Construct CLI codebase
 - **Config/Data layout** (`~/.config/construct-cli/`)
   - `config.toml` (runtime, sandbox, network, and claude provider configuration)
   - `container/` (Dockerfile, compose, overrides, scripts)
@@ -46,7 +49,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ---
 
 ## 4. Runtimes & Isolation
-- **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `docker`, `podman`). If set to `auto` (the default), it first checks for an active runtime in the order of `podman`, then `docker`. If no runtime is active, it attempts to start one in the same order. The macOS-native `container` runtime is not yet fully integrated but is part of the detection framework.
+- **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `docker`, `podman`). If set to `auto` (the default), it first checks for an active runtime in the order of `podman`, then `docker` (OrbStack on macOS first, then traditional Docker CE/Docker Desktop). If no runtime is active, it attempts to start one in the same order. The macOS-native `container` runtime is not yet fully integrated but is part of the detection framework.
 - **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts.
 - **Mounts**: current workdir → `/app`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
 - **Network modes**:

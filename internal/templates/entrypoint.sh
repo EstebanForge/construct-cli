@@ -101,6 +101,10 @@ if [ ! -f "$MARKER_FILE" ]; then
         # OpenAI Codex CLI
         echo "Installing codex-cli..."
         npm install -g @openai/codex || true
+
+        # URL to Markdown CLI Tool
+        echo "Installing url-to-markdown-cli-tool..."
+        npm install -g url-to-markdown-cli-tool || true
     else
         echo "⚠️  npm not available, skipping npm-based agent installations"
     fi
