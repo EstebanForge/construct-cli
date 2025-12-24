@@ -105,19 +105,8 @@ jobs:
           VERSION: ${{ env.VERSION }}
         run: |
           cat > release_notes.md << 'EOF'
-          ## ${{ env.VERSION }} Release Notes
+          ## Release Notes
 
-          Quick Install (Linux/macOS/WSL)
-          ```bash
-          curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
-          ```
-
-          Verify install
-          ```bash
-          construct version
-          ```
-
-          ## Changes
           EOF
           if [ -f CHANGELOG.md ]; then
             awk '/^## \[.*\] - / {if (found) exit; found=1} found' CHANGELOG.md | head -n -1 >> release_notes.md
