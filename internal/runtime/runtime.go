@@ -523,11 +523,11 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 	// Platform-specific volume declarations
 	if runtime.GOOS == "linux" {
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
-		override.WriteString(fmt.Sprintf("      - ${PWD}:/app%s\n", selinuxSuffix))
+		override.WriteString(fmt.Sprintf("      - ${PWD}:/workspace%s\n", selinuxSuffix))
 		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	} else if runtime.GOOS == "darwin" {
-		override.WriteString(fmt.Sprintf("      - ${PWD}:/app%s\n", selinuxSuffix))
+		override.WriteString(fmt.Sprintf("      - ${PWD}:/workspace%s\n", selinuxSuffix))
 		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
