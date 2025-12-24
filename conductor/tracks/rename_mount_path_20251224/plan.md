@@ -1,11 +1,11 @@
 # Plan: Rename Internal Container Mount Point
 
-## Phase 1: Code and Template Updates
+## Phase 1: Code and Template Updates [checkpoint: 23168ca]
 - [x] Task: Update `internal/templates/Dockerfile` `WORKDIR` from `/app` to `/workspace`. b6711f2
 - [x] Task: Update `internal/templates/docker-compose.yml` mounts and `working_dir` to `/workspace`. 8423ffc
 - [x] Task: Update `internal/runtime/runtime.go` to replace `/app` with `/workspace` in compose override generation. 51d3965
 - [x] Task: Update `internal/templates/osascript` to use `/workspace/osascript_debug.log`. 95576bb
-- [~] Task: Conductor - User Manual Verification 'Phase 1: Code and Template Updates' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 1: Code and Template Updates' (Protocol in workflow.md) 23168ca
 
 ## Phase 2: Documentation Updates
 - [ ] Task: Update `DESIGN.md` to reflect the move from `/app` to `/workspace`.
