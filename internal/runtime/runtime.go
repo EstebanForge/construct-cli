@@ -532,6 +532,36 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 
+	// SSH Agent Forwarding
+	// Load config to check preference
+	cfg, _, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config during runtime preparation: %v\n", err)
+	}
+	forwardAgent := true
+	if cfg != nil {
+		forwardAgent = cfg.Sandbox.ForwardSSHAgent
+	}
+
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+	if forwardAgent && sshAuthSock != "" {
+		if runtime.GOOS == "linux" {
+			// Standard Linux socket mounting
+			override.WriteString(fmt.Sprintf("      - %s:/ssh-agent%s\n", sshAuthSock, selinuxSuffix))
+			fmt.Println("✓ SSH Agent forwarding configured")
+		}
+		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
+	}
+
+	// Environment variables
+	override.WriteString("    environment:\n")
+	if forwardAgent && sshAuthSock != "" {
+		if runtime.GOOS == "linux" {
+			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
+		}
+		// On macOS, the SSH_AUTH_SOCK is set in entrypoint.sh via the TCP bridge
+	}
+
 	// Network isolation mode
 	if networkMode == "offline" {
 		override.WriteString("    network_mode: none\n")

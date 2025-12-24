@@ -261,6 +261,22 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Network configuration
 	osEnv = network.InjectEnv(osEnv, cfg)
 
+	// SSH Agent Bridge (for macOS reliability)
+	if stdruntime.GOOS == "darwin" && cfg.Sandbox.ForwardSSHAgent && os.Getenv("SSH_AUTH_SOCK") != "" {
+		bridge, err := StartSSHBridge()
+		if err != nil {
+			if ui.CurrentLogLevel >= ui.LogLevelInfo {
+				fmt.Printf("Warning: Failed to start SSH bridge: %v\n", err)
+			}
+		} else {
+			defer bridge.Stop()
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("SSH bridge running on port %d\n", bridge.Port)
+			}
+			osEnv = append(osEnv, fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", bridge.Port))
+		}
+	}
+
 	// Provider configuration (if provided)
 	if len(providerEnv) > 0 {
 		// Reset any existing Claude environment variables to avoid conflicts
@@ -284,7 +300,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 	composeArgs := runtime.GetComposeFileArgs(configPath)
 
-	fmt.Printf("Running in Construct: %v\n", args)
+	if len(args) == 0 {
+		fmt.Println("Entering Construct interactive shell...")
+	} else {
+		fmt.Printf("Running in Construct: %v\n", args)
+	}
 
 	var cmd *exec.Cmd
 
@@ -300,6 +320,13 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			if cbServer != nil {
 				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+			}
+			// Inject SSH bridge port
+			for _, e := range osEnv {
+				if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+					runArgs = append(runArgs, "-e", e)
+					break
+				}
 			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
@@ -321,6 +348,13 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
 			}
+			// Inject SSH bridge port
+			for _, e := range osEnv {
+				if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+					runArgs = append(runArgs, "-e", e)
+					break
+				}
+			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
 				runArgs = append(runArgs, "-e", envVar)
@@ -339,6 +373,13 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		if cbServer != nil {
 			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		}
+		// Inject SSH bridge port
+		for _, e := range osEnv {
+			if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+				runArgs = append(runArgs, "-e", e)
+				break
+			}
 		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {
@@ -359,6 +400,13 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		if cbServer != nil {
 			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		}
+		// Inject SSH bridge port
+		for _, e := range osEnv {
+			if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+				runArgs = append(runArgs, "-e", e)
+				break
+			}
 		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {

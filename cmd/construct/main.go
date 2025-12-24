@@ -104,7 +104,7 @@ func main() {
 	switch command {
 	case "sys":
 		if len(args) < 2 {
-			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|migrate>")
+			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|migrate|ssh-import|restore-config>")
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -240,6 +240,10 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
 			os.Exit(1)
 		}
+	case "ssh-import":
+		sys.SSHImport()
+	case "restore-config":
+		sys.RestoreConfig()
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		os.Exit(1)

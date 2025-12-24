@@ -5,7 +5,7 @@ RUN useradd -m -s /bin/bash construct && \
     apt-get update && apt-get install -y \
     curl git procps file build-essential \
     vim nano python3 python3-pip python3-venv python3-dev pipx \
-    fd-find ripgrep jq bat tmux sudo \
+    fd-find ripgrep jq bat tmux sudo gosu socat \
     ufw iptables dnsutils \
     xclip xsel wl-clipboard imagemagick && \
     rm -rf /var/lib/apt/lists/*
@@ -66,7 +66,7 @@ RUN mv /usr/bin/xclip /usr/bin/xclip-real && \
     if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -s /usr/local/bin/clipper /usr/bin/wl-paste; fi
 
 # Switch back to construct user
-USER construct
+# USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
 
 # 5. Environment Setup
 WORKDIR /app

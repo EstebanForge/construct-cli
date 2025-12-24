@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
@@ -124,6 +125,50 @@ func Run() {
 		volumeCheck.Message = "Agents not found (will install on first run)"
 	}
 	checks = append(checks, volumeCheck)
+
+	// 5. SSH Agent Check
+	sshCheck := CheckResult{Name: "SSH Agent"}
+	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
+		sshCheck.Status = CheckStatusSkipped
+		sshCheck.Message = "SSH Agent forwarding disabled"
+		sshCheck.Suggestion = "Enable 'forward_ssh_agent' in config.toml to use SSH keys"
+	} else {
+		sshSock := os.Getenv("SSH_AUTH_SOCK")
+		if sshSock != "" {
+			sshCheck.Status = CheckStatusOK
+			sshCheck.Message = "SSH Agent detected"
+			sshCheck.Details = []string{fmt.Sprintf("Socket: %s", sshSock)}
+		} else {
+			sshCheck.Status = CheckStatusWarning
+			sshCheck.Message = "SSH Agent not found"
+			sshCheck.Suggestion = "Start ssh-agent and run 'ssh-add' to use SSH keys securely in the container"
+		}
+	}
+	checks = append(checks, sshCheck)
+
+	// 6. SSH Keys Check (Imported)
+	keysCheck := CheckResult{Name: "Local SSH Keys"}
+	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
+	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
+		var keyNames []string
+		for _, entry := range entries {
+			if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".pub") {
+				keyNames = append(keyNames, entry.Name())
+			}
+		}
+		if len(keyNames) > 0 {
+			keysCheck.Status = CheckStatusOK
+			keysCheck.Message = fmt.Sprintf("Found %d local keys", len(keyNames))
+			keysCheck.Details = keyNames
+		} else {
+			keysCheck.Status = CheckStatusSkipped
+			keysCheck.Message = "No local keys found"
+		}
+	} else {
+		keysCheck.Status = CheckStatusSkipped
+		keysCheck.Message = "No local keys found"
+	}
+	checks = append(checks, keysCheck)
 
 	// Print Report
 	for _, check := range checks {

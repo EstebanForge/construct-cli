@@ -46,7 +46,11 @@ func CheckForUpdates() (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			ui.LogWarning("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", false, fmt.Errorf("failed to fetch VERSION: %s", resp.Status)
@@ -78,10 +82,14 @@ func compareVersions(v1, v2 string) int {
 	for i := 0; i < 3; i++ {
 		var n1, n2 int
 		if i < len(v1Parts) {
-			fmt.Sscanf(v1Parts[i], "%d", &n1)
+			if _, err := fmt.Sscanf(v1Parts[i], "%d", &n1); err != nil {
+				n1 = 0
+			}
 		}
 		if i < len(v2Parts) {
-			fmt.Sscanf(v2Parts[i], "%d", &n2)
+			if _, err := fmt.Sscanf(v2Parts[i], "%d", &n2); err != nil {
+				n2 = 0
+			}
 		}
 
 		if n1 > n2 {
@@ -142,17 +150,20 @@ func SelfUpdate() error {
 		if ui.GumAvailable() {
 			ui.GumSuccess(fmt.Sprintf("Already on latest version: %s", constants.Version))
 			if !ui.GumConfirm("Do you want to reinstall the current version?") {
-				fmt.Println("Update cancelled.")
+				fmt.Println("Update canceled.")
 				return nil
 			}
 		} else {
 			fmt.Printf("Already on latest version: %s\n", constants.Version)
 			fmt.Print("Do you want to reinstall the current version? [y/N]: ")
 			var response string
-			fmt.Scanln(&response)
+			if _, err := fmt.Scanln(&response); err != nil {
+				// If scan fails (e.g. empty input/newline), assume no
+				response = "n"
+			}
 			response = strings.ToLower(strings.TrimSpace(response))
 			if response != "y" && response != "yes" {
-				fmt.Println("Update cancelled.")
+				fmt.Println("Update canceled.")
 				return nil
 			}
 		}
@@ -184,14 +195,22 @@ func SelfUpdate() error {
 	if err != nil {
 		return fmt.Errorf("failed to download update: %w", err)
 	}
-	defer os.Remove(tmpFile)
+	defer func() {
+		if err := os.Remove(tmpFile); err != nil {
+			ui.LogWarning("Failed to remove temp file: %v", err)
+		}
+	}()
 
 	// Extract binary from archive
 	binaryPath, err := extractBinary(tmpFile, platform)
 	if err != nil {
 		return fmt.Errorf("failed to extract binary: %w", err)
 	}
-	defer os.Remove(binaryPath)
+	defer func() {
+		if err := os.Remove(binaryPath); err != nil {
+			ui.LogWarning("Failed to remove extracted binary: %v", err)
+		}
+	}()
 
 	// Get current executable path
 	execPath, err := os.Executable()
@@ -212,12 +231,16 @@ func SelfUpdate() error {
 	// Install new binary
 	if err := copyFile(binaryPath, execPath, 0755); err != nil {
 		// Restore backup on failure
-		os.Rename(backupPath, execPath)
+		if renameErr := os.Rename(backupPath, execPath); renameErr != nil {
+			ui.LogError(fmt.Errorf("CRITICAL: Failed to restore backup after update failure: %v", renameErr))
+		}
 		return fmt.Errorf("failed to install new binary: %w", err)
 	}
 
 	// Remove backup
-	os.Remove(backupPath)
+	if err := os.Remove(backupPath); err != nil {
+		ui.LogWarning("Failed to remove backup file: %v", err)
+	}
 
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Successfully updated to %s", latestVersion))
@@ -234,7 +257,11 @@ func downloadFile(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			ui.LogWarning("Failed to close response body: %v", err)
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("download failed with status: %s", resp.Status)
@@ -244,10 +271,16 @@ func downloadFile(url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tmpFile.Close()
+	defer func() {
+		if err := tmpFile.Close(); err != nil {
+			ui.LogWarning("Failed to close temp file: %v", err)
+		}
+	}()
 
 	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		os.Remove(tmpFile.Name())
+		if removeErr := os.Remove(tmpFile.Name()); removeErr != nil {
+			ui.LogWarning("Failed to remove temp file after copy error: %v", removeErr)
+		}
 		return "", err
 	}
 
@@ -260,13 +293,21 @@ func extractBinary(archivePath, platform string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		if err := f.Close(); err != nil {
+			ui.LogWarning("Failed to close archive file: %v", err)
+		}
+	}()
 
 	gzr, err := gzip.NewReader(f)
 	if err != nil {
 		return "", err
 	}
-	defer gzr.Close()
+	defer func() {
+		if err := gzr.Close(); err != nil {
+			ui.LogWarning("Failed to close gzip reader: %v", err)
+		}
+	}()
 
 	tr := tar.NewReader(gzr)
 
@@ -306,15 +347,23 @@ func extractBinary(archivePath, platform string) (string, error) {
 		}
 
 		if _, err := io.Copy(tmpFile, tr); err != nil {
-			tmpFile.Close()
-			os.Remove(tmpFile.Name())
+			if closeErr := tmpFile.Close(); closeErr != nil {
+				ui.LogWarning("Failed to close temp file after copy error: %v", closeErr)
+			}
+			if removeErr := os.Remove(tmpFile.Name()); removeErr != nil {
+				ui.LogWarning("Failed to remove temp file after copy error: %v", removeErr)
+			}
 			return "", err
 		}
-		tmpFile.Close()
+		if err := tmpFile.Close(); err != nil {
+			ui.LogWarning("Failed to close extracted binary file: %v", err)
+		}
 
 		// Make executable
 		if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
-			os.Remove(tmpFile.Name())
+			if removeErr := os.Remove(tmpFile.Name()); removeErr != nil {
+				ui.LogWarning("Failed to remove temp file after chmod error: %v", removeErr)
+			}
 			return "", err
 		}
 
@@ -330,13 +379,21 @@ func copyFile(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer srcFile.Close()
+	defer func() {
+		if err := srcFile.Close(); err != nil {
+			ui.LogWarning("Failed to close source file during copy: %v", err)
+		}
+	}()
 
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	defer func() {
+		if err := dstFile.Close(); err != nil {
+			ui.LogWarning("Failed to close destination file during copy: %v", err)
+		}
+	}()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
 		return err

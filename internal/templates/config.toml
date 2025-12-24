@@ -19,6 +19,9 @@ update_check_interval = 86400
 # Mount the entire home directory? (Dangerous, default: false)
 mount_home = false
 
+# Securely forward local SSH agent to the container (default: true)
+forward_ssh_agent = true
+
 # Default shell inside the container
 shell = "/bin/bash"
 
@@ -65,45 +68,13 @@ cleanup_interval_seconds = 86400
 log_retention_days = 15
 
 # Claude Code Provider Aliases
-# Configure custom API endpoints and authentication for Claude Code
+# Configure custom API endpoints and authentication for Claude Code.
 # Reference host environment variables using ${VAR_NAME} syntax
-# OR use direct values (less secure but simpler)
+# OR use direct values (less secure but simpler).
 
-# Z.AI GLM Provider
+# Example: Z.AI GLM Provider (Uncomment to use)
 # [claude.cc.zai]
 # ANTHROPIC_BASE_URL = "https://api.z.ai/api/anthropic"
 # ANTHROPIC_AUTH_TOKEN = "${CNSTR_ZAI_API_KEY}"
 # API_TIMEOUT_MS = "3000000"
 # CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
-
-# MiniMax M2 Provider
-# [claude.cc.minimax]
-# ANTHROPIC_BASE_URL = "https://api.minimax.io/anthropic"
-# ANTHROPIC_AUTH_TOKEN = "${CNSTR_MINIMAX_API_KEY}"
-# API_TIMEOUT_MS = "3000000"
-# ANTHROPIC_MODEL = "MiniMax-M2"
-# ANTHROPIC_SMALL_FAST_MODEL = "MiniMax-M2"
-# ANTHROPIC_DEFAULT_SONNET_MODEL = "MiniMax-M2"
-# ANTHROPIC_DEFAULT_OPUS_MODEL = "MiniMax-M2"
-# ANTHROPIC_DEFAULT_HAIKU_MODEL = "MiniMax-M2"
-# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
-
-# Moonshot Kimi K2 Provider
-# [claude.cc.kimi]
-# ANTHROPIC_BASE_URL = "https://api.moonshot.ai/anthropic"
-# ANTHROPIC_AUTH_TOKEN = "${CNSTR_KIMI_API_KEY}"
-# API_TIMEOUT_MS = "3000000"
-# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
-
-# Alibaba Qwen Provider
-# [claude.cc.qwen]
-# ANTHROPIC_BASE_URL = "https://dashscope-intl.aliyuncs.com/api/v2/apps/claude-code-proxy"
-# ANTHROPIC_AUTH_TOKEN = "${CNSTR_QWEN_API_KEY}"
-# API_TIMEOUT_MS = "3000000"
-# CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = "1"
-
-# Xiaomi Mimo Provider
-# [claude.cc.mimo]
-# ANTHROPIC_BASE_URL = "https://api.xiaomimimo.com/anthropic"
-# ANTHROPIC_AUTH_TOKEN = "${CNSTR_MIMO_API_KEY}"
-# API_TIMEOUT_MS = "3000000"

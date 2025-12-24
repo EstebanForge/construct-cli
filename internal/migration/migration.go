@@ -282,18 +282,22 @@ func markImageForRebuild() {
 	}
 
 	// Remove the old image so it gets rebuilt with new Dockerfile
-	// We try both docker and podman since we don't know which runtime is in use
-	// Errors are silently ignored - if image doesn't exist, that's fine
+	// We only try the ones that are actually installed
 	imageName := "construct-box:latest"
 
 	// Try docker
-	if err := exec.Command("docker", "rmi", "-f", imageName).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove Docker image: %v\n", err)
+	if _, err := exec.LookPath("docker"); err == nil {
+		// Suppress error if image doesn't exist (standard behavior for migration)
+		if err := exec.Command("docker", "rmi", "-f", imageName).Run(); err != nil {
+			ui.LogDebug("Failed to remove Docker image (may not exist): %v", err)
+		}
 	}
 
 	// Try podman
-	if err := exec.Command("podman", "rmi", "-f", imageName).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to remove Podman image: %v\n", err)
+	if _, err := exec.LookPath("podman"); err == nil {
+		if err := exec.Command("podman", "rmi", "-f", imageName).Run(); err != nil {
+			ui.LogDebug("Failed to remove Podman image (may not exist): %v", err)
+		}
 	}
 
 	if ui.GumAvailable() {
