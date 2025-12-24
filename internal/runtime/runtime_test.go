@@ -115,4 +115,3 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 		t.Errorf("Expected mount to /workspace, got: %s", contentStr)
 	}
 }
-

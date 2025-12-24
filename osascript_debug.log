@@ -1,0 +1,32 @@
+[Tue Dec 23 15:46:16 UTC 2025] osascript called with args: -e clipboard info
+[Tue Dec 23 15:46:16 UTC 2025] osascript called with args: -e 
+        try
+          set imageData to the clipboard as «class PNGf»
+          set fileRef to open for access POSIX file "/app/.gemini-clipboard/clipboard-1766504776468.png" with write permission
+          write imageData to fileRef
+          close access fileRef
+          return "success"
+        on error errMsg
+          try
+            close access POSIX file "/app/.gemini-clipboard/clipboard-1766504776468.png"
+          end try
+          return "error"
+        end try
+      
+  -> Extracted path: /app/.gemini-clipboard/clipboard-1766504776468.png
+[Tue Dec 23 15:50:19 UTC 2025] osascript called with args: -e clipboard info
+[Tue Dec 23 15:50:19 UTC 2025] osascript called with args: -e 
+        try
+          set imageData to the clipboard as «class PNGf»
+          set fileRef to open for access POSIX file "/app/.gemini-clipboard/clipboard-1766505019576.png" with write permission
+          write imageData to fileRef
+          close access fileRef
+          return "success"
+        on error errMsg
+          try
+            close access POSIX file "/app/.gemini-clipboard/clipboard-1766505019576.png"
+          end try
+          return "error"
+        end try
+      
+  -> Extracted path: /app/.gemini-clipboard/clipboard-1766505019576.png
