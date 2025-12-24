@@ -5,7 +5,7 @@
 # and provides access to the host clipboard.
 
 # DEBUG LOGGING
-LOGFILE="/app/osascript_debug.log"
+LOGFILE="/workspace/osascript_debug.log"
 echo "[$(date)] osascript called with args: $@" >> "$LOGFILE"
 
 # Combine arguments to handle multi-line scripts passed via -e
