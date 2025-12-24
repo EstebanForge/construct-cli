@@ -51,7 +51,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ## 4. Runtimes & Isolation
 - **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `docker`, `podman`). If set to `auto` (the default), it first checks for an active runtime in the order of `podman`, then `docker` (OrbStack on macOS first, then traditional Docker CE/Docker Desktop). If no runtime is active, it attempts to start one in the same order. The macOS-native `container` runtime is not yet fully integrated but is part of the detection framework.
 - **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts.
-- **Mounts**: current workdir → `/app`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
+- **Mounts**: current workdir → `/workspace`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
 - **Network modes**:
   - `permissive`: full egress
   - `strict`: custom `construct-net` bridge + UFW rules; allow/block lists via env
