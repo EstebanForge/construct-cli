@@ -54,6 +54,14 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !containsString(Clipper, "#!/bin/bash") {
 		t.Error("clipper template missing shebang")
 	}
+
+	// Test Osascript template
+	if Osascript == "" {
+		t.Error("osascript template is empty")
+	}
+	if !containsString(Osascript, "/workspace/osascript_debug.log") {
+		t.Error("osascript template missing /workspace log path")
+	}
 }
 
 // Helper function to check if string contains substring
