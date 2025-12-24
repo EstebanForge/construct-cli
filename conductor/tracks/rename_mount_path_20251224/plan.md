@@ -10,8 +10,8 @@
 ## Phase 2: Documentation Updates
 - [x] Task: Update `DESIGN.md` to reflect the move from `/app` to `/workspace`. 40c64a6
 - [x] Task: Update `README.md` to reflect the move from `/app` to `/workspace`. 9a5945d
-- [ ] Task: Conductor - User Manual Verification 'Phase 2: Documentation Updates' (Protocol in workflow.md)
+- [x] Task: Conductor - User Manual Verification 'Phase 2: Documentation Updates' (Protocol in workflow.md) f72e4ac
 
-## Phase 3: Verification
-- [ ] Task: Verify the change by building and running the CLI, checking that `$PWD` is correctly mounted to `/workspace` inside the container.
-- [ ] Task: Conductor - User Manual Verification 'Phase 3: Verification' (Protocol in workflow.md)
+## Phase 3: Verification [checkpoint: 341a9bc]
+- [x] Task: Verify the change by building and running the CLI, checking that `$PWD` is correctly mounted to `/workspace` inside the container. 23168ca
+- [x] Task: Conductor - User Manual Verification 'Phase 3: Verification' (Protocol in workflow.md) 341a9bc
