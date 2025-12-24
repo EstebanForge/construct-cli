@@ -104,7 +104,25 @@ func main() {
 	switch command {
 	case "sys":
 		if len(args) < 2 {
-			fmt.Println("Usage: construct sys <init|update|reset|shell|install-aliases|version|help|config|agents|doctor|self-update|update-check|migrate|ssh-import|restore-config>")
+			fmt.Println("Usage: construct sys <command> [options]")
+			fmt.Println()
+			fmt.Println("Commands:")
+			fmt.Println("  init             # Initialize environment and install agents inside The Construct")
+			fmt.Println("  update           # Update agents and packages to latest versions inside The Construct")
+			fmt.Println("  migrate          # Re-run migrations to sync config/templates with the binary")
+			fmt.Println("  reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)")
+			fmt.Println("  shell            # Interactive shell with all agents inside The Construct")
+			fmt.Println("  install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct")
+			fmt.Println("  self-update      # Update construct itself to the latest version")
+			fmt.Println("  update-check     # Check if an update is available for The Construct")
+			fmt.Println("  version          # Show version")
+			fmt.Println("  help             # Show this help")
+			fmt.Println("  config           # Open config.toml in editor")
+			fmt.Println("  agents           # List supported agents")
+			fmt.Println("  agents-md        # Manage global instruction files (rules) for agents")
+			fmt.Println("  doctor           # Check system health")
+			fmt.Println("  ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)")
+			fmt.Println("  restore-config   # Restore config from backup")
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -212,6 +230,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.OpenConfig()
 	case "agents":
 		agent.List()
+	case "agents-md":
+		sys.ListAgentMemories()
 	case "doctor":
 		doctor.Run()
 	case "self-update":
@@ -246,6 +266,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.RestoreConfig()
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
+		fmt.Println("Run 'construct sys' for a list of available commands.")
 		os.Exit(1)
 	}
 }

@@ -4,11 +4,24 @@ All notable changes to Construct CLI will be documented in this file.
 
 ## [0.7.0] - 2025-12-24
 
+### Added
+- **Global Agent Rules Management**: New `construct sys agents-md` command to manage rules for all supported agents in one place.
+  - Interactive selection UI powered by `gum`.
+  - Supports: Gemini, Qwen, OpenCode, Claude, Codex, Copilot, and Cline.
+  - **Auto-Initialization**: Automatically creates missing rules files and parent directories on demand.
+  - **Open All**: "Open all Agent Rules" option to quickly edit all supported agent rules at once.
+  - **Context-Aware Expansion**: Automatically resolves `~` to the Construct persistent home directory (`~/.config/construct-cli/home/`) so rules are correctly applied within the container environment.
+  - **Fallback UI**: Seamlessly falls back to a numeric menu if `gum` is not available.
+
 ### Changed
 - **Generic Workspace Path**: Renamed the internal container mount point and working directory from `/app` to `/workspace`.
   - This reflects the project's evolution into a general-purpose sandbox for any CLI agent, not just those used for "app" development.
   - Automatically updates all embedded templates (Dockerfile, docker-compose) and runtime override generation.
   - Updated design and user documentation to reflect the new path.
+
+### Fixed
+- Improved UI grammar and messaging consistency across system commands.
+- Updated `.gitignore` to prevent tracking of local debug logs while preserving them for development.
 
 ## [0.6.0] - 2025-12-23
 

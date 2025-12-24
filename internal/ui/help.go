@@ -24,19 +24,22 @@ Global Flags:
   -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline)
 
 [sys] System Commands:
-  construct sys init             # Initialize environment and install agents
-  construct sys update           # Update agents to latest versions
+  construct sys init             # Initialize environment and install agents inside The Construct
+  construct sys update           # Update agents and packages to latest versions inside The Construct
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
-  construct sys reset            # Delete volumes and reinstall
-  construct sys shell            # Interactive shell with all agents
-  construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.)
+  construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
+  construct sys shell            # Interactive shell with all agents inside The Construct
+  construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
   construct sys self-update      # Update construct itself to the latest version
-  construct sys update-check     # Check if an update is available
+  construct sys update-check     # Check if an update is available for The Construct
   construct sys version          # Show version
   construct sys help             # Show this help (alias for --help)
   construct sys config           # Open config.toml in editor
   construct sys agents           # List supported agents
+  construct sys agents-md        # Manage global instruction files (rules) for agents
   construct sys doctor           # Check system health
+  construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
+  construct sys restore-config   # Restore config from backup
 
 [network] Network Management:
   construct network allow api.anthropic.com  # Add domain to allowlist
