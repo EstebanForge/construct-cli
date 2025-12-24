@@ -9,7 +9,7 @@
 
 ## Phase 2: Documentation Updates
 - [x] Task: Update `DESIGN.md` to reflect the move from `/app` to `/workspace`. 40c64a6
-- [ ] Task: Update `README.md` to reflect the move from `/app` to `/workspace`.
+- [x] Task: Update `README.md` to reflect the move from `/app` to `/workspace`. 9a5945d
 - [ ] Task: Conductor - User Manual Verification 'Phase 2: Documentation Updates' (Protocol in workflow.md)
 
 ## Phase 3: Verification
