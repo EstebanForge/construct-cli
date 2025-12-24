@@ -32,6 +32,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !containsString(DockerCompose, "construct-box") {
 		t.Error("docker-compose.yml template missing service name")
 	}
+	if !containsString(DockerCompose, "/workspace") {
+		t.Error("docker-compose.yml template missing /workspace mount/workdir")
+	}
 
 	// Test that config.toml contains expected sections
 	if !containsString(Config, "[runtime]") {

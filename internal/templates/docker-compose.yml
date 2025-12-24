@@ -11,7 +11,7 @@ services:
 
     # Persistent volumes for agent installations
     volumes:
-      - ${PWD}:/app                                      # Current project
+      - ${PWD}:/workspace                                      # Current project
       - ~/.config/construct-cli/home:/home/construct    # Entire home directory (configs, caches, etc.)
       - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
 
@@ -25,7 +25,7 @@ services:
     # network_mode: none    # airgapped
 
     # Working directory
-    working_dir: /app
+    working_dir: /workspace
 
 # Named volumes for persistent agent and packages storage
 volumes:
