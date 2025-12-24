@@ -21,6 +21,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !containsString(Dockerfile, "brew install") {
 		t.Error("Dockerfile template missing Homebrew installation")
 	}
+	if !containsString(Dockerfile, "WORKDIR /workspace") {
+		t.Error("Dockerfile template missing WORKDIR /workspace")
+	}
 
 	// Test that docker-compose.yml contains expected content
 	if !containsString(DockerCompose, "services:") {
