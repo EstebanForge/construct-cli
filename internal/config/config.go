@@ -34,8 +34,9 @@ type RuntimeConfig struct {
 
 // SandboxConfig holds sandbox options.
 type SandboxConfig struct {
-	MountHome bool   `toml:"mount_home"`
-	Shell     string `toml:"shell"`
+	MountHome       bool   `toml:"mount_home"`
+	ForwardSSHAgent bool   `toml:"forward_ssh_agent"`
+	Shell           string `toml:"shell"`
 }
 
 // NetworkConfig holds network allow/block settings.

@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EstebanForge/construct-cli/internal/ui"
 	"github.com/pelletier/go-toml/v2"
 	"github.com/pelletier/go-toml/v2/unstable"
 )
@@ -38,6 +39,7 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 	backupValues := flattenTomlMap(backupConfig)
 	templateValues := flattenTomlMap(templateConfig)
 	replacements := make([]valueReplacement, 0, len(backupValues))
+	appliedKeys := make(map[string]bool)
 
 	for key, value := range backupValues {
 		templateValue, ok := templateValues[key]
@@ -59,22 +61,91 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 			end:   end,
 			value: formatted,
 		})
+		appliedKeys[key] = true
 	}
 
-	if len(replacements) == 0 {
-		return templateData, nil
+	// Calculate unapplied keys (those in backup but missing from template)
+	unapplied := make(map[string]interface{})
+	rootKeysInTemplate := make(map[string]bool)
+	for k := range templateValues {
+		rootKeysInTemplate[strings.Split(k, ".")[0]] = true
 	}
 
-	sort.Slice(replacements, func(i, j int) bool {
-		return replacements[i].start > replacements[j].start
-	})
+	for key, value := range backupValues {
+		if !appliedKeys[key] {
+			// Only append if the entire root section is missing from the template.
+			// This prevents duplicate [section] headers which break TOML validation.
+			rootKey := strings.Split(key, ".")[0]
+			if !rootKeysInTemplate[rootKey] {
+				unapplied[key] = value
+			}
+		}
+	}
 
 	updated := append([]byte(nil), templateData...)
-	for _, replacement := range replacements {
-		updated = append(updated[:replacement.start], append(replacement.value, updated[replacement.end:]...)...)
+
+	// Apply replacements in reverse order
+	if len(replacements) > 0 {
+		sort.Slice(replacements, func(i, j int) bool {
+			return replacements[i].start > replacements[j].start
+		})
+
+		for _, replacement := range replacements {
+			updated = append(updated[:replacement.start], append(replacement.value, updated[replacement.end:]...)...)
+		}
+	}
+
+	// Append unapplied settings (e.g. custom CC providers)
+	if len(unapplied) > 0 {
+		// Group by section path to produce cleaner TOML
+		sections := make(map[string]map[string]interface{})
+		for k, v := range unapplied {
+			parts := strings.Split(k, ".")
+			if len(parts) < 2 {
+				// Root level key
+				if _, ok := sections[""]; !ok {
+					sections[""] = make(map[string]interface{})
+				}
+				sections[""][k] = v
+				continue
+			}
+			sectionPath := strings.Join(parts[:len(parts)-1], ".")
+			key := parts[len(parts)-1]
+			if _, ok := sections[sectionPath]; !ok {
+				sections[sectionPath] = make(map[string]interface{})
+			}
+			sections[sectionPath][key] = v
+		}
+
+		if len(sections) > 0 {
+			updated = append(updated, []byte("\n\n# --- User-defined or custom settings ---\n")...)
+
+			// Sort section names for deterministic output
+			sectionNames := make([]string, 0, len(sections))
+			for name := range sections {
+				sectionNames = append(sectionNames, name)
+			}
+			sort.Strings(sectionNames)
+
+			for _, name := range sectionNames {
+				if name != "" {
+					updated = append(updated, []byte(fmt.Sprintf("[%s]\n", name))...)
+				}
+				// Marshal keys in this section
+				data, err := toml.Marshal(sections[name])
+				if err == nil {
+					// Clean up the marshaled data (remove newlines, use double quotes)
+					clean := string(data)
+					clean = strings.ReplaceAll(clean, "'", "\"")
+					updated = append(updated, []byte(clean)...)
+					updated = append(updated, []byte("\n")...)
+				}
+			}
+		}
 	}
 
 	if err := validateToml(updated); err != nil {
+		ui.LogDebug("Comment-preserving merge failed validation: %v. Falling back to additive merge.", err)
 		fallback, fallbackErr := mergeConfigData(templateConfig, backupConfig)
 		if fallbackErr != nil {
 			return nil, err
@@ -190,31 +261,44 @@ func validateToml(data []byte) error {
 }
 
 func mergeConfigData(templateConfig, backupConfig map[string]interface{}) ([]byte, error) {
-	merged := mergeMaps(templateConfig, backupConfig)
-	return toml.Marshal(merged)
+	// Start with backup to preserve everything
+	merged := make(map[string]interface{})
+	for k, v := range backupConfig {
+		merged[k] = v
+	}
+
+	// Overwrite/Merge with template to ensure new defaults/structure exist
+	final := mergeMaps(merged, templateConfig)
+	return toml.Marshal(final)
 }
 
-func mergeMaps(templateConfig, backupConfig map[string]interface{}) map[string]interface{} {
-	merged := make(map[string]interface{}, len(templateConfig))
-	for key, templateValue := range templateConfig {
-		backupValue, ok := backupConfig[key]
+func mergeMaps(base, overlay map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for k, v := range base {
+		result[k] = v
+	}
+
+	for key, overlayValue := range overlay {
+		baseValue, ok := result[key]
 		if !ok {
-			merged[key] = templateValue
+			result[key] = overlayValue
 			continue
 		}
-		templateMap, templateIsMap := templateValue.(map[string]interface{})
-		backupMap, backupIsMap := backupValue.(map[string]interface{})
-		if templateIsMap && backupIsMap {
-			merged[key] = mergeMaps(templateMap, backupMap)
-			continue
-		}
-		if typesCompatible(templateValue, backupValue) {
-			merged[key] = backupValue
+
+		baseMap, baseIsMap := baseValue.(map[string]interface{})
+		overlayMap, overlayIsMap := overlayValue.(map[string]interface{})
+
+		if baseIsMap && overlayIsMap {
+			result[key] = mergeMaps(baseMap, overlayMap)
 		} else {
-			merged[key] = templateValue
+			// Template (overlay) takes precedence for existing keys only if types are incompatible.
+			// If compatible, we keep the base (user) value.
+			if !typesCompatible(baseValue, overlayValue) {
+				result[key] = overlayValue
+			}
 		}
 	}
-	return merged
+	return result
 }
 
 func typesCompatible(templateValue, backupValue interface{}) bool {

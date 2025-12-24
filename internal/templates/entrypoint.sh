@@ -1,6 +1,48 @@
 #!/usr/bin/env bash
 # entrypoint.sh - Install agents and packages on first run only
 
+# 0. Root-level permission fixing (if running as root)
+if [ "$(id -u)" = "0" ]; then
+    # Fix SSH Agent permissions (critical for macOS/Docker Desktop)
+    if [ -n "$SSH_AUTH_SOCK" ]; then
+        # Check if the socket file exists (it might be a bind mount)
+        if [ -e "$SSH_AUTH_SOCK" ]; then
+            chown construct:construct "$SSH_AUTH_SOCK" || true
+            chmod 666 "$SSH_AUTH_SOCK" || true
+        fi
+    fi
+
+    # Fix home directory permissions (in case volume mounts overrode them)
+    # We avoid -R on the whole home if it's huge, but .local and .config are critical
+    # chown -R construct:construct /home/construct/.local /home/construct/.config 2>/dev/null || true
+    # Actually, for first run stability, we ensure construct owns its home
+    chown construct:construct /home/construct || true
+
+    # SSH Agent Forwarding
+    if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
+        # TCP-to-Unix Bridge (macOS/OrbStack/Docker Desktop reliability)
+        PROXY_SOCK="/home/construct/.ssh/agent.sock"
+        mkdir -p /home/construct/.ssh
+        chown construct:construct /home/construct/.ssh
+        rm -f "$PROXY_SOCK"
+        
+        # Bridge local Unix socket -> Host TCP listener
+        socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600,user=construct,group=construct TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
+        
+        export SSH_AUTH_SOCK="$PROXY_SOCK"
+        echo "✓ Started SSH Agent proxy (TCP Bridge)"
+    elif [ -n "$SSH_AUTH_SOCK" ]; then
+        # Standard Linux path: just fix permissions
+        if [ -e "$SSH_AUTH_SOCK" ]; then
+            chown construct:construct "$SSH_AUTH_SOCK" || true
+            chmod 666 "$SSH_AUTH_SOCK" || true
+        fi
+    fi
+
+    # Drop privileges and run the rest of the script as 'construct'
+    exec gosu construct "$0" "$@"
+fi
+
 # Ensure all required paths are in PATH
 export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
 
@@ -67,19 +109,46 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "Installing mcp-cli-ent..."
     curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash || true
 
-    # Create aliases
-    {
-        echo 'alias zai="claude --api-base https://api.z.ai/api/coding/paas/v4"'
-        echo 'alias glm="zai"'
-        echo 'alias minimax="claude --api-base <minimax-endpoint>"'
-    } >> ~/.bashrc
-
     # Mark as installed
     touch "$MARKER_FILE"
     echo ""
     echo "✅ Installation complete! Agents installed to persistent volumes."
     echo "   Next launch will be instant."
 fi
+
+# Configure shell environment (aliases, prompt, etc.)
+setup_shell_environment() {
+    local alias_file="$HOME/.bash_aliases"
+    
+    # 1. Generate/Overwrite standard aliases (Auto-updated on every run)
+    cat > "$alias_file" <<EOF
+# --- Standard Aliases ---
+alias ls='ls --color=auto'
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+
+# --- Navigation ---
+alias ..='cd ..'
+alias ...='cd ../..'
+alias ....='cd ../../../..'
+
+# --- Construct Provider Aliases ---
+EOF
+
+    # 2. Ensure .bashrc sources .bash_aliases
+    if ! grep -q "test -f ~/.bash_aliases && . ~/.bash_aliases" "$HOME/.bashrc"; then
+        {
+            echo ""
+            echo "# Alias support"
+            echo 'test -f ~/.bash_aliases && . ~/.bash_aliases'
+        } >> "$HOME/.bashrc"
+    fi
+}
+setup_shell_environment
 
 # Configure network filtering (if in strict mode)
 if [ -f "/usr/local/bin/network-filter.sh" ]; then

@@ -2,6 +2,38 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.6.0] - 2025-12-23
+
+### Added
+- **Secure SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container.
+  - Supports Linux and macOS (OrbStack and Docker Desktop).
+  - Implements a TCP-to-Unix bridge for robust macOS/OrbStack connectivity, bypassing common permission and socket quirks.
+  - Fully configurable via `forward_ssh_agent` in `config.toml` (enabled by default).
+- **SSH Key Import System**: New `construct sys ssh-import` command to securely bring host keys into Construct.
+  - Interactive multi-select UI powered by `gum`.
+  - Automatic permission fixing (0600) and matching `.pub`/`known_hosts` support.
+  - Smart logic to skip selection if only one key is found.
+- **Config Restoration**: New `construct sys restore-config` command to immediately recover from configuration backups.
+- **Shell Productivity Enhancements**: 
+  - Automatic management of `.bash_aliases` inside the container.
+  - Standard aliases included: `ll`, `la`, `l`, and color-coded `ls`/`grep`.
+  - Zsh-like navigation shortcuts: `..`, `...`, `....`.
+- **Improved Diagnostics**: `construct sys doctor` now reports SSH Agent connectivity and lists imported local keys.
+
+### Changed
+- **Non-Destructive Migration**: Redesigned `sys migrate` logic to be strictly additive.
+  - Preserves all user comments and formatting.
+  - Automatically identifies and preserves custom Claude Code aliases, moving them to a dedicated "User-defined" section.
+  - Prevents TOML section duplication.
+- **Unified macOS Magic Path**: Simplified container orchestration to use industry-standard magic paths for macOS container bridges.
+- **Entrypoint Reliability**: Container now starts as root to perform critical permission fixes (SSH sockets, home directory ownership) before dropping to the non-privileged `construct` user via `gosu`.
+
+### Fixed
+- Fixed "Permission denied" errors when accessing mounted SSH sockets on macOS.
+- Fixed "Communication failed" errors by implementing a Go-native TCP bridge for macOS.
+- Full compliance with strict `golangci-lint` rules, improving overall code robustness and error reporting.
+- Simplified `config.toml` template to reduce clutter and minimize merge conflicts.
+
 ## [0.5.0] - 2025-12-22
 
 ### Added
