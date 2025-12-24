@@ -14,7 +14,7 @@ The Construct is a single-binary CLI that boots a clean and isolated container, 
 *   **Seamless Developer Experience:** Ensure the tool works "out of the box" across major operating systems (macOS, Linux, Windows/WSL) with zero configuration required for standard use cases.
 
 ## 3. Key Features
-*   **Path-Locked Isolation:** Agents are restricted to specific directories, preventing unauthorized file system access.
+*   **Path-Locked Isolation:** Agents are restricted to a dedicated `/workspace` directory, preventing unauthorized file system access and ensuring a clean, context-aware environment.
 *   **Unified Clipboard Bridge:** A seamless link between the host and container clipboards, supporting both text and image pasting for a smooth workflow.
 *   **Granular Network Control:** Configurable network isolation modes (Strict, Permissive, Offline) to manage agent internet access and protect against exfiltration.
 *   **Automatic Runtime Management:** Intelligent detection and utilization of available container runtimes (Docker, Podman, Native) for optimal performance.
