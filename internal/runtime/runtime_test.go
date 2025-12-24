@@ -1,7 +1,10 @@
 package runtime
 
 import (
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,3 +89,30 @@ func TestGetCheckImageCommand(t *testing.T) {
 // I moved `getOSInfo` to `runtime`? No, I checked `runtime.go` content and didn't see `GetOSInfo`.
 // It was unused in `main.go`. I might have dropped it.
 // If it's unused, I don't need to test it.
+
+func TestGenerateDockerComposeOverride(t *testing.T) {
+	// Create temp directory
+	tmpDir := t.TempDir()
+	containerDir := filepath.Join(tmpDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	// Generate override
+	if err := GenerateDockerComposeOverride(tmpDir, "bridge"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	// Read file
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("Failed to read generated file: %v", err)
+	}
+
+	// Check content
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "${PWD}:/workspace") {
+		t.Errorf("Expected mount to /workspace, got: %s", contentStr)
+	}
+}
+
