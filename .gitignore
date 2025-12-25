@@ -39,3 +39,4 @@ test-results/
 .test-cache/
 /gemini-cli-main
 /qwen-code-main
+/.gemini-clipboard
