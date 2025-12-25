@@ -5,6 +5,9 @@ services:
       dockerfile: Dockerfile
     image: construct-box:latest
 
+    # Set a fixed hostname for a cleaner prompt (e.g., construct@sandbox instead of construct@99ab3b5f37d1)
+    hostname: sandbox
+
     # Interactive TTY session
     stdin_open: true
     tty: true

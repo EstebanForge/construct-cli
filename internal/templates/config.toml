@@ -22,6 +22,9 @@ mount_home = false
 # Securely forward local SSH agent to the container (default: true)
 forward_ssh_agent = true
 
+# Automatically propagate host Git identity (user.name/email) to container (default: true)
+propagate_git_identity = true
+
 # Default shell inside the container
 shell = "/bin/bash"
 

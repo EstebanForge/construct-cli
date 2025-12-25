@@ -555,6 +555,24 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 
 	// Environment variables
 	override.WriteString("    environment:\n")
+
+	// Propagate Git Identity
+	propagateGit := true
+	if cfg != nil {
+		propagateGit = cfg.Sandbox.PropagateGitIdentity
+	}
+
+	if propagateGit {
+		if name := getGitConfig("user.name"); name != "" {
+			override.WriteString(fmt.Sprintf("      - GIT_AUTHOR_NAME=%s\n", name))
+			override.WriteString(fmt.Sprintf("      - GIT_COMMITTER_NAME=%s\n", name))
+		}
+		if email := getGitConfig("user.email"); email != "" {
+			override.WriteString(fmt.Sprintf("      - GIT_AUTHOR_EMAIL=%s\n", email))
+			override.WriteString(fmt.Sprintf("      - GIT_COMMITTER_EMAIL=%s\n", email))
+		}
+	}
+
 	if forwardAgent && sshAuthSock != "" {
 		if runtime.GOOS == "linux" {
 			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
@@ -739,4 +757,14 @@ func StopContainer(containerRuntime, containerName string) error {
 	}
 
 	return nil
+}
+
+// getGitConfig retrieves a git configuration value from the host
+func getGitConfig(key string) string {
+	cmd := exec.Command("git", "config", key)
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
 }

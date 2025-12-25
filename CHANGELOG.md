@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.8.0] - 2025-12-25
+
+### Added
+- **Git Identity Inheritance**: Automatically propagates host git identity (`user.name` and `user.email`) to the container environment.
+  - Solves commit attribution issues inside the container.
+  - Enabled by default, configurable via `propagate_git_identity` in `config.toml`.
+  - Safely injects values as `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, etc., without mounting potentially incompatible host git configs.
+- **Improved Shell Prompt**: Container hostname is now set to `sandbox` (was random ID) for a cleaner prompt experience: `construct@sandbox:/workspace$`.
+
 ## [0.7.0] - 2025-12-24
 
 ### Added
