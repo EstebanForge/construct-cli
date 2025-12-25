@@ -7,14 +7,18 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 ## Highlights
 - One command to use any AGENT inside a secured, isolated sandbox. Agents spawn from the path where you call them, without a path escape.
 - Self-building: embedded Dockerfile/compose/config templates are written on first run, then built automatically. First `construct sys init` will build the containers and install the agents. Subsequent uses will be instant.
-- Runtime auto-detection: if macOS is detected and `container` exists, it will use it. Then, on Linux, WSL, and macOS, `podman`, then `docker` (compatible with OrbStack).
+- Runtime auto-detection: on macOS if `container` runtime is detected, it will use it. Then, on Linux, WSL and macOS, `podman` will be prioritized, then `docker` (OrbStack if found on macOS, then Docker).
 - Persistent volumes for agent installs, but ephemeral containers so your host stays clean.
 - Your agents' configuration lives outside of the containers, so you never lose them.
 - Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist.
 - Live application of network rules while the AGENT is running.
+- **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
 - **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
 - **Pro Toolchain**: Sandbox comes preloaded with Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, and more.
+- Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
+- **Automatic self-updates**: Construct can update itself to the latest version from GitHub releases, just running `construct sys self-update`.
+- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases`, and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox.
 
 ## Screenshots
 
