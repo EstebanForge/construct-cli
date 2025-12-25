@@ -135,6 +135,19 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: |
+          CURRENT_VERSION=""
+          if [ -f VERSION ]; then
+            CURRENT_VERSION=$(tr -d '[:space:]' < VERSION)
+            echo "Current VERSION file contains: ${CURRENT_VERSION}"
+          else
+            echo "VERSION file not found; it will be created."
+          fi
+
+          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
+            echo "VERSION already matches ${VERSION}; skipping bump."
+            exit 0
+          fi
+
           echo "$VERSION" > VERSION
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
