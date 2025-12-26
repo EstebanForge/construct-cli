@@ -108,8 +108,10 @@ jobs:
           if [ -f CHANGELOG.md ]; then
             release_date=$(awk -v ver="$VERSION" '
               $0 ~ "^## \\["ver"\\] - " {
-                sub(/^## \\[[^\\]]+\\] - /, "")
-                print
+                match($0, /^## \[[^]]+\] - (.+)$/, parts)
+                if (parts[1] != "") {
+                  print parts[1]
+                }
                 exit
               }' CHANGELOG.md)
           fi
