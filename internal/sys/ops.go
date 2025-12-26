@@ -63,34 +63,23 @@ func UpdateAgents(cfg *config.Config) {
 
 	var cmd *exec.Cmd
 
-	composeArgs := runtime.GetComposeFileArgs(configPath)
+	// Construct run args for update
+	runFlags := []string{"--rm", "--entrypoint", "/usr/local/bin/update-all.sh"}
+	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
+	runFlags = append(runFlags, "construct-box")
 
-	// Build the command to run update script
-	if containerRuntime == "docker" {
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			args := append(composeArgs, "run", "--rm", "--entrypoint", "/usr/local/bin/update-all.sh", "construct-box")
-			cmd = exec.Command("docker-compose", args...)
-		} else {
-			args := []string{"compose"}
-			args = append(args, composeArgs...)
-			args = append(args, "run", "--rm", "--entrypoint", "/usr/local/bin/update-all.sh", "construct-box")
-			cmd = exec.Command("docker", args...)
-		}
-	} else if containerRuntime == "podman" {
-		args := append(composeArgs, "run", "--rm", "--entrypoint", "/usr/local/bin/update-all.sh", "construct-box")
-		cmd = exec.Command("podman-compose", args...)
-	} else if containerRuntime == "container" {
-		args := []string{"compose"}
-		args = append(args, composeArgs...)
-		args = append(args, "run", "--rm", "--entrypoint", "/usr/local/bin/update-all.sh", "construct-box")
-		cmd = exec.Command("docker", args...)
+	// Build command
+	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to build update command: %v\n", err)
+		os.Exit(1)
 	}
 
 	cmd.Dir = config.GetContainerDir()
 	cmd.Env = env
 
 	// Use helper to run with spinner
-	if err := ui.RunCommandWithSpinner(cmd, "Updating all AI agents and tools...", logFile); err != nil {
+	if err := ui.RunCommandWithSpinner(cmd, "Updating all agents, packages & tools...", logFile); err != nil {
 		os.Exit(1)
 	}
 

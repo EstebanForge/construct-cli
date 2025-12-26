@@ -19,6 +19,7 @@ var DockerCompose string
 var Config string
 
 // Entrypoint is the embedded content of the entrypoint.sh script.
+// Force rebuild 4
 //
 //go:embed entrypoint.sh
 var Entrypoint string

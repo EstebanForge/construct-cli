@@ -44,13 +44,17 @@ func DetectRuntime(preferredEngine string) string {
 	}
 
 	// Second pass: try to start runtimes in order
-	fmt.Fprintln(os.Stderr, "No container runtime running. Attempting to start...")
+	if ui.CurrentLogLevel >= ui.LogLevelInfo {
+		fmt.Fprintln(os.Stderr, "No container runtime running - checking available runtimes...")
+	}
 
 	for _, rt := range runtimes {
 		if _, err := exec.LookPath(rt); err == nil {
 			if startRuntime(rt) {
 				if waitForRuntime(rt, 60*time.Second) {
-					fmt.Fprintf(os.Stderr, "✓ Started %s\n", rt)
+					if ui.CurrentLogLevel >= ui.LogLevelInfo {
+						fmt.Fprintf(os.Stderr, "✓ Started %s\n", rt)
+					}
 					return rt
 				}
 			}
@@ -127,14 +131,14 @@ func startRuntime(runtimeName string) bool {
 	case "podman":
 		if runtime.GOOS == "darwin" {
 			// Try to start Podman machine on macOS
-			fmt.Fprintln(os.Stderr, "Starting Podman machine...")
+			fmt.Fprintln(os.Stderr, "Launching Podman machine...")
 			cmd := exec.Command("podman", "machine", "start")
 			cmd.Stdout = os.Stderr
 			cmd.Stderr = os.Stderr
 			return cmd.Run() == nil
 		}
 		// On Linux (including WSL), try to start podman socket
-		fmt.Fprintln(os.Stderr, "Starting Podman socket...")
+		fmt.Fprintln(os.Stderr, "Starting Podman service...")
 		cmd := exec.Command("systemctl", "--user", "start", "podman.socket")
 		if cmd.Run() == nil {
 			return true
@@ -146,13 +150,13 @@ func startRuntime(runtimeName string) bool {
 	case "docker":
 		if runtime.GOOS == "darwin" {
 			if isOrbStackInstalled() {
-				fmt.Fprintln(os.Stderr, "Attempting to start OrbStack...")
+				fmt.Fprintln(os.Stderr, "Found OrbStack - launching engine...")
 				cmd := exec.Command("open", "-a", "OrbStack")
 				if err := cmd.Run(); err == nil {
 					return true
 				}
 			}
-			fmt.Fprintln(os.Stderr, "Attempting to start Docker Desktop...")
+			fmt.Fprintln(os.Stderr, "Launching Docker...")
 			cmd := exec.Command("open", "-a", "Docker")
 			return cmd.Run() == nil
 		}
@@ -241,31 +245,14 @@ func BuildImage(cfg *config.Config) {
 
 	var cmd *exec.Cmd
 
-	composeArgs := GetComposeFileArgs(configPath)
-
-	// Use docker-compose or podman-compose based on detected runtime
-	if containerRuntime == "docker" {
-		// Check if docker-compose or docker compose is available
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			args := append(composeArgs, "build")
-			cmd = exec.Command("docker-compose", args...)
-		} else {
-			// Try docker compose (newer syntax)
-			args := []string{"compose"}
-			args = append(args, composeArgs...)
-			args = append(args, "build")
-			cmd = exec.Command("docker", args...)
-		}
-	} else if containerRuntime == "podman" {
-		args := append(composeArgs, "build")
-		cmd = exec.Command("podman-compose", args...)
-	} else if containerRuntime == "container" {
-		// macOS container runtime - use docker fallback for build
+	// Build command
+	cmd, err = BuildComposeCommand(containerRuntime, configPath, "build", []string{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to construct build command: %v\n", err)
+		os.Exit(1)
+	}
+	if containerRuntime == "container" {
 		fmt.Println("Note: macOS container runtime detected, using docker for build")
-		args := []string{"compose"}
-		args = append(args, composeArgs...)
-		args = append(args, "build")
-		cmd = exec.Command("docker", args...)
 	}
 
 	cmd.Dir = configPath
@@ -358,27 +345,19 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 		}
 	}
 
-	composeArgs := GetComposeFileArgs(configPath)
-
-	// Determine compose command
-	var composeCmd []string
-	if containerRuntime == "docker" {
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			composeCmd = append([]string{"docker-compose"}, composeArgs...)
-		} else {
-			composeCmd = []string{"docker", "compose"}
-			composeCmd = append(composeCmd, composeArgs...)
-		}
-	} else if containerRuntime == "podman" {
-		composeCmd = append([]string{"podman-compose"}, composeArgs...)
-	} else if containerRuntime == "container" {
-		composeCmd = []string{"docker", "compose"}
-		composeCmd = append(composeCmd, composeArgs...)
-	}
-
 	// Run the container with entrypoint to install agents
-	args := append(composeCmd, "run", "--rm", "construct-box", "/usr/local/bin/entrypoint.sh", "echo", "Installation complete")
-	cmd := exec.Command(args[0], args[1:]...)
+	runFlags := []string{"--rm", "construct-box", "/usr/local/bin/entrypoint.sh", "echo", "Installation complete"}
+	runFlags = append(GetPlatformRunFlags(), runFlags...) // Prepend Linux flags if needed
+
+	cmd, err := BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
+	if err != nil {
+		return &errors.ConstructError{
+			Category:  errors.ErrorCategoryRuntime,
+			Operation: "build agent install command",
+			Runtime:   containerRuntime,
+			Err:       err,
+		}
+	}
 	cmd.Dir = config.GetContainerDir()
 
 	agentLogFile, err := config.CreateLogFile("agent_install")
@@ -457,7 +436,7 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 
 // EnsureCustomNetwork creates the construct-net custom network if it doesn't exist
 func EnsureCustomNetwork(containerRuntime string) error {
-	// Check if network exists
+	// Check if the network exists
 	var checkCmd *exec.Cmd
 	if containerRuntime == "docker" || containerRuntime == "container" {
 		checkCmd = exec.Command("docker", "network", "inspect", "construct-net")
@@ -513,8 +492,16 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 		uid := os.Getuid()
 		gid := os.Getgid()
 
-		override.WriteString(fmt.Sprintf("    user: \"%d:%d\"\n", uid, gid))
-		fmt.Printf("✓ Linux UID/GID mapping configured (%d:%d)\n", uid, gid)
+		// If UID is 1000, we skip setting 'user' here to allow entrypoint.sh to run as root first
+		// This enables permission fixups for volumes. entrypoint.sh will then 'gosu construct' (UID 1000).
+		// For non-1000 users, we must map to host UID/GID to ensure workspace access, at the cost of
+		// potentially breaking volume permission fixes (which is a known limitation for now).
+		if uid != 1000 {
+			fmt.Fprintf(&override, "    user: \"%d:%d\"\n", uid, gid)
+			fmt.Printf("✓ Linux UID/GID mapping configured (%d:%d)\n", uid, gid)
+		} else {
+			fmt.Println("✓ Standard UID 1000 detected - enabling permission auto-fix mode")
+		}
 	}
 
 	// Volumes block
@@ -523,12 +510,12 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 	// Platform-specific volume declarations
 	if runtime.GOOS == "linux" {
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
-		override.WriteString(fmt.Sprintf("      - ${PWD}:/workspace%s\n", selinuxSuffix))
-		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
+		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	} else if runtime.GOOS == "darwin" {
-		override.WriteString(fmt.Sprintf("      - ${PWD}:/workspace%s\n", selinuxSuffix))
-		override.WriteString(fmt.Sprintf("      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix))
+		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 
@@ -547,7 +534,7 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 	if forwardAgent && sshAuthSock != "" {
 		if runtime.GOOS == "linux" {
 			// Standard Linux socket mounting
-			override.WriteString(fmt.Sprintf("      - %s:/ssh-agent%s\n", sshAuthSock, selinuxSuffix))
+			fmt.Fprintf(&override, "      - %s:/ssh-agent%s\n", sshAuthSock, selinuxSuffix)
 			fmt.Println("✓ SSH Agent forwarding configured")
 		}
 		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
@@ -564,12 +551,12 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 
 	if propagateGit {
 		if name := getGitConfig("user.name"); name != "" {
-			override.WriteString(fmt.Sprintf("      - GIT_AUTHOR_NAME=%s\n", name))
-			override.WriteString(fmt.Sprintf("      - GIT_COMMITTER_NAME=%s\n", name))
+			fmt.Fprintf(&override, "      - GIT_AUTHOR_NAME=%s\n", name)
+			fmt.Fprintf(&override, "      - GIT_COMMITTER_NAME=%s\n", name)
 		}
 		if email := getGitConfig("user.email"); email != "" {
-			override.WriteString(fmt.Sprintf("      - GIT_AUTHOR_EMAIL=%s\n", email))
-			override.WriteString(fmt.Sprintf("      - GIT_COMMITTER_EMAIL=%s\n", email))
+			fmt.Fprintf(&override, "      - GIT_AUTHOR_EMAIL=%s\n", email)
+			fmt.Fprintf(&override, "      - GIT_COMMITTER_EMAIL=%s\n", email)
 		}
 	}
 
@@ -577,7 +564,7 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 		if runtime.GOOS == "linux" {
 			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
 		}
-		// On macOS, the SSH_AUTH_SOCK is set in entrypoint.sh via the TCP bridge
+		// On macOS, SSH_AUTH_SOCK is set in entrypoint.sh via the TCP bridge
 	}
 
 	// Network isolation mode
@@ -767,4 +754,45 @@ func getGitConfig(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// BuildComposeCommand constructs a docker-compose command
+func BuildComposeCommand(containerRuntime, configPath, subCommand string, args []string) (*exec.Cmd, error) {
+	composeArgs := GetComposeFileArgs(configPath)
+
+	if containerRuntime == "docker" {
+		if _, err := exec.LookPath("docker-compose"); err == nil {
+			cmdArgs := append([]string{"docker-compose"}, composeArgs...)
+			cmdArgs = append(cmdArgs, subCommand)
+			cmdArgs = append(cmdArgs, args...)
+			return exec.Command("docker-compose", cmdArgs[1:]...), nil
+		}
+		cmdArgs := []string{"docker", "compose"}
+		cmdArgs = append(cmdArgs, composeArgs...)
+		cmdArgs = append(cmdArgs, subCommand)
+		cmdArgs = append(cmdArgs, args...)
+		return exec.Command("docker", cmdArgs[1:]...), nil
+	}
+	if containerRuntime == "podman" {
+		cmdArgs := append([]string{"podman-compose"}, composeArgs...)
+		cmdArgs = append(cmdArgs, subCommand)
+		cmdArgs = append(cmdArgs, args...)
+		return exec.Command("podman-compose", cmdArgs[1:]...), nil
+	}
+	if containerRuntime == "container" {
+		cmdArgs := []string{"docker", "compose"}
+		cmdArgs = append(cmdArgs, composeArgs...)
+		cmdArgs = append(cmdArgs, subCommand)
+		cmdArgs = append(cmdArgs, args...)
+		return exec.Command("docker", cmdArgs[1:]...), nil
+	}
+	return nil, fmt.Errorf("unsupported runtime: %s", containerRuntime)
+}
+
+// GetPlatformRunFlags returns platform-specific flags for the 'run' command
+func GetPlatformRunFlags() []string {
+	if runtime.GOOS == "linux" {
+		return []string{"--add-host", "host.docker.internal:host-gateway"}
+	}
+	return []string{}
 }

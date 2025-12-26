@@ -305,7 +305,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		}
 	}
 
-	composeArgs := runtime.GetComposeFileArgs(configPath)
+	// composeArgs := runtime.GetComposeFileArgs(configPath) // Removed as unused
 
 	if len(args) == 0 {
 		fmt.Println("Entering Construct interactive shell...")
@@ -316,157 +316,58 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	var cmd *exec.Cmd
 	loginForward, loginPorts := shouldEnableLoginForward(args)
 
-	// Build the run command based on runtime
-	if containerRuntime == "docker" {
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			runArgs := append(composeArgs, "run", "--rm")
-			if loginForward {
-				for _, port := range loginPorts {
-					listenPort := port + loginForwardListenOffset
-					runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
-				}
-			}
-			// Add host.docker.internal for Linux
-			if stdruntime.GOOS == "linux" {
-				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
-			}
-			// Inject clipboard env vars
-			if cbServer != nil {
-				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-			}
-			// Inject SSH bridge port
-			for _, e := range osEnv {
-				if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-					runArgs = append(runArgs, "-e", e)
-					break
-				}
-			}
-			if loginForward {
-				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
-				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
-				runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
-			}
-			// Inject provider env vars
-			for _, envVar := range providerEnv {
-				runArgs = append(runArgs, "-e", envVar)
-			}
-			runArgs = append(runArgs, "construct-box")
-			runArgs = append(runArgs, args...)
-			cmd = exec.Command("docker-compose", runArgs...)
-		} else {
-			runArgs := []string{"compose"}
-			runArgs = append(runArgs, composeArgs...)
-			runArgs = append(runArgs, "run", "--rm")
-			if loginForward {
-				for _, port := range loginPorts {
-					listenPort := port + loginForwardListenOffset
-					runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
-				}
-			}
-			// Add host.docker.internal for Linux
-			if stdruntime.GOOS == "linux" {
-				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
-			}
-			// Inject clipboard env vars
-			if cbServer != nil {
-				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-				runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-			}
-			// Inject SSH bridge port
-			for _, e := range osEnv {
-				if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-					runArgs = append(runArgs, "-e", e)
-					break
-				}
-			}
-			if loginForward {
-				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
-				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
-				runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
-			}
-			// Inject provider env vars
-			for _, envVar := range providerEnv {
-				runArgs = append(runArgs, "-e", envVar)
-			}
-			runArgs = append(runArgs, "construct-box")
-			runArgs = append(runArgs, args...)
-			cmd = exec.Command("docker", runArgs...)
+	// Construct common arguments for 'run' command
+	runFlags := []string{"--rm"}
+
+	if loginForward {
+		for _, port := range loginPorts {
+			listenPort := port + loginForwardListenOffset
+			runFlags = append(runFlags, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
 		}
-	} else if containerRuntime == "podman" {
-		runArgs := append(composeArgs, "run", "--rm")
-		if loginForward {
-			for _, port := range loginPorts {
-				listenPort := port + loginForwardListenOffset
-				runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
-			}
+	}
+
+	// Add platform-specific flags (e.g. --add-host on Linux)
+	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
+
+	// Inject clipboard env vars
+	if cbServer != nil {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+	}
+
+	// Inject SSH bridge port
+	for _, e := range osEnv {
+		if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+			runFlags = append(runFlags, "-e", e)
+			break
 		}
-		// Add host.docker.internal for Linux
-		if stdruntime.GOOS == "linux" {
-			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
-		}
-		// Inject clipboard env vars
-		if cbServer != nil {
-			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-		}
-		// Inject SSH bridge port
-		for _, e := range osEnv {
-			if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-				runArgs = append(runArgs, "-e", e)
-				break
-			}
-		}
-		if loginForward {
-			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
-			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
-			runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
-		}
-		// Inject provider env vars
-		for _, envVar := range providerEnv {
-			runArgs = append(runArgs, "-e", envVar)
-		}
-		runArgs = append(runArgs, "construct-box")
-		runArgs = append(runArgs, args...)
-		cmd = exec.Command("podman-compose", runArgs...)
-	} else if containerRuntime == "container" {
-		runArgs := []string{"compose"}
-		runArgs = append(runArgs, composeArgs...)
-		runArgs = append(runArgs, "run", "--rm")
-		if loginForward {
-			for _, port := range loginPorts {
-				listenPort := port + loginForwardListenOffset
-				runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
-			}
-		}
-		// Add host.docker.internal for Linux
-		if stdruntime.GOOS == "linux" {
-			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
-		}
-		// Inject clipboard env vars
-		if cbServer != nil {
-			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-			runArgs = append(runArgs, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-		}
-		// Inject SSH bridge port
-		for _, e := range osEnv {
-			if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-				runArgs = append(runArgs, "-e", e)
-				break
-			}
-		}
-		if loginForward {
-			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
-			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
-			runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
-		}
-		// Inject provider env vars
-		for _, envVar := range providerEnv {
-			runArgs = append(runArgs, "-e", envVar)
-		}
-		runArgs = append(runArgs, "construct-box")
-		runArgs = append(runArgs, args...)
-		cmd = exec.Command("docker", runArgs...)
+	}
+
+	if loginForward {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+		runFlags = append(runFlags, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
+	}
+
+	// Inject provider env vars
+	for _, envVar := range providerEnv {
+		runFlags = append(runFlags, "-e", envVar)
+	}
+
+	// Add image/service name and arguments
+	runFlags = append(runFlags, "construct-box")
+	runFlags = append(runFlags, args...)
+
+	// Build the command using runtime abstraction
+	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
+	if err != nil {
+		ui.LogError(&errors.ConstructError{
+			Category:  errors.ErrorCategoryRuntime,
+			Operation: "build command",
+			Runtime:   containerRuntime,
+			Err:       err,
+		})
+		os.Exit(1)
 	}
 
 	cmd.Dir = config.GetContainerDir()

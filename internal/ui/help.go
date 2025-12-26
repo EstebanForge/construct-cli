@@ -24,23 +24,23 @@ Global Flags:
   -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline)
 
 [sys] System Commands:
-  construct sys init             # Initialize environment and install agents inside The Construct
-  construct sys update           # Update agents and packages to latest versions inside The Construct
-  construct sys migrate          # Re-run migrations to sync config/templates with the binary
-  construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
-  construct sys shell            # Interactive shell with all agents inside The Construct
-  construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
-  construct sys self-update      # Update construct itself to the latest version
-  construct sys update-check     # Check if an update is available for The Construct
-  construct sys version          # Show version
-  construct sys help             # Show this help (alias for --help)
-  construct sys config           # Open config.toml in editor
   construct sys agents           # List supported agents
   construct sys agents-md        # Manage global instruction files (rules) for agents
+  construct sys config           # Open config.toml in editor
   construct sys doctor           # Check system health
-  construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
-  construct sys restore-config   # Restore config from backup
+  construct sys help             # Show this help (alias for --help)
+  construct sys init             # Initialize environment and install agents inside The Construct
+  construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
+  construct sys migrate          # Re-run migrations to sync config/templates with the binary
+  construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
+  construct sys restore-config   # Restore config from backup
+  construct sys self-update      # Update construct itself to the latest version
+  construct sys shell            # Interactive shell with all agents inside The Construct
+  construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
+  construct sys update           # Update agents and packages to latest versions inside The Construct
+  construct sys update-check     # Check if an update is available for The Construct
+  construct sys version          # Show version
 
 [network] Network Management:
   construct network allow api.anthropic.com  # Add domain to allowlist
@@ -75,6 +75,32 @@ For more information, visit: https://github.com/EstebanForge/construct-cli
 	} else {
 		fmt.Print(help)
 	}
+}
+
+// PrintSysHelp prints help for sys commands.
+func PrintSysHelp() {
+	help := `Usage: construct sys <command> [options]
+
+Commands:
+  agents           # List supported agents
+  agents-md        # Manage global instruction files (rules) for agents
+  config           # Open config.toml in editor
+  doctor           # Check system health
+  help             # Show this help
+  init             # Initialize environment and install agents inside The Construct
+  install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
+  login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
+  migrate          # Re-run migrations to sync config/templates with the binary
+  reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
+  restore-config   # Restore config from backup
+  self-update      # Update construct itself to the latest version
+  shell            # Interactive shell with all agents inside The Construct
+  ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
+  update           # Update agents and packages to latest versions inside The Construct
+  update-check     # Check if an update is available for The Construct
+  version          # Show version
+`
+	fmt.Print(help)
 }
 
 // PrintNetworkHelp prints help for network commands.

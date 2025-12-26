@@ -2,6 +2,22 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.9.0] - 2025-12-26
+
+### Optimized
+- **Reliable Agent Installation**: Overhauled `entrypoint.sh` to prevent partial installation failures.
+  - Split large `brew install` commands into categorized blocks (Core, Dev, Languages, Linters, Web/Build).
+  - Unified npm package installation into a single, efficient command.
+  - Implemented hash-based change detection for `entrypoint.sh` to automatically trigger re-installation when scripts are updated.
+- **Smart Runtime Configuration**:
+  - Optimized Linux runtime detection to avoid unnecessary user ID mapping for UID 1000 users, enabling proper permission fixups.
+  - Improved `sys migrate` to ensure binary rebuilds are correctly triggered when embedded templates change.
+
+### Fixed
+- **Permission Issues**: Fixed permission errors during initial setup by allowing the container to start as root for volume ownership fixes before dropping privileges.
+- **Missing Tools**: Resolved issue where tools like `golangci-lint` could be missing due to silent installation failures.
+- **Build Caching**: Fixed an issue where Docker build cache would persist stale `entrypoint.sh` versions, preventing updates from being applied.
+
 ## [0.8.0] - 2025-12-25
 
 ### Added
