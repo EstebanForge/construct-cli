@@ -40,6 +40,7 @@ Global Flags:
   construct sys doctor           # Check system health
   construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   construct sys restore-config   # Restore config from backup
+  construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
 
 [network] Network Management:
   construct network allow api.anthropic.com  # Add domain to allowlist
