@@ -1,6 +1,9 @@
 package templates
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestEmbeddedTemplates tests that embedded templates are not empty
 func TestEmbeddedTemplates(t *testing.T) {
@@ -15,35 +18,35 @@ func TestEmbeddedTemplates(t *testing.T) {
 	}
 
 	// Test that Dockerfile contains expected content
-	if !containsString(Dockerfile, "FROM debian:trixie-slim") {
+	if !strings.Contains(Dockerfile, "FROM debian:trixie-slim") {
 		t.Error("Dockerfile template missing base image declaration")
 	}
-	if !containsString(Dockerfile, "brew install") {
+	if !strings.Contains(Dockerfile, "brew install") {
 		t.Error("Dockerfile template missing Homebrew installation")
 	}
-	if !containsString(Dockerfile, "WORKDIR /workspace") {
+	if !strings.Contains(Dockerfile, "WORKDIR /workspace") {
 		t.Error("Dockerfile template missing WORKDIR /workspace")
 	}
 
 	// Test that docker-compose.yml contains expected content
-	if !containsString(DockerCompose, "services:") {
+	if !strings.Contains(DockerCompose, "services:") {
 		t.Error("docker-compose.yml template missing services section")
 	}
-	if !containsString(DockerCompose, "construct-box") {
+	if !strings.Contains(DockerCompose, "construct-box") {
 		t.Error("docker-compose.yml template missing service name")
 	}
-	if !containsString(DockerCompose, "/workspace") {
+	if !strings.Contains(DockerCompose, "/workspace") {
 		t.Error("docker-compose.yml template missing /workspace mount/workdir")
 	}
 
 	// Test that config.toml contains expected sections
-	if !containsString(Config, "[runtime]") {
+	if !strings.Contains(Config, "[runtime]") {
 		t.Error("config.toml template missing [runtime] section")
 	}
-	if !containsString(Config, "[network]") {
+	if !strings.Contains(Config, "[network]") {
 		t.Error("config.toml template missing [network] section")
 	}
-	if !containsString(Config, "[sandbox]") {
+	if !strings.Contains(Config, "[sandbox]") {
 		t.Error("config.toml template missing [sandbox] section")
 	}
 
@@ -51,7 +54,7 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if Clipper == "" {
 		t.Error("clipper template is empty")
 	}
-	if !containsString(Clipper, "#!/bin/bash") {
+	if !strings.Contains(Clipper, "#!/bin/bash") {
 		t.Error("clipper template missing shebang")
 	}
 
@@ -59,21 +62,7 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if Osascript == "" {
 		t.Error("osascript template is empty")
 	}
-	if !containsString(Osascript, "/workspace/osascript_debug.log") {
+	if !strings.Contains(Osascript, "/workspace/osascript_debug.log") {
 		t.Error("osascript template missing /workspace log path")
 	}
-}
-
-// Helper function to check if string contains substring
-func containsString(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 &&
-		(s == substr || len(s) >= len(substr) &&
-			func() bool {
-				for i := 0; i <= len(s)-len(substr); i++ {
-					if s[i:i+len(substr)] == substr {
-						return true
-					}
-				}
-				return false
-			}())
 }

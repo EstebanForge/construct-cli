@@ -104,12 +104,34 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: |
+          release_date=""
+          if [ -f CHANGELOG.md ]; then
+            release_date=$(awk -v ver="$VERSION" '
+              $0 ~ "^## \\["ver"\\] - " {
+                sub(/^## \\[[^\\]]+\\] - /, "")
+                print
+                exit
+              }' CHANGELOG.md)
+          fi
+
+          if [ -n "$release_date" ]; then
+            release_title="The Construct CLI $VERSION - $release_date"
+          else
+            release_title="The Construct CLI $VERSION"
+          fi
+
+          echo "RELEASE_TITLE=$release_title" >> "$GITHUB_ENV"
+
           cat > release_notes.md << 'EOF'
           ## Release Notes
 
           EOF
           if [ -f CHANGELOG.md ]; then
-            awk '/^## \[.*\] - / {if (found) exit; found=1} found' CHANGELOG.md | head -n -1 >> release_notes.md
+            awk -v ver="$VERSION" '
+              $0 ~ "^## \\["ver"\\] - " {found=1; next}
+              found && $0 ~ "^## \\[" {exit}
+              found {print}
+            ' CHANGELOG.md | sed '1{/^$/d;}' >> release_notes.md
           else
             echo "- See commit history for details." >> release_notes.md
           fi
@@ -118,7 +140,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.VERSION }}
-          name: Construct CLI ${{ env.VERSION }}
+          name: ${{ env.RELEASE_TITLE }}
           body_path: release_notes.md
           draft: false
           prerelease: false

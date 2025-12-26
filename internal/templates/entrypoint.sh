@@ -3,6 +3,17 @@
 
 # 0. Root-level permission fixing (if running as root)
 if [ "$(id -u)" = "0" ]; then
+    # CRITICAL: Ensure Homebrew volume is owned by construct user
+    # brew/npm MUST run as construct, not as root
+    # This fixes permission errors after updates
+    if [ -d /home/linuxbrew/.linuxbrew ]; then
+        chown -R construct:construct /home/linuxbrew/.linuxbrew 2>/dev/null || true
+    fi
+
+    # Fix home directory permissions (in case volume mounts overrode them)
+    chown -R construct:construct /home/construct/.local /home/construct/.config 2>/dev/null || true
+    chown construct:construct /home/construct || true
+
     # Fix SSH Agent permissions (critical for macOS/Docker Desktop)
     if [ -n "$SSH_AUTH_SOCK" ]; then
         # Check if the socket file exists (it might be a bind mount)
@@ -10,13 +21,7 @@ if [ "$(id -u)" = "0" ]; then
             chown construct:construct "$SSH_AUTH_SOCK" || true
             chmod 666 "$SSH_AUTH_SOCK" || true
         fi
-    fi
-
-    # Fix home directory permissions (in case volume mounts overrode them)
-    # We avoid -R on the whole home if it's huge, but .local and .config are critical
-    # chown -R construct:construct /home/construct/.local /home/construct/.config 2>/dev/null || true
-    # Actually, for first run stability, we ensure construct owns its home
-    chown construct:construct /home/construct || true
+    fi 
 
     # SSH Agent Forwarding
     if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
@@ -46,11 +51,18 @@ fi
 # Ensure all required paths are in PATH
 export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
 
-MARKER_FILE="/home/construct/.local/.agents-installed"
+# Check if we need to run installation (First run or Script update)
+# We use the script's own hash to determine if a re-run is needed.
+CURRENT_HASH=$(sha256sum "$0" | awk '{print $1}')
+HASH_FILE="/home/construct/.local/.entrypoint_hash"
+PREVIOUS_HASH=""
+if [ -f "$HASH_FILE" ]; then
+    PREVIOUS_HASH=$(cat "$HASH_FILE")
+fi
 
-if [ ! -f "$MARKER_FILE" ]; then
-    echo "🔧 First run detected - installing AI agents..."
-    echo "This will take 5-10 minutes. Subsequent runs will be instant."
+if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
+    echo "🔧 Setup detected (First run or Update) - installing tools..."
+    echo "   This might take a few minutes..."
     echo ""
 
     # Create necessary directories
@@ -60,19 +72,29 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "Installing claude-code..."
     curl -fsSL https://claude.ai/install.sh | bash || true
 
-
     # Install Homebrew CLI tools and development utilities
     echo "Installing Homebrew CLI tools..."
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-    brew install ast-grep yq sd fzf eza zoxide ripgrep \
-        gh git-delta git-cliff procs python-setuptools httpie \
-        yarn composer wget tree neovim gulp-cli unzip \
-        ffmpeg php php-cs-fixer wp-cli tailwindcss uv prettier \
-        go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
-        ninja gradle \
-        fastmod shellcheck yamllint terraform awscli \
-        node@24 python@3 oven-sh/bun/bun jq \
-        vite webpack tlrc socat || true
+
+    # Core utilities
+    echo "Installing core utilities..."
+    brew install ast-grep yq sd fzf eza zoxide ripgrep jq wget tree unzip socat || echo "⚠️ Core utils install warning"
+
+    # Development tools
+    echo "Installing dev tools..."
+    brew install gh git-delta git-cliff procs python-setuptools httpie awscli || echo "⚠️ Dev tools install warning"
+
+    # Languages
+    echo "Installing languages..."
+    brew install go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol node@24 python@3 oven-sh/bun/bun || echo "⚠️ Languages install warning"
+
+    # Linters & Formatters
+    echo "Installing linters..."
+    brew install golangci-lint golangci-lint-langserver php-cs-fixer prettier shellcheck yamllint || echo "⚠️ Linters install warning"
+
+    # Web & Build tools
+    echo "Installing web/build tools..."
+    brew install yarn composer neovim gulp-cli ffmpeg php wp-cli tailwindcss uv vite webpack tlrc ninja gradle fastmod || echo "⚠️ Web/Build tools install warning"
 
     # Install AI agents via Homebrew
     echo "Installing gemini-cli..."
@@ -86,25 +108,15 @@ if [ ! -f "$MARKER_FILE" ]; then
         echo "Configuring npm..."
         npm config set prefix "$HOME/.npm-global"
 
-        # npm-based agents (to .local/lib/node_modules)
-        echo "Installing qwen-code..."
-        npm install -g @qwen-code/qwen-code@latest || true
-
-        # GitHub Copilot CLI (npm only)
-        echo "Installing copilot-cli..."
-        npm install -g @github/copilot || true
-
-        # Cline CLI
-        echo "Installing cline..."
-        npm install -g cline || true
-
-        # OpenAI Codex CLI
-        echo "Installing codex-cli..."
-        npm install -g @openai/codex || true
-
-        # URL to Markdown CLI Tool
-        echo "Installing url-to-markdown-cli-tool..."
-        npm install -g url-to-markdown-cli-tool || true
+        # Install npm-based agents in a single command
+        echo "Installing npm-based agents..."
+        npm install -g \
+            @qwen-code/qwen-code@latest \
+            @github/copilot \
+            cline \
+            @openai/codex \
+            @steipete/oracle \
+            url-to-markdown-cli-tool || echo "⚠️ npm agents install warning"
     else
         echo "⚠️  npm not available, skipping npm-based agent installations"
     fi
@@ -113,11 +125,10 @@ if [ ! -f "$MARKER_FILE" ]; then
     echo "Installing mcp-cli-ent..."
     curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash || true
 
-    # Mark as installed
-    touch "$MARKER_FILE"
+    # Update hash file
+    echo "$CURRENT_HASH" > "$HASH_FILE"
     echo ""
-    echo "✅ Installation complete! Agents installed to persistent volumes."
-    echo "   Next launch will be instant."
+    echo "✅ Setup complete! Environment ready."
 fi
 
 # Configure shell environment (aliases, prompt, etc.)

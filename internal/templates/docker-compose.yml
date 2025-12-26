@@ -4,6 +4,11 @@ services:
       context: .
       dockerfile: Dockerfile
     image: construct-box:latest
+    pull_policy: never
+
+    # CRITICAL: Run as construct user (not root)
+    # This prevents brew/npm from creating root-owned files
+    # user: "construct:construct" -> Removed to allow entrypoint to fix permissions first
 
     # Set a fixed hostname for a cleaner prompt (e.g., construct@sandbox instead of construct@99ab3b5f37d1)
     hostname: sandbox
@@ -30,6 +35,8 @@ services:
     # Working directory
     working_dir: /workspace
 
-# Named volumes for persistent agent and packages storage
+    # Named volumes for persistent agent and packages storage
+    # CRITICAL: volumes must be owned by construct user (not root)
+    # This prevents brew/npm permission errors after updates
 volumes:
-  construct-packages:  # Persists packages & agents (claude, cursor-cli, ast-grep, yq, etc.)
+  construct-packages:
