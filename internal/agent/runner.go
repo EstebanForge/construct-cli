@@ -4,7 +4,10 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	stdruntime "runtime"
+	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
@@ -15,6 +18,10 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
+
+const defaultLoginForwardPorts = "1455,8085"
+const loginForwardListenOffset = 10000
+const loginBridgeFlagFile = ".login_bridge"
 
 // RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
@@ -307,11 +314,18 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	}
 
 	var cmd *exec.Cmd
+	loginForward, loginPorts := shouldEnableLoginForward(args)
 
 	// Build the run command based on runtime
 	if containerRuntime == "docker" {
 		if _, err := exec.LookPath("docker-compose"); err == nil {
 			runArgs := append(composeArgs, "run", "--rm")
+			if loginForward {
+				for _, port := range loginPorts {
+					listenPort := port + loginForwardListenOffset
+					runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
+				}
+			}
 			// Add host.docker.internal for Linux
 			if stdruntime.GOOS == "linux" {
 				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
@@ -327,6 +341,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 					runArgs = append(runArgs, "-e", e)
 					break
 				}
+			}
+			if loginForward {
+				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+				runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
 			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
@@ -339,6 +358,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			runArgs := []string{"compose"}
 			runArgs = append(runArgs, composeArgs...)
 			runArgs = append(runArgs, "run", "--rm")
+			if loginForward {
+				for _, port := range loginPorts {
+					listenPort := port + loginForwardListenOffset
+					runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
+				}
+			}
 			// Add host.docker.internal for Linux
 			if stdruntime.GOOS == "linux" {
 				runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
@@ -355,6 +380,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 					break
 				}
 			}
+			if loginForward {
+				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+				runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+				runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
+			}
 			// Inject provider env vars
 			for _, envVar := range providerEnv {
 				runArgs = append(runArgs, "-e", envVar)
@@ -365,6 +395,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		}
 	} else if containerRuntime == "podman" {
 		runArgs := append(composeArgs, "run", "--rm")
+		if loginForward {
+			for _, port := range loginPorts {
+				listenPort := port + loginForwardListenOffset
+				runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
+			}
+		}
 		// Add host.docker.internal for Linux
 		if stdruntime.GOOS == "linux" {
 			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
@@ -380,6 +416,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 				runArgs = append(runArgs, "-e", e)
 				break
 			}
+		}
+		if loginForward {
+			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+			runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
 		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {
@@ -392,6 +433,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		runArgs := []string{"compose"}
 		runArgs = append(runArgs, composeArgs...)
 		runArgs = append(runArgs, "run", "--rm")
+		if loginForward {
+			for _, port := range loginPorts {
+				listenPort := port + loginForwardListenOffset
+				runArgs = append(runArgs, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
+			}
+		}
 		// Add host.docker.internal for Linux
 		if stdruntime.GOOS == "linux" {
 			runArgs = append(runArgs, "--add-host", "host.docker.internal:host-gateway")
@@ -407,6 +454,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 				runArgs = append(runArgs, "-e", e)
 				break
 			}
+		}
+		if loginForward {
+			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+			runArgs = append(runArgs, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+			runArgs = append(runArgs, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
 		}
 		// Inject provider env vars
 		for _, envVar := range providerEnv {
@@ -438,4 +490,72 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		})
 		os.Exit(1)
 	}
+}
+
+func shouldEnableLoginForward(args []string) (bool, []int) {
+	if ports, ok := readLoginBridgePorts(); ok {
+		return true, ports
+	}
+	for _, arg := range args {
+		if arg == "login" || arg == "auth" {
+			ports := parsePorts(defaultLoginForwardPorts)
+			if len(ports) == 0 {
+				return true, []int{1455}
+			}
+			return true, ports
+		}
+	}
+	return false, nil
+}
+
+func readLoginBridgePorts() ([]int, bool) {
+	path := filepath.Join(config.GetConfigDir(), loginBridgeFlagFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, false
+	}
+	raw := strings.TrimSpace(string(data))
+	ports := parsePorts(raw)
+	if len(ports) == 0 {
+		ports = parsePorts(defaultLoginForwardPorts)
+	}
+	if len(ports) == 0 {
+		return []int{1455}, true
+	}
+	return ports, true
+}
+
+func parsePorts(raw string) []int {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n'
+	})
+	seen := make(map[int]struct{})
+	ports := make([]int, 0, len(parts))
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		port, err := strconv.Atoi(part)
+		if err != nil || port <= 0 {
+			continue
+		}
+		if _, exists := seen[port]; exists {
+			continue
+		}
+		seen[port] = struct{}{}
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+	return ports
+}
+
+func formatPorts(ports []int) string {
+	if len(ports) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(ports))
+	for _, port := range ports {
+		parts = append(parts, strconv.Itoa(port))
+	}
+	return strings.Join(parts, ",")
 }

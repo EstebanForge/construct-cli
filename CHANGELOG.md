@@ -10,6 +10,8 @@ All notable changes to Construct CLI will be documented in this file.
   - Enabled by default, configurable via `propagate_git_identity` in `config.toml`.
   - Safely injects values as `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, etc., without mounting potentially incompatible host git configs.
 - **Improved Shell Prompt**: Container hostname is now set to `sandbox` (was random ID) for a cleaner prompt experience: `construct@sandbox:/workspace$`.
+- **Headless Login Bridge**: New `construct sys login-bridge` command to enable local browser login callbacks for headless-unfriendly agents (Codex, OpenCode with OpenAI GPT or Google Gemini).
+  - Runs until interrupted and forwards `localhost` OAuth callbacks into the container.
 
 ## [0.7.0] - 2025-12-24
 
@@ -44,7 +46,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Automatic permission fixing (0600) and matching `.pub`/`known_hosts` support.
   - Smart logic to skip selection if only one key is found.
 - **Config Restoration**: New `construct sys restore-config` command to immediately recover from configuration backups.
-- **Shell Productivity Enhancements**: 
+- **Shell Productivity Enhancements**:
   - Automatic management of `.bash_aliases` inside the container.
   - Standard aliases included: `ll`, `la`, `l`, and color-coded `ls`/`grep`.
   - Zsh-like navigation shortcuts: `..`, `...`, `....`.

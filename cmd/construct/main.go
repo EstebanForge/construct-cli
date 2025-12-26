@@ -123,6 +123,7 @@ func main() {
 			fmt.Println("  doctor           # Check system health")
 			fmt.Println("  ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)")
 			fmt.Println("  restore-config   # Restore config from backup")
+			fmt.Println("  login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents")
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -264,6 +265,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.SSHImport()
 	case "restore-config":
 		sys.RestoreConfig()
+	case "login-bridge":
+		sys.LoginBridge(args[1:])
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		fmt.Println("Run 'construct sys' for a list of available commands.")

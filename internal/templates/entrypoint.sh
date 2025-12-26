@@ -72,7 +72,7 @@ if [ ! -f "$MARKER_FILE" ]; then
         ninja gradle \
         fastmod shellcheck yamllint terraform awscli \
         node@24 python@3 oven-sh/bun/bun jq \
-        vite webpack tlrc || true
+        vite webpack tlrc socat || true
 
     # Install AI agents via Homebrew
     echo "Installing gemini-cli..."
@@ -212,6 +212,21 @@ patch_agent_code() {
     done
 }
 patch_agent_code
+
+# Forward localhost login callbacks to the container when requested.
+if [ "$CONSTRUCT_LOGIN_FORWARD" = "1" ] && command -v socat >/dev/null; then
+    LOGIN_PORTS="${CONSTRUCT_LOGIN_FORWARD_PORTS:-1455}"
+    LISTEN_OFFSET="${CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET:-10000}"
+    IFS=', ' read -r -a LOGIN_PORT_LIST <<< "$LOGIN_PORTS"
+    for LOGIN_PORT in "${LOGIN_PORT_LIST[@]}"; do
+        if [ -z "$LOGIN_PORT" ]; then
+            continue
+        fi
+        LISTEN_PORT=$((LOGIN_PORT + LISTEN_OFFSET))
+        socat "TCP-LISTEN:${LISTEN_PORT},fork,bind=0.0.0.0" "TCP:127.0.0.1:${LOGIN_PORT}" >/tmp/login-forward.log 2>&1 &
+        echo "✓ Started login callback forwarder on port ${LISTEN_PORT} -> ${LOGIN_PORT}"
+    done
+fi
 
 # Debug: Check if command exists before exec
 if [ $# -gt 0 ]; then
