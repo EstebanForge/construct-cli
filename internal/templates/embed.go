@@ -39,6 +39,11 @@ var NetworkFilter string
 //go:embed clipper
 var Clipper string
 
+// ClipboardX11Sync is the embedded content of the clipboard X11 sync script.
+//
+//go:embed clipboard-x11-sync.sh
+var ClipboardX11Sync string
+
 // Osascript is the embedded content of the osascript shim script.
 //
 //go:embed osascript

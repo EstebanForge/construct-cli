@@ -41,7 +41,6 @@ build: ## Build the binary
 		codesign -s - -f $(BINARY_NAME) 2>/dev/null || true; \
 	fi
 	@echo "✓ Built: $(BINARY_NAME)"
-	@echo "  Note: Run './$(BINARY_NAME) sys init' to auto-create 'ct' alias"
 
 test: test-unit test-integration ## Run all tests
 

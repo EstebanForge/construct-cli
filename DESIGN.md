@@ -177,7 +177,8 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
   - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Gemini/Qwen's `clipboardy` dependency).
   - **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux.
 - **Dynamic Content Bridging**:
-  - **Smart Fallback**: If an agent asks for text but the host clipboard contains an image, the bridge automatically saves the image to a local directory (`.gemini-clipboard/`) and returns the `@path` reference expected by multimodal agents.
+  - **Image-First Behavior**: The bridge always attempts to fetch image data first; if present, it returns resized/normalized image bytes for most agents.
+  - **Agent-Specific Paths**: Gemini, Qwen, and Codex receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
   - **Runtime Patching**: `entrypoint.sh` automatically patches agent source code at launch to bypass `process.platform !== 'darwin'` checks that would otherwise disable image support on Linux.
 
 ---

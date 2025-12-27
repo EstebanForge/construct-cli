@@ -252,7 +252,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	osEnv = append(osEnv, "PWD="+cwd)
 
 	// Start Clipboard Server
-	cbServer, err := clipboard.StartServer()
+	clipboardHost := ""
+	if cfg != nil {
+		clipboardHost = cfg.Sandbox.ClipboardHost
+	}
+	cbServer, err := clipboard.StartServer(clipboardHost)
 	if err != nil {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
@@ -333,6 +337,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	if cbServer != nil {
 		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+	}
+
+	// Inject agent name for clipboard behavior tuning.
+	if len(args) > 0 {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
 	}
 
 	// Inject SSH bridge port

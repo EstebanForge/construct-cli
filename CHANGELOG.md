@@ -2,6 +2,11 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.9.1] - 2025-12-27
+
+### Changed
+- **Clipboard Image Pasting**: Fixed image pasting across agents with image-first handling, normalization/resize, and `@path` only for Gemini and Qwen.
+
 ## [0.9.0] - 2025-12-26
 
 ### Optimized

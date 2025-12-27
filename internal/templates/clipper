@@ -5,6 +5,7 @@
 # Configuration from environment
 HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
 AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
+AGENT_NAME="${CONSTRUCT_AGENT_NAME}"
 
 if [ -z "$HOST_URL" ]; then
     echo "Error: CONSTRUCT_CLIPBOARD_URL not set" >&2
@@ -15,6 +16,13 @@ CALL_NAME=$(basename $0)
 TARGET_MIME=""
 IS_OUTPUT_MODE=false
 REQUESTED_TARGETS=false
+PATH_AGENT=false
+
+case "$AGENT_NAME" in
+    gemini|qwen)
+        PATH_AGENT=true
+        ;;
+esac
 
 # Simple arg parsing for xclip/xsel/wl-paste patterns
 for arg in "$@"; do
@@ -43,45 +51,64 @@ if [[ "$REQUESTED_TARGETS" == "true" ]]; then
     exit 0
 fi
 
-# Determine content type to fetch
-CONTENT_TYPE="text/plain"
-if [[ "$TARGET_MIME" == "image/png" ]]; then
-    CONTENT_TYPE="image/png"
+TMP_RAW="/tmp/construct-clipboard-raw.png"
+
+fetch_image() {
+    curl -s -f \
+        -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
+        "${HOST_URL}/paste?type=image/png" -o "$TMP_RAW"
+}
+
+emit_image_bytes() {
+    if command -v identify >/dev/null && command -v convert >/dev/null; then
+        DIMENSIONS=$(identify -format "%w %h" "$TMP_RAW" 2>/dev/null || true)
+        WIDTH=$(echo "$DIMENSIONS" | awk '{print $1}')
+        HEIGHT=$(echo "$DIMENSIONS" | awk '{print $2}')
+        if [ -n "$WIDTH" ] && [ -n "$HEIGHT" ]; then
+            if [ "$WIDTH" -gt 8000 ] || [ "$HEIGHT" -gt 8000 ]; then
+                convert "$TMP_RAW" -resize 8000x8000\> png:- 2>/dev/null
+                return $?
+            fi
+        fi
+    fi
+    cat "$TMP_RAW"
+}
+
+emit_image_path() {
+    mkdir -p .construct-clipboard 2>/dev/null
+    TIMESTAMP=$(date +%s%3N)
+    IMG_NAME="clipboard-${TIMESTAMP}.png"
+    IMG_PATH=".construct-clipboard/${IMG_NAME}"
+    if cp "$TMP_RAW" "$IMG_PATH"; then
+        echo -n "@${IMG_PATH}"
+        return 0
+    fi
+    return 1
+}
+
+# Always try image first; fall back to text if no image and no explicit image request.
+if fetch_image; then
+    if [[ "$PATH_AGENT" == "true" ]]; then
+        emit_image_path
+        exit $?
+    fi
+    emit_image_bytes
+    exit $?
 fi
 
-# Fetch from host
+if [[ "$TARGET_MIME" == "image/png" ]]; then
+    exit 1
+fi
+
+# Fetch text from host
 OUTPUT=$(curl -s -f \
     -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
-    "${HOST_URL}/paste?type=${CONTENT_TYPE}")
+    "${HOST_URL}/paste?type=text/plain")
 
 EXIT_CODE=$?
 
-# If we requested text and got empty output, check if we have an image
-if [[ "$CONTENT_TYPE" == "text/plain" ]] && [[ -z "$OUTPUT" ]]; then
-    # Check if we are in a directory where we can write .gemini-clipboard
-    mkdir -p .gemini-clipboard 2>/dev/null
-    
-    # Try fetching image
-    TIMESTAMP=$(date +%s%3N)
-    IMG_NAME="clipboard-${TIMESTAMP}.png"
-    IMG_PATH=".gemini-clipboard/${IMG_NAME}"
-    
-    curl -s -f \
-        -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
-        "${HOST_URL}/paste?type=image/png" -o "$IMG_PATH"
-    
-    IMG_EXIT=$?
-    if [ $IMG_EXIT -eq 0 ]; then
-        # We found an image! Return the path in Gemini format
-        echo -n "@${IMG_PATH}"
-        exit 0
-    fi
-fi
-
-# Otherwise output what we got
 echo -n "$OUTPUT"
 
-# If curl failed with HTTP error (like 404), exit with error
 if [ $EXIT_CODE -eq 22 ]; then
     exit 1
 fi

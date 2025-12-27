@@ -51,6 +51,17 @@ if [[ "$SCRIPT" == *"write imageData to"* ]]; then
         
         CURL_EXIT=$?
         if [ $CURL_EXIT -eq 0 ]; then
+            # Resize if needed to avoid oversized images (Claude limit: 8000px).
+            if command -v identify >/dev/null && command -v convert >/dev/null; then
+                DIMENSIONS=$(identify -format "%w %h" "$TARGET_PATH" 2>/dev/null || true)
+                WIDTH=$(echo "$DIMENSIONS" | awk '{print $1}')
+                HEIGHT=$(echo "$DIMENSIONS" | awk '{print $2}')
+                if [ -n "$WIDTH" ] && [ -n "$HEIGHT" ]; then
+                    if [ "$WIDTH" -gt 8000 ] || [ "$HEIGHT" -gt 8000 ]; then
+                        convert "$TARGET_PATH" -resize 8000x8000\> "$TARGET_PATH" 2>/dev/null || true
+                    fi
+                fi
+            fi
             # echo "  -> Curl success" >> "$LOGFILE"
             echo "success"
             exit 0

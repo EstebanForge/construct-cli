@@ -69,15 +69,10 @@ func main() {
 	}
 
 	// Load config to check for updates (ignoring errors for now, will be handled by commands)
-	cfg, createdNew, err := config.Load()
+	cfg, _, err := config.Load()
 	if err != nil {
 		ui.LogError(err)
 		cfg = nil
-		createdNew = false
-	}
-	if createdNew {
-		// If new config, suggest alias setup
-		sys.SuggestAliasSetup()
 	}
 	if cfg != nil {
 		logs.RunCleanupIfDue(cfg)

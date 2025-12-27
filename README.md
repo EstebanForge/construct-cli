@@ -131,6 +131,7 @@ update_check_interval = 86400  # seconds (24 hours)
 [sandbox]
 mount_home = false # keep false unless you really need your whole home dir (dangerous)
 shell = "/bin/bash"
+clipboard_host = "host.docker.internal"
 
 [network]
 # permissive | strict | offline
@@ -148,6 +149,7 @@ blocked_domains = [
   "*.crypto-miner.net"
 ]
 blocked_ips = ["203.0.113.0/24", "198.51.100.25"]
+
 ```
 
 Agent and sandbox config directories on the host live inside `~/.config/construct-cli/home`.
