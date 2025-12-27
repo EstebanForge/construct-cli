@@ -165,9 +165,44 @@ EOF
 }
 setup_shell_environment
 
+# Start a headless X11 clipboard bridge when no DISPLAY is available.
+if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ]; then
+    if command -v Xvfb >/dev/null; then
+        DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
+        export DISPLAY
+        if ! pgrep -x Xvfb >/dev/null 2>&1; then
+            Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+            if [ "$CONSTRUCT_CLIPBOARD_LOG" = "1" ]; then
+                echo "✓ Started Xvfb for headless clipboard"
+            fi
+        fi
+        # Wait briefly for the X11 socket to appear.
+        XSOCK="/tmp/.X11-unix/X${DISPLAY#:}"
+        for _ in $(seq 1 20); do
+            if [ -S "$XSOCK" ]; then
+                break
+            fi
+            sleep 0.1
+        done
+        /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
+    else
+        if [ "$CONSTRUCT_CLIPBOARD_LOG" = "1" ]; then
+            echo "⚠️  Xvfb not found; headless clipboard bridge disabled"
+        fi
+    fi
+fi
+
 # Configure network filtering (if in strict mode)
 if [ -f "/usr/local/bin/network-filter.sh" ]; then
     /usr/local/bin/network-filter.sh || true
+fi
+
+# Ensure ImageMagick is available for clipboard image resizing.
+if ! command -v convert >/dev/null; then
+    if command -v sudo >/dev/null; then
+        sudo apt-get update >/dev/null 2>&1 || true
+        sudo apt-get install -y imagemagick >/dev/null 2>&1 || true
+    fi
 fi
 
 # Fix clipboard libs for Node.js apps (Gemini CLI, etc.)

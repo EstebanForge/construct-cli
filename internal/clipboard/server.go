@@ -17,8 +17,8 @@ type Server struct {
 	listener net.Listener
 }
 
-// StartServer starts the clipboard server on a random port
-func StartServer() (*Server, error) {
+// StartServer starts the clipboard server on a random port.
+func StartServer(host string) (*Server, error) {
 	// Generate random token
 
 	tokenBytes := make([]byte, 32)
@@ -35,9 +35,11 @@ func StartServer() (*Server, error) {
 
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	// Determine URL host (host.docker.internal is standard, but we return the port)
-	// The client inside container will use host.docker.internal
-	url := fmt.Sprintf("http://host.docker.internal:%d", port)
+	// Determine URL host (default to host.docker.internal).
+	if host == "" {
+		host = "host.docker.internal"
+	}
+	url := fmt.Sprintf("http://%s:%d", host, port)
 
 	server := &Server{
 		Port:     port,
@@ -58,16 +60,16 @@ func (s *Server) serve() {
 
 	// We use the existing listener
 	if err := http.Serve(s.listener, mux); err != nil {
-		fmt.Fprintf(os.Stderr, "[Clipboard Server] serve error: %v\n", err)
+		logf("[Clipboard Server] serve error: %v\n", err)
 	}
 }
 
 func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(os.Stderr, "[Clipboard Server] Received paste request from %s\n", r.RemoteAddr)
+	logf("[Clipboard Server] Received paste request from %s\n", r.RemoteAddr)
 
 	// Verify token
 	if r.Header.Get("X-Construct-Clip-Token") != s.Token {
-		fmt.Fprintf(os.Stderr, "[Clipboard Server] Unauthorized request (invalid token)\n")
+		logf("[Clipboard Server] Unauthorized request (invalid token)\n")
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -77,14 +79,14 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	if contentType == "text/plain" || contentType == "" {
 		data, err := GetText()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "[Clipboard Server] GetText error: %v\n", err)
+			logf("[Clipboard Server] GetText error: %v\n", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		fmt.Fprintf(os.Stderr, "[Clipboard Server] Serving %d bytes of text data\n", len(data))
+		logf("[Clipboard Server] Serving %d bytes of text data\n", len(data))
 		w.Header().Set("Content-Type", "text/plain")
 		if _, err := w.Write(data); err != nil {
-			fmt.Fprintf(os.Stderr, "[Clipboard Server] write text error: %v\n", err)
+			logf("[Clipboard Server] write text error: %v\n", err)
 		}
 		return
 	}
@@ -92,7 +94,7 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	// Get image from host clipboard
 	data, err := GetImage()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[Clipboard Server] GetImage error: %v\n", err)
+		logf("[Clipboard Server] GetImage error: %v\n", err)
 		if err == ErrNoImage {
 			http.Error(w, "No image in clipboard", http.StatusNotFound)
 		} else {
@@ -101,9 +103,15 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "[Clipboard Server] Serving %d bytes of image data\n", len(data))
+	logf("[Clipboard Server] Serving %d bytes of image data\n", len(data))
 	w.Header().Set("Content-Type", "image/png")
 	if _, err := w.Write(data); err != nil {
-		fmt.Fprintf(os.Stderr, "[Clipboard Server] write image error: %v\n", err)
+		logf("[Clipboard Server] write image error: %v\n", err)
+	}
+}
+
+func logf(format string, args ...any) {
+	if os.Getenv("CONSTRUCT_CLIPBOARD_LOG") == "1" {
+		fmt.Fprintf(os.Stderr, format, args...)
 	}
 }

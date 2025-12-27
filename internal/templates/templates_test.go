@@ -65,4 +65,12 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Osascript, "/workspace/osascript_debug.log") {
 		t.Error("osascript template missing /workspace log path")
 	}
+
+	// Test clipboard sync template
+	if ClipboardX11Sync == "" {
+		t.Error("clipboard-x11-sync template is empty")
+	}
+	if !strings.Contains(ClipboardX11Sync, "#!/usr/bin/env bash") {
+		t.Error("clipboard-x11-sync template missing shebang")
+	}
 }

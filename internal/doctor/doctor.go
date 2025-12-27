@@ -6,10 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/runtime"
+	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -69,12 +70,12 @@ func Run() {
 		engine = cfg.Runtime.Engine
 	}
 
-	runtimeName := runtime.DetectRuntime(engine)
+	runtimeName := runtimepkg.DetectRuntime(engine)
 	if runtimeName != "" {
 		runtimeCheck.Status = CheckStatusOK
 		runtimeCheck.Message = fmt.Sprintf("Found %s", runtimeName)
 		// Check version/status
-		if runtime.IsRuntimeRunning(runtimeName) {
+		if runtimepkg.IsRuntimeRunning(runtimeName) {
 			runtimeCheck.Details = append(runtimeCheck.Details, "Runtime is running")
 		} else {
 			runtimeCheck.Status = CheckStatusError
@@ -103,7 +104,7 @@ func Run() {
 
 	// 3. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
-	checkCmdArgs := runtime.GetCheckImageCommand(runtimeName)
+	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
 	if err := checkCmd.Run(); err == nil {
 		imageCheck.Status = CheckStatusOK
@@ -117,7 +118,7 @@ func Run() {
 
 	// 4. Agents Volume Check
 	volumeCheck := CheckResult{Name: "Agent Installation"}
-	if cfg != nil && runtime.AreAgentsInstalled(cfg) {
+	if cfg != nil && runtimepkg.AreAgentsInstalled(cfg) {
 		volumeCheck.Status = CheckStatusOK
 		volumeCheck.Message = "Agents installed in persistent volume"
 	} else {
@@ -169,6 +170,51 @@ func Run() {
 		keysCheck.Message = "No local keys found"
 	}
 	checks = append(checks, keysCheck)
+
+	// 7. Clipboard Bridge Check
+	clipboardCheck := CheckResult{Name: "Clipboard Bridge"}
+	clipboardHost := ""
+	networkMode := ""
+	if cfg != nil {
+		clipboardHost = cfg.Sandbox.ClipboardHost
+		networkMode = cfg.Network.Mode
+	}
+	if clipboardHost == "" {
+		clipboardCheck.Status = CheckStatusWarning
+		clipboardCheck.Message = "clipboard_host not set"
+		clipboardCheck.Suggestion = "Set [sandbox].clipboard_host in config.toml (default: host.docker.internal)"
+	} else {
+		clipboardCheck.Status = CheckStatusOK
+		clipboardCheck.Message = "Clipboard host configured"
+		clipboardCheck.Details = append(clipboardCheck.Details, fmt.Sprintf("Host: %s", clipboardHost))
+		if networkMode != "" {
+			clipboardCheck.Details = append(clipboardCheck.Details, fmt.Sprintf("Network mode: %s", networkMode))
+		}
+	}
+
+	// Host clipboard tools availability
+	switch runtime.GOOS {
+	case "darwin":
+		if _, err := exec.LookPath("pbpaste"); err != nil {
+			clipboardCheck.Status = CheckStatusWarning
+			clipboardCheck.Message = "pbpaste not found on host"
+			clipboardCheck.Suggestion = "Ensure macOS clipboard utilities are available"
+		}
+		if _, err := exec.LookPath("osascript"); err != nil {
+			clipboardCheck.Status = CheckStatusWarning
+			clipboardCheck.Message = "osascript not found on host"
+			clipboardCheck.Suggestion = "Ensure osascript is available to read images"
+		}
+	case "linux":
+		if _, err := exec.LookPath("wl-paste"); err != nil {
+			if _, err := exec.LookPath("xclip"); err != nil {
+				clipboardCheck.Status = CheckStatusWarning
+				clipboardCheck.Message = "wl-paste/xclip not found on host"
+				clipboardCheck.Suggestion = "Install wl-clipboard or xclip for clipboard access"
+			}
+		}
+	}
+	checks = append(checks, clipboardCheck)
 
 	// Print Report
 	for _, check := range checks {

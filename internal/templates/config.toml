@@ -28,6 +28,9 @@ propagate_git_identity = true
 # Default shell inside the container
 shell = "/bin/bash"
 
+# Hostname for the host clipboard bridge
+clipboard_host = "host.docker.internal"
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)

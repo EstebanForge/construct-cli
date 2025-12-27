@@ -7,7 +7,7 @@ RUN useradd -m -s /bin/bash construct && \
     vim nano python3 python3-pip python3-venv python3-dev pipx \
     fd-find ripgrep jq bat tmux sudo gosu socat \
     ufw iptables dnsutils \
-    xclip xsel wl-clipboard imagemagick && \
+    xclip xsel wl-clipboard imagemagick xvfb && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password
@@ -54,8 +54,9 @@ COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
 COPY network-filter.sh /usr/local/bin/network-filter.sh
 COPY clipper /usr/local/bin/clipper
+COPY clipboard-x11-sync.sh /usr/local/bin/clipboard-x11-sync.sh
 COPY osascript /usr/local/bin/osascript
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/osascript
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript
 
 # 5. Setup Clipboard Shim
 # Rename original tools and link them to clipper
