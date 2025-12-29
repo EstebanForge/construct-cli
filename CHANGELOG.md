@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.9.2] - 2025-12-29
+
+### Added
+- **Dynamic Project Mount Path**: Agents now mount the current host directory to `/projects/<folder_name>` instead of a static `/workspace`.
+  - Improves agent's contextual awareness and long-term memory.
+  - Dynamically sets container `working_dir` to match the project path.
+  - Automatically updates all internal templates (Dockerfile, docker-compose) and helper scripts.
+  - Preserves compatibility with non-standard folder names (spaces, symbols).
+
 ## [0.9.1] - 2025-12-27
 
 ### Changed

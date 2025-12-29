@@ -24,8 +24,8 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Dockerfile, "brew install") {
 		t.Error("Dockerfile template missing Homebrew installation")
 	}
-	if !strings.Contains(Dockerfile, "WORKDIR /workspace") {
-		t.Error("Dockerfile template missing WORKDIR /workspace")
+	if !strings.Contains(Dockerfile, "WORKDIR /projects") {
+		t.Error("Dockerfile template missing WORKDIR /projects")
 	}
 
 	// Test that docker-compose.yml contains expected content
@@ -35,8 +35,8 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(DockerCompose, "construct-box") {
 		t.Error("docker-compose.yml template missing service name")
 	}
-	if !strings.Contains(DockerCompose, "/workspace") {
-		t.Error("docker-compose.yml template missing /workspace mount/workdir")
+	if !strings.Contains(DockerCompose, "${CONSTRUCT_PROJECT_PATH:-/workspace}") {
+		t.Error("docker-compose.yml template missing dynamic project path")
 	}
 
 	// Test that config.toml contains expected sections
@@ -62,8 +62,8 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if Osascript == "" {
 		t.Error("osascript template is empty")
 	}
-	if !strings.Contains(Osascript, "/workspace/osascript_debug.log") {
-		t.Error("osascript template missing /workspace log path")
+	if !strings.Contains(Osascript, "/tmp/osascript_debug.log") {
+		t.Error("osascript template missing /tmp log path")
 	}
 
 	// Test clipboard sync template

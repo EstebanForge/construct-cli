@@ -19,13 +19,14 @@ services:
 
     # Persistent volumes for agent installations
     volumes:
-      - ${PWD}:/workspace                                      # Current project
+      - ${PWD}:${CONSTRUCT_PROJECT_PATH:-/workspace}                                      # Current project
       - ~/.config/construct-cli/home:/home/construct    # Entire home directory (configs, caches, etc.)
       - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
 
     # Environment variables
     environment:
       - HOME=/home/construct
+      - CONSTRUCT_PROJECT_PATH=${CONSTRUCT_PROJECT_PATH:-/workspace}
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.local/share/uv/bin:/home/construct/.local/share/pipx/bin:/home/construct/.npm-global/bin:/home/construct/.composer/vendor/bin:/home/construct/.local/share/composer/vendor/bin:${PATH}
 
     # Network mode (overridden by config.toml [network] section)
@@ -33,7 +34,7 @@ services:
     # network_mode: none    # airgapped
 
     # Working directory
-    working_dir: /workspace
+    working_dir: ${CONSTRUCT_PROJECT_PATH:-/workspace}
 
     # Named volumes for persistent agent and packages storage
     # CRITICAL: volumes must be owned by construct user (not root)

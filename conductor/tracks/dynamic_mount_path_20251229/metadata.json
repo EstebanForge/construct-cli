@@ -1,0 +1,8 @@
+{
+  "track_id": "dynamic_mount_path_20251229",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2025-12-29T00:00:00Z",
+  "updated_at": "2025-12-29T00:00:00Z",
+  "description": "Mount current host directory to /projects/<folder_name> instead of static /workspace."
+}

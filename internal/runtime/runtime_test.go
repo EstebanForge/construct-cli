@@ -90,16 +90,42 @@ func TestGetCheckImageCommand(t *testing.T) {
 // It was unused in `main.go`. I might have dropped it.
 // If it's unused, I don't need to test it.
 
+func TestGetProjectMountPath(t *testing.T) {
+	tests := []struct {
+		cwd      string
+		expected string
+	}{
+		{"/home/user/my-project", "/projects/my-project"},
+		{"/Users/esteban/Construct CLI", "/projects/Construct CLI"},
+		{"/workspaces/cool-app", "/projects/cool-app"},
+		{"/", "/projects/"}, // Edge case: root
+	}
+
+	for _, tt := range tests {
+		result := getProjectMountPathFromDir(tt.cwd)
+		if result != tt.expected {
+			t.Errorf("For %s, expected %s, got %s", tt.cwd, tt.expected, result)
+		}
+	}
+}
+
 func TestGenerateDockerComposeOverride(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
+	// Get current dir name
+	projectName := filepath.Base(tmpDir)
+	if projectName == "." || projectName == "/" {
+		projectName = "workspace"
+	}
+	expectedPath := "/projects/" + projectName
+
 	containerDir := filepath.Join(tmpDir, "container")
 	if err := os.MkdirAll(containerDir, 0755); err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
 	}
 
 	// Generate override
-	if err := GenerateDockerComposeOverride(tmpDir, "bridge"); err != nil {
+	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge"); err != nil {
 		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
 	}
 
@@ -111,7 +137,10 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 
 	// Check content
 	contentStr := string(content)
-	if !strings.Contains(contentStr, "${PWD}:/workspace") {
-		t.Errorf("Expected mount to /workspace, got: %s", contentStr)
+	if !strings.Contains(contentStr, "${PWD}:"+expectedPath) {
+		t.Errorf("Expected mount to %s, got: %s", expectedPath, contentStr)
+	}
+	if !strings.Contains(contentStr, "working_dir: "+expectedPath) {
+		t.Errorf("Expected working_dir: %s, got: %s", expectedPath, contentStr)
 	}
 }
