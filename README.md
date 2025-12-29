@@ -199,7 +199,7 @@ Or simply restart the Construct.
 - **Embedded templates**: Dockerfile, docker-compose.yml, entrypoint, network filter, and default config are bundled inside the binary and written to `~/.config/construct-cli/container` on first `construct sys init`.
 - **Runtime prep**: `detectRuntime` chooses `container` → `podman` → `docker`, starting the runtime if needed. SELinux labels and Linux UID/GID mappings are applied in a generated `docker-compose.override.yml`.
 - **Image build + agents**: If the `construct-box` image or agent marker is missing, `construct sys init` builds the image and installs agents into named volumes (`construct-agents`, `construct-packages`). First init will be slow. Subsequent runs will be instant.
-- **Execution**: The current directory where the AGENT is called mounts to `/workspace` inside the sandbox. Optional network mode is injected via env vars. Containers use `--rm` so each session is fresh while volumes persist tools.
+- **Execution**: The current directory where the AGENT is called mounts to `/projects/<folder_name>` inside the sandbox. Optional network mode is injected via env vars. Containers use `--rm` so each session is fresh while volumes persist tools.
 
 ## Security Expectations
 - Containers are ephemeral; named volumes persist Homebrew installs and `/home/construct` state (logs/config you write there stick around), while the rest of the container filesystem is wiped on exit.

@@ -427,7 +427,8 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 	}
 
 	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
-	if err := GenerateDockerComposeOverride(configPath, cfg.Network.Mode); err != nil {
+	projectPath := GetProjectMountPath()
+	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode); err != nil {
 		return fmt.Errorf("failed to generate docker-compose override: %w", err)
 	}
 
@@ -484,13 +485,31 @@ func EnsureCustomNetwork(containerRuntime string) error {
 	return nil
 }
 
+// GetProjectMountPath returns the dynamic mount path for the current project
+func GetProjectMountPath() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "/workspace"
+	}
+	return getProjectMountPathFromDir(cwd)
+}
+
+func getProjectMountPathFromDir(dir string) string {
+	projectName := filepath.Base(dir)
+	if projectName == "." || projectName == "/" {
+		return "/projects/"
+	}
+	return "/projects/" + projectName
+}
+
 // GenerateDockerComposeOverride creates a docker-compose.override.yml file
-func GenerateDockerComposeOverride(configPath string, networkMode string) error {
+func GenerateDockerComposeOverride(configPath string, projectPath string, networkMode string) error {
 	var override strings.Builder
 
 	override.WriteString("# Auto-generated docker-compose.override.yml\n")
 	override.WriteString("# This file provides runtime-specific configurations\n\n")
 	override.WriteString("services:\n  construct-box:\n")
+	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
 
 	// Determine SELinux suffix
 	selinuxSuffix := ""
@@ -522,12 +541,12 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 	// Platform-specific volume declarations
 	if runtime.GOOS == "linux" {
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
-		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	} else if runtime.GOOS == "darwin" {
-		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")

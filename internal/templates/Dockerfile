@@ -72,6 +72,7 @@ RUN mv /usr/bin/xclip /usr/bin/xclip-real && \
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
 
 # 5. Environment Setup
-WORKDIR /workspace
+# Set default working directory
+WORKDIR /projects
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]
