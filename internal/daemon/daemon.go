@@ -73,7 +73,8 @@ func Start() {
 	composeArgs := runtime.GetComposeFileArgs(configPath)
 
 	// Build the run command with -d for detached and custom name
-	if containerRuntime == "docker" {
+	switch containerRuntime {
+	case "docker":
 		if _, err := exec.LookPath("docker-compose"); err == nil {
 			args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
 			cmd = exec.Command("docker-compose", args...)
@@ -83,10 +84,10 @@ func Start() {
 			args = append(args, "run", "-d", "--name", containerName, "construct-box")
 			cmd = exec.Command("docker", args...)
 		}
-	} else if containerRuntime == "podman" {
+	case "podman":
 		args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
 		cmd = exec.Command("podman-compose", args...)
-	} else if containerRuntime == "container" {
+	case "container":
 		args := []string{"compose"}
 		args = append(args, composeArgs...)
 		args = append(args, "run", "-d", "--name", containerName, "construct-box")

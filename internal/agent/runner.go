@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/env"
-	"github.com/EstebanForge/construct-cli/internal/errors"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -53,8 +53,8 @@ func RunWithArgs(args []string, networkFlag string) {
 
 	// Prepare runtime environment (network, overrides)
 	if err := runtime.Prepare(cfg, containerRuntime, configPath); err != nil {
-		ui.LogError(&errors.ConstructError{
-			Category:   errors.ErrorCategoryRuntime,
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
@@ -124,8 +124,8 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 
 	// Prepare runtime environment (network, overrides)
 	if err := runtime.Prepare(cfg, containerRuntime, configPath); err != nil {
-		ui.LogError(&errors.ConstructError{
-			Category:   errors.ErrorCategoryRuntime,
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
@@ -370,8 +370,8 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Build the command using runtime abstraction
 	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
 	if err != nil {
-		ui.LogError(&errors.ConstructError{
-			Category:  errors.ErrorCategoryRuntime,
+		ui.LogError(&cerrors.ConstructError{
+			Category:  cerrors.ErrorCategoryRuntime,
 			Operation: "build command",
 			Runtime:   containerRuntime,
 			Err:       err,
@@ -389,8 +389,8 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			os.Exit(exitErr.ExitCode())
 		}
-		ui.LogError(&errors.ConstructError{
-			Category:   errors.ErrorCategoryContainer,
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryContainer,
 			Operation:  "execute agent in container",
 			Command:    fmt.Sprintf("%s shell", containerRuntime),
 			Runtime:    containerRuntime,

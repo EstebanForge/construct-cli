@@ -27,6 +27,7 @@ Global Flags:
   construct sys agents           # List supported agents
   construct sys agents-md        # Manage global instruction files (rules) for agents
   construct sys config           # Open config.toml in editor
+  construct sys packages         # Open packages.toml in editor
   construct sys doctor           # Check system health
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
@@ -86,6 +87,7 @@ Commands:
   agents           # List supported agents
   agents-md        # Manage global instruction files (rules) for agents
   config           # Open config.toml in editor
+  packages         # Open packages.toml in editor
   doctor           # Check system health
   help             # Show this help
   init             # Initialize environment and install agents inside The Construct

@@ -26,6 +26,7 @@ packages = ["black"]
 [tools]
 phpbrew = true
 nix = true
+nvm = true
 vmr = false
 asdf = true
 mise = false
@@ -43,7 +44,7 @@ mise = false
 	if len(config.Brew.Taps) != 1 || config.Brew.Taps[0] != "common-family/homebrew-tap" {
 		t.Errorf("Brew taps parsing failed")
 	}
-	if config.Tools.PhpBrew != true || config.Tools.Vmr != false || config.Tools.Nix != true {
+	if config.Tools.PhpBrew != true || config.Tools.Vmr != false || config.Tools.Nix != true || config.Tools.Nvm != true {
 		t.Errorf("Tools parsing failed")
 	}
 }

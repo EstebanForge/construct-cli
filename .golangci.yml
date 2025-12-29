@@ -1,46 +1,51 @@
+version: "2"
 run:
-  timeout: 5m
-  tests: true
   modules-download-mode: readonly
-
+  tests: true
 linters:
   enable:
-    - errcheck
-    - gosimple
-    - govet
-    - ineffassign
-    - staticcheck
-    - unused
-    - gofmt
-    - goimports
+    - copyloopvar
     - misspell
+    - nakedret
+    - nolintlint
+    - prealloc
+    - revive
     - unconvert
     - unparam
-    - nakedret
-    - prealloc
-    - copyloopvar
-    - nolintlint
-    - revive
     - whitespace
-
-linters-settings:
-  errcheck:
-    check-blank: true
-  gofmt:
-    simplify: true
-  misspell:
-    locale: US
-  nakedret:
-    max-func-lines: 30
-  unparam:
-    check-exported: false
-
+  settings:
+    errcheck:
+      check-blank: true
+    misspell:
+      locale: US
+    nakedret:
+      max-func-lines: 30
+    unparam:
+      check-exported: false
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - errcheck
+          - unparam
+        path: _test\.go
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
 issues:
-  exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-        - unparam
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$

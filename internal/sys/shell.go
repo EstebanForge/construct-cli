@@ -377,7 +377,7 @@ func addShellAlias(aliasName, aliasLine string) (string, bool, error) {
 		}
 	}()
 
-	if _, err := f.WriteString(fmt.Sprintf("\n%s\n", aliasLine)); err != nil {
+	if _, err := fmt.Fprintf(f, "\n%s\n", aliasLine); err != nil {
 		return configFile, false, err
 	}
 

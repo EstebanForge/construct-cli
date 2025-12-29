@@ -114,3 +114,45 @@ func RestoreConfig() {
 
 	ui.GumSuccess("Configuration restored successfully from backup!")
 }
+
+// OpenPackages opens the packages.toml file in the user's preferred editor
+func OpenPackages() {
+	packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
+
+	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
+		ui.GumInfo("packages.toml doesn't exist yet. Creating default...")
+		if err := os.WriteFile(packagesPath, []byte(config.GetDefaultPackages()), 0644); err != nil {
+			ui.GumError(fmt.Sprintf("Failed to create packages.toml: %v", err))
+			os.Exit(1)
+		}
+		fmt.Println()
+	}
+
+	var cmd *exec.Cmd
+	var editorName string
+
+	if ui.IsGUIEnvironment() {
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", packagesPath)
+			editorName = "default macOS editor"
+		case "linux":
+			cmd = exec.Command("xdg-open", packagesPath)
+			editorName = "default GUI editor"
+		case "windows":
+			cmd = exec.Command("cmd", "/c", "start", packagesPath)
+			editorName = "default Windows editor"
+		default:
+			cmd = ui.GetTerminalEditor(packagesPath)
+			editorName = "terminal editor"
+		}
+	} else {
+		cmd = ui.GetTerminalEditor(packagesPath)
+		editorName = cmd.Args[0]
+	}
+
+	if err := cmd.Run(); err != nil {
+		ui.GumError(fmt.Sprintf("Failed to open %s with %s: %v", packagesPath, editorName, err))
+		os.Exit(1)
+	}
+}

@@ -306,3 +306,8 @@ func SetConfigTemplateHash(hash string) {
 		fmt.Fprintf(os.Stderr, "Warning: failed to write config template hash: %v\n", err)
 	}
 }
+
+// GetDefaultPackages returns the default packages.toml template content
+func GetDefaultPackages() string {
+	return templates.Packages
+}

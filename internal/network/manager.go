@@ -430,10 +430,10 @@ func IsValidDomain(target string) bool {
 
 	// Check for valid domain characters
 	for _, char := range target {
-		if !((char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '.' || char == '-') {
+		if (char < 'a' || char > 'z') &&
+			(char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') &&
+			char != '.' && char != '-' {
 			return false
 		}
 	}
@@ -588,7 +588,8 @@ func RemoveString(slice []string, item string) []string {
 
 // ApplyRuleToContainer applies a network rule to a running container
 func ApplyRuleToContainer(containerRuntime, containerName, target, action string, resolvedIPs []string) error {
-	if action == "allow" {
+	switch action {
+	case "allow":
 		// Apply allow rules for all resolved IPs
 		ipsToApply := resolvedIPs
 		if len(ipsToApply) == 0 {
@@ -601,7 +602,7 @@ func ApplyRuleToContainer(containerRuntime, containerName, target, action string
 				return fmt.Errorf("failed to apply allow rule for %s: %w", ip, err)
 			}
 		}
-	} else if action == "block" {
+	case "block":
 		// Apply deny rules for all resolved IPs
 		ipsToApply := resolvedIPs
 		if len(ipsToApply) == 0 {

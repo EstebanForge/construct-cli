@@ -1,24 +1,26 @@
 # Construct User-Defined Packages Configuration
 
 # System-level Debian packages (installed via apt-get)
+# These packages were moved out of the base image to reduce size.
+# Uncomment any you need:
 [apt]
 packages = [
-    "imagemagick",
+    # "vim",       # Full-featured text editor (nano is included by default)
+    # "fd-find",   # Modern 'find' alternative (fdfind command)
+    # "bat",       # Enhanced 'cat' with syntax highlighting (batcat command)
+    # "tmux",      # Terminal multiplexer for persistent sessions
 ]
 
 # Homebrew packages and taps
 [brew]
-taps = [
-    "steipete/tap",
-    "oven-sh/bun",
-]
+taps = []
 packages = [
     # Core utilities
     "ast-grep", "yq", "sd", "fzf", "eza", "zoxide", "ripgrep", "jq", "wget", "tree", "unzip", "socat", "make",
     # Development tools
     "gh", "git-delta", "git-cliff", "procs", "python-setuptools", "httpie", "awscli",
     # Languages
-    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node@24", "python@3", "bun",
+    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node@24", "python@3", "volta",
     # Linters & Formatters
     "golangci-lint", "golangci-lint-langserver", "php-cs-fixer", "prettier", "shellcheck", "yamllint",
     # Web & Build tools
@@ -45,17 +47,13 @@ packages = [
 ]
 
 # Specialized tools and version managers
-
 # Set to true to enable installation
-
 [tools]
-
 phpbrew = false
-
 nix = false
-
+nvm = false
 vmr = false
-
 asdf = false
-
 mise = false
+volta = false
+bun = false

@@ -215,6 +215,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		ui.PrintHelp()
 	case "config":
 		sys.OpenConfig()
+	case "packages":
+		sys.OpenPackages()
 	case "agents":
 		agent.List()
 	case "agents-md":
