@@ -2,14 +2,33 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.9.2] - 2025-12-29
+## [0.10.0] - 2025-12-29
 
 ### Added
-- **Dynamic Project Mount Path**: Agents now mount the current host directory to `/projects/<folder_name>` instead of a static `/workspace`.
-  - Improves agent's contextual awareness and long-term memory.
-  - Dynamically sets container `working_dir` to match the project path.
+- **User-Defined Package Management**: Customize your sandbox environment with `packages.toml` configuration.
+  - Install additional APT, Homebrew, NPM, and PIP packages beyond the defaults.
+  - Easy activation of specialized version managers: NVM, PHPBrew, Nix, Asdf, Mise, VMR, Volta, and Bun.
+  - New `construct sys packages` command to quickly edit package configuration.
+  - New `construct sys install-packages` command to apply package changes to running containers without restart.
+  - Package configuration persists across updates and environments.
+- **Dynamic Project Mount Paths**: Agents now mount the current host directory to `/projects/<folder_name>` instead of static `/workspace`.
+  - Improves agent contextual awareness and long-term memory.
+  - Dynamically calculates mount path based on current directory name.
   - Automatically updates all internal templates (Dockerfile, docker-compose) and helper scripts.
-  - Preserves compatibility with non-standard folder names (spaces, symbols).
+  - Preserves compatibility with non-standard folder names (spaces, special characters).
+
+### Optimized
+- **Faster Docker Builds**: Streamlined base image for significantly faster build times.
+  - Reduced Dockerfile to only essential build-time dependencies.
+  - Moved most packages to runtime installation during first container start.
+  - Critical packages verified at startup to ensure reliability.
+  - Leaner base image means faster rebuilds and reduced storage footprint.
+
+### Improved
+- **Enhanced Code Quality**: Internal refactoring and expanded test coverage.
+  - Comprehensive clipboard functionality test suite.
+  - Updated linter configuration for stricter code quality enforcement.
+  - Improved error handling and package naming conventions.
 
 ## [0.9.1] - 2025-12-27
 
