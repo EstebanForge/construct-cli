@@ -18,6 +18,11 @@ var DockerCompose string
 //go:embed config.toml
 var Config string
 
+// Packages is the embedded content of the default packages.toml template.
+//
+//go:embed packages.toml
+var Packages string
+
 // Entrypoint is the embedded content of the entrypoint.sh script.
 // Force rebuild 4
 //

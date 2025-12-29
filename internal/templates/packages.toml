@@ -1,0 +1,61 @@
+# Construct User-Defined Packages Configuration
+
+# System-level Debian packages (installed via apt-get)
+[apt]
+packages = [
+    "imagemagick",
+]
+
+# Homebrew packages and taps
+[brew]
+taps = [
+    "steipete/tap",
+    "oven-sh/bun",
+]
+packages = [
+    # Core utilities
+    "ast-grep", "yq", "sd", "fzf", "eza", "zoxide", "ripgrep", "jq", "wget", "tree", "unzip", "socat", "make",
+    # Development tools
+    "gh", "git-delta", "git-cliff", "procs", "python-setuptools", "httpie", "awscli",
+    # Languages
+    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node@24", "python@3", "bun",
+    # Linters & Formatters
+    "golangci-lint", "golangci-lint-langserver", "php-cs-fixer", "prettier", "shellcheck", "yamllint",
+    # Web & Build tools
+    "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod",
+    # AI Agents
+    "gemini-cli", "opencode", "summarize",
+]
+
+# Global Node.js packages
+[npm]
+packages = [
+    "@qwen-code/qwen-code@latest",
+    "@github/copilot",
+    "cline",
+    "@openai/codex",
+    "url-to-markdown-cli-tool",
+]
+
+# Python packages
+[pip]
+packages = [
+    # "black",
+    # "isort",
+]
+
+# Specialized tools and version managers
+
+# Set to true to enable installation
+
+[tools]
+
+phpbrew = false
+
+nix = false
+
+vmr = false
+
+asdf = false
+
+mise = false

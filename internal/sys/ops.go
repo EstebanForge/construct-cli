@@ -175,3 +175,70 @@ func ResetVolumes(cfg *config.Config) {
 		}
 	}
 }
+
+// InstallPackages regenerates and runs the user-defined installation script in a running container.
+func InstallPackages(cfg *config.Config) {
+	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	configPath := config.GetConfigDir()
+
+	// 1. Prepare (regenerates script and override)
+	if err := runtime.Prepare(cfg, containerRuntime, configPath); err != nil {
+		ui.LogError(&errors.ConstructError{
+			Category:   errors.ErrorCategoryRuntime,
+			Operation:  "prepare runtime environment",
+			Runtime:    containerRuntime,
+			Err:        err,
+			Suggestion: "Run 'construct doctor' to diagnose",
+		})
+		os.Exit(1)
+	}
+
+	containerName := "construct-box"
+	if !runtime.IsContainerRunning(containerRuntime, containerName) {
+		if ui.GumAvailable() {
+			ui.GumInfo("The Construct is not running. Packages will be installed automatically on next start.")
+		} else {
+			fmt.Println("The Construct is not running. Packages will be installed automatically on next start.")
+		}
+		return
+	}
+
+	// Create log file for installation output
+	logFile, err := config.CreateLogFile("install_packages")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)
+	}
+	if logFile != nil {
+		defer logFile.Close()
+		if ui.GumAvailable() {
+			fmt.Printf("%sInstall log: %s%s\n", ui.ColorGrey, logFile.Name(), ui.ColorReset)
+		} else {
+			fmt.Printf("Install log: %s\n", logFile.Name())
+		}
+	}
+
+	fmt.Println()
+
+	// 2. Execute script in running container
+	scriptPath := "/home/construct/.config/construct-cli/container/install_user_packages.sh"
+	execArgs := []string{"exec", "-u", "construct", containerName, "bash", scriptPath}
+
+	var cmd *exec.Cmd
+	if containerRuntime == "docker" || containerRuntime == "container" {
+		cmd = exec.Command("docker", execArgs...)
+	} else if containerRuntime == "podman" {
+		cmd = exec.Command("podman", execArgs...)
+	}
+
+	// Use helper to run with spinner
+	if err := ui.RunCommandWithSpinner(cmd, "Installing user-defined packages...", logFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Package installation failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	if ui.GumAvailable() {
+		ui.GumSuccess("User packages installed successfully!")
+	} else {
+		fmt.Println("✅ User packages installed successfully!")
+	}
+}
