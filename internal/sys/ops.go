@@ -5,8 +5,8 @@ import (
 	"os"
 	"os/exec"
 
+	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/errors"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -18,8 +18,8 @@ func UpdateAgents(cfg *config.Config) {
 
 	// Prepare runtime environment (network, overrides)
 	if err := runtime.Prepare(cfg, containerRuntime, configPath); err != nil {
-		ui.LogError(&errors.ConstructError{
-			Category:   errors.ErrorCategoryRuntime,
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
@@ -141,11 +141,12 @@ func ResetVolumes(cfg *config.Config) {
 	var cmd *exec.Cmd
 
 	// Delete named volumes
-	if containerRuntime == "docker" {
+	switch containerRuntime {
+	case "docker":
 		cmd = exec.Command("docker", "volume", "rm", "construct-agents", "construct-packages")
-	} else if containerRuntime == "podman" {
+	case "podman":
 		cmd = exec.Command("podman", "volume", "rm", "construct-agents", "construct-packages")
-	} else if containerRuntime == "container" {
+	case "container":
 		cmd = exec.Command("docker", "volume", "rm", "construct-agents", "construct-packages")
 	}
 
@@ -183,8 +184,8 @@ func InstallPackages(cfg *config.Config) {
 
 	// 1. Prepare (regenerates script and override)
 	if err := runtime.Prepare(cfg, containerRuntime, configPath); err != nil {
-		ui.LogError(&errors.ConstructError{
-			Category:   errors.ErrorCategoryRuntime,
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
@@ -209,7 +210,11 @@ func InstallPackages(cfg *config.Config) {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)
 	}
 	if logFile != nil {
-		defer logFile.Close()
+		defer func() {
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to close log file: %v\n", err)
+			}
+		}()
 		if ui.GumAvailable() {
 			fmt.Printf("%sInstall log: %s%s\n", ui.ColorGrey, logFile.Name(), ui.ColorReset)
 		} else {
@@ -224,9 +229,10 @@ func InstallPackages(cfg *config.Config) {
 	execArgs := []string{"exec", "-u", "construct", containerName, "bash", scriptPath}
 
 	var cmd *exec.Cmd
-	if containerRuntime == "docker" || containerRuntime == "container" {
+	switch containerRuntime {
+	case "docker", "container":
 		cmd = exec.Command("docker", execArgs...)
-	} else if containerRuntime == "podman" {
+	case "podman":
 		cmd = exec.Command("podman", execArgs...)
 	}
 

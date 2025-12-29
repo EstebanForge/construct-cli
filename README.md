@@ -15,7 +15,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
 - **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages.
-- **Specialized Version Managers**: Easy activation of `phpbrew`, `nix`, `asdf`, `mise`, and `vmr` directly from configuration.
+- **Specialized Version Managers**: Easy activation of `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` directly from configuration.
 - **Live Package Updates**: Apply new package configurations to a running container without a restart using `construct sys install-packages`.
 - **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
 - **Pro Toolchain**: Sandbox comes preloaded with Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, and more.
@@ -164,11 +164,13 @@ Agent and sandbox config directories on the host live inside `~/.config/construc
 
 You can customize the tools available inside The Construct by creating `~/.config/construct-cli/packages.toml`. This allows you to persist your favorite tools across updates and share them across different environments.
 
+The base image is kept lean for faster builds. Some developer tools (vim, fd-find, bat, tmux, bun) are available as opt-in packages:
+
 ```toml
 # ~/.config/construct-cli/packages.toml
 
 [apt]
-packages = ["htop", "vim-gtk3"]
+packages = ["vim", "fd-find", "bat", "tmux"]
 
 [brew]
 taps = ["common-family/homebrew-tap"]
@@ -184,6 +186,8 @@ packages = ["black", "isort"]
 # Specialized tools and version managers
 phpbrew = true
 nix = true
+nvm = true
+bun = true
 asdf = true
 mise = true
 vmr = true

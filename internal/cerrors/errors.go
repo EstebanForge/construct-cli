@@ -1,5 +1,5 @@
-// Package errors defines custom error types and categories for Construct CLI.
-package errors
+// Package cerrors defines custom error types and categories for Construct CLI.
+package cerrors
 
 import (
 	"fmt"

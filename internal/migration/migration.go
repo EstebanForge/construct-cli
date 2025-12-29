@@ -19,6 +19,7 @@ import (
 
 const versionFile = ".version"
 const configTemplateHashFile = ".config_template_hash"
+const packagesTemplateHashFile = ".packages_template_hash"
 
 // GetInstalledVersion returns the currently installed version from the version file
 func GetInstalledVersion() string {
@@ -96,6 +97,12 @@ func getConfigTemplateHash() string {
 	return hex.EncodeToString(hash[:])
 }
 
+// getPackagesTemplateHash returns SHA256 hash of the embedded packages template
+func getPackagesTemplateHash() string {
+	hash := sha256.Sum256([]byte(templates.Packages))
+	return hex.EncodeToString(hash[:])
+}
+
 // configTemplateChanged checks if embedded config template differs from last applied
 func configTemplateChanged() bool {
 	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
@@ -118,6 +125,30 @@ func configTemplateChanged() bool {
 func saveConfigTemplateHash() error {
 	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
 	return os.WriteFile(hashPath, []byte(getConfigTemplateHash()+"\n"), 0644)
+}
+
+// packagesTemplateChanged checks if embedded packages template differs from last applied
+func packagesTemplateChanged() bool {
+	hashPath := filepath.Join(config.GetConfigDir(), packagesTemplateHashFile)
+
+	storedHash, err := os.ReadFile(hashPath)
+	if err != nil {
+		// No hash file - either fresh install or upgrade from old version
+		// If packages.toml exists, assume template changed (be conservative)
+		packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
+		if _, err := os.Stat(packagesPath); err == nil {
+			return true
+		}
+		return false
+	}
+
+	return strings.TrimSpace(string(storedHash)) != getPackagesTemplateHash()
+}
+
+// savePackagesTemplateHash stores the current packages template hash
+func savePackagesTemplateHash() error {
+	hashPath := filepath.Join(config.GetConfigDir(), packagesTemplateHashFile)
+	return os.WriteFile(hashPath, []byte(getPackagesTemplateHash()+"\n"), 0644)
 }
 
 // RunMigrations performs all necessary migrations
@@ -156,9 +187,20 @@ func RunMigrations() error {
 		}
 	}
 
-	// 3. Provision packages.toml if missing
-	if err := provisionPackagesConfig(); err != nil {
-		return fmt.Errorf("failed to provision packages config: %w", err)
+	// 3. Merge packages.toml only if template structure changed
+	if packagesTemplateChanged() {
+		if err := mergePackagesFile(); err != nil {
+			return fmt.Errorf("failed to merge packages file: %w", err)
+		}
+		if err := savePackagesTemplateHash(); err != nil {
+			return fmt.Errorf("failed to save packages template hash: %w", err)
+		}
+	} else {
+		if ui.GumAvailable() {
+			fmt.Printf("%s  → Packages structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
+		} else {
+			fmt.Println("  → Packages structure unchanged, skipping merge")
+		}
 	}
 
 	// 4. Mark image for rebuild
@@ -192,14 +234,14 @@ func updateContainerTemplates() error {
 
 	// Container templates (safe to replace - no user modifications expected)
 	containerFiles := map[string]string{
-		"Dockerfile":              templates.Dockerfile,
-		"docker-compose.yml":      templates.DockerCompose,
-		"entrypoint.sh":           templates.Entrypoint,
-		"update-all.sh":           templates.UpdateAll,
-		"network-filter.sh":       templates.NetworkFilter,
-		"clipper":                 templates.Clipper,
-		"clipboard-x11-sync.sh":   templates.ClipboardX11Sync,
-		"osascript":               templates.Osascript,
+		"Dockerfile":            templates.Dockerfile,
+		"docker-compose.yml":    templates.DockerCompose,
+		"entrypoint.sh":         templates.Entrypoint,
+		"update-all.sh":         templates.UpdateAll,
+		"network-filter.sh":     templates.NetworkFilter,
+		"clipper":               templates.Clipper,
+		"clipboard-x11-sync.sh": templates.ClipboardX11Sync,
+		"osascript":             templates.Osascript,
 	}
 
 	for filename, content := range containerFiles {
@@ -274,6 +316,77 @@ func mergeConfigFile() error {
 		fmt.Printf("%s  ✓ Configuration merged (user settings preserved)%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
 		fmt.Println("  ✓ Configuration merged (user settings preserved)")
+	}
+
+	return nil
+}
+
+// mergePackagesFile replaces packages.toml with the template and reapplies user values.
+// Preserves template layout/comments while copying supported values.
+func mergePackagesFile() error {
+	packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
+	backupPath := packagesPath + ".backup"
+
+	if ui.GumAvailable() {
+		fmt.Printf("%sMerging packages file...%s\n", ui.ColorCyan, ui.ColorReset)
+	} else {
+		fmt.Println("→ Merging packages file...")
+	}
+
+	// Check if packages.toml exists
+	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
+		// File doesn't exist - just provision from template
+		if err := os.WriteFile(packagesPath, []byte(templates.Packages), 0644); err != nil {
+			return fmt.Errorf("failed to write packages.toml: %w", err)
+		}
+
+		if ui.GumAvailable() {
+			fmt.Printf("%s  ✓ packages.toml created from template%s\n", ui.ColorPink, ui.ColorReset)
+		} else {
+			fmt.Println("  ✓ packages.toml created from template")
+		}
+		return nil
+	}
+
+	// File exists - merge with template
+	if _, err := os.Stat(backupPath); err == nil {
+		if err := os.Remove(backupPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to remove backup: %v\n", err)
+		}
+	}
+
+	// Backup current packages file
+	if err := os.Rename(packagesPath, backupPath); err != nil {
+		return fmt.Errorf("failed to backup packages: %w", err)
+	}
+	if ui.GumAvailable() {
+		fmt.Printf("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
+	} else {
+		fmt.Printf("  → Backup saved: %s\n", backupPath)
+	}
+
+	// Write fresh template packages
+	templateData := []byte(templates.Packages)
+	if err := os.WriteFile(packagesPath, templateData, 0644); err != nil {
+		return fmt.Errorf("failed to write template packages: %w", err)
+	}
+
+	// Apply user values from backup onto template
+	if backupData, err := os.ReadFile(backupPath); err == nil {
+		mergedData, err := mergeTemplateWithBackup(templateData, backupData)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to merge user packages values: %v\n", err)
+		} else {
+			if err := os.WriteFile(packagesPath, mergedData, 0644); err != nil {
+				return fmt.Errorf("failed to write merged packages: %w", err)
+			}
+		}
+	}
+
+	if ui.GumAvailable() {
+		fmt.Printf("%s  ✓ Packages merged (user settings preserved)%s\n", ui.ColorPink, ui.ColorReset)
+	} else {
+		fmt.Println("  ✓ Packages merged (user settings preserved)")
 	}
 
 	return nil
@@ -371,9 +484,12 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to save config template hash: %w", err)
 	}
 
-	// 3. Provision packages config
-	if err := provisionPackagesConfig(); err != nil {
-		return fmt.Errorf("failed to provision packages config: %w", err)
+	// 3. Merge packages config
+	if err := mergePackagesFile(); err != nil {
+		return fmt.Errorf("failed to merge packages file: %w", err)
+	}
+	if err := savePackagesTemplateHash(); err != nil {
+		return fmt.Errorf("failed to save packages template hash: %w", err)
 	}
 
 	// 4. Mark image for rebuild
@@ -393,32 +509,6 @@ func ForceRefresh() error {
 		fmt.Printf("  Configuration and templates synced with binary version %s\n", constants.Version)
 	}
 	fmt.Println()
-
-	return nil
-}
-
-// provisionPackagesConfig ensures packages.toml exists in the config directory.
-// If missing, it creates it from the embedded template.
-func provisionPackagesConfig() error {
-	packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
-
-	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
-		if ui.GumAvailable() {
-			fmt.Printf("%sProvisioning packages.toml...%s\n", ui.ColorCyan, ui.ColorReset)
-		} else {
-			fmt.Println("→ Provisioning packages.toml...")
-		}
-
-		if err := os.WriteFile(packagesPath, []byte(templates.Packages), 0644); err != nil {
-			return fmt.Errorf("failed to write packages.toml: %w", err)
-		}
-
-		if ui.GumAvailable() {
-			fmt.Printf("%s  ✓ packages.toml created (contains new default tools)%s\n", ui.ColorPink, ui.ColorReset)
-		} else {
-			fmt.Println("  ✓ packages.toml created (contains new default tools)")
-		}
-	}
 
 	return nil
 }

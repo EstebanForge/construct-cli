@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/errors"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -308,17 +308,18 @@ func AreAgentsInstalled(cfg *config.Config) bool {
 
 	// Check if the marker file exists in the construct-agents volume
 	var cmd *exec.Cmd
-	if containerRuntime == "docker" {
+	switch containerRuntime {
+	case "docker":
 		cmd = exec.Command("docker", "run",
 			"-v", "construct-agents:/target",
 			"alpine:latest",
 			"test", "-f", "/target/.agents-installed")
-	} else if containerRuntime == "podman" {
+	case "podman":
 		cmd = exec.Command("podman", "run",
 			"-v", "construct-agents:/target",
 			"alpine:latest",
 			"test", "-f", "/target/.agents-installed")
-	} else if containerRuntime == "container" {
+	case "container":
 		cmd = exec.Command("docker", "run",
 			"-v", "construct-agents:/target",
 			"alpine:latest",
@@ -336,8 +337,8 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 
 	// Prepare runtime environment (network, overrides)
 	if err := Prepare(cfg, containerRuntime, configPath); err != nil {
-		return &errors.ConstructError{
-			Category:   errors.ErrorCategoryRuntime,
+		return &cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "prepare runtime for agent installation",
 			Runtime:    containerRuntime,
 			Err:        err,
@@ -351,8 +352,8 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 
 	cmd, err := BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
 	if err != nil {
-		return &errors.ConstructError{
-			Category:  errors.ErrorCategoryRuntime,
+		return &cerrors.ConstructError{
+			Category:  cerrors.ErrorCategoryRuntime,
 			Operation: "build agent install command",
 			Runtime:   containerRuntime,
 			Err:       err,
@@ -375,8 +376,8 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 	}
 
 	if err := ui.RunCommandWithSpinner(cmd, "Installing AI agents...", agentLogFile); err != nil {
-		return &errors.ConstructError{
-			Category:   errors.ErrorCategoryContainer,
+		return &cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryContainer,
 			Operation:  "install agents",
 			Command:    fmt.Sprintf("%s run --rm construct-box /usr/local/bin/entrypoint.sh", containerRuntime),
 			Runtime:    containerRuntime,
@@ -451,9 +452,10 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 func EnsureCustomNetwork(containerRuntime string) error {
 	// Check if the network exists
 	var checkCmd *exec.Cmd
-	if containerRuntime == "docker" || containerRuntime == "container" {
+	switch containerRuntime {
+	case "docker", "container":
 		checkCmd = exec.Command("docker", "network", "inspect", "construct-net")
-	} else if containerRuntime == "podman" {
+	case "podman":
 		checkCmd = exec.Command("podman", "network", "inspect", "construct-net")
 	}
 
@@ -465,12 +467,13 @@ func EnsureCustomNetwork(containerRuntime string) error {
 	// Create network
 	fmt.Println("Creating custom network for strict mode...")
 	var createCmd *exec.Cmd
-	if containerRuntime == "docker" || containerRuntime == "container" {
+	switch containerRuntime {
+	case "docker", "container":
 		createCmd = exec.Command("docker", "network", "create",
 			"--driver", "bridge",
 			"--subnet", "172.28.0.0/16",
 			"construct-net")
-	} else if containerRuntime == "podman" {
+	case "podman":
 		createCmd = exec.Command("podman", "network", "create",
 			"--driver", "bridge",
 			"--subnet", "172.28.0.0/16",
@@ -539,13 +542,14 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	override.WriteString("    volumes:\n")
 
 	// Platform-specific volume declarations
-	if runtime.GOOS == "linux" {
+	switch runtime.GOOS {
+	case "linux":
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
@@ -601,10 +605,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	// Network isolation mode
-	if networkMode == "offline" {
+	switch networkMode {
+	case "offline":
 		override.WriteString("    network_mode: none\n")
 		fmt.Println("✓ Network isolation: offline (no network access)")
-	} else if networkMode == "strict" {
+	case "strict":
 		override.WriteString("    networks:\n")
 		override.WriteString("      - construct-net\n")
 		override.WriteString("    cap_add:\n")

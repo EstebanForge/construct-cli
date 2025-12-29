@@ -7,16 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"testing"
 )
-
-// Mock exec command for testing
-var testExecCommand = func(name string, args ...string) *exec.Cmd {
-	return exec.Command(name, args...)
-}
 
 func TestErrNoImage(t *testing.T) {
 	if !errors.Is(ErrNoImage, ErrNoImage) {

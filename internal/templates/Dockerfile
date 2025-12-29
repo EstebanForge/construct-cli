@@ -3,11 +3,7 @@ FROM debian:trixie-slim
 # 1. Create non-root user and install system packages
 RUN useradd -m -s /bin/bash construct && \
     apt-get update && apt-get install -y \
-    curl git procps file build-essential \
-    vim nano python3 python3-pip python3-venv python3-dev pipx \
-    fd-find ripgrep jq bat tmux sudo gosu socat \
-    ufw iptables dnsutils \
-    xclip xsel wl-clipboard imagemagick xvfb && \
+    build-essential git curl wget sudo gosu socat xvfb && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password
@@ -44,7 +40,7 @@ ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
 # 3. Install essential runtime dependencies only
 # Note: CLI tools will be installed via entrypoint.sh to ensure proper PATH setup
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    brew install node@24 python@3 oven-sh/bun/bun || true
+    brew install node@24 python@3 || true
 
 # 4. Switch to root to copy scripts to /usr/local/bin
 USER root
