@@ -23,7 +23,7 @@
     - [x] Sub-task: Add function to extract current directory name. 7c8d9e0
     - [x] Sub-task: Modify Compose override generation to inject the correct `PROJECT_MOUNT_PATH` and `working_dir`. 7c8d9e0
 
-## Phase 4: Integration & Verification [x]
+## Phase 4: Integration & Verification [x] [checkpoint: 4a8437f]
 - [x] Task: Update `DESIGN.md` and documentation to reflect the path change. 4e5f6a7
 - [x] Task: Manual Verification. 8b9c0d1
     - [x] Sub-task: Run agent in a folder named `test-project`. 8b9c0d1
