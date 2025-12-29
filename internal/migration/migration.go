@@ -156,10 +156,15 @@ func RunMigrations() error {
 		}
 	}
 
-	// 3. Mark image for rebuild
+	// 3. Provision packages.toml if missing
+	if err := provisionPackagesConfig(); err != nil {
+		return fmt.Errorf("failed to provision packages config: %w", err)
+	}
+
+	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 4. Update installed version
+	// 5. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
@@ -187,13 +192,14 @@ func updateContainerTemplates() error {
 
 	// Container templates (safe to replace - no user modifications expected)
 	containerFiles := map[string]string{
-		"Dockerfile":         templates.Dockerfile,
-		"docker-compose.yml": templates.DockerCompose,
-		"entrypoint.sh":      templates.Entrypoint,
-		"update-all.sh":      templates.UpdateAll,
-		"network-filter.sh":  templates.NetworkFilter,
-		"clipper":            templates.Clipper,
-		"osascript":          templates.Osascript,
+		"Dockerfile":              templates.Dockerfile,
+		"docker-compose.yml":      templates.DockerCompose,
+		"entrypoint.sh":           templates.Entrypoint,
+		"update-all.sh":           templates.UpdateAll,
+		"network-filter.sh":       templates.NetworkFilter,
+		"clipper":                 templates.Clipper,
+		"clipboard-x11-sync.sh":   templates.ClipboardX11Sync,
+		"osascript":               templates.Osascript,
 	}
 
 	for filename, content := range containerFiles {
@@ -365,10 +371,15 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to save config template hash: %w", err)
 	}
 
-	// 3. Mark image for rebuild
+	// 3. Provision packages config
+	if err := provisionPackagesConfig(); err != nil {
+		return fmt.Errorf("failed to provision packages config: %w", err)
+	}
+
+	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 4. Update installed version
+	// 5. Update installed version
 	if err := SetInstalledVersion(constants.Version); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
@@ -382,6 +393,32 @@ func ForceRefresh() error {
 		fmt.Printf("  Configuration and templates synced with binary version %s\n", constants.Version)
 	}
 	fmt.Println()
+
+	return nil
+}
+
+// provisionPackagesConfig ensures packages.toml exists in the config directory.
+// If missing, it creates it from the embedded template.
+func provisionPackagesConfig() error {
+	packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
+
+	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
+		if ui.GumAvailable() {
+			fmt.Printf("%sProvisioning packages.toml...%s\n", ui.ColorCyan, ui.ColorReset)
+		} else {
+			fmt.Println("→ Provisioning packages.toml...")
+		}
+
+		if err := os.WriteFile(packagesPath, []byte(templates.Packages), 0644); err != nil {
+			return fmt.Errorf("failed to write packages.toml: %w", err)
+		}
+
+		if ui.GumAvailable() {
+			fmt.Printf("%s  ✓ packages.toml created (contains new default tools)%s\n", ui.ColorPink, ui.ColorReset)
+		} else {
+			fmt.Println("  ✓ packages.toml created (contains new default tools)")
+		}
+	}
 
 	return nil
 }

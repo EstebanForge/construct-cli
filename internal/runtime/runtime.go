@@ -431,6 +431,18 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		return fmt.Errorf("failed to generate docker-compose override: %w", err)
 	}
 
+	// Load user packages config and generate installation script
+	pkgs, err := config.LoadPackages()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load packages configuration: %v\n", err)
+	} else {
+		script := pkgs.GenerateInstallScript()
+		scriptPath := filepath.Join(config.GetContainerDir(), "install_user_packages.sh")
+		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
+		}
+	}
+
 	return nil
 }
 
@@ -512,10 +524,12 @@ func GenerateDockerComposeOverride(configPath string, networkMode string) error 
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
 		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	} else if runtime.GOOS == "darwin" {
 		fmt.Fprintf(&override, "      - ${PWD}:/workspace%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 

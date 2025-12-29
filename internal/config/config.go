@@ -133,6 +133,7 @@ func Load() (*Config, bool, error) {
 	clipperPath := filepath.Join(containerDir, "clipper")
 	clipboardSyncPath := filepath.Join(containerDir, "clipboard-x11-sync.sh")
 	osascriptPath := filepath.Join(containerDir, "osascript")
+	packagesPath := filepath.Join(GetConfigDir(), "packages.toml")
 
 	// Check if any required file is missing
 	configMissing := false
@@ -161,6 +162,9 @@ func Load() (*Config, bool, error) {
 		configMissing = true
 	}
 	if _, err := os.Stat(osascriptPath); os.IsNotExist(err) {
+		configMissing = true
+	}
+	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
 		configMissing = true
 	}
 
@@ -260,6 +264,9 @@ func Init() {
 
 	// Create config.toml in root config dir
 	createFile(filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644)
+
+	// Create packages.toml in root config dir
+	createFile(filepath.Join(configPath, "packages.toml"), []byte(templates.Packages), 0644)
 
 	if ui.GumAvailable() {
 		ui.GumSuccess("The Construct initialized successfully!")

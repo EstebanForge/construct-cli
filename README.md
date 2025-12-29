@@ -14,6 +14,9 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Live application of network rules while the AGENT is running.
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
+- **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages.
+- **Specialized Version Managers**: Easy activation of `phpbrew`, `nix`, `asdf`, `mise`, and `vmr` directly from configuration.
+- **Live Package Updates**: Apply new package configurations to a running container without a restart using `construct sys install-packages`.
 - **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
 - **Pro Toolchain**: Sandbox comes preloaded with Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, and more.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
@@ -59,6 +62,9 @@ ct gemini --ct-network offline
 
 # Update all agents in the persistent volume
 ct sys update
+
+# Apply new packages from packages.toml to a running container
+ct sys install-packages
 
 # Install host aliases for seamless agent access (claude, gemini, etc.)
 ct sys install-aliases
@@ -153,6 +159,41 @@ blocked_ips = ["203.0.113.0/24", "198.51.100.25"]
 ```
 
 Agent and sandbox config directories on the host live inside `~/.config/construct-cli/home`.
+
+### User-Defined Packages
+
+You can customize the tools available inside The Construct by creating `~/.config/construct-cli/packages.toml`. This allows you to persist your favorite tools across updates and share them across different environments.
+
+```toml
+# ~/.config/construct-cli/packages.toml
+
+[apt]
+packages = ["htop", "vim-gtk3"]
+
+[brew]
+taps = ["common-family/homebrew-tap"]
+packages = ["fastlane", "make"]
+
+[npm]
+packages = ["typescript-language-server"]
+
+[pip]
+packages = ["black", "isort"]
+
+[tools]
+# Specialized tools and version managers
+phpbrew = true
+nix = true
+asdf = true
+mise = true
+vmr = true
+```
+
+After modifying `packages.toml`, you can apply the changes to a running container:
+```bash
+ct sys install-packages
+```
+Or simply restart the Construct.
 
 ## Architecture (What Happens Under the Hood)
 - **Embedded templates**: Dockerfile, docker-compose.yml, entrypoint, network filter, and default config are bundled inside the binary and written to `~/.config/construct-cli/container` on first `construct sys init`.

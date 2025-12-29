@@ -31,6 +31,7 @@ Global Flags:
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
   construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
+  construct sys install-packages # Apply changes from packages.toml to the running container
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
   construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
@@ -89,6 +90,7 @@ Commands:
   help             # Show this help
   init             # Initialize environment and install agents inside The Construct
   install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
+  install-packages # Apply changes from packages.toml to the running container
   login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   migrate          # Re-run migrations to sync config/templates with the binary
   reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)

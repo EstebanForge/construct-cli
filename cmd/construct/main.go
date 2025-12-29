@@ -184,6 +184,16 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		sys.UpdateAgents(cfg)
+	case "install-packages":
+		if cfg == nil {
+			var err error
+			cfg, _, err = config.Load()
+			if err != nil {
+				ui.LogError(err)
+				os.Exit(1)
+			}
+		}
+		sys.InstallPackages(cfg)
 	case "reset":
 		if cfg == nil {
 			var err error
