@@ -108,7 +108,11 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	// Standard Tools (Always installed)
 	script += "echo 'Installing Claude Code...'\n"
-	script += "curl -fsSL https://claude.ai/install.sh | bash\n\n"
+	script += "if [ -x \"/home/construct/.local/bin/claude\" ]; then\n"
+	script += "    echo \"Claude already installed; skipping.\"\n"
+	script += "else\n"
+	script += "    curl -fsSL https://claude.ai/install.sh | bash\n"
+	script += "fi\n\n"
 
 	script += "echo 'Installing mcp-cli-ent...'\n"
 	script += "curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash\n\n"
@@ -181,11 +185,11 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 			script += "brew tap " + tap + "\n"
 		}
 		if len(c.Brew.Packages) > 0 {
-			script += "brew install "
 			for _, pkg := range c.Brew.Packages {
-				script += pkg + " "
+				script += "if ! brew install \"" + pkg + "\"; then\n"
+				script += "    echo \"⚠️ Failed to install " + pkg + "\"\n"
+				script += "fi\n"
 			}
-			script += "\n"
 		}
 		script += "\n"
 	}

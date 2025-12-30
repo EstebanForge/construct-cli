@@ -56,6 +56,8 @@ const (
 	ColorOrange = "\033[38;5;214m"
 	ColorCyan   = "\033[38;5;86m"
 	ColorGrey   = "\033[38;5;242m"
+	ColorGreen  = "\033[38;5;46m"
+	ColorYellow = "\033[38;5;220m"
 	ColorReset  = "\033[0m"
 	ColorBold   = "\033[1m"
 )

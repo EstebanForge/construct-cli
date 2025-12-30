@@ -242,6 +242,14 @@ func SelfUpdate() error {
 		ui.LogWarning("Failed to remove backup file: %v", err)
 	}
 
+	// Force migration on next run by removing version file
+	// This ensures that even if the version number hasn't changed,
+	// any template updates in the new binary will be applied.
+	versionFile := filepath.Join(config.GetConfigDir(), ".version")
+	if err := os.Remove(versionFile); err != nil && !os.IsNotExist(err) {
+		ui.LogWarning("Failed to remove version file: %v", err)
+	}
+
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Successfully updated to %s", latestVersion))
 	} else {

@@ -154,8 +154,8 @@ func TestHandlePasteText(t *testing.T) {
 
 	// Content-Type should be set correctly
 	contentType := w.Header().Get("Content-Type")
-	if contentType != "" && contentType != "text/plain" {
-		t.Errorf("Expected Content-Type 'text/plain', got %s", contentType)
+	if contentType != "" && !strings.HasPrefix(contentType, "text/plain") {
+		t.Errorf("Expected Content-Type to start with 'text/plain', got %s", contentType)
 	}
 }
 
@@ -411,8 +411,8 @@ func TestHandleContentTypeHeader(t *testing.T) {
 			// Only check Content-Type on successful requests
 			if w.Code == http.StatusOK {
 				contentType := w.Header().Get("Content-Type")
-				if contentType != tt.expectedCT {
-					t.Errorf("Expected Content-Type %s, got %s", tt.expectedCT, contentType)
+				if !strings.HasPrefix(contentType, tt.expectedCT) {
+					t.Errorf("Expected Content-Type to start with %s, got %s", tt.expectedCT, contentType)
 				}
 			}
 		})

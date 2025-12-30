@@ -57,3 +57,50 @@ blocked_ips = false
 		t.Fatalf("expected blocked_ips to be array, got %T", network["blocked_ips"])
 	}
 }
+
+func TestMergeTemplateWithBackupMissingKeysPreservesUserValues(t *testing.T) {
+	template := `
+[brew]
+taps = ["core"]
+packages = ["one", "two"]
+
+[tools]
+bun = false
+`
+
+	backup := `
+[brew]
+taps = ["custom"]
+packages = ["two"]
+`
+
+	merged, err := mergeTemplateWithBackupMissingKeys([]byte(template), []byte(backup))
+	if err != nil {
+		t.Fatalf("mergeTemplateWithBackupMissingKeys error: %v", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := toml.Unmarshal(merged, &cfg); err != nil {
+		t.Fatalf("merged config invalid TOML: %v", err)
+	}
+
+	brew, ok := cfg["brew"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected brew table, got %T", cfg["brew"])
+	}
+
+	if taps, ok := brew["taps"].([]interface{}); !ok || len(taps) != 1 || taps[0] != "custom" {
+		t.Fatalf("expected taps to be preserved, got %#v", brew["taps"])
+	}
+	if pkgs, ok := brew["packages"].([]interface{}); !ok || len(pkgs) != 1 || pkgs[0] != "two" {
+		t.Fatalf("expected packages to be preserved, got %#v", brew["packages"])
+	}
+
+	tools, ok := cfg["tools"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected tools table, got %T", cfg["tools"])
+	}
+	if bun, ok := tools["bun"].(bool); !ok || bun != false {
+		t.Fatalf("expected bun default to be added, got %#v", tools["bun"])
+	}
+}

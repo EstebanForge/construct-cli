@@ -20,7 +20,10 @@ func OpenConfig() {
 	// Ensure config exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		ui.GumInfo("Config file doesn't exist yet. Initializing...")
-		config.Init()
+		if err := config.Init(); err != nil {
+			ui.GumError(fmt.Sprintf("Failed to initialize config: %v", err))
+			os.Exit(1)
+		}
 		fmt.Println()
 	}
 

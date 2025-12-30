@@ -112,6 +112,12 @@ func TestGetProjectMountPath(t *testing.T) {
 func TestGenerateDockerComposeOverride(t *testing.T) {
 	// Create temp directory
 	tmpDir := t.TempDir()
+
+	// Set temp HOME for config isolation
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
 	// Get current dir name
 	projectName := filepath.Base(tmpDir)
 	if projectName == "." || projectName == "/" {

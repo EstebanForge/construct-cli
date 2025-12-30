@@ -4,6 +4,7 @@
 BINARY_NAME := construct
 ALIAS_NAME := ct
 VERSION := $(shell grep 'Version.*=' internal/constants/constants.go | sed 's/.*"\(.*\)".*/\1/')
+VERSION_FILE := $(shell cat VERSION)
 BUILD_DIR := build
 DIST_DIR := dist
 
@@ -33,7 +34,14 @@ help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
 		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
 
-build: ## Build the binary
+check-version: ## Ensure VERSION file matches constants.Version
+	@const_ver="$(VERSION)"; file_ver="$(VERSION_FILE)"; \
+	if [ "$$const_ver" != "$$file_ver" ]; then \
+		echo "Version mismatch: internal/constants/constants.go=$$const_ver VERSION=$$file_ver"; \
+		exit 1; \
+	fi
+
+build: check-version ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/construct
 	@# Ad-hoc code sign on macOS (required for Gatekeeper)

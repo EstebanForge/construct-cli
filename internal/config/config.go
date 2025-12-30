@@ -172,7 +172,9 @@ func Load() (*Config, bool, error) {
 	// Run init if any file is missing
 	if configMissing {
 		fmt.Println("Required files missing. Running initialization...")
-		Init()
+		if err := Init(); err != nil {
+			return nil, false, fmt.Errorf("initialization failed: %w", err)
+		}
 		createdNew = true
 		fmt.Println()
 	}
@@ -210,32 +212,34 @@ func (c *Config) Save() error {
 }
 
 // Init creates the config directory and template files.
-func Init() {
+func Init() error {
 	configPath := GetConfigDir()
 	containerDir := GetContainerDir()
 
 	// Helper to create file with gum spinner
-	createFile := func(path string, content []byte, perm os.FileMode) {
+	createFile := func(path string, content []byte, perm os.FileMode) error {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			if ui.GumAvailable() {
 				// Use gum spinner for creating file
+				var createErr error
 				ui.GumSpinner(fmt.Sprintf("Creating %s...", filepath.Base(path)), func() []string {
 					if err := os.WriteFile(path, content, perm); err != nil {
+						createErr = err
 						return []string{fmt.Sprintf("Error creating %s: %v", filepath.Base(path), err)}
 					}
 					return []string{fmt.Sprintf("Created: %s", path)}
 				})
-			} else {
-				if err := os.WriteFile(path, content, perm); err != nil {
-					fmt.Fprintf(os.Stderr, "Error: Failed to write %s: %v\n", filepath.Base(path), err)
-					os.Exit(1)
-				}
+				return createErr
+			}
+			if err := os.WriteFile(path, content, perm); err != nil {
+				return fmt.Errorf("failed to write %s: %w", filepath.Base(path), err)
 			}
 		} else {
 			if !ui.GumAvailable() {
 				fmt.Printf("⊗ Exists:  %s\n", path)
 			}
 		}
+		return nil
 	}
 
 	// Create directories
@@ -247,26 +251,38 @@ func Init() {
 
 	for _, dir := range dirs {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			ui.GumError(fmt.Sprintf("Failed to create directory %s: %v", dir, err))
-			os.Exit(1)
+			if ui.GumAvailable() {
+				ui.GumError(fmt.Sprintf("Failed to create directory %s: %v", dir, err))
+			} else {
+				fmt.Fprintf(os.Stderr, "Error: Failed to create directory %s: %v\n", dir, err)
+			}
+			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
-	// Create files using helper (in container directory)
-	createFile(filepath.Join(containerDir, "Dockerfile"), []byte(templates.Dockerfile), 0644)
-	createFile(filepath.Join(containerDir, "docker-compose.yml"), []byte(templates.DockerCompose), 0644)
-	createFile(filepath.Join(containerDir, "entrypoint.sh"), []byte(templates.Entrypoint), 0755)
-	createFile(filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755)
-	createFile(filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755)
-	createFile(filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755)
-	createFile(filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755)
-	createFile(filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755)
+	// Create files using helper
+	files := []struct {
+		path    string
+		content []byte
+		perm    os.FileMode
+	}{
+		{filepath.Join(containerDir, "Dockerfile"), []byte(templates.Dockerfile), 0644},
+		{filepath.Join(containerDir, "docker-compose.yml"), []byte(templates.DockerCompose), 0644},
+		{filepath.Join(containerDir, "entrypoint.sh"), []byte(templates.Entrypoint), 0755},
+		{filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755},
+		{filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755},
+		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
+		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
+		{filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755},
+		{filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644},
+		{filepath.Join(configPath, "packages.toml"), []byte(templates.Packages), 0644},
+	}
 
-	// Create config.toml in root config dir
-	createFile(filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644)
-
-	// Create packages.toml in root config dir
-	createFile(filepath.Join(configPath, "packages.toml"), []byte(templates.Packages), 0644)
+	for _, f := range files {
+		if err := createFile(f.path, f.content, f.perm); err != nil {
+			return err
+		}
+	}
 
 	if ui.GumAvailable() {
 		ui.GumSuccess("The Construct initialized successfully!")
@@ -287,6 +303,16 @@ func Init() {
 	// Set initial config template hash
 	hash := sha256.Sum256([]byte(templates.Config))
 	SetConfigTemplateHash(hex.EncodeToString(hash[:]))
+
+	// Set initial packages template hash
+	pkgHash := sha256.Sum256([]byte(templates.Packages))
+	SetPackagesTemplateHash(hex.EncodeToString(pkgHash[:]))
+
+	// Set initial entrypoint template hash
+	epHash := sha256.Sum256([]byte(templates.Entrypoint))
+	SetEntrypointTemplateHash(hex.EncodeToString(epHash[:]))
+
+	return nil
 }
 
 // SetInitialVersion writes the current version to .version file
@@ -304,6 +330,22 @@ func SetConfigTemplateHash(hash string) {
 	hashPath := filepath.Join(GetConfigDir(), ".config_template_hash")
 	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to write config template hash: %v\n", err)
+	}
+}
+
+// SetPackagesTemplateHash writes the SHA256 hash of the packages template
+func SetPackagesTemplateHash(hash string) {
+	hashPath := filepath.Join(GetConfigDir(), ".packages_template_hash")
+	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write packages template hash: %v\n", err)
+	}
+}
+
+// SetEntrypointTemplateHash writes the SHA256 hash of the entrypoint template
+func SetEntrypointTemplateHash(hash string) {
+	hashPath := filepath.Join(GetConfigDir(), ".entrypoint_template_hash")
+	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write entrypoint template hash: %v\n", err)
 	}
 }
 
