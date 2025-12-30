@@ -20,6 +20,7 @@ import (
 const versionFile = ".version"
 const configTemplateHashFile = ".config_template_hash"
 const packagesTemplateHashFile = ".packages_template_hash"
+const entrypointTemplateHashFile = ".entrypoint_template_hash"
 
 // GetInstalledVersion returns the currently installed version from the version file
 func GetInstalledVersion() string {
@@ -54,13 +55,17 @@ func NeedsMigration() bool {
 		return false
 	}
 
-	// Same version - no migration needed
-	if installed == current {
-		return false
+	// 1. Version change triggers migration
+	if installed != current && compareVersions(current, installed) > 0 {
+		return true
 	}
 
-	// Simple version comparison (assumes semver X.Y.Z format)
-	return compareVersions(current, installed) > 0
+	// 2. Template changes trigger migration even if version is same
+	if configTemplateChanged() || packagesTemplateChanged() || entrypointTemplateChanged() {
+		return true
+	}
+
+	return false
 }
 
 // compareVersions compares two semver strings
@@ -100,6 +105,12 @@ func getConfigTemplateHash() string {
 // getPackagesTemplateHash returns SHA256 hash of the embedded packages template
 func getPackagesTemplateHash() string {
 	hash := sha256.Sum256([]byte(templates.Packages))
+	return hex.EncodeToString(hash[:])
+}
+
+// getEntrypointTemplateHash returns SHA256 hash of the embedded entrypoint template
+func getEntrypointTemplateHash() string {
+	hash := sha256.Sum256([]byte(templates.Entrypoint))
 	return hex.EncodeToString(hash[:])
 }
 
@@ -151,6 +162,30 @@ func savePackagesTemplateHash() error {
 	return os.WriteFile(hashPath, []byte(getPackagesTemplateHash()+"\n"), 0644)
 }
 
+// entrypointTemplateChanged checks if embedded entrypoint template differs from last applied
+func entrypointTemplateChanged() bool {
+	hashPath := filepath.Join(config.GetConfigDir(), entrypointTemplateHashFile)
+
+	storedHash, err := os.ReadFile(hashPath)
+	if err != nil {
+		// No hash file - if entrypoint.sh exists, assume template changed
+		containerDir := filepath.Join(config.GetConfigDir(), "container")
+		entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
+		if _, err := os.Stat(entrypointPath); err == nil {
+			return true
+		}
+		return false
+	}
+
+	return strings.TrimSpace(string(storedHash)) != getEntrypointTemplateHash()
+}
+
+// saveEntrypointTemplateHash stores the current entrypoint template hash
+func saveEntrypointTemplateHash() error {
+	hashPath := filepath.Join(config.GetConfigDir(), entrypointTemplateHashFile)
+	return os.WriteFile(hashPath, []byte(getEntrypointTemplateHash()+"\n"), 0644)
+}
+
 // RunMigrations performs all necessary migrations
 func RunMigrations() error {
 	installed := GetInstalledVersion()
@@ -169,6 +204,9 @@ func RunMigrations() error {
 	// 1. Update container templates (always - may have bug fixes)
 	if err := updateContainerTemplates(); err != nil {
 		return fmt.Errorf("failed to update container templates: %w", err)
+	}
+	if err := saveEntrypointTemplateHash(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save entrypoint template hash: %v\n", err)
 	}
 
 	// 2. Merge config.toml only if template structure changed
@@ -206,7 +244,11 @@ func RunMigrations() error {
 	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 5. Update installed version
+	// 5. Force entrypoint setup to rerun on next container start.
+	clearEntrypointHash()
+	forceEntrypointRun()
+
+	// 6. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
@@ -244,6 +286,39 @@ func updateContainerTemplates() error {
 		"osascript":             templates.Osascript,
 	}
 
+	// Ensure directory exists
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		return fmt.Errorf("failed to ensure container templates dir: %w", err)
+	}
+
+	// Clean up old/unknown files, but handle busy files gracefully
+	entries, err := os.ReadDir(containerDir)
+	if err != nil {
+		return fmt.Errorf("failed to read container templates dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		filename := entry.Name()
+		path := filepath.Join(containerDir, filename)
+
+		// If it's a known template, we'll overwrite it later
+		if _, isTemplate := containerFiles[filename]; isTemplate {
+			continue
+		}
+
+		// Unknown file - try to remove it
+		if err := os.Remove(path); err != nil {
+			// If file is busy (mounted), warn but ignore
+			if strings.Contains(err.Error(), "busy") || strings.Contains(err.Error(), "device or resource busy") {
+				fmt.Fprintf(os.Stderr, "Warning: Could not remove %s (resource busy), skipping...\n", filename)
+				continue
+			}
+			// Other errors are fatal
+			return fmt.Errorf("failed to remove stale file %s: %w", filename, err)
+		}
+	}
+
+	// Write new templates
 	for filename, content := range containerFiles {
 		path := filepath.Join(containerDir, filename)
 		perm := os.FileMode(0644)
@@ -262,6 +337,24 @@ func updateContainerTemplates() error {
 	}
 
 	return nil
+}
+
+func clearEntrypointHash() {
+	hashPath := filepath.Join(config.GetConfigDir(), "home", ".local", ".entrypoint_hash")
+	if err := os.Remove(hashPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to remove entrypoint hash: %v\n", err)
+	}
+}
+
+func forceEntrypointRun() {
+	forcePath := filepath.Join(config.GetConfigDir(), "home", ".local", ".force_entrypoint")
+	if err := os.MkdirAll(filepath.Dir(forcePath), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to ensure entrypoint flag dir: %v\n", err)
+		return
+	}
+	if err := os.WriteFile(forcePath, []byte("1\n"), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write entrypoint flag: %v\n", err)
+	}
 }
 
 // mergeConfigFile replaces config.toml with the template and reapplies user values.
@@ -365,21 +458,21 @@ func mergePackagesFile() error {
 		fmt.Printf("  → Backup saved: %s\n", backupPath)
 	}
 
-	// Write fresh template packages
+	// Apply template defaults only for missing keys, preserving user values.
 	templateData := []byte(templates.Packages)
-	if err := os.WriteFile(packagesPath, templateData, 0644); err != nil {
-		return fmt.Errorf("failed to write template packages: %w", err)
+	backupData, err := os.ReadFile(backupPath)
+	if err != nil {
+		return fmt.Errorf("failed to read backup packages: %w", err)
 	}
-
-	// Apply user values from backup onto template
-	if backupData, err := os.ReadFile(backupPath); err == nil {
-		mergedData, err := mergeTemplateWithBackup(templateData, backupData)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to merge user packages values: %v\n", err)
-		} else {
-			if err := os.WriteFile(packagesPath, mergedData, 0644); err != nil {
-				return fmt.Errorf("failed to write merged packages: %w", err)
-			}
+	mergedData, err := mergeTemplateWithBackupMissingKeys(templateData, backupData)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to merge user packages values: %v\n", err)
+		if err := os.WriteFile(packagesPath, backupData, 0644); err != nil {
+			return fmt.Errorf("failed to restore backup packages: %w", err)
+		}
+	} else {
+		if err := os.WriteFile(packagesPath, mergedData, 0644); err != nil {
+			return fmt.Errorf("failed to write merged packages: %w", err)
 		}
 	}
 
@@ -495,7 +588,11 @@ func ForceRefresh() error {
 	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 5. Update installed version
+	// 5. Force entrypoint setup to rerun on next container start.
+	clearEntrypointHash()
+	forceEntrypointRun()
+
+	// 6. Update installed version
 	if err := SetInstalledVersion(constants.Version); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}

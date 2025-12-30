@@ -10,7 +10,22 @@ RUN useradd -m -s /bin/bash construct && \
 RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw" >> /etc/sudoers.d/construct && \
     chmod 0440 /etc/sudoers.d/construct
 
-# 2. Install Homebrew (lightweight, for tools not in Debian repos or too outdated in Debian)
+# 2. Install Homebrew for Linux
+# Why Homebrew instead of relying solely on APT?
+#   1. Up-to-date packages: Debian stable/testing often lags behind latest versions;
+#      Homebrew provides bleeding-edge tools critical for modern development workflows.
+#   2. Sudoless installation: User-space package management enables automatic, configuration-free
+#      setup without requiring root privileges - making it safe and easy for newcomers.
+#   3. Binary bottles: Pre-compiled packages download and install in seconds vs minutes of compilation.
+#   4. Cross-platform consistency: Same package names and versions work identically on Linux and macOS,
+#      simplifying multi-platform development and documentation.
+#   5. Larger ecosystem: Many modern CLI tools, language runtimes, and dev utilities are available
+#      in Homebrew but missing or severely outdated in Debian repositories.
+#   6. No system pollution: Everything installs to /home/linuxbrew, keeping the base system clean
+#      and avoiding conflicts with system packages or other containerized environments.
+#   7. Easy version management: Simple syntax for pinning versions (package@version) or using latest,
+#      with straightforward rollback capabilities if needed.
+#
 # Follow official installer pattern: create directory as root, clone, then hand over to user
 RUN mkdir -p /home/linuxbrew && \
     git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew && \
@@ -40,7 +55,7 @@ ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
 # 3. Install essential runtime dependencies only
 # Note: CLI tools will be installed via entrypoint.sh to ensure proper PATH setup
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    brew install node@24 python@3 || true
+    brew install node python@3 || true
 
 # 4. Switch to root to copy scripts to /usr/local/bin
 USER root
@@ -56,13 +71,18 @@ COPY osascript /usr/local/bin/osascript
 # and mounted via docker-compose.override.yml.
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript
 
+# Create symlink for g++-11 to point to g++ (for node-gyp compatibility)
+# Some native Node.js modules are hardcoded to use g++-11, but Debian Trixie has g++-14
+RUN ln -sf /usr/bin/g++ /usr/bin/g++-11 && \
+    ln -sf /usr/bin/gcc /usr/bin/gcc-11
+
 # 5. Setup Clipboard Shim
 # Rename original tools and link them to clipper
-RUN mv /usr/bin/xclip /usr/bin/xclip-real && \
-    ln -s /usr/local/bin/clipper /usr/bin/xclip && \
-    mv /usr/bin/xsel /usr/bin/xsel-real && \
-    ln -s /usr/local/bin/clipper /usr/bin/xsel && \
-    if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -s /usr/local/bin/clipper /usr/bin/wl-paste; fi
+RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && \
+    ln -sf /usr/local/bin/clipper /usr/bin/xclip && \
+    if [ -f /usr/bin/xsel ]; then mv /usr/bin/xsel /usr/bin/xsel-real; fi && \
+    ln -sf /usr/local/bin/clipper /usr/bin/xsel && \
+    if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -sf /usr/local/bin/clipper /usr/bin/wl-paste; fi
 
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)

@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.10.0] - 2025-12-29
+## [0.10.0] - 2025-12-30
 
 ### Added
 - **User-Defined Package Management**: Customize your sandbox environment with `packages.toml` configuration.
@@ -29,6 +29,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Comprehensive clipboard functionality test suite.
   - Updated linter configuration for stricter code quality enforcement.
   - Improved error handling and package naming conventions.
+- **Package Management Refinements**:
+  - PHP extensions (PCOV) now installed via Homebrew tap instead of hardcoded scripts for better maintainability.
+  - Node.js version unlocked from `node@24` to `node` for automatic latest stable version.
+  - Native Node.js module compilation support with automatic compiler symlinks (`g++-11` → `g++-14`).
+  - Removed conflicting `bash-completion` package to prevent installation failures.
 
 ## [0.9.1] - 2025-12-27
 

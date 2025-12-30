@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -73,8 +74,16 @@ func Run() {
 	runtimeName := runtimepkg.DetectRuntime(engine)
 	if runtimeName != "" {
 		runtimeCheck.Status = CheckStatusOK
-		runtimeCheck.Message = fmt.Sprintf("Found %s", runtimeName)
+		// Add (OrbStack) suffix if OrbStack is running on macOS
+		runtimeDisplay := runtimeName
+		if runtimeName == "docker" && runtimepkg.IsOrbStackRunning() {
+			runtimeDisplay = "docker (OrbStack)"
+		}
+		runtimeCheck.Message = fmt.Sprintf("Found %s", runtimeDisplay)
 		// Check version/status
+		if version := runtimeVersion(runtimeName); version != "" {
+			runtimeCheck.Details = append(runtimeCheck.Details, fmt.Sprintf("Version: %s", version))
+		}
 		if runtimepkg.IsRuntimeRunning(runtimeName) {
 			runtimeCheck.Details = append(runtimeCheck.Details, "Runtime is running")
 		} else {
@@ -102,7 +111,81 @@ func Run() {
 	}
 	checks = append(checks, configCheck)
 
-	// 3. Image Check
+	// 3. Setup Log Check
+	setupCheck := CheckResult{Name: "Setup Log"}
+	logDir := filepath.Join(config.GetConfigDir(), "logs")
+	logPath, err := latestLogFile(logDir, "setup_install_*.log")
+	if err != nil || logPath == "" {
+		setupCheck.Status = CheckStatusSkipped
+		setupCheck.Message = "No setup log found"
+	} else {
+		setupCheck.Details = append(setupCheck.Details, fmt.Sprintf("Last log: %s", logPath))
+		logData, err := os.ReadFile(logPath)
+		if err != nil {
+			setupCheck.Status = CheckStatusWarning
+			setupCheck.Message = "Failed to read setup log"
+			setupCheck.Suggestion = "Re-run 'construct sys shell' to regenerate logs"
+		} else {
+			logText := string(logData)
+			if strings.Contains(logText, "Failed to install") || strings.Contains(logText, "Package installation encountered errors") {
+				setupCheck.Status = CheckStatusWarning
+				setupCheck.Message = "Setup completed with installation errors"
+				setupCheck.Suggestion = "Review the setup log for failed packages"
+			} else {
+				setupCheck.Status = CheckStatusOK
+				setupCheck.Message = "Setup completed without logged errors"
+			}
+		}
+	}
+	checks = append(checks, setupCheck)
+
+	// 4. Templates Check
+	templatesCheck := CheckResult{Name: "Templates Sync"}
+	templatesDir := config.GetContainerDir()
+	if entries, err := os.ReadDir(templatesDir); err == nil && len(entries) > 0 {
+		templatesCheck.Status = CheckStatusOK
+		templatesCheck.Message = "Templates directory populated"
+		templatesCheck.Details = append(templatesCheck.Details, fmt.Sprintf("Path: %s", templatesDir))
+	} else {
+		templatesCheck.Status = CheckStatusWarning
+		templatesCheck.Message = "Templates directory missing or empty"
+		templatesCheck.Suggestion = "Run 'construct sys migrate' to refresh templates"
+	}
+	checks = append(checks, templatesCheck)
+
+	// 5. Packages Config Check
+	packagesCheck := CheckResult{Name: "Packages Config"}
+	if _, err := config.LoadPackages(); err != nil {
+		packagesCheck.Status = CheckStatusError
+		packagesCheck.Message = "packages.toml invalid or missing"
+		packagesCheck.Details = append(packagesCheck.Details, err.Error())
+		packagesCheck.Suggestion = "Run 'construct sys packages' to recreate a valid file"
+	} else {
+		packagesCheck.Status = CheckStatusOK
+		packagesCheck.Message = "packages.toml loaded successfully"
+	}
+	checks = append(checks, packagesCheck)
+
+	// 6. Entrypoint State Check
+	entrypointCheck := CheckResult{Name: "Entrypoint State"}
+	homeLocal := filepath.Join(config.GetConfigDir(), "home", ".local")
+	hashPath := filepath.Join(homeLocal, ".entrypoint_hash")
+	forcePath := filepath.Join(homeLocal, ".force_entrypoint")
+	if _, err := os.Stat(forcePath); err == nil {
+		entrypointCheck.Status = CheckStatusWarning
+		entrypointCheck.Message = "Entrypoint setup forced on next run"
+		entrypointCheck.Suggestion = "Start a shell to apply pending setup"
+	} else if _, err := os.Stat(hashPath); err == nil {
+		entrypointCheck.Status = CheckStatusOK
+		entrypointCheck.Message = "Entrypoint setup hash present"
+	} else {
+		entrypointCheck.Status = CheckStatusWarning
+		entrypointCheck.Message = "Entrypoint setup hash missing"
+		entrypointCheck.Suggestion = "Start a shell to run setup"
+	}
+	checks = append(checks, entrypointCheck)
+
+	// 7. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
@@ -116,18 +199,18 @@ func Run() {
 	}
 	checks = append(checks, imageCheck)
 
-	// 4. Agents Volume Check
+	// 8. Agents Installation Check
 	volumeCheck := CheckResult{Name: "Agent Installation"}
-	if cfg != nil && runtimepkg.AreAgentsInstalled(cfg) {
+	if cfg != nil && hasAgentBinaries(config.GetConfigDir()) {
 		volumeCheck.Status = CheckStatusOK
-		volumeCheck.Message = "Agents installed in persistent volume"
+		volumeCheck.Message = "Agent tools installed"
 	} else {
 		volumeCheck.Status = CheckStatusWarning
 		volumeCheck.Message = "Agents not found (will install on first run)"
 	}
 	checks = append(checks, volumeCheck)
 
-	// 5. SSH Agent Check
+	// 9. SSH Agent Check
 	sshCheck := CheckResult{Name: "SSH Agent"}
 	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
 		sshCheck.Status = CheckStatusSkipped
@@ -147,7 +230,7 @@ func Run() {
 	}
 	checks = append(checks, sshCheck)
 
-	// 6. SSH Keys Check (Imported)
+	// 10. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Local SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
 	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
@@ -171,7 +254,7 @@ func Run() {
 	}
 	checks = append(checks, keysCheck)
 
-	// 7. Clipboard Bridge Check
+	// 11. Clipboard Bridge Check
 	clipboardCheck := CheckResult{Name: "Clipboard Bridge"}
 	clipboardHost := ""
 	networkMode := ""
@@ -224,52 +307,92 @@ func Run() {
 	fmt.Println()
 }
 
+func runtimeVersion(runtimeName string) string {
+	var cmd *exec.Cmd
+
+	switch runtimeName {
+	case "docker":
+		cmd = exec.Command("docker", "version", "--format", "{{.Server.Version}}")
+	case "podman":
+		cmd = exec.Command("podman", "--version")
+	case "container":
+		cmd = exec.Command("container", "--version")
+	default:
+		return ""
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
+func latestLogFile(logDir, pattern string) (string, error) {
+	matches, err := filepath.Glob(filepath.Join(logDir, pattern))
+	if err != nil || len(matches) == 0 {
+		return "", err
+	}
+
+	sort.Slice(matches, func(i, j int) bool {
+		infoA, errA := os.Stat(matches[i])
+		infoB, errB := os.Stat(matches[j])
+		if errA != nil || errB != nil {
+			return matches[i] > matches[j]
+		}
+		return infoA.ModTime().After(infoB.ModTime())
+	})
+
+	return matches[0], nil
+}
+
+func hasAgentBinaries(configDir string) bool {
+	binDir := filepath.Join(configDir, "home", ".local", "bin")
+	candidates := []string{
+		"claude",
+		"mcp-cli-ent",
+		"opencode",
+		"gemini",
+		"codex",
+		"qwen-code",
+	}
+
+	for _, name := range candidates {
+		if _, err := os.Stat(filepath.Join(binDir, name)); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 func printCheckResult(check CheckResult) {
 	statusIcon := "✓"
-	color := "212" // Green/Pinkish
+	color := ui.ColorGreen
 
 	switch check.Status {
 	case CheckStatusWarning:
 		statusIcon = "!"
-		color = "214" // Orange
+		color = ui.ColorYellow
 	case CheckStatusError:
 		statusIcon = "✗"
-		color = "196" // Red
+		color = ui.ColorRed
 	case CheckStatusSkipped:
 		statusIcon = "-"
-		color = "242" // Grey
+		color = ui.ColorGrey
 	}
 
-	if ui.GumAvailable() {
-		// Use gum for status
-		cmd := exec.Command("gum", "style", "--foreground", color, fmt.Sprintf("%s %s: %s", statusIcon, check.Name, check.Message))
-		cmd.Stdout = os.Stdout
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to render check: %v\n", err)
-		}
+	// Print main check result with color
+	fmt.Printf("%s%s %s: %s%s\n", color, statusIcon, check.Name, check.Message, ui.ColorReset)
 
-		for _, detail := range check.Details {
-			cmd := exec.Command("gum", "style", "--foreground", "242", fmt.Sprintf("  • %s", detail))
-			cmd.Stdout = os.Stdout
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to render detail: %v\n", err)
-			}
-		}
+	// Print details in grey
+	for _, detail := range check.Details {
+		fmt.Printf("%s  • %s%s\n", ui.ColorGrey, detail, ui.ColorReset)
+	}
 
-		if check.Suggestion != "" {
-			cmd := exec.Command("gum", "style", "--foreground", "214", "--italic", fmt.Sprintf("  → Suggestion: %s", check.Suggestion))
-			cmd.Stdout = os.Stdout
-			if err := cmd.Run(); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: failed to render suggestion: %v\n", err)
-			}
-		}
-	} else {
-		fmt.Printf("[%s] %s: %s\n", check.Status, check.Name, check.Message)
-		for _, detail := range check.Details {
-			fmt.Printf("  • %s\n", detail)
-		}
-		if check.Suggestion != "" {
-			fmt.Printf("  → Suggestion: %s\n", check.Suggestion)
-		}
+	// Print suggestion in yellow
+	if check.Suggestion != "" {
+		fmt.Printf("%s  → Suggestion: %s%s\n", ui.ColorYellow, check.Suggestion, ui.ColorReset)
 	}
 }

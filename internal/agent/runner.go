@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,6 +18,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -62,6 +65,9 @@ func RunWithArgs(args []string, networkFlag string) {
 		})
 		os.Exit(1)
 	}
+
+	// Ensure setup is complete before running interactive shell
+	ensureSetupComplete(cfg, containerRuntime, configPath)
 
 	// Continue with container execution (no provider env vars)
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
@@ -134,8 +140,121 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 		os.Exit(1)
 	}
 
+	// Ensure setup is complete before running interactive shell
+	ensureSetupComplete(cfg, containerRuntime, configPath)
+
 	// Continue with container execution, passing provider env vars
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv)
+}
+
+func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string) {
+	// Paths
+	containerDir := filepath.Join(configPath, "container")
+	homeDir := filepath.Join(configPath, "home")
+	userScriptPath := filepath.Join(containerDir, "install_user_packages.sh")
+	hashFile := filepath.Join(homeDir, ".local", ".entrypoint_hash")
+	forceFile := filepath.Join(homeDir, ".local", ".force_entrypoint")
+
+	// Calculate expected hash
+	// Use embedded template as the source of truth for entrypoint
+	h := sha256.Sum256([]byte(templates.Entrypoint))
+	entrypointHash := hex.EncodeToString(h[:])
+
+	expectedHash := entrypointHash
+	if _, err := os.Stat(userScriptPath); err == nil {
+		scriptHash, err := getFileHash(userScriptPath)
+		if err == nil {
+			expectedHash = fmt.Sprintf("%s-%s", expectedHash, scriptHash)
+		}
+	}
+
+	// Check for force flag
+	if _, err := os.Stat(forceFile); err == nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Println("Debug: Force setup flag detected")
+		}
+		runSetup(cfg, containerRuntime, configPath)
+		return
+	}
+
+	// Check existing hash
+	if currentHash, err := os.ReadFile(hashFile); err == nil {
+		actualHash := strings.TrimSpace(string(currentHash))
+		if actualHash == expectedHash {
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Setup hash matches (%s)\n", actualHash)
+			}
+			return // Already up to date
+		}
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Setup hash mismatch:\n  Expected: %s\n  Actual:   %s\n", expectedHash, actualHash)
+		}
+	} else if ui.CurrentLogLevel >= ui.LogLevelDebug {
+		fmt.Printf("Debug: Could not read hash file: %v\n", err)
+	}
+
+	// Hash mismatch or missing - run setup
+	runSetup(cfg, containerRuntime, configPath)
+}
+
+func getFileHash(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:]), nil
+}
+
+func runSetup(cfg *config.Config, containerRuntime, configPath string) {
+	// Create log file for setup output
+	logFile, err := config.CreateLogFile("setup")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)
+	}
+	if logFile != nil {
+		defer func() {
+			if err := logFile.Close(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to close log file: %v\n", err)
+			}
+		}()
+	}
+
+	// Run 'true' inside the container.
+	// The entrypoint.sh will run, detect the hash change, perform setup, update hash, and then exec 'true'.
+	// Use -T to ensure non-interactive run (no TTY allocation)
+
+	// We need to bypass runtime.BuildComposeCommand because it prepends "run" and doesn't support -T easily if we use its RunFlags.
+	// Actually BuildComposeCommand takes subCommand as argument.
+
+	runArgs := []string{"--rm", "-T", "construct-box", "true"}
+	runArgs = append(runtime.GetPlatformRunFlags(), runArgs...)
+
+	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to build setup command: %v\n", err)
+		return
+	}
+
+	cmd.Dir = config.GetContainerDir()
+	// Ensure we pass necessary env vars so entrypoint behaves correctly
+	// We use minimal env here as we are just running setup
+	cwd, err := os.Getwd()
+	if err != nil {
+		cwd = "."
+	}
+	osEnv := os.Environ()
+	osEnv = append(osEnv, "PWD="+cwd)
+	// Inject network env if needed (though setup usually needs network)
+	osEnv = network.InjectEnv(osEnv, cfg)
+
+	cmd.Env = osEnv
+
+	// Use helper to run with spinner
+	if err := ui.RunCommandWithSpinner(cmd, "Configuring environment and installing packages...", logFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Setup command failed: %v\n", err)
+		// We continue anyway, as the interactive shell might show the error or work partially
+	}
 }
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {

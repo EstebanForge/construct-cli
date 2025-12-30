@@ -217,6 +217,17 @@ func isOrbStackInstalled() bool {
 	return false
 }
 
+// IsOrbStackRunning checks if OrbStack is currently running on macOS
+func IsOrbStackRunning() bool {
+	if runtime.GOOS != "darwin" {
+		return false
+	}
+
+	// Check if OrbStack process is running
+	cmd := exec.Command("pgrep", "-f", "OrbStack")
+	return cmd.Run() == nil
+}
+
 // BuildImage builds the container image and installs agents if needed.
 func BuildImage(cfg *config.Config) {
 	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
@@ -270,64 +281,59 @@ func BuildImage(cfg *config.Config) {
 	}
 
 	// Check if agents are installed and install them if needed
-	if !AreAgentsInstalled(cfg) {
+	if !AreAgentsInstalled() {
 		if ui.GumAvailable() {
 			fmt.Println()
-			fmt.Printf("%s🔧 Agents not detected - installing now...%s\n", ui.ColorOrange, ui.ColorReset)
+			fmt.Printf("%s🔧 Setup required - installing agents and packages...%s\n", ui.ColorOrange, ui.ColorReset)
 			fmt.Printf("%sThis will take 5-10 minutes...%s\n", ui.ColorGrey, ui.ColorReset)
 		} else {
-			fmt.Println("\n🔧 Agents not detected - installing now...")
+			fmt.Println("\n🔧 Setup required - installing agents and packages...")
 			fmt.Println("This will take 5-10 minutes...")
 		}
 		if err := InstallAgentsAfterBuild(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err) // Simple logging for now
 			if ui.GumAvailable() {
-				ui.GumError("Agent installation failed.")
+				ui.GumError("Setup failed.")
 			} else {
-				fmt.Fprintf(os.Stderr, "\n❌ Agent installation failed.\n")
+				fmt.Fprintf(os.Stderr, "\n❌ Setup failed.\n")
 			}
 			os.Exit(1)
 		}
 		if ui.GumAvailable() {
-			ui.GumSuccess("Agents installation complete!")
+			ui.GumSuccess("Setup complete!")
 		} else {
-			fmt.Println("✅ Agents installation complete!")
+			fmt.Println("✅ Setup complete!")
 		}
 	} else {
 		if ui.GumAvailable() {
-			ui.GumSuccess("Agents already installed in persistent volumes")
+			ui.GumSuccess("Setup already completed in persistent volumes")
 		} else {
-			fmt.Println("\n✅ Agents already installed in persistent volumes")
+			fmt.Println("\n✅ Setup already completed in persistent volumes")
 		}
 	}
 }
 
-// AreAgentsInstalled checks if the agents marker file exists in the construct-agents volume
-func AreAgentsInstalled(cfg *config.Config) bool {
-	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+// AreAgentsInstalled checks if agent binaries exist in the config directory
+func AreAgentsInstalled() bool {
+	configDir := config.GetConfigDir()
+	binDir := filepath.Join(configDir, "home", ".local", "bin")
 
-	// Check if the marker file exists in the construct-agents volume
-	var cmd *exec.Cmd
-	switch containerRuntime {
-	case "docker":
-		cmd = exec.Command("docker", "run",
-			"-v", "construct-agents:/target",
-			"alpine:latest",
-			"test", "-f", "/target/.agents-installed")
-	case "podman":
-		cmd = exec.Command("podman", "run",
-			"-v", "construct-agents:/target",
-			"alpine:latest",
-			"test", "-f", "/target/.agents-installed")
-	case "container":
-		cmd = exec.Command("docker", "run",
-			"-v", "construct-agents:/target",
-			"alpine:latest",
-			"test", "-f", "/target/.agents-installed")
+	candidates := []string{
+		"claude",
+		"mcp-cli-ent",
+		"opencode",
+		"gemini",
+		"codex",
+		"qwen-code",
 	}
 
-	// Run command - if it fails, marker doesn't exist
-	return cmd.Run() == nil
+	for _, name := range candidates {
+		if _, err := os.Stat(filepath.Join(binDir, name)); err == nil {
+			return true
+		}
+	}
+
+	return false
 }
 
 // InstallAgentsAfterBuild runs the container once to install agents
@@ -346,8 +352,8 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 		}
 	}
 
-	// Run the container with entrypoint to install agents
-	runFlags := []string{"--rm", "construct-box", "/usr/local/bin/entrypoint.sh", "echo", "Installation complete"}
+	// Run the container once; entrypoint handles setup, then runs the command.
+	runFlags := []string{"--rm", "construct-box", "echo", "Installation complete"}
 	runFlags = append(GetPlatformRunFlags(), runFlags...) // Prepend Linux flags if needed
 
 	cmd, err := BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
@@ -361,7 +367,7 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 	}
 	cmd.Dir = config.GetContainerDir()
 
-	agentLogFile, err := config.CreateLogFile("agent_install")
+	agentLogFile, err := config.CreateLogFile("setup_install")
 	if err == nil {
 		defer func() {
 			if closeErr := agentLogFile.Close(); closeErr != nil {
@@ -369,17 +375,17 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 			}
 		}()
 		if ui.GumAvailable() {
-			fmt.Printf("%sAgent install log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
+			fmt.Printf("%sSetup log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
 		} else {
-			fmt.Printf("Agent install log: %s\n", agentLogFile.Name())
+			fmt.Printf("Setup log: %s\n", agentLogFile.Name())
 		}
 	}
 
-	if err := ui.RunCommandWithSpinner(cmd, "Installing AI agents...", agentLogFile); err != nil {
+	if err := ui.RunCommandWithSpinner(cmd, "Installing agents and user packages...", agentLogFile); err != nil {
 		return &cerrors.ConstructError{
 			Category:   cerrors.ErrorCategoryContainer,
-			Operation:  "install agents",
-			Command:    fmt.Sprintf("%s run --rm construct-box /usr/local/bin/entrypoint.sh", containerRuntime),
+			Operation:  "run setup",
+			Command:    fmt.Sprintf("%s run --rm construct-box echo Installation complete", containerRuntime),
 			Runtime:    containerRuntime,
 			Err:        err,
 			Suggestion: "Check logs or run 'construct doctor'",
