@@ -6,8 +6,6 @@
 [apt]
 packages = [
     "vim",       # Full-featured text editor (nano is included by default)
-    "fd-find",   # Modern 'find' alternative (fdfind command)
-    "bat",       # Enhanced 'cat' with syntax highlighting (batcat command)
     "tmux",      # Terminal multiplexer for persistent sessions
     "nano",
     "g++",       # C++ compiler needed for native Node.js modules
@@ -17,13 +15,12 @@ packages = [
 [brew]
 taps = [
     "shivammathur/extensions",  # PHP extensions (required for pcov)
-    "max-sixty/worktrunk",
 ]
 packages = [
     # Core utilities
     "ast-grep", "yq", "sd", "fzf", "eza", "zoxide", "fd", "bat", "ripgrep", "jq", "curl", "wget", "tree", "unzip", "socat", "make", "htop", "netcat", "bind",
     # Development tools
-    "gh", "git-lfs", "git-delta", "git-cliff", "rsync", "procs", "python-setuptools", "awscli", "cmake", "pkg-config", "direnv", "gum", "max-sixty/worktrunk/wt",
+    "gh", "git-lfs", "git-delta", "git-cliff", "rsync", "procs", "python-setuptools", "awscli", "cmake", "pkg-config", "direnv", "gum",
     # Languages
     "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node", "python@3", "openssl@3", "llvm", "gcc", "nasm", "yasm", "postgresql@16", "mysql-client", "redis", "sqlite", "podman", "groovy", "scala", "elixir", "r", "micropython", "gleam", "ocaml", "swi-prolog",
     # Linters & Formatters
@@ -34,6 +31,12 @@ packages = [
     "gemini-cli", "opencode",
     # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
     "shivammathur/extensions/pcov@8.5",
+]
+
+# Rust tools installed via Cargo
+[cargo]
+packages = [
+    "worktrunk",
 ]
 
 # Global Node.js packages

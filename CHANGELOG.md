@@ -5,16 +5,25 @@ All notable changes to Construct CLI will be documented in this file.
 ## [0.10.1] - 2025-12-31
 
 ### Added
+- **Cargo Package Support**: users can now install Rust-based tools and utilities via a new `[cargo]` section in `packages.toml`.
 - **Centralized Debugging**: unified all debug logging under the `CONSTRUCT_DEBUG` environment variable.
   - When enabled (`CONSTRUCT_DEBUG=1`), logs are written to `~/.config/construct-cli/logs/` on the host.
   - Container-side logs (like `powershell.exe` and `clipboard-x11-sync`) are redirected to `/tmp/` for guaranteed visibility and write access.
   - Replaced legacy `CONSTRUCT_CLIPBOARD_LOG` with the new unified system.
+
+### Optimized
+- **Sandbox Isolation**: sanitized the `PATH` environment variable across all templates to prevent host-side directory leakage into the sandbox.
+- **Streamlined Installation**: 
+  - Eliminated redundant package installations by removing duplicates between APT and Homebrew phases.
+  - Added `DEBIAN_FRONTEND=noninteractive` to silence UI dialogs during container setup.
+- **Improved Migration Experience**: refined version detection messaging to accurately distinguish between binary upgrades, downgrades, and template-only syncs.
 
 ### Fixed
 - **Codex Image Paste**: restored full image support for OpenAI Codex CLI agent after its internal mechanism changed from direct binary data to path-based references.
   - Fixed `Ctrl+V` shortcut by shimming the WSL clipboard fallback with a smart `powershell.exe` emulator that returns workspace-compatible paths.
   - Implemented `/mnt/c/projects` and `/mnt/c/tmp` symlinks within the container to ensure Codex path resolution works seamlessly across all host platforms.
   - Improved "New Flow" paste detection by allowing Codex to receive raw image paths instead of multimodal `@path` references.
+- **Self-Update Reliability**: fixed a confusing state where `self-update` would report an upgrade from `0.3.0` due to intentional version file deletion.
 - **Clipboard Image Paste**: Centralized file-based paste agent list (`gemini`, `qwen`, `codex`) into a single constant to prevent drift.
 - **SSH Key Prioritization**: Enhanced SSH configuration management to ensure correct key selection order for all hosts.
   - Auto-generates `~/.ssh/config` with SSH agent support and key prioritization (`default` and `personal` keys tried first).
