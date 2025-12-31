@@ -67,6 +67,43 @@ fi
 # Ensure all required paths are in PATH
 export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
 
+# Ensure SSH config prioritizes standard key names unless user provided one.
+ensure_ssh_config() {
+    local ssh_dir="$HOME/.ssh"
+    local ssh_config="$ssh_dir/config"
+
+    mkdir -p "$ssh_dir"
+    chmod 700 "$ssh_dir"
+
+    # Check if config exists
+    if [ -f "$ssh_config" ]; then
+        # Check if user explicitly disabled auto-management
+        if grep -q "^# construct-managed: false" "$ssh_config"; then
+            # User has opted out of auto-updates
+            return
+        fi
+
+        # Backup existing config before updating
+        cp "$ssh_config" "${ssh_config}.backup" 2>/dev/null || true
+    fi
+
+    # Write new config
+    cat > "$ssh_config" <<'EOF'
+# construct-managed: true
+# Set to 'false' above to prevent Construct from updating this file.
+# If you customize this file, set construct-managed to false to preserve your changes.
+
+Host *
+  IdentityAgent ~/.ssh/agent.sock
+  PubkeyAcceptedAlgorithms +ssh-rsa
+  IdentityFile ~/.ssh/default
+  IdentityFile ~/.ssh/personal
+  # IdentitiesOnly not set - will try all keys in agent then fall back to physical keys
+EOF
+    chmod 600 "$ssh_config"
+}
+ensure_ssh_config
+
 # Check if we need to run installation (First run or Script update)
 # We use the script hash plus install script hash to determine if a re-run is needed.
 USER_INSTALL_SCRIPT="/home/construct/.config/construct-cli/container/install_user_packages.sh"
