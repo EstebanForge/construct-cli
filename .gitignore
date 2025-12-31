@@ -40,3 +40,5 @@ test-results/
 /gemini-cli-main
 /qwen-code-main
 /.gemini-clipboard
+/reference-only-codex-main
+/.construct-clipboard

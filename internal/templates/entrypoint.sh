@@ -60,6 +60,12 @@ if [ "$(id -u)" = "0" ]; then
         ln -sf /usr/local/bin/clipper /usr/bin/wl-paste
     fi
 
+    # Setup WSL-like paths for Codex fallback
+    mkdir -p /mnt/c
+    ln -sf /tmp /mnt/c/tmp
+    ln -sf /projects /mnt/c/projects
+    chown -R construct:construct /mnt/c 2>/dev/null || true
+
     # Drop privileges and run the rest of the script as 'construct'
     exec gosu construct "$0" "$@"
 fi
@@ -190,7 +196,7 @@ if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ]; then
         export DISPLAY
         if ! pgrep -x Xvfb >/dev/null 2>&1; then
             Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
-            if [ "$CONSTRUCT_CLIPBOARD_LOG" = "1" ]; then
+            if [ "$CONSTRUCT_DEBUG" = "1" ]; then
                 echo "✓ Started Xvfb for headless clipboard"
             fi
         fi
@@ -204,7 +210,7 @@ if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ]; then
         done
         /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
     else
-        if [ "$CONSTRUCT_CLIPBOARD_LOG" = "1" ]; then
+        if [ "$CONSTRUCT_DEBUG" = "1" ]; then
             echo "⚠️  Xvfb not found; headless clipboard bridge disabled"
         fi
     fi

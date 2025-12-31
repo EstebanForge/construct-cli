@@ -161,8 +161,8 @@ func main() {
 
 func handleSysCommand(args []string, cfg *config.Config) {
 	switch args[0] {
-	case "init":
-		// Init logic is handled by runtime.BuildImage which calls config loading if needed
+	case "init", "rebuild":
+		// Init/rebuild logic is handled by runtime.BuildImage which calls config loading if needed
 		// But here we likely want to force build/init
 		// If cfg is nil, we load it
 		if cfg == nil {
