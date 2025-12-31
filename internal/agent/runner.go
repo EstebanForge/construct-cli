@@ -15,6 +15,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
@@ -456,6 +457,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	if cbServer != nil {
 		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
 		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		runFlags = append(runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
 	}
 
 	// Inject agent name for clipboard behavior tuning.

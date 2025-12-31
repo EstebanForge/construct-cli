@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.10.1] - 2025-12-31
+
+### Fixed
+- **Clipboard Image Paste**: Centralized file-based paste agent list (`gemini`, `qwen`, `codex`) into a single constant to prevent drift.
+- **SSH Key Prioritization**: Enhanced SSH configuration management to ensure correct key selection order for all hosts.
+  - Auto-generates `~/.ssh/config` with SSH agent support and key prioritization (`default` and `personal` keys tried first).
+  - Applies to all SSH connections (GitHub, GitLab, private servers, etc.), not just specific hosts.
+  - Adds RSA key algorithm support (`PubkeyAcceptedAlgorithms +ssh-rsa`) for legacy servers.
+  - Falls back to physical SSH keys if present after trying agent keys.
+  - Automatic updates on CLI upgrade unless user opts out with `construct-managed: false` flag.
+  - Creates backup (`~/.ssh/config.backup`) before each update.
+
 ## [0.10.0] - 2025-12-30
 
 ### Added
