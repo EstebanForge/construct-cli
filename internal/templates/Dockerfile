@@ -48,7 +48,7 @@ ENV HOMEBREW_NO_ENV_HINTS=1
 # Use standard Linux Homebrew paths for bottle compatibility
 ENV HOMEBREW_CELLAR=/home/linuxbrew/.linuxbrew/Cellar
 ENV HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew
-ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/construct/.local/bin:${PATH}"
+ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/construct/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # Force node-gyp to use python3.12 to avoid compat issues with 3.13/3.14
 ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
 

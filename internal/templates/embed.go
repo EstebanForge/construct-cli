@@ -24,7 +24,7 @@ var Config string
 var Packages string
 
 // Entrypoint is the embedded content of the entrypoint.sh script.
-// Force rebuild 4
+// Force rebuild 5
 //
 //go:embed entrypoint.sh
 var Entrypoint string

@@ -124,15 +124,6 @@ func (t *TeeWriter) Write(p []byte) (n int, err error) {
 func Load() (*Config, bool, error) {
 	configPath := filepath.Join(GetConfigDir(), "config.toml")
 	containerDir := GetContainerDir()
-
-	dockerfilePath := filepath.Join(containerDir, "Dockerfile")
-	composePath := filepath.Join(containerDir, "docker-compose.yml")
-	entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
-	updateAllPath := filepath.Join(containerDir, "update-all.sh")
-	networkFilterPath := filepath.Join(containerDir, "network-filter.sh")
-	clipperPath := filepath.Join(containerDir, "clipper")
-	clipboardSyncPath := filepath.Join(containerDir, "clipboard-x11-sync.sh")
-	osascriptPath := filepath.Join(containerDir, "osascript")
 	packagesPath := filepath.Join(GetConfigDir(), "packages.toml")
 
 	// Check if any required file is missing
@@ -140,28 +131,10 @@ func Load() (*Config, bool, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configMissing = true
 	}
-	if _, err := os.Stat(dockerfilePath); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(containerDir, "Dockerfile")); os.IsNotExist(err) {
 		configMissing = true
 	}
-	if _, err := os.Stat(composePath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(entrypointPath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(updateAllPath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(networkFilterPath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(clipperPath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(clipboardSyncPath); os.IsNotExist(err) {
-		configMissing = true
-	}
-	if _, err := os.Stat(osascriptPath); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(containerDir, "powershell.exe")); os.IsNotExist(err) {
 		configMissing = true
 	}
 	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
@@ -274,6 +247,7 @@ func Init() error {
 		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
 		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
 		{filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755},
+		{filepath.Join(containerDir, "powershell.exe"), []byte(templates.PowershellExe), 0755},
 		{filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644},
 		{filepath.Join(configPath, "packages.toml"), []byte(templates.Packages), 0644},
 	}
