@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # entrypoint.sh - Install agents and packages on first run only
 
+export DEBIAN_FRONTEND=noninteractive
+
 # 0. Root-level permission fixing (if running as root)
 if [ "$(id -u)" = "0" ]; then
     # CRITICAL: Ensure Homebrew volume is owned by construct user

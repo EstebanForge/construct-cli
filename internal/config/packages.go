@@ -12,6 +12,7 @@ import (
 type PackagesConfig struct {
 	Apt   AptConfig   `toml:"apt"`
 	Brew  BrewConfig  `toml:"brew"`
+	Cargo CargoConfig `toml:"cargo"`
 	Npm   NpmConfig   `toml:"npm"`
 	Pip   PipConfig   `toml:"pip"`
 	Tools ToolsConfig `toml:"tools"`
@@ -25,6 +26,11 @@ type AptConfig struct {
 // BrewConfig holds Homebrew package and tap settings.
 type BrewConfig struct {
 	Taps     []string `toml:"taps"`
+	Packages []string `toml:"packages"`
+}
+
+// CargoConfig holds Cargo package settings.
+type CargoConfig struct {
 	Packages []string `toml:"packages"`
 }
 
@@ -98,7 +104,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	// Core APT Packages (Always installed)
 	script += "echo 'Installing core system packages...'\n"
-	script += "sudo apt-get install -y procps file nano python3 python3-pip python3-venv python3-dev pipx ripgrep jq ufw iptables dnsutils xclip xsel wl-clipboard\n\n"
+	script += "sudo apt-get install -y procps file nano python3 python3-pip python3-venv python3-dev pipx ufw iptables dnsutils xclip xsel wl-clipboard\n\n"
 
 	// Initialize Homebrew environment
 	script += "# Initialize Homebrew environment\n"
@@ -186,12 +192,26 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		}
 		if len(c.Brew.Packages) > 0 {
 			for _, pkg := range c.Brew.Packages {
-				script += "if ! brew install " + pkg + "; then\n"
+				// Use --formula to avoid disambiguation errors with tap-qualified names
+				script += "if ! brew install --formula " + pkg + "; then\n"
 				script += "    echo \"⚠️ Failed to install " + pkg + "\"\n"
 				script += "fi\n"
 			}
 		}
 		script += "\n"
+	}
+
+	// Cargo
+	if len(c.Cargo.Packages) > 0 {
+		script += "echo 'Installing Cargo packages...'\n"
+		script += "# Ensure cargo is in PATH\n"
+		script += "if command -v cargo &> /dev/null; then\n"
+		for _, pkg := range c.Cargo.Packages {
+			script += "    cargo install " + pkg + "\n"
+		}
+		script += "else\n"
+		script += "    echo \"⚠️ Cargo not found; skipping Rust packages\"\n"
+		script += "fi\n\n"
 	}
 
 	// NPM
