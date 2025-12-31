@@ -528,18 +528,39 @@ func CheckAndMigrate() error {
 	}
 
 	installed := GetInstalledVersion()
-	// If no version file, assume upgrade from 0.3.0
+	versionMissing := false
+	// If no version file, assume upgrade from 0.3.0 (legacy or missing version file)
 	if installed == "" {
 		installed = "0.3.0"
+		versionMissing = true
 	}
+
+	current := constants.Version
+	cmp := compareVersions(current, installed)
 
 	// Show migration notice
 	fmt.Println()
 	if ui.GumAvailable() {
-		ui.GumSuccess(fmt.Sprintf("New version detected: %s → %s", installed, constants.Version))
+		if versionMissing {
+			ui.GumSuccess(fmt.Sprintf("Legacy or missing version detected → %s", current))
+		} else if cmp > 0 {
+			ui.GumSuccess(fmt.Sprintf("New version detected: %s → %s", installed, current))
+		} else if cmp < 0 {
+			ui.GumSuccess(fmt.Sprintf("Downgrade detected: %s → %s", installed, current))
+		} else {
+			ui.GumSuccess(fmt.Sprintf("Template changes detected (%s)", current))
+		}
 		fmt.Printf("%sRunning automatic migration...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
-		fmt.Printf("✓ New version detected: %s → %s\n", installed, constants.Version)
+		if versionMissing {
+			fmt.Printf("✓ Legacy or missing version detected → %s\n", current)
+		} else if cmp > 0 {
+			fmt.Printf("✓ New version detected: %s → %s\n", installed, current)
+		} else if cmp < 0 {
+			fmt.Printf("✓ Downgrade detected: %s → %s\n", installed, current)
+		} else {
+			fmt.Printf("✓ Template changes detected (%s)\n", current)
+		}
 		fmt.Println("→ Running automatic migration...")
 	}
 	fmt.Println()
