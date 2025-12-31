@@ -463,6 +463,20 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Inject agent name for clipboard behavior tuning.
 	if len(args) > 0 {
 		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
+
+		// For codex: Set WSL env vars to trigger clipboard fallback
+		// Codex will think it's in WSL and use our fake powershell.exe
+		if args[0] == "codex" {
+			runFlags = append(runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
+			runFlags = append(runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
+			// Unset DISPLAY so arboard fails and triggers WSL fallback
+			runFlags = append(runFlags, "-e", "DISPLAY=")
+
+			// Pass CONSTRUCT_DEBUG to codex container
+			if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+				runFlags = append(runFlags, "-e", "CONSTRUCT_DEBUG=1")
+			}
+		}
 	}
 
 	// Inject SSH bridge port

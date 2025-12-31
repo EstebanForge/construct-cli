@@ -4,7 +4,17 @@ All notable changes to Construct CLI will be documented in this file.
 
 ## [0.10.1] - 2025-12-31
 
+### Added
+- **Centralized Debugging**: unified all debug logging under the `CONSTRUCT_DEBUG` environment variable.
+  - When enabled (`CONSTRUCT_DEBUG=1`), logs are written to `~/.config/construct-cli/logs/` on the host.
+  - Container-side logs (like `powershell.exe` and `clipboard-x11-sync`) are redirected to `/tmp/` for guaranteed visibility and write access.
+  - Replaced legacy `CONSTRUCT_CLIPBOARD_LOG` with the new unified system.
+
 ### Fixed
+- **Codex Image Paste**: restored full image support for OpenAI Codex CLI agent after its internal mechanism changed from direct binary data to path-based references.
+  - Fixed `Ctrl+V` shortcut by shimming the WSL clipboard fallback with a smart `powershell.exe` emulator that returns workspace-compatible paths.
+  - Implemented `/mnt/c/projects` and `/mnt/c/tmp` symlinks within the container to ensure Codex path resolution works seamlessly across all host platforms.
+  - Improved "New Flow" paste detection by allowing Codex to receive raw image paths instead of multimodal `@path` references.
 - **Clipboard Image Paste**: Centralized file-based paste agent list (`gemini`, `qwen`, `codex`) into a single constant to prevent drift.
 - **SSH Key Prioritization**: Enhanced SSH configuration management to ensure correct key selection order for all hosts.
   - Auto-generates `~/.ssh/config` with SSH agent support and key prioritization (`default` and `personal` keys tried first).

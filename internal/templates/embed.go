@@ -53,3 +53,8 @@ var ClipboardX11Sync string
 //
 //go:embed osascript
 var Osascript string
+
+// PowershellExe is the embedded content of the fake powershell.exe for codex WSL fallback.
+//
+//go:embed powershell.exe
+var PowershellExe string

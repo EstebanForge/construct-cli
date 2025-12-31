@@ -18,11 +18,10 @@ IS_OUTPUT_MODE=false
 REQUESTED_TARGETS=false
 PATH_AGENT=false
 
-case "$AGENT_NAME" in
-    gemini|qwen)
-        PATH_AGENT=true
-        ;;
-esac
+FILE_PASTE_AGENTS="${CONSTRUCT_FILE_PASTE_AGENTS:-gemini,qwen,codex}"
+if [[ ",$FILE_PASTE_AGENTS," == *",$AGENT_NAME,"* ]]; then
+    PATH_AGENT=true
+fi
 
 # Simple arg parsing for xclip/xsel/wl-paste patterns
 for arg in "$@"; do
@@ -78,9 +77,13 @@ emit_image_path() {
     mkdir -p .construct-clipboard 2>/dev/null
     TIMESTAMP=$(date +%s%3N)
     IMG_NAME="clipboard-${TIMESTAMP}.png"
-    IMG_PATH=".construct-clipboard/${IMG_NAME}"
+    IMG_PATH="$(pwd)/.construct-clipboard/${IMG_NAME}"
     if cp "$TMP_RAW" "$IMG_PATH"; then
-        echo -n "@${IMG_PATH}"
+        if [ "$AGENT_NAME" = "codex" ]; then
+            echo -n "${IMG_PATH}"
+        else
+            echo -n "@${IMG_PATH}"
+        fi
         return 0
     fi
     return 1

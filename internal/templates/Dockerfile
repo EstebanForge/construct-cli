@@ -67,9 +67,10 @@ COPY network-filter.sh /usr/local/bin/network-filter.sh
 COPY clipper /usr/local/bin/clipper
 COPY clipboard-x11-sync.sh /usr/local/bin/clipboard-x11-sync.sh
 COPY osascript /usr/local/bin/osascript
+COPY powershell.exe /usr/local/bin/powershell.exe
 # We don't COPY install_user_packages.sh here because it is generated at runtime
 # and mounted via docker-compose.override.yml.
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript /usr/local/bin/powershell.exe
 
 # Create symlink for g++-11 to point to g++ (for node-gyp compatibility)
 # Some native Node.js modules are hardcoded to use g++-11, but Debian Trixie has g++-14

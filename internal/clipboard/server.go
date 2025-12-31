@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 )
 
 // Server represents the clipboard server
@@ -111,7 +112,22 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 }
 
 func logf(format string, args ...any) {
-	if os.Getenv("CONSTRUCT_CLIPBOARD_LOG") == "1" {
-		fmt.Fprintf(os.Stderr, format, args...)
+	if os.Getenv("CONSTRUCT_DEBUG") != "1" {
+		return
 	}
+
+	// Log to file in ~/.config/construct-cli/logs/
+	logDir := os.Getenv("HOME") + "/.config/construct-cli/logs"
+	_ = os.MkdirAll(logDir, 0755) //nolint:errcheck
+
+	logFile := logDir + "/debug_clipboard_server.log"
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }() //nolint:errcheck
+
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
+	_, _ = fmt.Fprintf(f, "[%s] ", timestamp) //nolint:errcheck
+	_, _ = fmt.Fprintf(f, format, args...)    //nolint:errcheck
 }
