@@ -71,7 +71,7 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # Ensure all required paths are in PATH
-export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/bin:$PATH"
+export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Ensure SSH config prioritizes standard key names unless user provided one.
 ensure_ssh_config() {

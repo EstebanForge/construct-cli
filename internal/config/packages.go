@@ -186,7 +186,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		}
 		if len(c.Brew.Packages) > 0 {
 			for _, pkg := range c.Brew.Packages {
-				script += "if ! brew install \"" + pkg + "\"; then\n"
+				script += "if ! brew install " + pkg + "; then\n"
 				script += "    echo \"⚠️ Failed to install " + pkg + "\"\n"
 				script += "fi\n"
 			}

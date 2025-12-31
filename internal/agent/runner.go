@@ -68,7 +68,10 @@ func RunWithArgs(args []string, networkFlag string) {
 	}
 
 	// Ensure setup is complete before running interactive shell
-	ensureSetupComplete(cfg, containerRuntime, configPath)
+	if err := ensureSetupComplete(cfg, containerRuntime, configPath); err != nil {
+		// Error already logged by ensureSetupComplete/runSetup
+		os.Exit(1)
+	}
 
 	// Continue with container execution (no provider env vars)
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
@@ -142,13 +145,16 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	}
 
 	// Ensure setup is complete before running interactive shell
-	ensureSetupComplete(cfg, containerRuntime, configPath)
+	if err := ensureSetupComplete(cfg, containerRuntime, configPath); err != nil {
+		// Error already logged
+		os.Exit(1)
+	}
 
 	// Continue with container execution, passing provider env vars
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv)
 }
 
-func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string) {
+func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string) error {
 	// Paths
 	containerDir := filepath.Join(configPath, "container")
 	homeDir := filepath.Join(configPath, "home")
@@ -174,8 +180,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
 			fmt.Println("Debug: Force setup flag detected")
 		}
-		runSetup(cfg, containerRuntime, configPath)
-		return
+		return runSetup(cfg, containerRuntime, configPath)
 	}
 
 	// Check existing hash
@@ -185,7 +190,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			if ui.CurrentLogLevel >= ui.LogLevelDebug {
 				fmt.Printf("Debug: Setup hash matches (%s)\n", actualHash)
 			}
-			return // Already up to date
+			return nil // Already up to date
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
 			fmt.Printf("Debug: Setup hash mismatch:\n  Expected: %s\n  Actual:   %s\n", expectedHash, actualHash)
@@ -195,7 +200,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 	}
 
 	// Hash mismatch or missing - run setup
-	runSetup(cfg, containerRuntime, configPath)
+	return runSetup(cfg, containerRuntime, configPath)
 }
 
 func getFileHash(path string) (string, error) {
@@ -207,7 +212,7 @@ func getFileHash(path string) (string, error) {
 	return hex.EncodeToString(hash[:]), nil
 }
 
-func runSetup(cfg *config.Config, containerRuntime, configPath string) {
+func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	// Create log file for setup output
 	logFile, err := config.CreateLogFile("setup")
 	if err != nil {
@@ -233,8 +238,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) {
 
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runArgs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to build setup command: %v\n", err)
-		return
+		return fmt.Errorf("failed to build setup command: %w", err)
 	}
 
 	cmd.Dir = config.GetContainerDir()
@@ -253,9 +257,11 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) {
 
 	// Use helper to run with spinner
 	if err := ui.RunCommandWithSpinner(cmd, "Configuring environment and installing packages...", logFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Setup command failed: %v\n", err)
-		// We continue anyway, as the interactive shell might show the error or work partially
+		fmt.Fprintf(os.Stderr, "\n❌ Setup command failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Peeking logs might help diagnose the issue.\n")
+		return fmt.Errorf("environment setup failed: %w", err)
 	}
+	return nil
 }
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {

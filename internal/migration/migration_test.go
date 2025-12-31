@@ -1,6 +1,8 @@
 package migration
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestCompareVersions(t *testing.T) {
 	tests := []struct {
