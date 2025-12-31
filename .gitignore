@@ -3,6 +3,7 @@ cx
 /construct
 construct-*
 *.exe
+!internal/templates/powershell.exe
 *.dll
 *.so
 *.dylib

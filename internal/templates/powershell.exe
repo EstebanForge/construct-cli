@@ -1,0 +1,74 @@
+#!/bin/bash
+# Fake powershell.exe for codex WSL clipboard fallback
+# This script mimics Windows PowerShell clipboard access using our clipboard server
+
+# Debug logging to a reliable location
+LOG_FILE="/tmp/construct-debug-powershell.log"
+debug_log() {
+    if [ "$CONSTRUCT_DEBUG" = "1" ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "$LOG_FILE"
+    fi
+}
+
+debug_log "=== powershell.exe called ==="
+debug_log "CWD: $(pwd)"
+debug_log "Args: $*"
+
+# Check if this is a clipboard image request
+if [[ "$*" != *'Get-Clipboard -Format Image'* ]]; then
+    debug_log "Not a clipboard image request, ignoring."
+    exit 0
+fi
+
+# Configuration from environment
+HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
+AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
+
+if [ -z "$HOST_URL" ]; then
+    debug_log "ERROR: CONSTRUCT_CLIPBOARD_URL not set"
+    exit 1
+fi
+
+# Use a workspace-local directory for the image so the agent can "see" it
+# Fallback to /tmp if not in a writable workspace
+CLIP_DIR=".construct-clipboard"
+if mkdir -p "$CLIP_DIR" 2>/dev/null; then
+    TMP_PNG="${CLIP_DIR}/clipboard-$(date +%s%3N).png"
+    # Get absolute path for the symlink trick
+    ABS_PNG="$(pwd)/$TMP_PNG"
+else
+    debug_log "WARNING: Could not create $CLIP_DIR, falling back to /tmp"
+    TMP_PNG=$(mktemp --suffix=.png)
+    ABS_PNG="$TMP_PNG"
+fi
+
+debug_log "Fetching image to: $ABS_PNG"
+
+if curl -s -f \
+    -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
+    "${HOST_URL}/paste?type=image/png" -o "$ABS_PNG"; then
+    SIZE=$(wc -c < "$ABS_PNG" 2>/dev/null || echo "0")
+    debug_log "SUCCESS: Fetched $SIZE bytes"
+    
+    # Codex in WSL mode will call convert_windows_path_to_wsl() on this output.
+    # We return a path starting with C:/projects/ to leverage our symlink.
+    # If ABS_PNG is /projects/my-project/.construct-clipboard/img.png
+    # we return C:/projects/my-project/.construct-clipboard/img.png
+    # which Codex converts back to /mnt/c/projects/my-project/.construct-clipboard/img.png
+    
+    if [[ "$ABS_PNG" == "/projects/"* ]]; then
+        WIN_PATH="C:${ABS_PNG}"
+    else
+        # Fallback for /tmp or other paths
+        WIN_PATH="C:${ABS_PNG}"
+    fi
+    
+debug_log "Returning fake Windows path: $WIN_PATH"
+    echo "$WIN_PATH"
+    exit 0
+else
+    debug_log "FAILED: curl returned error $?"
+    # No image available
+    rm -f "$ABS_PNG"
+    exit 1
+fi
