@@ -241,14 +241,17 @@ func RunMigrations() error {
 		}
 	}
 
-	// 4. Mark image for rebuild
+	// 4. Regenerate topgrade config (depends on packages.toml)
+	regenerateTopgradeConfig()
+
+	// 5. Mark image for rebuild
 	markImageForRebuild()
 
-	// 5. Force entrypoint setup to rerun on next container start.
+	// 6. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
 	forceEntrypointRun()
 
-	// 6. Update installed version
+	// 7. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
@@ -329,6 +332,18 @@ func updateContainerTemplates() error {
 		if err := os.WriteFile(path, []byte(content), perm); err != nil {
 			return fmt.Errorf("failed to write %s: %w", filename, err)
 		}
+		// Verify write was successful
+		if written, err := os.ReadFile(path); err != nil {
+			return fmt.Errorf("failed to verify %s: %w", filename, err)
+		} else if len(written) != len(content) {
+			return fmt.Errorf("write verification failed for %s: expected %d bytes, got %d", filename, len(content), len(written))
+		}
+		// Always show which files were written
+		if ui.GumAvailable() {
+			fmt.Printf("%s  ✓ Written %s (%d bytes)%s\n", ui.ColorGrey, filename, len(content), ui.ColorReset)
+		} else {
+			fmt.Printf("  ✓ Written %s (%d bytes)\n", filename, len(content))
+		}
 	}
 
 	if ui.GumAvailable() {
@@ -355,6 +370,33 @@ func forceEntrypointRun() {
 	}
 	if err := os.WriteFile(forcePath, []byte("1\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to write entrypoint flag: %v\n", err)
+	}
+}
+
+func regenerateTopgradeConfig() {
+	pkgs, err := config.LoadPackages()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load packages for topgrade config: %v\n", err)
+		return
+	}
+
+	topgradeDir := filepath.Join(config.GetConfigDir(), "home", ".config")
+	if err := os.MkdirAll(topgradeDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
+		return
+	}
+
+	topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
+	topgradeConfig := pkgs.GenerateTopgradeConfig()
+	if err := os.WriteFile(topgradePath, []byte(topgradeConfig), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade config: %v\n", err)
+		return
+	}
+
+	if ui.GumAvailable() {
+		fmt.Printf("%s  ✓ Topgrade configuration regenerated%s\n", ui.ColorPink, ui.ColorReset)
+	} else {
+		fmt.Println("  ✓ Topgrade configuration regenerated")
 	}
 }
 
@@ -486,37 +528,67 @@ func mergePackagesFile() error {
 	return nil
 }
 
-// markImageForRebuild removes the old Docker image to force rebuild on next run
+// markImageForRebuild stops the container and removes the old image to force rebuild
 func markImageForRebuild() {
-	if ui.GumAvailable() {
-		fmt.Printf("%sRemoving old container image...%s\n", ui.ColorCyan, ui.ColorReset)
-	} else {
-		fmt.Println("→ Removing old container image...")
-	}
-
-	// Remove the old image so it gets rebuilt with new Dockerfile
-	// We only try the ones that are actually installed
+	containerName := "construct-cli"
 	imageName := "construct-box:latest"
+
+	if ui.GumAvailable() {
+		fmt.Printf("%sStopping and removing old container...%s\n", ui.ColorCyan, ui.ColorReset)
+	} else {
+		fmt.Println("→ Stopping and removing old container...")
+	}
 
 	// Try docker
 	if _, err := exec.LookPath("docker"); err == nil {
-		// Suppress error if image doesn't exist (standard behavior for migration)
+		// Stop container (errors are OK - might not be running)
+		if err := exec.Command("docker", "stop", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to stop container: %v", err)
+		}
+		// Remove container (errors are OK - might not exist)
+		if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to remove container: %v", err)
+		}
+		// Remove image to force rebuild (errors are OK - might not exist)
 		if err := exec.Command("docker", "rmi", "-f", imageName).Run(); err != nil {
-			ui.LogDebug("Failed to remove Docker image (may not exist): %v", err)
+			ui.LogDebug("Failed to remove image: %v", err)
 		}
 	}
 
 	// Try podman
 	if _, err := exec.LookPath("podman"); err == nil {
+		if err := exec.Command("podman", "stop", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to stop container: %v", err)
+		}
+		if err := exec.Command("podman", "rm", "-f", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to remove container: %v", err)
+		}
 		if err := exec.Command("podman", "rmi", "-f", imageName).Run(); err != nil {
-			ui.LogDebug("Failed to remove Podman image (may not exist): %v", err)
+			ui.LogDebug("Failed to remove image: %v", err)
+		}
+	}
+
+	// Try Apple container (macOS 26+)
+	if _, err := exec.LookPath("container"); err == nil {
+		// Apple container uses different commands:
+		// - container stop (not docker stop)
+		// - container rm (not docker rm)
+		// - container image rm (not docker rmi)
+		if err := exec.Command("container", "stop", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to stop container: %v", err)
+		}
+		if err := exec.Command("container", "rm", containerName).Run(); err != nil {
+			ui.LogDebug("Failed to remove container: %v", err)
+		}
+		if err := exec.Command("container", "image", "rm", imageName).Run(); err != nil {
+			ui.LogDebug("Failed to remove image: %v", err)
 		}
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Image marked for rebuild%s\n", ui.ColorPink, ui.ColorReset)
+		fmt.Printf("%s  ✓ Container and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Image marked for rebuild")
+		fmt.Println("  ✓ Container and image removed, forcing rebuild")
 	}
 }
 
@@ -607,14 +679,17 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to save packages template hash: %w", err)
 	}
 
-	// 4. Mark image for rebuild
+	// 4. Regenerate topgrade config
+	regenerateTopgradeConfig()
+
+	// 5. Mark image for rebuild
 	markImageForRebuild()
 
-	// 5. Force entrypoint setup to rerun on next container start.
+	// 6. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
 	forceEntrypointRun()
 
-	// 6. Update installed version
+	// 7. Update installed version
 	if err := SetInstalledVersion(constants.Version); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}

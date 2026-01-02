@@ -16,3 +16,9 @@
 - Interfaces: Single-method interfaces end with `-er` suffix
 - Testing: `TestXxx` funcs, `BenchmarkXxx` for benches
 - Line length: No limit, let `gofmt` wrap
+
+## Version Bumping
+- **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
+- When asked to bump version: update `internal/constants/constants.go` only
+- When asked to add CHANGELOG entry: add new section with current version from constants.go
+- The `VERSION` file is automatically updated during the release process

@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.11.0] - 2026-01-02
+
+### Added
+- **Topgrade Integration**: Automated package updates inside Construct via [Topgrade](https://github.com/topgrade-rs/topgrade)
+  - Ensures all system packages, language tools, and development utilities stay current
+  - Seamless integration with Construct's containerized environment
+  - Configurable via `packages.toml` for custom update policies
+- **Worktrunk.dev Support**: Default installation and usage of [Worktrunk](https://worktrunk.dev/) for simultaneous agent collaboration
+  - Enables multiple AI agents to work on the same codebase without conflicts
+  - Provides intelligent workspace isolation and synchronization
+  - Configured by default for optimal multi-agent workflows
+
 ## [0.10.1] - 2025-12-31
 
 ### Added

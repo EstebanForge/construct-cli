@@ -1,0 +1,91 @@
+# Topgrade Configuration for Construct CLI
+# This file is auto-generated - manual edits will be overwritten on next run.
+# To customize, modify your packages.toml and run 'construct sys install-packages'.
+
+[misc]
+# Non-interactive mode: answer yes to all prompts
+assume_yes = true
+
+# Don't retry failed steps (avoids hanging on errors)
+no_retry = true
+
+# Don't attempt to self-update (managed by brew)
+no_self_update = true
+
+# Cache sudo credentials upfront (apt uses passwordless sudo in construct)
+pre_sudo = true
+
+# Disable steps not relevant in container environment
+disable = [
+    "firmware",      # No firmware updates in container
+    "flatpak",       # Not installed in construct
+    "snap",          # Not installed in construct
+    "containers",    # Avoid recursive container updates
+    "sdkman",        # Not used by default
+    "vagrant",       # Not used in container
+    "wsl",           # Not applicable (we're inside Linux)
+    "lensfun",       # Camera lens database - not needed
+    "vim",           # Vim plugin updates can be manual
+    "emacs",         # Emacs plugin updates can be manual
+    "vscode",        # Host-side IDE, not in container
+    "atom",          # Deprecated editor
+    "gem",           # Ruby gems - managed separately if needed
+    "git_repos",     # Don't auto-pull git repositories
+    "gnome_shell_extensions", # No GNOME in container
+    "node",          # We manage node via brew, not nvm by default
+    "rcm",           # Dotfile manager - not used
+    "remotes",       # Remote topgrade - not applicable
+    "restarts",      # Service restarts - not applicable in container
+    "shell",         # Shell framework updates (oh-my-zsh etc) - manual
+    "sparkle",       # macOS app updates - not applicable
+    "system",        # System package manager updates handled separately
+    "tldr",          # tldr pages update - low priority
+    "tmux",          # tmux plugin updates - manual
+    "toolbx",        # Fedora toolbox - not used
+    "custom_commands", # We handle custom commands in update-all.sh
+]
+
+# Don't show skipped steps (cleaner output)
+show_skipped = false
+
+# Show time in step titles
+display_time = true
+
+[brew]
+# Auto-remove unused dependencies after upgrade
+autoremove = true
+
+# Use greedy upgrade for casks (upgrade even if auto-updates enabled)
+greedy_cask = true
+
+[npm]
+# npm is installed to user space in construct, no sudo needed
+use_sudo = false
+
+[yarn]
+# yarn is installed to user space, no sudo needed
+use_sudo = false
+
+[pip]
+# Disable pip-review by default (can be enabled in packages.toml)
+# enable_pip_review = false
+
+[cargo]
+# Cargo packages will be updated if cargo-update is installed
+
+[linux]
+# Debian-specific settings
+# APT updates are handled via passwordless sudo
+
+[git]
+# Don't auto-pull predefined git repos (user repos only if configured)
+pull_predefined = false
+
+[composer]
+# Don't self-update composer (managed via brew)
+self_update = false
+
+# Custom commands for tools topgrade doesn't natively support
+[commands]
+"Claude Code" = "curl -fsSL https://claude.ai/install.sh | bash"
+"MCP CLI-Ent" = "curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash"
