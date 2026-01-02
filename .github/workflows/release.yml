@@ -70,8 +70,23 @@ jobs:
       # ----------------------------------------------------------------
       - name: Create macOS Universal Binary
         run: |
-          # Create universal binary using lipo
-          lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
+          # Install llvm to get llvm-lipo
+          sudo apt-get update && sudo apt-get install -y llvm
+
+          # Ensure llvm-lipo is available
+          if ! command -v llvm-lipo &> /dev/null; then
+              # Try to find versioned llvm-lipo and symlink it
+              LIPO_PATH=$(find /usr/bin -name "llvm-lipo-*" | head -n 1)
+              if [ -n "$LIPO_PATH" ]; then
+                  sudo ln -s "$LIPO_PATH" /usr/bin/llvm-lipo
+              else
+                  echo "Error: llvm-lipo not found"
+                  exit 1
+              fi
+          fi
+
+          # Create universal binary using llvm-lipo
+          llvm-lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
           
           # Verify it is universal
           file dist/construct
