@@ -22,10 +22,21 @@ All notable changes to Construct CLI will be documented in this file.
   - When enabled (`CONSTRUCT_DEBUG=1`), logs are written to `~/.config/construct-cli/logs/` on the host.
   - Container-side logs (like `powershell.exe` and `clipboard-x11-sync`) are redirected to `/tmp/` for guaranteed visibility and write access.
   - Replaced legacy `CONSTRUCT_CLIPBOARD_LOG` with the new unified system.
+- **Non-Sandboxed Agent Aliases**: `install-aliases` now creates `ns-*` prefixed aliases for agents found in PATH.
+  - Example: `ns-claude`, `ns-gemini`, etc. run agents directly without Construct sandbox
+  - Useful for running agents with full host access when needed
+- **Alias Re-installation**: `install-aliases` now supports updating existing installations.
+  - Detects existing aliases and offers to re-install with gum confirmation prompt
+  - Automatically removes old alias block before installing fresh
+  - Adds missing `ns-*` aliases when updating existing installations
+- **Shell Config Backups**: automatic timestamped backups before modifying shell config files.
+  - Creates `.backup-YYYYMMDD-HHMMSS` files before any changes
+  - Applies to both `.zshrc`, `.bashrc`, and `.bash_profile`
+  - Protects users from critical shell configuration errors
 
 ### Optimized
 - **Sandbox Isolation**: sanitized the `PATH` environment variable across all templates to prevent host-side directory leakage into the sandbox.
-- **Streamlined Installation**: 
+- **Streamlined Installation**:
   - Eliminated redundant package installations by removing duplicates between APT and Homebrew phases.
   - Added `DEBIAN_FRONTEND=noninteractive` to silence UI dialogs during container setup.
 - **Improved Migration Experience**: refined version detection messaging to accurately distinguish between binary upgrades, downgrades, and template-only syncs.
@@ -37,6 +48,10 @@ All notable changes to Construct CLI will be documented in this file.
   - Improved "New Flow" paste detection by allowing Codex to receive raw image paths instead of multimodal `@path` references.
 - **Self-Update Reliability**: fixed a confusing state where `self-update` would report an upgrade from `0.3.0` due to intentional version file deletion.
 - **Clipboard Image Paste**: Centralized file-based paste agent list (`gemini`, `qwen`, `codex`) into a single constant to prevent drift.
+- **Container Rebuild Reliability**: improved `sys rebuild` to force fresh container images.
+  - Now stops and removes running containers and images before rebuilding (not just marking for rebuild)
+  - Added `--no-cache` flag to build command to bypass Docker layer cache
+  - Added support for Apple container runtime (macOS 26+) alongside Docker and Podman
 - **SSH Key Prioritization**: Enhanced SSH configuration management to ensure correct key selection order for all hosts.
   - Auto-generates `~/.ssh/config` with SSH agent support and key prioritization (`default` and `personal` keys tried first).
   - Applies to all SSH connections (GitHub, GitLab, private servers, etc.), not just specific hosts.

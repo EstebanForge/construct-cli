@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -262,33 +263,84 @@ func InstallAliases() {
 		os.Exit(1)
 	}
 	content := string(contentBytes)
-	if strings.Contains(content, "# construct-cli aliases start") {
+	aliasesExist := strings.Contains(content, "# construct-cli aliases start")
+
+	if aliasesExist {
 		if ui.GumAvailable() {
 			ui.GumWarning(fmt.Sprintf("Aliases are already installed in %s", configFile))
+			if !ui.GumConfirm("Do you want to re-install to update them?") {
+				fmt.Println("Canceled.")
+				return
+			}
+			// Backup config before modification
+			if err := backupConfigFile(configFile); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			}
+			// Remove old alias block
+			startIdx := strings.Index(content, "# construct-cli aliases start")
+			endIdx := strings.Index(content, "# construct-cli aliases end")
+			if startIdx != -1 && endIdx != -1 {
+				// Find the end of the line with "# construct-cli aliases end"
+				endLineIdx := strings.Index(content[endIdx:], "\n") + endIdx + 1
+				newContent := content[:startIdx] + content[endLineIdx:]
+				if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing old aliases: %v\n", err)
+					os.Exit(1)
+				}
+			}
 		} else {
 			fmt.Printf("⚠️  Aliases are already installed in %s\n", configFile)
+			fmt.Print("Do you want to re-install to update them? [y/N]: ")
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+				os.Exit(1)
+			}
+			response = strings.TrimSpace(response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Canceled.")
+				return
+			}
+			// Backup config before modification
+			if err := backupConfigFile(configFile); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			}
+			// Remove old alias block
+			startIdx := strings.Index(content, "# construct-cli aliases start")
+			endIdx := strings.Index(content, "# construct-cli aliases end")
+			if startIdx != -1 && endIdx != -1 {
+				endLineIdx := strings.Index(content[endIdx:], "\n") + endIdx + 1
+				newContent := content[:startIdx] + content[endLineIdx:]
+				if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
+					fmt.Fprintf(os.Stderr, "Error removing old aliases: %v\n", err)
+					os.Exit(1)
+				}
+			}
 		}
-		return
+		fmt.Println("✓ Removed old aliases")
 	}
 
-	// Confirm
-	if ui.GumAvailable() {
-		if !ui.GumConfirm("Do you want to proceed?") {
-			fmt.Println("Canceled.")
-			return
-		}
-	} else {
-		fmt.Print("Do you want to proceed? [y/N]: ")
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-			os.Exit(1)
-		}
-		response = strings.TrimSpace(response)
-		if strings.ToLower(response) != "y" {
-			fmt.Println("Canceled.")
-			return
+	// Confirm (skip if already confirmed for re-install)
+	if !aliasesExist {
+		if ui.GumAvailable() {
+			if !ui.GumConfirm("Do you want to proceed?") {
+				fmt.Println("Canceled.")
+				return
+			}
+		} else {
+			fmt.Print("Do you want to proceed? [y/N]: ")
+			reader := bufio.NewReader(os.Stdin)
+			response, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+				os.Exit(1)
+			}
+			response = strings.TrimSpace(response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Canceled.")
+				return
+			}
 		}
 	}
 
@@ -318,6 +370,11 @@ func InstallAliases() {
 	}
 
 	sb.WriteString("# construct-cli aliases end\n")
+
+	// Backup config before modification
+	if err := backupConfigFile(configFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
 
 	// Append to file
 	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -413,4 +470,40 @@ func addShellAlias(aliasName, aliasLine string) (string, bool, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// backupConfigFile creates a timestamped backup of the config file
+func backupConfigFile(configFile string) error {
+	// Only backup if file exists
+	if !fileExists(configFile) {
+		return nil
+	}
+
+	// Create backup filename with timestamp
+	timestamp := time.Now().Format("20060102-150405")
+	backupPath := configFile + ".backup-" + timestamp
+
+	// Read original file
+	content, err := os.ReadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to read config file for backup: %w", err)
+	}
+
+	// Write backup
+	if err := os.WriteFile(backupPath, content, 0644); err != nil {
+		return fmt.Errorf("failed to create backup: %w", err)
+	}
+
+	// Show backup location to user
+	displayPath := backupPath
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		displayPath = strings.Replace(backupPath, homeDir, "~", 1)
+	}
+	if ui.GumAvailable() {
+		fmt.Printf("%s  ✓ Backup created: %s%s\n", ui.ColorGrey, displayPath, ui.ColorReset)
+	} else {
+		fmt.Printf("  ✓ Backup created: %s\n", displayPath)
+	}
+
+	return nil
 }
