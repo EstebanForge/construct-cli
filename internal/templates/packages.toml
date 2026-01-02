@@ -18,7 +18,7 @@ taps = [
 ]
 packages = [
     # Core utilities
-    "ast-grep", "yq", "sd", "fzf", "eza", "zoxide", "fd", "bat", "ripgrep", "jq", "curl", "wget", "tree", "unzip", "socat", "make", "htop", "netcat", "bind",
+    "ast-grep", "yq", "sd", "fzf", "eza", "zoxide", "fd", "bat", "ripgrep", "jq", "curl", "wget", "tree", "unzip", "socat", "make", "htop", "netcat", "bind", "sshpass",
     # Development tools
     "gh", "git-lfs", "git-delta", "git-cliff", "rsync", "procs", "python-setuptools", "awscli", "cmake", "pkg-config", "direnv", "gum",
     # Languages

@@ -240,6 +240,21 @@ func InstallAliases() {
 	}
 	fmt.Println()
 
+	// Check for non-sandboxed agents and create ns- aliases
+	var nsAliases []string
+	for _, agent := range agents {
+		// Check if agent binary exists in PATH
+		if path, err := exec.LookPath(agent); err == nil {
+			nsAliases = append(nsAliases, fmt.Sprintf("%s|%s", agent, path))
+			fmt.Printf("  • alias ns-%-8s = %s (non-sandboxed)\n", agent, agent)
+		}
+	}
+	if len(nsAliases) > 0 {
+		fmt.Println("\nNon-sandboxed (ns-) aliases:")
+		fmt.Println("  These allow running agents directly without The Construct sandbox.")
+	}
+	fmt.Println()
+
 	// Check if block already exists
 	contentBytes, err := os.ReadFile(configFile)
 	if err != nil {
@@ -291,6 +306,17 @@ func InstallAliases() {
 		sb.WriteString(fmt.Sprintf("alias cc-%s='%s cc %s'\n", provider, exePath, provider))
 	}
 
+	// Add non-sandboxed (ns-) aliases for agents found in PATH
+	if len(nsAliases) > 0 {
+		sb.WriteString("\n# Non-sandboxed aliases - run agents directly without Construct sandbox\n")
+		for _, nsAlias := range nsAliases {
+			parts := strings.Split(nsAlias, "|")
+			agent := parts[0]
+			path := parts[1]
+			sb.WriteString(fmt.Sprintf("alias ns-%s='%s'\n", agent, path))
+		}
+	}
+
 	sb.WriteString("# construct-cli aliases end\n")
 
 	// Append to file
@@ -310,7 +336,7 @@ func InstallAliases() {
 		os.Exit(1)
 	}
 
-	totalAliases := len(agents) + len(ccProviders)
+	totalAliases := len(agents) + len(ccProviders) + len(nsAliases)
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Successfully installed %d aliases to %s", totalAliases, configFile))
 	} else {

@@ -28,6 +28,7 @@ services:
       - HOME=/home/construct
       - CONSTRUCT_PROJECT_PATH=${CONSTRUCT_PROJECT_PATH:-/workspace}
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.local/share/uv/bin:/home/construct/.local/share/pipx/bin:/home/construct/.npm-global/bin:/home/construct/.composer/vendor/bin:/home/construct/.local/share/composer/vendor/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - LD_LIBRARY_PATH=/home/linuxbrew/.linuxbrew/lib
 
     # Network mode (overridden by config.toml [network] section)
     # network_mode: bridge  # permissive (default)

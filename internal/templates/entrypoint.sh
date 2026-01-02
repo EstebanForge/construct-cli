@@ -74,6 +74,8 @@ fi
 
 # Ensure all required paths are in PATH
 export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Ensure library path includes Homebrew (for libgit2, etc.)
+export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
 
 # Ensure SSH config prioritizes standard key names unless user provided one.
 ensure_ssh_config() {

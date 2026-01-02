@@ -256,8 +256,8 @@ func BuildImage(cfg *config.Config) {
 
 	var cmd *exec.Cmd
 
-	// Build command
-	cmd, err = BuildComposeCommand(containerRuntime, configPath, "build", []string{})
+	// Build command with --no-cache to ensure fresh build
+	cmd, err = BuildComposeCommand(containerRuntime, configPath, "build", []string{"--no-cache"})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to construct build command: %v\n", err)
 		os.Exit(1)
@@ -448,6 +448,17 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		scriptPath := filepath.Join(config.GetContainerDir(), "install_user_packages.sh")
 		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
+		}
+
+		topgradeConfig := pkgs.GenerateTopgradeConfig()
+		topgradeDir := filepath.Join(configPath, "home", ".config")
+		if err := os.MkdirAll(topgradeDir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
+		} else {
+			topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
+			if err := os.WriteFile(topgradePath, []byte(topgradeConfig), 0644); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade configuration: %v\n", err)
+			}
 		}
 	}
 

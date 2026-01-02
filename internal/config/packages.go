@@ -126,6 +126,16 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "echo 'Installing imagemagick (required for clipboard)...'\n"
 	script += "brew install imagemagick\n\n"
 
+	script += "echo 'Installing topgrade (system updater)...'\n"
+	script += "brew install topgrade\n\n"
+
+	script += "echo 'Installing cargo-update (enables cargo package updates)...'\n"
+	script += "if command -v cargo &> /dev/null; then\n"
+	script += "    # Install libgit2 via Homebrew first (dependency for cargo-update)\n"
+	script += "    brew install libgit2\n"
+	script += "    cargo install cargo-update 2>/dev/null || echo \"Warning: cargo-update installation failed, cargo package updates disabled\"\n"
+	script += "fi\n\n"
+
 	// Specialized Tools (Priority)
 	if c.Tools.PhpBrew {
 		script += "echo 'Installing PHPBrew...'\n"
@@ -236,4 +246,91 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	script += "echo 'User package installation completed successfully.'\n"
 	return script
+}
+
+// GenerateTopgradeConfig generates a topgrade.toml configuration based on enabled tools.
+func (c *PackagesConfig) GenerateTopgradeConfig() string {
+	var disabledSteps []string
+
+	baseDisabled := []string{
+		"firmware",
+		"flatpak",
+		"snap",
+		"containers",
+		"sdkman",
+		"vagrant",
+		"wsl",
+		"lensfun",
+		"vim",
+		"emacs",
+		"vscode",
+		"atom",
+		"git_repos",
+		"gnome_shell_extensions",
+		"rcm",
+		"remotes",
+		"restarts",
+		"shell",
+		"sparkle",
+		"tmux",
+		"toolbx",
+	}
+	disabledSteps = append(disabledSteps, baseDisabled...)
+
+	if !c.Tools.Nix {
+		disabledSteps = append(disabledSteps, "nix")
+	}
+	if !c.Tools.Nvm {
+		disabledSteps = append(disabledSteps, "node")
+	}
+	if !c.Tools.Asdf {
+		disabledSteps = append(disabledSteps, "asdf")
+	}
+	if !c.Tools.Mise {
+		disabledSteps = append(disabledSteps, "mise")
+	}
+	if !c.Tools.Volta {
+		disabledSteps = append(disabledSteps, "volta_packages")
+	}
+	if !c.Tools.Bun {
+		disabledSteps = append(disabledSteps, "bun")
+	}
+	if len(c.Pip.Packages) == 0 {
+		disabledSteps = append(disabledSteps, "pip3", "pipx")
+	}
+
+	config := "[misc]\n"
+	config += "assume_yes = true\n"
+	config += "no_retry = true\n"
+	config += "no_self_update = true\n"
+	config += "pre_sudo = true\n"
+	config += "show_skipped = false\n"
+	config += "display_time = true\n"
+	config += "disable = [\n"
+	for _, step := range disabledSteps {
+		config += fmt.Sprintf("    %q,\n", step)
+	}
+	config += "]\n\n"
+
+	config += "[brew]\n"
+	config += "autoremove = true\n"
+	config += "greedy_cask = true\n\n"
+
+	config += "[npm]\n"
+	config += "use_sudo = false\n\n"
+
+	config += "[yarn]\n"
+	config += "use_sudo = false\n\n"
+
+	config += "[git]\n"
+	config += "pull_predefined = false\n\n"
+
+	config += "[composer]\n"
+	config += "self_update = false\n\n"
+
+	config += "[commands]\n"
+	config += "\"Claude Code\" = \"claude update\"\n"
+	config += "\"MCP CLI-Ent\" = \"curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash\"\n"
+
+	return config
 }
