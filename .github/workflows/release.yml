@@ -45,6 +45,9 @@ jobs:
       - name: Verify dependencies
         run: go mod verify
 
+      - name: Sync VERSION file with tag
+        run: echo "${{ env.VERSION }}" > VERSION
+
       - name: Run tests
         run: make test
 
@@ -185,16 +188,6 @@ jobs:
         env:
           VERSION: ${{ env.VERSION }}
         run: |
-          CURRENT_VERSION=""
-          if [ -f VERSION ]; then
-            CURRENT_VERSION=$(tr -d '[:space:]' < VERSION)
-          fi
-
-          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            exit 0
-          fi
-
-          echo "$VERSION" > VERSION
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add VERSION
