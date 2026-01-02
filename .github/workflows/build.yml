@@ -29,6 +29,11 @@ jobs:
     - name: Verify dependencies
       run: go mod verify
 
+    - name: Sync VERSION file
+      run: |
+        VERSION=$(grep -E 'Version.*=' internal/constants/constants.go | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        echo "$VERSION" > VERSION
+
     - name: Run unit and integration tests
       run: make test
 
@@ -84,6 +89,9 @@ jobs:
         rm -rf dist/ || true
         rm -f coverage.out || true
         go clean -cache
+
+    - name: Sync VERSION file
+      run: echo "${{ steps.build_info.outputs.version }}" > VERSION
 
     - name: Build binary
       env:
