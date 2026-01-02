@@ -5,6 +5,7 @@ All notable changes to Construct CLI will be documented in this file.
 ## [0.11.0] - 2026-01-02
 
 ### Added
+- **Homebrew Installation**: Added support for installing via Homebrew (Linux & macOS) using `brew install EstebanForge/tap/construct-cli`.
 - **Topgrade Integration**: Automated package updates inside Construct via [Topgrade](https://github.com/topgrade-rs/topgrade)
   - Ensures all system packages, language tools, and development utilities stay current
   - Seamless integration with Construct's containerized environment
