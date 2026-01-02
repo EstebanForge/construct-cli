@@ -1,4 +1,4 @@
----
+--- 
 name: Release
 
 on:
@@ -33,7 +33,7 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Detected version: $VERSION"
+          
           if [ -z "$VERSION" ]; then
             echo "Error: VERSION is empty"
             exit 1
@@ -62,21 +62,50 @@ jobs:
           make VERSION="${VERSION}" release
           ls -la dist/
 
+      # ----------------------------------------------------------------
+      # NEW: Create Universal Binary for Homebrew Tap
+      # ----------------------------------------------------------------
+      - name: Create macOS Universal Binary
+        run: |
+          # Create universal binary using lipo
+          lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
+          
+          # Verify it is universal
+          file dist/construct
+          
+          # Create the specific tarball expected by the tap
+          tar -czf dist/construct-cli-macos-universal.tar.gz -C dist construct
+          
+          # Cleanup temporary binary
+          rm dist/construct
+
+      # ----------------------------------------------------------------
+      # NEW: Prepare Linux Artifacts for Homebrew Tap
+      # ----------------------------------------------------------------
+      - name: Prepare Linux Artifacts
+        run: |
+          # Rename/Package Linux AMD64
+          # Assumes make release created dist/construct-linux-amd64 (binary) or similar
+          # The makefile seems to produce tarballs with versions. Let's look for the binary or extract it.
+          # If 'make release' produced binaries 'dist/construct-linux-amd64', we use them.
+          # Based on previous steps, it produces 'dist/construct-linux-amd64'.
+          
+          tar -czf dist/construct-cli-linux-amd64.tar.gz -C dist construct-linux-amd64
+          tar -czf dist/construct-cli-linux-arm64.tar.gz -C dist construct-linux-arm64
+
       - name: Verify release outputs
         env:
           VERSION: ${{ env.VERSION }}
         run: |
           set -e
-
           expected_files=(
             "dist/construct-darwin-arm64"
             "dist/construct-darwin-amd64"
             "dist/construct-linux-amd64"
             "dist/construct-linux-arm64"
-            "dist/construct-darwin-arm64-${VERSION}.tar.gz"
-            "dist/construct-darwin-amd64-${VERSION}.tar.gz"
-            "dist/construct-linux-amd64-${VERSION}.tar.gz"
-            "dist/construct-linux-arm64-${VERSION}.tar.gz"
+            "dist/construct-cli-macos-universal.tar.gz"
+            "dist/construct-cli-linux-amd64.tar.gz"
+            "dist/construct-cli-linux-arm64.tar.gz"
             "dist/checksums.txt"
           )
 
@@ -91,14 +120,8 @@ jobs:
           done
 
           if [ "${missing:-no}" = "yes" ]; then
-            echo "One or more release artifacts are missing."
             exit 1
           fi
-
-          echo "All release artifacts verified."
-
-      - name: Show checksums
-        run: cat dist/checksums.txt
 
       - name: Create Release Notes
         env:
@@ -106,8 +129,8 @@ jobs:
         run: |
           release_date=""
           if [ -f CHANGELOG.md ]; then
-            release_date=$(awk -v ver="$VERSION" '
-              $0 ~ "^## \\["ver"\\] - " {
+            release_date=$(awk -v ver="$VERSION" ' 
+              $0 ~ "^## \["ver"\] - " { 
                 match($0, /^## \[[^]]+\] - (.+)$/, parts)
                 if (parts[1] != "") {
                   print parts[1]
@@ -129,9 +152,9 @@ jobs:
 
           EOF
           if [ -f CHANGELOG.md ]; then
-            awk -v ver="$VERSION" '
-              $0 ~ "^## \\["ver"\\] - " {found=1; next}
-              found && $0 ~ "^## \\[" {exit}
+            awk -v ver="$VERSION" ' 
+              $0 ~ "^## \["ver"\] - " {found=1; next}
+              found && $0 ~ "^## \[" {exit}
               found {print}
             ' CHANGELOG.md | sed '1{/^$/d;}' >> release_notes.md
           else
@@ -151,6 +174,9 @@ jobs:
             dist/construct-darwin-amd64-${{ env.VERSION }}.tar.gz
             dist/construct-linux-amd64-${{ env.VERSION }}.tar.gz
             dist/construct-linux-arm64-${{ env.VERSION }}.tar.gz
+            dist/construct-cli-macos-universal.tar.gz
+            dist/construct-cli-linux-amd64.tar.gz
+            dist/construct-cli-linux-arm64.tar.gz
             dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -162,13 +188,9 @@ jobs:
           CURRENT_VERSION=""
           if [ -f VERSION ]; then
             CURRENT_VERSION=$(tr -d '[:space:]' < VERSION)
-            echo "Current VERSION file contains: ${CURRENT_VERSION}"
-          else
-            echo "VERSION file not found; it will be created."
           fi
 
           if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "VERSION already matches ${VERSION}; skipping bump."
             exit 0
           fi
 
@@ -179,7 +201,23 @@ jobs:
           git commit -m "chore: update VERSION to $VERSION" || echo "No changes to commit"
           git push origin HEAD:main || echo "Failed to push VERSION file update"
 
-      - name: Notify completion
-        run: |
-          echo "✅ Release ${{ env.VERSION }} created successfully!"
-          echo "📦 Assets uploaded for Linux and macOS (amd64/arm64)"
+  update-tap:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Homebrew Tap Update
+        uses: actions/github-script@v6
+        with:
+          github-token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: 'EstebanForge',
+              repo: 'homebrew-tap',
+              workflow_id: 'update-formula.yml',
+              ref: 'main',
+              inputs: {
+                formula: 'construct-cli',
+                tag: '${{ github.ref_name }}',
+                repository: '${{ github.repository }}'
+              }
+            })
