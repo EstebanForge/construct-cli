@@ -41,10 +41,17 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **OpenAI Codex** (`codex`) – Codex-style code generation.
 - **Claude Code** with several other 3rd party providers with Anthropic compatible API: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo.
 
-## Install & Quick Start
-Prerequisites: a container runtime (Docker Desktop/OrbStack, Podman, or macOS 26+ with native containers).
+### Installation
 
-**Install via script (recommended):**
+#### Homebrew (macOS & Linux)
+
+The easiest way to install and keep Construct updated is via Homebrew:
+
+```bash
+brew install EstebanForge/tap/construct-cli
+```
+
+#### One-Line Installer (Bash/Zsh)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
