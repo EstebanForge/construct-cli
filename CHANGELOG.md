@@ -7,6 +7,9 @@ All notable changes to Construct CLI will be documented in this file.
 ### Added
 - **md-over-here**: Added `md-over-here` to default brew packages in packages.toml template
 
+### Improved
+- **Global PATH for Package Managers**: Exposed default package manager bins (Homebrew, Cargo, NPM, Bun, asdf, mise, Volta, Nix, phpbrew) in container PATH for agent use
+
 ---
 
 ## [0.11.2] - 2026-01-03
