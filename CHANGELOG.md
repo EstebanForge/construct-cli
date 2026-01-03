@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.11.3] - 2026-01-03
+
+### Added
+- **md-over-here**: Added `md-over-here` to default brew packages in packages.toml template
+
+---
+
 ## [0.11.2] - 2026-01-03
 
 ### Fixed
