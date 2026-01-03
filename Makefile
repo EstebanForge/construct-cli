@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
+.PHONY: help build test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
 
 # Variables
 BINARY_NAME := construct
@@ -55,6 +55,13 @@ test: test-unit test-integration ## Run all tests
 test-unit: ## Run Go unit tests
 	@echo "Running unit tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
+	@echo "✓ Unit tests passed"
+
+test-ci: test-unit-ci test-integration ## Run CI tests (fast unit + integration)
+
+test-unit-ci: ## Run Go unit tests (CI fast)
+	@echo "Running unit tests (CI fast)..."
+	$(GOTEST) -v ./internal/...
 	@echo "✓ Unit tests passed"
 
 test-integration: build ## Run integration tests

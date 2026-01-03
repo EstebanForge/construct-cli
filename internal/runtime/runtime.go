@@ -230,6 +230,15 @@ func IsOrbStackRunning() bool {
 
 // BuildImage builds the container image and installs agents if needed.
 func BuildImage(cfg *config.Config) {
+	if shouldSkipImageBuild() {
+		if ui.GumAvailable() {
+			ui.GumWarning("Skipping image build (CONSTRUCT_SKIP_IMAGE_BUILD)")
+		} else {
+			fmt.Println("Skipping image build (CONSTRUCT_SKIP_IMAGE_BUILD)")
+		}
+		return
+	}
+
 	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
 
@@ -311,6 +320,11 @@ func BuildImage(cfg *config.Config) {
 			fmt.Println("\n✅ Setup already completed in persistent volumes")
 		}
 	}
+}
+
+func shouldSkipImageBuild() bool {
+	value := strings.TrimSpace(strings.ToLower(os.Getenv("CONSTRUCT_SKIP_IMAGE_BUILD")))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 // AreAgentsInstalled checks if agent binaries exist in the config directory

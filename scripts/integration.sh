@@ -20,6 +20,10 @@ TEST_DIR=$(mktemp -d)
 TEST_CONFIG_DIR="${TEST_DIR}/.config/construct-cli"
 export HOME="${TEST_DIR}"
 
+# Skip container image build during integration tests by default.
+: "${CONSTRUCT_SKIP_IMAGE_BUILD:=1}"
+export CONSTRUCT_SKIP_IMAGE_BUILD
+
 # Binary to test
 BINARY="${1:-./construct}"
 

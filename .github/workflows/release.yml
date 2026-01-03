@@ -26,6 +26,8 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go.sum
 
       - name: Get version from tag
         id: get_version
@@ -49,7 +51,7 @@ jobs:
         run: echo "${{ env.VERSION }}" > VERSION
 
       - name: Run tests
-        run: make test
+        run: make test-ci
 
       - name: Run linter
         uses: golangci/golangci-lint-action@v4
