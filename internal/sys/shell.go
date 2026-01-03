@@ -150,17 +150,29 @@ func ensureLocalBinInPath(localBin string) {
 
 // InstallAliases writes shell aliases for supported agents.
 func InstallAliases() {
-	// Get current executable path
-	exePath, err := os.Executable()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining executable path: %v\n", err)
-		os.Exit(1)
-	}
-	// Resolve symlinks
-	exePath, err = filepath.EvalSymlinks(exePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error resolving symlinks: %v\n", err)
-		os.Exit(1)
+	// Determine the command to use in aliases
+	// Prefer 'construct' if available in PATH (Homebrew, system install)
+	// Otherwise use full path (local dev builds)
+	var constructCmd string
+	if pathCmd, err := exec.LookPath("construct"); err == nil {
+		// construct is in PATH - use the command name only
+		// This ensures version-independent aliases for Homebrew installs
+		constructCmd = "construct"
+		_ = pathCmd // Explicitly ignore the returned path
+	} else {
+		// construct not in PATH - fall back to full executable path
+		exePath, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error determining executable path: %v\n", err)
+			os.Exit(1)
+		}
+		// Resolve symlinks
+		exePath, err = filepath.EvalSymlinks(exePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error resolving symlinks: %v\n", err)
+			os.Exit(1)
+		}
+		constructCmd = exePath
 	}
 
 	// Standard agents
@@ -201,8 +213,8 @@ func InstallAliases() {
 		fmt.Println("Your agents will be sandboxed, and will only have access to the current directory where you call them.")
 	}
 
-	fmt.Printf("Target binary: %s\n", exePath)
-	fmt.Printf("Config file:   %s\n\n", configFile)
+	fmt.Printf("Target command: %s\n", constructCmd)
+	fmt.Printf("Config file:    %s\n\n", configFile)
 
 	fmt.Println("Aliases to be installed:")
 	// Preview aliases
@@ -324,12 +336,12 @@ func InstallAliases() {
 
 	// Add standard agents
 	for _, agent := range agents {
-		sb.WriteString(fmt.Sprintf("alias %s='%s %s'\n", agent, exePath, agent))
+		sb.WriteString(fmt.Sprintf("alias %s='%s %s'\n", agent, constructCmd, agent))
 	}
 
 	// Add CC providers
 	for _, provider := range ccProviders {
-		sb.WriteString(fmt.Sprintf("alias cc-%s='%s cc %s'\n", provider, exePath, provider))
+		sb.WriteString(fmt.Sprintf("alias cc-%s='%s cc %s'\n", provider, constructCmd, provider))
 	}
 
 	// Add non-sandboxed (ns-) aliases for agents found in PATH
