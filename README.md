@@ -57,7 +57,7 @@ brew install EstebanForge/tap/construct-cli
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
 ```
 
-Tip: `construct sys init` will create a `ct` symlink/alias when possible, so `ct` works as a shortcut for `construct`.
+Tip: Construct will attempt to create a `ct` symlink/alias when possible on `construct sys init` and on basic help/sys invocations (`construct`, `construct sys`, `construct sys help`), so `ct` works as a shortcut for `construct`.
 
 ## Common Examples
 ```bash
