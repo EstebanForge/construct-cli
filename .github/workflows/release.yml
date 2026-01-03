@@ -147,13 +147,12 @@ jobs:
         run: |
           release_date=""
           if [ -f CHANGELOG.md ]; then
-            release_date=$(awk -v ver="$VERSION" ' 
-              $0 ~ "^## \["ver"\] - " { 
-                match($0, /^## \[[^]]+\] - (.+)$/, parts)
-                if (parts[1] != "") {
-                  print parts[1]
-                }
-                exit
+            # Use portable awk (works with mawk)
+            release_date=$(awk -v ver="$VERSION" '
+              $0 ~ "^## \\["ver"\\] - " {
+                sub(/^## \[[^]]+\] - /, "");
+                print $0;
+                exit;
               }' CHANGELOG.md)
           fi
 
@@ -165,14 +164,11 @@ jobs:
 
           echo "RELEASE_TITLE=$release_title" >> "$GITHUB_ENV"
 
-          cat > release_notes.md << 'EOF'
-          ## Release Notes
-
-          EOF
+          printf "## Release Notes\n\n" > release_notes.md
           if [ -f CHANGELOG.md ]; then
             awk -v ver="$VERSION" ' 
-              $0 ~ "^## \["ver"\] - " {found=1; next}
-              found && $0 ~ "^## \[" {exit}
+              $0 ~ "^## \\["ver"\\] - " {found=1; next}
+              found && $0 ~ "^---" {exit}
               found {print}
             ' CHANGELOG.md | sed '1{/^$/d;}' >> release_notes.md
           else
