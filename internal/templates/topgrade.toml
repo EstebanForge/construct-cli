@@ -87,5 +87,4 @@ self_update = false
 
 # Custom commands for tools topgrade doesn't natively support
 [commands]
-"Claude Code" = "curl -fsSL https://claude.ai/install.sh | bash"
-"MCP CLI-Ent" = "curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash"
+"Claude Code" = "claude update"

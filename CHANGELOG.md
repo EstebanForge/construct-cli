@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.11.0] - 2026-01-02
+## [0.11.1] - 2026-01-02
 
 ### Added
 - **Homebrew Installation**: Added support for installing via Homebrew (Linux & macOS) using `brew install EstebanForge/tap/construct-cli`.

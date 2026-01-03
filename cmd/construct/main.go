@@ -91,6 +91,7 @@ func main() {
 	}
 
 	if len(args) < 1 {
+		sys.EnsureCtSymlink()
 		ui.PrintHelp()
 		return
 	}
@@ -101,6 +102,7 @@ func main() {
 	switch command {
 	case "sys":
 		if len(args) < 2 {
+			sys.EnsureCtSymlink()
 			ui.PrintSysHelp()
 			os.Exit(1)
 		}
@@ -162,6 +164,9 @@ func main() {
 }
 
 func handleSysCommand(args []string, cfg *config.Config) {
+	// Auto-create ct symlink for all sys commands
+	sys.EnsureCtSymlink()
+
 	switch args[0] {
 	case "init", "rebuild":
 		// Init/rebuild logic is handled by runtime.BuildImage which calls config loading if needed

@@ -120,9 +120,6 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "    curl -fsSL https://claude.ai/install.sh | bash\n"
 	script += "fi\n\n"
 
-	script += "echo 'Installing mcp-cli-ent...'\n"
-	script += "curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash\n\n"
-
 	script += "echo 'Installing imagemagick (required for clipboard)...'\n"
 	script += "brew install imagemagick\n\n"
 
@@ -330,7 +327,6 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 
 	config += "[commands]\n"
 	config += "\"Claude Code\" = \"claude update\"\n"
-	config += "\"MCP CLI-Ent\" = \"curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash\"\n"
 
 	return config
 }
