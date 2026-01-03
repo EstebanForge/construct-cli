@@ -18,3 +18,14 @@ var SupportedAgents = []Agent{
 	{Name: "Cline", Slug: "cline", ConfigPath: "/home/construct/.cline"},
 	{Name: "OpenAI Codex", Slug: "codex", ConfigPath: "/home/construct/.codex"},
 }
+
+// IsSupported checks if an agent slug is supported.
+func IsSupported(slug string) bool {
+	for _, a := range SupportedAgents {
+		if a.Slug == slug {
+			return true
+		}
+	}
+	// Also allow "shell" as a special case for manual container access
+	return slug == "shell"
+}
