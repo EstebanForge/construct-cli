@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.11.2] - 2026-01-03
+
+### Fixed
+- **Version-Independent Aliases**: Fixed Homebrew alias installation to use version-independent paths.
+  - Aliases now use `construct` command instead of hardcoded Cellar paths (e.g., `/opt/homebrew/Cellar/construct-cli/0.11.0/bin/construct`)
+  - Aliases remain functional after Homebrew updates without reinstallation
+  - Also improves portability for curl-based installations and local builds
+
 ## [0.11.1] - 2026-01-02
 
 ### Added
