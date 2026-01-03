@@ -73,7 +73,58 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # Ensure all required paths are in PATH
-export PATH="/home/linuxbrew/.linuxbrew/bin:$HOME/.local/bin:$HOME/.npm-global/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ORIGINAL_PATH="$PATH"
+PATH=""
+add_path() {
+    local dir="$1"
+    if [ -d "$dir" ]; then
+        case ":$PATH:" in
+            *":$dir:"*) return ;;
+        esac
+        if [ -z "$PATH" ]; then
+            PATH="$dir"
+        else
+            PATH="$PATH:$dir"
+        fi
+    fi
+}
+
+add_path "/home/linuxbrew/.linuxbrew/bin"
+add_path "/home/linuxbrew/.linuxbrew/sbin"
+add_path "$HOME/.local/bin"
+add_path "$HOME/.npm-global/bin"
+add_path "$HOME/.cargo/bin"
+add_path "$HOME/.bun/bin"
+add_path "$HOME/.asdf/bin"
+add_path "$HOME/.asdf/shims"
+add_path "$HOME/.volta/bin"
+add_path "$HOME/.nix-profile/bin"
+add_path "/nix/var/nix/profiles/default/bin"
+add_path "$HOME/.phpbrew/bin"
+add_path "$HOME/.local/share/mise/bin"
+add_path "$HOME/.local/share/mise/shims"
+add_path "/usr/local/sbin"
+add_path "/usr/local/bin"
+add_path "/usr/sbin"
+add_path "/usr/bin"
+add_path "/sbin"
+add_path "/bin"
+
+if [ -d "$HOME/.nvm/versions/node" ]; then
+    for dir in "$HOME"/.nvm/versions/node/*/bin; do
+        add_path "$dir"
+    done
+fi
+
+if [ -n "$ORIGINAL_PATH" ]; then
+    IFS=':' read -r -a original_parts <<< "$ORIGINAL_PATH"
+    for dir in "${original_parts[@]}"; do
+        add_path "$dir"
+    done
+fi
+
+export PATH
+export NVM_DIR="$HOME/.nvm"
 # Ensure library path includes Homebrew (for libgit2, etc.)
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
 
