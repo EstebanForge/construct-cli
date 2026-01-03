@@ -169,8 +169,17 @@ func handleSysCommand(args []string, cfg *config.Config) {
 
 	switch args[0] {
 	case "init", "rebuild":
+		// For rebuild, we also want to refresh configuration and templates from binary first.
+		// This ensures that any template or config changes are applied before building.
+		// For init, we rely on config.Load()'s idempotent Init() and the automatic migration check at startup.
+		if args[0] == "rebuild" {
+			if err := migration.ForceRefresh(); err != nil {
+				ui.GumError(fmt.Sprintf("Migration failed: %v", err))
+				os.Exit(1)
+			}
+		}
+
 		// Init/rebuild logic is handled by runtime.BuildImage which calls config loading if needed
-		// But here we likely want to force build/init
 		// If cfg is nil, we load it
 		if cfg == nil {
 			var err error

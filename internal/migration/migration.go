@@ -651,10 +651,10 @@ func ForceRefresh() error {
 	fmt.Println()
 	if ui.GumAvailable() {
 		ui.GumSuccess("Refreshing configuration and templates from binary")
-		fmt.Printf("%sThis will update config, templates, and rebuild the image%s\n", ui.ColorGrey, ui.ColorReset)
+		fmt.Printf("%sThis will update config, templates, and mark The Construct image to be rebuild%s\n", ui.ColorGrey, ui.ColorReset)
 	} else {
 		fmt.Println("✓ Refreshing configuration and templates from binary")
-		fmt.Println("  This will update config, templates, and rebuild the image")
+		fmt.Println("  This will update config, templates, and mark The Construct image to be rebuild")
 	}
 	fmt.Println()
 

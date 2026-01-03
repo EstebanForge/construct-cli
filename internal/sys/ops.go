@@ -177,7 +177,7 @@ func ResetVolumes(cfg *config.Config) {
 	}
 }
 
-// InstallPackages regenerates and runs the user-defined installation script in a running container.
+// InstallPackages regenerates and runs the user-defined installation script.
 func InstallPackages(cfg *config.Config) {
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -192,16 +192,6 @@ func InstallPackages(cfg *config.Config) {
 			Suggestion: "Run 'construct doctor' to diagnose",
 		})
 		os.Exit(1)
-	}
-
-	containerName := "construct-box"
-	if !runtime.IsContainerRunning(containerRuntime, containerName) {
-		if ui.GumAvailable() {
-			ui.GumInfo("The Construct is not running. Packages will be installed automatically on next start.")
-		} else {
-			fmt.Println("The Construct is not running. Packages will be installed automatically on next start.")
-		}
-		return
 	}
 
 	// Create log file for installation output
@@ -224,17 +214,19 @@ func InstallPackages(cfg *config.Config) {
 
 	fmt.Println()
 
-	// 2. Execute script in running container
+	// 2. Execute script using 'run --rm' to ensure it works whether a container is running or not
 	scriptPath := "/home/construct/.config/construct-cli/container/install_user_packages.sh"
-	execArgs := []string{"exec", "-u", "construct", containerName, "bash", scriptPath}
+	runFlags := []string{"--rm", "--entrypoint", "bash"}
+	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
+	runFlags = append(runFlags, "construct-box", scriptPath)
 
-	var cmd *exec.Cmd
-	switch containerRuntime {
-	case "docker", "container":
-		cmd = exec.Command("docker", execArgs...)
-	case "podman":
-		cmd = exec.Command("podman", execArgs...)
+	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to build install command: %v\n", err)
+		os.Exit(1)
 	}
+
+	cmd.Dir = config.GetContainerDir()
 
 	// Use helper to run with spinner
 	if err := ui.RunCommandWithSpinner(cmd, "Installing user-defined packages...", logFile); err != nil {

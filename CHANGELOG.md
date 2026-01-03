@@ -5,12 +5,21 @@ All notable changes to Construct CLI will be documented in this file.
 ## [0.11.3] - 2026-01-03
 
 ### Added
-- **md-over-here**: Added `md-over-here` to default brew packages in packages.toml template
+- **md-over-here**: Added `md-over-here` to default brew packages in `packages.toml` template.
+- **Brew Installation Detection**: `self-update` and update notifications now detect if the CLI was installed via Homebrew and provide appropriate instructions (`brew upgrade estebanforge/tap/construct-cli`) instead of attempting a manual binary overwrite.
 
-### Improved
-- **Global PATH for Package Managers**: Exposed default package manager bins (Homebrew, Cargo, NPM, Bun, asdf, mise, Volta, Nix, phpbrew) in container PATH for agent use
-
----
+### Fixed
+- **Package Installation Reliability**: Improved `sys install-packages` to use `run --rm` instead of `exec`, allowing it to work correctly even if The Construct is not already running.
+- **Initialization Consistency**: Updated `sys init` and `sys rebuild` to always perform a full migration (syncing config and templates) before building the image.
+- **Migration Messaging**: Clarified migration messages to indicate when an image is "marked for rebuild" versus being actively rebuilt.
+- **Container Rebuild Reliability**: improved `sys rebuild` to force fresh container images.
+  - Now stops and removes running containers and images before rebuilding (not just marking for rebuild)
+  - Added support for macOS 26+ native `container` runtime management.
+- **Container Image Optimization**: Updated base image to a more stable version.
+  - Leaner base image means faster rebuilds and reduced storage footprint.
+- **Template Synchronization**: Improved `sys migrate` to ensure binary rebuilds are correctly triggered when embedded templates change.
+  - Automatic removal of old Docker image (forces rebuild with new Dockerfile)
+  - New hash-based template change detection (more reliable than version checks)
 
 ## [0.11.2] - 2026-01-03
 

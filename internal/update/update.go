@@ -122,17 +122,60 @@ func DisplayNotification(latestVersion string) {
 	msg := fmt.Sprintf("New version available: %s (current: %s)", latestVersion, constants.Version)
 	if ui.GumAvailable() {
 		ui.GumInfo(msg)
-		ui.GumInfo("Run 'construct sys self-update' to upgrade")
+		if IsBrewInstalled() {
+			ui.GumInfo("Run 'brew upgrade estebanforge/tap/construct-cli' to upgrade")
+		} else {
+			ui.GumInfo("Run 'construct sys self-update' to upgrade")
+		}
 	} else {
 		fmt.Println()
 		fmt.Println(msg)
-		fmt.Println("Run 'construct sys self-update' to upgrade")
+		if IsBrewInstalled() {
+			fmt.Println("Run 'brew upgrade estebanforge/tap/construct-cli' to upgrade")
+		} else {
+			fmt.Println("Run 'construct sys self-update' to upgrade")
+		}
 		fmt.Println()
 	}
 }
 
+// IsBrewInstalled checks if the current binary was installed via Homebrew
+func IsBrewInstalled() bool {
+	execPath, err := os.Executable()
+	if err != nil {
+		return false
+	}
+
+	// Resolve symlinks to see the actual binary location
+	realPath, err := filepath.EvalSymlinks(execPath)
+	if err != nil {
+		realPath = execPath
+	}
+
+	// Check if the binary is in a Homebrew Cellar
+	// On macOS Apple Silicon: /opt/homebrew/Cellar/...
+	// On macOS Intel: /usr/local/Cellar/...
+	// On Linux: /home/linuxbrew/.linuxbrew/Cellar/...
+	return strings.Contains(realPath, "Cellar/construct-cli") ||
+		strings.Contains(realPath, ".linuxbrew/Cellar/construct-cli")
+}
+
 // SelfUpdate downloads and installs the latest version of the binary
 func SelfUpdate() error {
+	// Check if installed via Homebrew
+	if IsBrewInstalled() {
+		if ui.GumAvailable() {
+			ui.GumWarning("Homebrew installation detected.")
+			ui.GumInfo("Please use Homebrew to update:")
+			fmt.Println("  brew upgrade estebanforge/tap/construct-cli")
+		} else {
+			fmt.Println("Warning: Homebrew installation detected.")
+			fmt.Println("Please use Homebrew to update:")
+			fmt.Println("  brew upgrade estebanforge/tap/construct-cli")
+		}
+		return nil
+	}
+
 	// Check for latest version
 	if ui.GumAvailable() {
 		ui.GumInfo("Checking for updates...")
