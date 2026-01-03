@@ -128,24 +128,7 @@ This command:
 **Example output:**
 ```
 ✓ Refreshing configuration and templates from binary
-  This will update config, templates, and rebuild the image
-
-✓ Upgrading configuration: 0.4.0 → 0.4.0
-
-→ Updating container templates...
-  ✓ Container templates updated
-
-→ Merging configuration file...
-  → Backup saved: ~/.config/construct-cli/config.toml.backup
-  ✓ Configuration merged (user settings preserved)
-
-→ Removing old container image...
-  ✓ Image marked for rebuild
-
-✓ Migration complete!
-
-✓ Refresh complete!
-  Configuration and templates synced with binary version 0.4.0
+  This will update config, templates, and mark The Construct image to be rebuild
 ```
 
 ## Testing

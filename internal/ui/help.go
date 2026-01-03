@@ -35,7 +35,7 @@ Global Flags:
   construct sys install-packages # Apply changes from packages.toml to the running container
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
-  construct sys rebuild          # Rebuild Docker image (alias for init)
+  construct sys rebuild          # Sync config/templates and rebuild Docker image
   construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   construct sys restore-config   # Restore config from backup
   construct sys self-update      # Update construct itself to the latest version
@@ -96,7 +96,7 @@ Commands:
   install-packages # Apply changes from packages.toml to the running container
   login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   migrate          # Re-run migrations to sync config/templates with the binary
-  rebuild          # Rebuild Docker image (alias for init)
+  rebuild          # Sync config/templates and rebuild Docker image
   reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   restore-config   # Restore config from backup
   self-update      # Update construct itself to the latest version
