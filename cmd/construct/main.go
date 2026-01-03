@@ -158,6 +158,12 @@ func main() {
 		// Normal claude invocation
 		agent.RunWithArgs(args, networkFlag)
 	default:
+		// Check if it's a supported agent
+		if !agent.IsSupported(command) {
+			fmt.Printf("Unknown command or agent: %s\n", command)
+			fmt.Println("Run 'construct --help' for usage.")
+			os.Exit(1)
+		}
 		// Everything else is an agent invocation
 		agent.RunWithArgs(args, networkFlag)
 	}
