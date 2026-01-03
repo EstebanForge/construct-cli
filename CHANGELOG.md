@@ -15,6 +15,8 @@ All notable changes to Construct CLI will be documented in this file.
   - Prevents "Dynamic loader not found: /lib64/ld-linux-x86-64.so.2" errors on Apple Silicon/arm64
   - Includes all required Chromium dependencies (fonts, GTK, NSS, etc.)
 
+---
+
 ## [0.11.1] - 2026-01-02
 
 ### Added
@@ -27,6 +29,8 @@ All notable changes to Construct CLI will be documented in this file.
   - Enables multiple AI agents to work on the same codebase without conflicts
   - Provides intelligent workspace isolation and synchronization
   - Configured by default for optimal multi-agent workflows
+
+---
 
 ## [0.10.1] - 2025-12-31
 
