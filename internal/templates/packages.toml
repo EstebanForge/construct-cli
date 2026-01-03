@@ -15,6 +15,7 @@ packages = [
 [brew]
 taps = [
     "shivammathur/extensions",  # PHP extensions (required for pcov)
+    "EstebanForge/tap",
 ]
 packages = [
     # Core utilities
@@ -28,7 +29,7 @@ packages = [
     # Web & Build tools
     "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod",
     # AI Agents
-    "gemini-cli", "opencode",
+    "gemini-cli", "opencode", "EstebanForge/tap/mcp-cli-ent",
     # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
     "shivammathur/extensions/pcov@8.5",
 ]

@@ -13,12 +13,16 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// SuggestAliasSetup attempts to install a ct alias or symlink for the user.
-func SuggestAliasSetup() {
-	// Get the full path to the current executable
-	exePath, err := os.Executable()
+// EnsureCtSymlink silently creates ~/.local/bin/ct symlink if needed.
+func EnsureCtSymlink() {
+	// Try to find construct in PATH first (prefer installed version over local dev build)
+	exePath, err := exec.LookPath("construct")
 	if err != nil {
-		return // Can't determine path, skip
+		// Fall back to current executable if construct not in PATH
+		exePath, err = os.Executable()
+		if err != nil {
+			return // Can't determine path, skip
+		}
 	}
 
 	// Resolve symlinks to get real path
@@ -33,43 +37,21 @@ func SuggestAliasSetup() {
 		// ct exists - check if it's pointing to our binary
 		resolvedPath, err := filepath.EvalSymlinks(ctPath)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to resolve ct symlink: %v\n", err)
+			// Failed to resolve, skip silently
 			return
 		}
 		ctPath = resolvedPath
 		if ctPath != exePath {
-			// ct exists but points to something else - warn user
-			fmt.Println("\n⚠️  Warning: A 'ct' command already exists on your system")
-			fmt.Printf("   Location: %s\n", ctPath)
-			fmt.Println("   Please resolve this conflict manually if you want to use 'ct' as a The Construct alias.")
+			// ct exists but points to something else - silently skip
+			// (user already has a ct command, don't interfere)
 			return
 		}
 		// ct already points to our binary, all good
 		return
 	}
 
-	// Priority 1: Try to create symlink in ~/.local/bin
-	if createSymlinkInLocalBin(exePath) {
-		fmt.Println("\n✓ Symlink 'ct' created in ~/.local/bin")
-		fmt.Println("  The 'ct' command is now available system-wide.")
-		return
-	}
-
-	// Priority 2: Fall back to shell alias
-	aliasCmd := fmt.Sprintf("alias ct='%s'", exePath)
-	configFile, added, err := addShellAlias("ct", aliasCmd)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to add shell alias: %v\n", err)
-	} else if added {
-		fmt.Println("\n✓ Shell alias 'ct' created successfully!")
-		fmt.Printf("  Run: source %s\n", configFile)
-		return
-	}
-
-	// Priority 3: Give up, suggest manual
-	fmt.Println("\n💡 Tip: You can create a 'ct' alias for 'construct'")
-	fmt.Println("   Symlink: ln -s " + exePath + " ~/.local/bin/ct")
-	fmt.Println("   Or alias: alias ct='" + exePath + "'")
+	// Try to create symlink in ~/.local/bin silently
+	createSymlinkInLocalBin(exePath)
 }
 
 func createSymlinkInLocalBin(exePath string) bool {
@@ -91,7 +73,7 @@ func createSymlinkInLocalBin(exePath string) bool {
 		// Check if it points to our binary
 		targetResolved, err := filepath.EvalSymlinks(ctSymlink)
 		if err == nil && targetResolved == exePath {
-			return false // Already pointing to us, but don't announce
+			return false // Already pointing to us
 		}
 		// Exists but points elsewhere - don't overwrite
 		return false
@@ -103,29 +85,27 @@ func createSymlinkInLocalBin(exePath string) bool {
 	}
 
 	// Ensure ~/.local/bin is in PATH (add to shell configs if needed)
-	if err := ensureLocalBinInPath(localBin); err != nil {
-		ui.LogWarning("Failed to add ~/.local/bin to PATH: %v", err)
-	}
+	ensureLocalBinInPath(localBin)
 
 	return true
 }
 
-func ensureLocalBinInPath(localBin string) error {
+func ensureLocalBinInPath(localBin string) {
 	// Check if ~/.local/bin is already in PATH
 	pathEnv := os.Getenv("PATH")
 	if strings.Contains(pathEnv, localBin) {
-		return nil // Already in PATH
+		return // Already in PATH
 	}
 
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return err
+		return
 	}
 
 	// Detect user's shell
 	shell := os.Getenv("SHELL")
 	if shell == "" {
-		return fmt.Errorf("no shell detected")
+		return
 	}
 
 	var configFile string
@@ -134,44 +114,38 @@ func ensureLocalBinInPath(localBin string) error {
 	// Determine config file and PATH export line based on shell
 	if strings.Contains(shell, "zsh") {
 		configFile = filepath.Join(homeDir, ".zshrc")
-		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"~/.local/bin:$PATH\"\n"
+		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"$HOME/.local/bin:$PATH\"\n"
 	} else if strings.Contains(shell, "bash") {
 		configFile = filepath.Join(homeDir, ".bashrc")
 		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
 			configFile = filepath.Join(homeDir, ".bash_profile")
 		}
-		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"~/.local/bin:$PATH\"\n"
+		pathLine = "\n# Add ~/.local/bin to PATH\nexport PATH=\"$HOME/.local/bin:$PATH\"\n"
 	} else if strings.Contains(shell, "fish") {
 		configFile = filepath.Join(homeDir, ".config/fish/config.fish")
 		pathLine = "\n# Add ~/.local/bin to PATH\nset -gx PATH $HOME/.local/bin $PATH\n"
 	} else {
-		return fmt.Errorf("unsupported shell: %s", shell)
+		return
 	}
 
 	// Check if PATH line already exists
 	if fileExists(configFile) {
 		content, readErr := os.ReadFile(configFile)
 		if readErr == nil && strings.Contains(string(content), ".local/bin") {
-			return nil // Already added
+			return // Already added
 		}
 	}
 
-	// Append PATH export to config file
+	// Append PATH export to config file silently (ignore errors)
 	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return
 	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
-		}
-	}()
+	//nolint:errcheck // Intentionally ignoring errors for silent operation
+	defer f.Close()
 
-	if _, err := f.WriteString(pathLine); err != nil {
-		return err
-	}
-
-	return nil
+	//nolint:errcheck // Intentionally ignoring errors for silent operation
+	f.WriteString(pathLine)
 }
 
 // InstallAliases writes shell aliases for supported agents.
@@ -434,37 +408,6 @@ func getShellConfigFile() (string, error) {
 	}
 
 	return "", fmt.Errorf("unsupported shell: %s", shell)
-}
-
-func addShellAlias(aliasName, aliasLine string) (string, bool, error) {
-	configFile, err := getShellConfigFile()
-	if err != nil {
-		return "", false, err
-	}
-
-	// Check if alias already exists
-	if fileExists(configFile) {
-		content, readErr := os.ReadFile(configFile)
-		if readErr == nil && strings.Contains(string(content), fmt.Sprintf("alias %s=", aliasName)) {
-			return configFile, false, nil
-		}
-	}
-
-	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return configFile, false, err
-	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
-		}
-	}()
-
-	if _, err := fmt.Fprintf(f, "\n%s\n", aliasLine); err != nil {
-		return configFile, false, err
-	}
-
-	return configFile, true, nil
 }
 
 func fileExists(path string) bool {

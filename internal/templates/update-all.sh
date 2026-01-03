@@ -25,10 +25,7 @@ else
     sudo apt-get update -qq && sudo apt-get -y -qq dist-upgrade && sudo apt-get -y -qq autoremove && sudo apt-get -y -qq autoclean || true
 
     echo "Updating claude-code..."
-    curl -fsSL https://claude.ai/install.sh | bash || true
-
-    echo "Updating mcp-cli-ent..."
-    curl -fsSL https://raw.githubusercontent.com/EstebanForge/mcp-cli-ent/main/scripts/install.sh | bash || true
+    claude update || true
 
     echo "Updating Homebrew packages..."
     brew update && brew upgrade --greedy && brew cleanup && brew autoremove || true

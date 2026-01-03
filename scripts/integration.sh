@@ -158,25 +158,14 @@ fi
 
 # Test: Running init again doesn't overwrite existing files
 print_test "Init is idempotent (doesn't overwrite)"
-if [ "$(uname)" = "Darwin" ]; then
-    TIMESTAMP_BEFORE=$(stat -f "%m" "${TEST_CONFIG_DIR}/config.toml")
-else
-    TIMESTAMP_BEFORE=$(stat -c "%Y" "${TEST_CONFIG_DIR}/config.toml")
-fi
-
-sleep 1.5
+# Add a marker to detect if file gets overwritten
+echo "# test-marker-$$" >> "${TEST_CONFIG_DIR}/config.toml"
 "${BINARY}" sys init > /dev/null 2>&1
 
-if [ "$(uname)" = "Darwin" ]; then
-    TIMESTAMP_AFTER=$(stat -f "%m" "${TEST_CONFIG_DIR}/config.toml")
-else
-    TIMESTAMP_AFTER=$(stat -c "%Y" "${TEST_CONFIG_DIR}/config.toml")
-fi
-
-if [ "${TIMESTAMP_BEFORE}" -eq "${TIMESTAMP_AFTER}" ]; then
+if grep -q "# test-marker-$$" "${TEST_CONFIG_DIR}/config.toml"; then
     print_pass "Init doesn't overwrite existing files"
 else
-    print_fail "Init overwrote existing files (Before: $TIMESTAMP_BEFORE, After: $TIMESTAMP_AFTER)"
+    print_fail "Init overwrote existing files (marker missing)"
 fi
 
 # Test: Invalid command shows error
