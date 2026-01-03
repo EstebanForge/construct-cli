@@ -3,7 +3,12 @@ FROM debian:trixie-slim
 # 1. Create non-root user and install system packages
 RUN useradd -m -s /bin/bash construct && \
     apt-get update && apt-get install -y \
-    build-essential git curl wget sudo gosu socat xvfb && \
+    build-essential git curl wget sudo gosu socat xvfb \
+    chromium chromium-driver chromium-sandbox \
+    fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
+    libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \
+    libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
+    xdg-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password
@@ -51,6 +56,9 @@ ENV HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/construct/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 # Force node-gyp to use python3.12 to avoid compat issues with 3.13/3.14
 ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
+# Configure Puppeteer to use system Chromium (prevents arch mismatch on arm64)
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # 3. Install essential runtime dependencies only
 # Note: CLI tools will be installed via entrypoint.sh to ensure proper PATH setup

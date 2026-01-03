@@ -9,6 +9,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Aliases now use `construct` command instead of hardcoded Cellar paths (e.g., `/opt/homebrew/Cellar/construct-cli/0.11.0/bin/construct`)
   - Aliases remain functional after Homebrew updates without reinstallation
   - Also improves portability for curl-based installations and local builds
+- **Chromium Multi-Arch Support**: Fixed Puppeteer-based tools (url-to-markdown, browser automation) on arm64 hosts.
+  - Installed system Chromium from Debian repos (automatically matches container architecture)
+  - Configured Puppeteer to use system Chromium instead of downloading x86-64 version
+  - Prevents "Dynamic loader not found: /lib64/ld-linux-x86-64.so.2" errors on Apple Silicon/arm64
+  - Includes all required Chromium dependencies (fonts, GTK, NSS, etc.)
 
 ## [0.11.1] - 2026-01-02
 
