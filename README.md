@@ -6,22 +6,18 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 
 ## Highlights
 - One command to use any AGENT inside a secured, isolated sandbox. Agents spawn from the path where you call them, without a path escape.
-- Self-building: embedded Dockerfile/compose/config templates are written on first run, then built automatically. First `construct sys init` will build the containers and install the agents. Subsequent uses will be instant.
+- **Zero Config**: no complex setup for any feature usage. The Construct just works out of the box across macOS, Linux, and Windows (WSL).
+- First time self-building: embedded Dockerfile/compose/config templates are written on first run, then built automatically. First `construct sys init` will build the containers and install the agents. Subsequent uses will be instant.
 - Runtime auto-detection: on macOS if `container` runtime is detected, it will use it. Then, on Linux, WSL and macOS, `podman` will be prioritized, then `docker` (OrbStack if found on macOS, then Docker).
-- Persistent volumes for agent installs, but ephemeral containers so your host stays clean.
+- Persistent volumes for agents and packages installs, but ephemeral containers so your host stays clean.
 - Your agents' configuration lives outside of the containers, so you never lose them.
-- Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist.
-- Live application of network rules while the AGENT is running.
+- Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist. Live application of network rules while the AGENT is running.
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
-- **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages.
-- **Specialized Version Managers**: Easy activation of `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` directly from configuration.
-- **Live Package Updates**: Apply new package configurations to a running container without a restart using `construct sys install-packages`.
-- **Zero Config**: no complex setup for clipboard or X11 forwarding; it just works out of the box across macOS, Linux, and Windows (WSL).
-- **Pro Toolchain**: Sandbox comes preloaded with Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, and more.
+- **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages. Some utilities included by default: `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` among others. For full list of available packages, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
-- **Automatic self-updates**: Construct can update itself to the latest version from GitHub releases, just running `construct sys self-update`.
-- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases`, and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox.
+- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases`, and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
+- **Parallel Agents Workflows** supported: Seamless Git worktree management for parallel AI agent workflows, thanks to [Worktrunk Integration](https://worktrunk.dev/) out of the box.
 
 ## Screenshots
 
