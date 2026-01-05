@@ -377,6 +377,10 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
 
+	// Ensure comprehensive PATH for container (fixes agent subprocess PATH issues)
+	// The container user's home is always /home/construct
+	env.EnsureConstructPath(&osEnv, "/home/construct")
+
 	// Start Clipboard Server
 	clipboardHost := ""
 	if cfg != nil {

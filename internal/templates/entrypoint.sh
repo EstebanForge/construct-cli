@@ -73,6 +73,8 @@ if [ "$(id -u)" = "0" ]; then
 fi
 
 # Ensure all required paths are in PATH
+# NOTE: This PATH definition must be kept in sync with internal/env/env.go PathComponents
+# Any changes here should be reflected in env.go and vice versa
 ORIGINAL_PATH="$PATH"
 PATH=""
 add_path() {

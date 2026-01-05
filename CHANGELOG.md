@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.11.4] - 2026-01-05
+
+### Fixed
+- **Agent PATH Visibility**: Fixed issue where agents (particularly `codex`) couldn't see binaries in PATH when running commands via their Bash tools.
+  - Centralized PATH definition in `internal/env/env.go` (DRY principle)
+  - Added `EnsureConstructPath()` to inject comprehensive PATH into container environment
+  - Ensures all agent subprocesses inherit full PATH including Linuxbrew, Cargo, npm-global, etc.
+  - Synchronized PATH configuration between Go code and entrypoint.sh script
+
 ## [0.11.3] - 2026-01-03
 
 ### Added
