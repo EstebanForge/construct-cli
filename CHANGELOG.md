@@ -6,10 +6,11 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Fixed
 - **Agent PATH Visibility**: Fixed issue where agents (particularly `codex`) couldn't see binaries in PATH when running commands via their Bash tools.
+  - Root cause: `/etc/profile` was resetting PATH when bash spawned, wiping out Homebrew paths
+  - Patched `/etc/profile` in entrypoint.sh (idempotent, no image rebuild needed)
   - Centralized PATH definition in `internal/env/env.go` (DRY principle)
-  - Added `EnsureConstructPath()` to inject comprehensive PATH into container environment
+  - Synchronized PATH configuration across docker-compose.yml, entrypoint.sh, and env.go
   - Ensures all agent subprocesses inherit full PATH including Linuxbrew, Cargo, npm-global, etc.
-  - Synchronized PATH configuration between Go code and entrypoint.sh script
 
 ## [0.11.3] - 2026-01-03
 

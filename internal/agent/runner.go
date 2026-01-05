@@ -508,6 +508,17 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		runFlags = append(runFlags, "-e", envVar)
 	}
 
+	// Inject PATH explicitly to ensure it's available in container and all subprocesses
+	for _, e := range osEnv {
+		if strings.HasPrefix(e, "PATH=") {
+			runFlags = append(runFlags, "-e", e)
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Injecting PATH to container: %s\n", e[:100]+"...")
+			}
+			break
+		}
+	}
+
 	// Add image/service name and arguments
 	runFlags = append(runFlags, "construct-box")
 	runFlags = append(runFlags, args...)
