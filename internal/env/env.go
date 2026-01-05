@@ -10,6 +10,31 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// PathComponents defines the standard PATH components for The Construct environment
+// This list must be kept in sync with entrypoint.sh (lines 92-111)
+var PathComponents = []string{
+	"/home/linuxbrew/.linuxbrew/bin",
+	"/home/linuxbrew/.linuxbrew/sbin",
+	"$HOME/.local/bin",
+	"$HOME/.npm-global/bin",
+	"$HOME/.cargo/bin",
+	"$HOME/.bun/bin",
+	"$HOME/.asdf/bin",
+	"$HOME/.asdf/shims",
+	"$HOME/.volta/bin",
+	"$HOME/.nix-profile/bin",
+	"/nix/var/nix/profiles/default/bin",
+	"$HOME/.phpbrew/bin",
+	"$HOME/.local/share/mise/bin",
+	"$HOME/.local/share/mise/shims",
+	"/usr/local/sbin",
+	"/usr/local/bin",
+	"/usr/sbin",
+	"/usr/bin",
+	"/sbin",
+	"/bin",
+}
+
 // ExpandProviderEnv expands ${VAR_NAME} references in provider environment variables
 func ExpandProviderEnv(envMap map[string]string) []string {
 	var expanded []string
@@ -88,4 +113,46 @@ func ResetClaudeEnv(env []string) []string {
 	}
 
 	return filtered
+}
+
+// BuildConstructPath builds the comprehensive PATH for The Construct environment
+// Returns a PATH string with all standard components, expanding $HOME references
+func BuildConstructPath(homeDir string) string {
+	paths := make([]string, 0, len(PathComponents))
+	for _, component := range PathComponents {
+		// Expand $HOME references
+		expanded := strings.ReplaceAll(component, "$HOME", homeDir)
+		paths = append(paths, expanded)
+	}
+	return strings.Join(paths, ":")
+}
+
+// EnsureConstructPath ensures the environment has the full Construct PATH set
+// If PATH exists in env, it prepends the Construct paths. Otherwise, it sets a new PATH.
+func EnsureConstructPath(env *[]string, homeDir string) {
+	constructPath := BuildConstructPath(homeDir)
+
+	// Find existing PATH in environment
+	pathFound := false
+	for i, e := range *env {
+		if strings.HasPrefix(e, "PATH=") {
+			// Preserve any existing paths from the original environment
+			existingPath := strings.TrimPrefix(e, "PATH=")
+
+			// Combine: Construct paths first, then existing paths
+			// This ensures our paths take priority
+			if existingPath != "" {
+				(*env)[i] = "PATH=" + constructPath + ":" + existingPath
+			} else {
+				(*env)[i] = "PATH=" + constructPath
+			}
+			pathFound = true
+			break
+		}
+	}
+
+	// If no PATH found, add it
+	if !pathFound {
+		*env = append(*env, "PATH="+constructPath)
+	}
 }
