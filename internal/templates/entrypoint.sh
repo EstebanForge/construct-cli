@@ -68,6 +68,20 @@ if [ "$(id -u)" = "0" ]; then
     ln -sf /projects /mnt/c/projects
     chown -R construct:construct /mnt/c 2>/dev/null || true
 
+    # Patch /etc/profile to preserve PATH (prevents bash from resetting our Homebrew paths)
+    # Only patch if not already done (check for our marker comment)
+    if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
+        # Backup original
+        cp /etc/profile /etc/profile.construct-backup 2>/dev/null || true
+
+        # Comment out the PATH reset block entirely
+        # PATH is always set by docker-compose.yml and this entrypoint, so the reset is not needed
+        sed -i '/^if \[ "$(id -u)" -eq 0 \]; then$/,/^export PATH$/ {
+            i# Construct: PATH management disabled - PATH is set by docker-compose.yml and entrypoint.sh
+            s/^/# /
+        }' /etc/profile
+    fi
+
     # Drop privileges and run the rest of the script as 'construct'
     exec gosu construct "$0" "$@"
 fi

@@ -132,6 +132,10 @@ func BuildConstructPath(homeDir string) string {
 func EnsureConstructPath(env *[]string, homeDir string) {
 	constructPath := BuildConstructPath(homeDir)
 
+	if ui.CurrentLogLevel >= ui.LogLevelDebug {
+		fmt.Printf("Debug: Built PATH: %s\n", constructPath[:150]+"...")
+	}
+
 	// Find existing PATH in environment
 	pathFound := false
 	for i, e := range *env {
