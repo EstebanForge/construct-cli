@@ -51,6 +51,9 @@ All notable changes to Construct CLI will be documented in this file.
   - Prevents "Dynamic loader not found: /lib64/ld-linux-x86-64.so.2" errors on Apple Silicon/arm64
   - Includes all required Chromium dependencies (fonts, GTK, NSS, etc.)
 
+
+---
+
 ## [0.11.1] - 2026-01-02
 
 ### Added
@@ -147,10 +150,16 @@ All notable changes to Construct CLI will be documented in this file.
   - Native Node.js module compilation support with automatic compiler symlinks (`g++-11` → `g++-14`).
   - Removed conflicting `bash-completion` package to prevent installation failures.
 
+
+---
+
 ## [0.9.1] - 2025-12-27
 
 ### Changed
 - **Clipboard Image Pasting**: Fixed image pasting across agents with image-first handling, normalization/resize, and `@path` only for Gemini and Qwen.
+
+
+---
 
 ## [0.9.0] - 2025-12-26
 
@@ -168,6 +177,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Missing Tools**: Resolved issue where tools like `golangci-lint` could be missing due to silent installation failures.
 - **Build Caching**: Fixed an issue where Docker build cache would persist stale `entrypoint.sh` versions, preventing updates from being applied.
 
+
+---
+
 ## [0.8.0] - 2025-12-25
 
 ### Added
@@ -178,6 +190,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Improved Shell Prompt**: Container hostname is now set to `sandbox` (was random ID) for a cleaner prompt experience: `construct@sandbox:/workspace$`.
 - **Headless Login Bridge**: New `construct sys login-bridge` command to enable local browser login callbacks for headless-unfriendly agents (Codex, OpenCode with OpenAI GPT or Google Gemini).
   - Runs until interrupted and forwards `localhost` OAuth callbacks into the container.
+
+
+---
 
 ## [0.7.0] - 2025-12-24
 
@@ -199,6 +214,9 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - Improved UI grammar and messaging consistency across system commands.
 - Updated `.gitignore` to prevent tracking of local debug logs while preserving them for development.
+
+
+---
 
 ## [0.6.0] - 2025-12-23
 
@@ -232,6 +250,9 @@ All notable changes to Construct CLI will be documented in this file.
 - Full compliance with strict `golangci-lint` rules, improving overall code robustness and error reporting.
 - Simplified `config.toml` template to reduce clutter and minimize merge conflicts.
 
+
+---
+
 ## [0.5.0] - 2025-12-22
 
 ### Added
@@ -259,6 +280,9 @@ All notable changes to Construct CLI will be documented in this file.
 - Version command no longer triggers config initialization
 - Update check now uses proper semver comparison (was treating any version difference as "update available")
 
+
+---
+
 ## [0.4.1] - 2025-12-22
 
 ### Added
@@ -267,6 +291,9 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - Migration merge now skips incompatible types and validates TOML, preventing corrupted config files after upgrades.
 - Improved error handling and warnings for clipboard server, daemon UI rendering, log cleanup, and shell alias flows.
+
+
+---
 
 ## [0.4.0] - 2025-12-21
 
@@ -328,6 +355,9 @@ All notable changes to Construct CLI will be documented in this file.
 - Added DEVELOPMENT.md with development workflow and testing guide
 - Updated AGENTS.md with correct file paths and new clipboard features
 - Updated DESIGN.md with detailed clipboard bridge architecture
+
+
+---
 
 ## [0.3.0] - 2025-12-18
 
