@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -60,7 +61,15 @@ func Run() {
 
 	var checks []CheckResult
 
-	// 0. CT Symlink Check
+	// 0. Version Check
+	versionCheck := CheckResult{
+		Name:    "Construct Version",
+		Status:  CheckStatusOK,
+		Message: constants.Version,
+	}
+	checks = append(checks, versionCheck)
+
+	// 1. CT Symlink Check
 	ctCheck := CheckResult{Name: "CT Symlink"}
 	changed, msg, err := sys.FixCtSymlink()
 	if err != nil {
@@ -77,7 +86,7 @@ func Run() {
 	}
 	checks = append(checks, ctCheck)
 
-	// 1. Runtime Check
+	// 2. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
 	cfg, _, err := config.Load() // Ignore error here, we check config file later
 	if err != nil {
@@ -116,7 +125,7 @@ func Run() {
 	}
 	checks = append(checks, runtimeCheck)
 
-	// 2. Config Check
+	// 3. Config Check
 	configCheck := CheckResult{Name: "Configuration"}
 	configPath := filepath.Join(config.GetConfigDir(), "config.toml")
 	if _, err := os.Stat(configPath); err == nil {
@@ -129,7 +138,7 @@ func Run() {
 	}
 	checks = append(checks, configCheck)
 
-	// 3. Setup Log Check
+	// 4. Setup Log Check
 	setupCheck := CheckResult{Name: "Setup Log"}
 	logDir := filepath.Join(config.GetConfigDir(), "logs")
 	logPath, err := latestLogFile(logDir, "setup_install_*.log")
@@ -157,7 +166,7 @@ func Run() {
 	}
 	checks = append(checks, setupCheck)
 
-	// 4. Templates Check
+	// 5. Templates Check
 	templatesCheck := CheckResult{Name: "Templates Sync"}
 	templatesDir := config.GetContainerDir()
 	if entries, err := os.ReadDir(templatesDir); err == nil && len(entries) > 0 {
@@ -171,7 +180,7 @@ func Run() {
 	}
 	checks = append(checks, templatesCheck)
 
-	// 5. Packages Config Check
+	// 6. Packages Config Check
 	packagesCheck := CheckResult{Name: "Packages Config"}
 	if _, err := config.LoadPackages(); err != nil {
 		packagesCheck.Status = CheckStatusError
@@ -184,7 +193,7 @@ func Run() {
 	}
 	checks = append(checks, packagesCheck)
 
-	// 6. Entrypoint State Check
+	// 7. Entrypoint State Check
 	entrypointCheck := CheckResult{Name: "Entrypoint State"}
 	homeLocal := filepath.Join(config.GetConfigDir(), "home", ".local")
 	hashPath := filepath.Join(homeLocal, ".entrypoint_hash")
@@ -203,7 +212,7 @@ func Run() {
 	}
 	checks = append(checks, entrypointCheck)
 
-	// 7. Image Check
+	// 8. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
@@ -217,7 +226,7 @@ func Run() {
 	}
 	checks = append(checks, imageCheck)
 
-	// 8. SSH Agent Check
+	// 9. SSH Agent Check
 	sshCheck := CheckResult{Name: "SSH Agent"}
 	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
 		sshCheck.Status = CheckStatusSkipped
@@ -237,7 +246,7 @@ func Run() {
 	}
 	checks = append(checks, sshCheck)
 
-	// 9. SSH Keys Check (Imported)
+	// 10. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Local SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
 	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
