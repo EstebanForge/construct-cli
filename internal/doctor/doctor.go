@@ -69,7 +69,50 @@ func Run() {
 	}
 	checks = append(checks, versionCheck)
 
-	// 1. CT Symlink Check
+	// 1. Host System Info
+	hostCheck := CheckResult{Name: "Host System", Status: CheckStatusOK}
+	hostCheck.Message = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+
+	// Get OS-specific details
+	var details []string
+	switch runtime.GOOS {
+	case "darwin":
+		if swVers, err := exec.Command("sw_vers", "-productVersion").Output(); err == nil {
+			details = append(details, fmt.Sprintf("macOS %s", strings.TrimSpace(string(swVers))))
+		}
+		if kernel, err := exec.Command("uname", "-r").Output(); err == nil {
+			details = append(details, fmt.Sprintf("Kernel: %s", strings.TrimSpace(string(kernel))))
+		}
+	case "linux":
+		// Check if running under WSL
+		if procVersion, err := os.ReadFile("/proc/version"); err == nil {
+			if strings.Contains(strings.ToLower(string(procVersion)), "microsoft") ||
+				strings.Contains(strings.ToLower(string(procVersion)), "wsl") {
+				details = append(details, "WSL (Windows Subsystem for Linux)")
+			}
+		}
+		// Try to get OS info from /etc/os-release
+		if data, err := os.ReadFile("/etc/os-release"); err == nil {
+			lines := strings.Split(string(data), "\n")
+			for _, line := range lines {
+				if strings.HasPrefix(line, "PRETTY_NAME=") {
+					osName := strings.Trim(strings.TrimPrefix(line, "PRETTY_NAME="), "\"")
+					details = append(details, osName)
+					break
+				}
+			}
+		}
+		// Get kernel version
+		if kernel, err := exec.Command("uname", "-r").Output(); err == nil {
+			details = append(details, fmt.Sprintf("Kernel: %s", strings.TrimSpace(string(kernel))))
+		}
+	default:
+		details = append(details, runtime.GOOS)
+	}
+	hostCheck.Details = details
+	checks = append(checks, hostCheck)
+
+	// 2. CT Symlink Check
 	ctCheck := CheckResult{Name: "CT Symlink"}
 	changed, msg, err := sys.FixCtSymlink()
 	if err != nil {
@@ -86,7 +129,7 @@ func Run() {
 	}
 	checks = append(checks, ctCheck)
 
-	// 2. Runtime Check
+	// 3. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
 	cfg, _, err := config.Load() // Ignore error here, we check config file later
 	if err != nil {
@@ -125,7 +168,7 @@ func Run() {
 	}
 	checks = append(checks, runtimeCheck)
 
-	// 3. Config Check
+	// 4. Config Check
 	configCheck := CheckResult{Name: "Configuration"}
 	configPath := filepath.Join(config.GetConfigDir(), "config.toml")
 	if _, err := os.Stat(configPath); err == nil {
@@ -138,7 +181,7 @@ func Run() {
 	}
 	checks = append(checks, configCheck)
 
-	// 4. Setup Log Check
+	// 5. Setup Log Check
 	setupCheck := CheckResult{Name: "Setup Log"}
 	logDir := filepath.Join(config.GetConfigDir(), "logs")
 	logPath, err := latestLogFile(logDir, "setup_install_*.log")
@@ -166,7 +209,7 @@ func Run() {
 	}
 	checks = append(checks, setupCheck)
 
-	// 5. Templates Check
+	// 6. Templates Check
 	templatesCheck := CheckResult{Name: "Templates Sync"}
 	templatesDir := config.GetContainerDir()
 	if entries, err := os.ReadDir(templatesDir); err == nil && len(entries) > 0 {
@@ -180,7 +223,7 @@ func Run() {
 	}
 	checks = append(checks, templatesCheck)
 
-	// 6. Packages Config Check
+	// 7. Packages Config Check
 	packagesCheck := CheckResult{Name: "Packages Config"}
 	if _, err := config.LoadPackages(); err != nil {
 		packagesCheck.Status = CheckStatusError
@@ -193,7 +236,7 @@ func Run() {
 	}
 	checks = append(checks, packagesCheck)
 
-	// 7. Entrypoint State Check
+	// 8. Entrypoint State Check
 	entrypointCheck := CheckResult{Name: "Entrypoint State"}
 	homeLocal := filepath.Join(config.GetConfigDir(), "home", ".local")
 	hashPath := filepath.Join(homeLocal, ".entrypoint_hash")
@@ -212,7 +255,7 @@ func Run() {
 	}
 	checks = append(checks, entrypointCheck)
 
-	// 8. Image Check
+	// 9. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
@@ -226,7 +269,7 @@ func Run() {
 	}
 	checks = append(checks, imageCheck)
 
-	// 9. SSH Agent Check
+	// 10. SSH Agent Check
 	sshCheck := CheckResult{Name: "SSH Agent"}
 	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
 		sshCheck.Status = CheckStatusSkipped
@@ -246,14 +289,23 @@ func Run() {
 	}
 	checks = append(checks, sshCheck)
 
-	// 10. SSH Keys Check (Imported)
-	keysCheck := CheckResult{Name: "Local SSH Keys"}
+	// 11. SSH Keys Check (Imported)
+	keysCheck := CheckResult{Name: "Construct SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
+	nonKeyFiles := map[string]bool{
+		"known_hosts":     true,
+		"known_hosts.old": true,
+		"config":          true,
+		"config.backup":   true,
+		"authorized_keys": true,
+		"agent.sock":      true,
+	}
 	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
 		var keyNames []string
 		for _, entry := range entries {
-			if !entry.IsDir() && !strings.HasSuffix(entry.Name(), ".pub") {
-				keyNames = append(keyNames, entry.Name())
+			name := entry.Name()
+			if !entry.IsDir() && !strings.HasSuffix(name, ".pub") && !nonKeyFiles[name] {
+				keyNames = append(keyNames, name)
 			}
 		}
 		if len(keyNames) > 0 {
@@ -270,7 +322,7 @@ func Run() {
 	}
 	checks = append(checks, keysCheck)
 
-	// 11. Clipboard Bridge Check
+	// 12. Clipboard Bridge Check
 	clipboardCheck := CheckResult{Name: "Clipboard Bridge"}
 	clipboardHost := ""
 	networkMode := ""

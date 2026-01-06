@@ -2,6 +2,25 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.11.6] - 2026-01-06
+
+### Added
+- **Static Site Generators**: Added Hugo and Zola to default brew packages in `packages.toml`.
+- **Ruby Gems Support**: Added support for installing Ruby gems via a new `[gems]` section in `packages.toml`.
+  - Includes `jekyll` as default gem
+  - Integrated with package installation scripts and Topgrade updates
+- **Host System Info**: Added new "Host System" check to `sys doctor` to display OS, architecture, and version details.
+  - Shows macOS version and kernel on Apple/Intel Macs
+  - Shows Linux distribution name and kernel version
+  - Detects and displays WSL environment on Windows
+
+### Fixed
+- **Doctor SSH Keys Display**: Fixed SSH key listing in `sys doctor` to exclude non-key files (`known_hosts`, `config`, `agent.sock`, etc.).
+  - Renamed check from "Local SSH Keys" to "Construct SSH Keys" for clarity
+  - Keys shown are those stored in Construct's SSH directory (whether imported or generated)
+
+---
+
 ## [0.11.5] - 2026-01-05
 
 ### Fixed
