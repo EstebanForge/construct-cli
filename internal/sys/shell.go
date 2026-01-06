@@ -11,22 +11,12 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
 	"github.com/EstebanForge/construct-cli/internal/ui"
+	"github.com/EstebanForge/construct-cli/internal/update"
 )
 
 // EnsureCtSymlink silently creates ~/.local/bin/ct symlink if needed.
 func EnsureCtSymlink() {
-	// Try to find construct in PATH first (prefer installed version over local dev build)
-	exePath, err := exec.LookPath("construct")
-	if err != nil {
-		// Fall back to current executable if construct not in PATH
-		exePath, err = os.Executable()
-		if err != nil {
-			return // Can't determine path, skip
-		}
-	}
-
-	// Resolve symlinks to get real path
-	exePath, err = filepath.EvalSymlinks(exePath)
+	target, err := buildCtTarget()
 	if err != nil {
 		return
 	}
@@ -35,13 +25,17 @@ func EnsureCtSymlink() {
 	ctPath, err := exec.LookPath("ct")
 	if err == nil {
 		// ct exists - check if it's pointing to our binary
+		ctPathRaw := ctPath
 		resolvedPath, err := filepath.EvalSymlinks(ctPath)
 		if err != nil {
 			// Failed to resolve, skip silently
 			return
 		}
 		ctPath = resolvedPath
-		if ctPath != exePath {
+		if ctPath != target.resolved {
+			if shouldReplaceBrewCt(ctPathRaw, ctPath) {
+				replaceSymlink(ctPathRaw, target.path)
+			}
 			// ct exists but points to something else - silently skip
 			// (user already has a ct command, don't interfere)
 			return
@@ -51,7 +45,7 @@ func EnsureCtSymlink() {
 	}
 
 	// Try to create symlink in ~/.local/bin silently
-	createSymlinkInLocalBin(exePath)
+	createSymlinkInLocalBin(target.path)
 }
 
 func createSymlinkInLocalBin(exePath string) bool {
@@ -72,7 +66,11 @@ func createSymlinkInLocalBin(exePath string) bool {
 	if fileExists(ctSymlink) {
 		// Check if it points to our binary
 		targetResolved, err := filepath.EvalSymlinks(ctSymlink)
-		if err == nil && targetResolved == exePath {
+		exeResolved := exePath
+		if resolved, resolveErr := filepath.EvalSymlinks(exePath); resolveErr == nil {
+			exeResolved = resolved
+		}
+		if err == nil && targetResolved == exeResolved {
 			return false // Already pointing to us
 		}
 		// Exists but points elsewhere - don't overwrite
@@ -88,6 +86,141 @@ func createSymlinkInLocalBin(exePath string) bool {
 	ensureLocalBinInPath(localBin)
 
 	return true
+}
+
+type ctTarget struct {
+	path     string
+	resolved string
+}
+
+func buildCtTarget() (ctTarget, error) {
+	// Try to find construct in PATH first (prefer installed version over local dev build)
+	var exePath string
+	pathCmd, err := exec.LookPath("construct")
+	if err != nil {
+		// Fall back to current executable if construct not in PATH
+		pathCmd = ""
+		exePath, err = os.Executable()
+		if err != nil {
+			return ctTarget{}, err
+		}
+		// Resolve symlinks to get real path for local builds
+		exePath, err = filepath.EvalSymlinks(exePath)
+		if err != nil {
+			return ctTarget{}, err
+		}
+	} else {
+		exePath = pathCmd
+	}
+
+	exeResolved := exePath
+	if resolved, resolveErr := filepath.EvalSymlinks(exePath); resolveErr == nil {
+		exeResolved = resolved
+	}
+	if update.IsBrewInstalled() {
+		if preferred := preferredBrewConstructPath(pathCmd, exeResolved); preferred != "" {
+			exePath = preferred
+			if resolved, resolveErr := filepath.EvalSymlinks(preferred); resolveErr == nil {
+				exeResolved = resolved
+			} else {
+				exeResolved = preferred
+			}
+		}
+	}
+
+	return ctTarget{path: exePath, resolved: exeResolved}, nil
+}
+
+// FixCtSymlink ensures ~/.local/bin/ct points to the current Construct binary.
+func FixCtSymlink() (bool, string, error) {
+	target, err := buildCtTarget()
+	if err != nil {
+		return false, "", err
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false, "", err
+	}
+
+	localBin := filepath.Join(homeDir, ".local", "bin")
+	ctSymlink := filepath.Join(localBin, "ct")
+
+	if err := os.MkdirAll(localBin, 0755); err != nil {
+		return false, "", err
+	}
+
+	if info, statErr := os.Lstat(ctSymlink); statErr == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return false, fmt.Sprintf("ct exists but is not a symlink: %s", ctSymlink), nil
+		}
+
+		targetResolved, err := filepath.EvalSymlinks(ctSymlink)
+		if err == nil && targetResolved == target.resolved {
+			return false, fmt.Sprintf("ct already points to %s", target.path), nil
+		}
+
+		if err := os.Remove(ctSymlink); err != nil {
+			return false, "", err
+		}
+	}
+
+	if err := os.Symlink(target.path, ctSymlink); err != nil {
+		return false, "", err
+	}
+
+	ensureLocalBinInPath(localBin)
+	return true, fmt.Sprintf("ct now points to %s", target.path), nil
+}
+
+func preferredBrewConstructPath(pathCmd, exeResolved string) string {
+	if pathCmd != "" {
+		switch pathCmd {
+		case "/opt/homebrew/bin/construct", "/usr/local/bin/construct", "/home/linuxbrew/.linuxbrew/bin/construct":
+			return pathCmd
+		}
+	}
+
+	switch {
+	case strings.Contains(exeResolved, "/opt/homebrew/Cellar/construct-cli/"):
+		return "/opt/homebrew/bin/construct"
+	case strings.Contains(exeResolved, "/usr/local/Cellar/construct-cli/"):
+		return "/usr/local/bin/construct"
+	case strings.Contains(exeResolved, "/home/linuxbrew/.linuxbrew/Cellar/construct-cli/"):
+		return "/home/linuxbrew/.linuxbrew/bin/construct"
+	default:
+		return ""
+	}
+}
+
+func shouldReplaceBrewCt(ctPath, ctResolved string) bool {
+	if !update.IsBrewInstalled() {
+		return false
+	}
+	if !isBrewCellarPath(ctResolved) {
+		return false
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	localCt := filepath.Join(homeDir, ".local", "bin", "ct")
+	return ctPath == localCt
+}
+
+func isBrewCellarPath(path string) bool {
+	return strings.Contains(path, "/opt/homebrew/Cellar/construct-cli/") ||
+		strings.Contains(path, "/usr/local/Cellar/construct-cli/") ||
+		strings.Contains(path, "/home/linuxbrew/.linuxbrew/Cellar/construct-cli/")
+}
+
+func replaceSymlink(targetPath, exePath string) {
+	if err := os.Remove(targetPath); err != nil {
+		return
+	}
+	if err := os.Symlink(exePath, targetPath); err != nil {
+		return
+	}
 }
 
 func ensureLocalBinInPath(localBin string) {

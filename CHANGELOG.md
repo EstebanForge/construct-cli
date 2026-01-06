@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.11.4] - 2026-01-05
+## [0.11.5] - 2026-01-05
 
 ### Fixed
 - **Agent PATH Visibility**: Fixed issue where agents (particularly `codex`) couldn't see binaries in PATH when running commands via their Bash tools.
@@ -11,6 +11,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Centralized PATH definition in `internal/env/env.go` (DRY principle)
   - Synchronized PATH configuration across docker-compose.yml, entrypoint.sh, and env.go
   - Ensures all agent subprocesses inherit full PATH including Linuxbrew, Cargo, npm-global, etc.
+- **CT Symlink Stability**: `ct` now targets the stable Homebrew path on macOS/Linux, and `sys doctor` self-heals broken Cellar-based symlinks.
+- **Agent Detection in Doctor**: Agent install check now verifies binaries inside the container so Homebrew/NPM-based installs are detected correctly.
+- **Rebuild Help Clarity**: `sys rebuild` help text now explicitly mentions it runs migrate before rebuilding.
+
+---
 
 ## [0.11.3] - 2026-01-03
 
@@ -31,6 +36,8 @@ All notable changes to Construct CLI will be documented in this file.
   - Automatic removal of old Docker image (forces rebuild with new Dockerfile)
   - New hash-based template change detection (more reliable than version checks)
 
+---
+
 ## [0.11.2] - 2026-01-03
 
 ### Fixed
@@ -43,8 +50,6 @@ All notable changes to Construct CLI will be documented in this file.
   - Configured Puppeteer to use system Chromium instead of downloading x86-64 version
   - Prevents "Dynamic loader not found: /lib64/ld-linux-x86-64.so.2" errors on Apple Silicon/arm64
   - Includes all required Chromium dependencies (fonts, GTK, NSS, etc.)
-
----
 
 ## [0.11.1] - 2026-01-02
 
@@ -106,6 +111,8 @@ All notable changes to Construct CLI will be documented in this file.
   - Falls back to physical SSH keys if present after trying agent keys.
   - Automatic updates on CLI upgrade unless user opts out with `construct-managed: false` flag.
   - Creates backup (`~/.ssh/config.backup`) before each update.
+
+---
 
 ## [0.10.0] - 2025-12-30
 

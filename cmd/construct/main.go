@@ -245,6 +245,21 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.ListAgentMemories()
 	case "doctor":
 		doctor.Run()
+	case "ct-fix":
+		changed, msg, err := sys.FixCtSymlink()
+		if err != nil {
+			ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
+			os.Exit(1)
+		}
+		if ui.GumAvailable() {
+			if changed {
+				ui.GumSuccess(msg)
+			} else {
+				ui.GumInfo(msg)
+			}
+		} else {
+			fmt.Println(msg)
+		}
 	case "self-update":
 		if err := update.SelfUpdate(); err != nil {
 			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))

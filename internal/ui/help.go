@@ -29,13 +29,14 @@ Global Flags:
   construct sys config           # Open config.toml in editor
   construct sys packages         # Open packages.toml in editor
   construct sys doctor           # Check system health
+  construct sys ct-fix           # Fix ct symlink in ~/.local/bin
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
   construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
   construct sys install-packages # Apply changes from packages.toml to the running container
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
-  construct sys rebuild          # Sync config/templates and rebuild Docker image
+  construct sys rebuild          # Migrate and sync config/templates, then rebuild Docker image
   construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   construct sys restore-config   # Restore config from backup
   construct sys self-update      # Update construct itself to the latest version
@@ -90,13 +91,14 @@ Commands:
   config           # Open config.toml in editor
   packages         # Open packages.toml in editor
   doctor           # Check system health
+  ct-fix           # Fix ct symlink in ~/.local/bin
   help             # Show this help
   init             # Initialize environment and install agents inside The Construct
   install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
   install-packages # Apply changes from packages.toml to the running container
   login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   migrate          # Re-run migrations to sync config/templates with the binary
-  rebuild          # Sync config/templates and rebuild Docker image
+  rebuild          # Migrate and sync config/templates, then rebuild Docker image
   reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   restore-config   # Restore config from backup
   self-update      # Update construct itself to the latest version
