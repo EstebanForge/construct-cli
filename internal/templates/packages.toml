@@ -27,7 +27,7 @@ packages = [
     # Linters & Formatters
     "golangci-lint", "golangci-lint-langserver", "php-cs-fixer", "prettier", "shellcheck", "yamllint",
     # Web & Build tools
-    "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod",
+    "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod", "hugo", "zola",
     # AI Agents
     "gemini-cli", "opencode", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
     # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
@@ -56,6 +56,12 @@ packages = [
 packages = [
     # "black",
     # "isort",
+]
+
+# Ruby gems
+[gems]
+packages = [
+    "jekyll",
 ]
 
 # Specialized tools and version managers

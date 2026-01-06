@@ -15,6 +15,7 @@ type PackagesConfig struct {
 	Cargo CargoConfig `toml:"cargo"`
 	Npm   NpmConfig   `toml:"npm"`
 	Pip   PipConfig   `toml:"pip"`
+	Gems  GemsConfig  `toml:"gems"`
 	Tools ToolsConfig `toml:"tools"`
 }
 
@@ -41,6 +42,11 @@ type NpmConfig struct {
 
 // PipConfig holds PIP package settings.
 type PipConfig struct {
+	Packages []string `toml:"packages"`
+}
+
+// GemsConfig holds Ruby gem package settings.
+type GemsConfig struct {
 	Packages []string `toml:"packages"`
 }
 
@@ -241,6 +247,19 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "\n\n"
 	}
 
+	// Gems
+	if len(c.Gems.Packages) > 0 {
+		script += "echo 'Installing Ruby gems...'\n"
+		script += "# Ensure gem is in PATH\n"
+		script += "if command -v gem &> /dev/null; then\n"
+		for _, pkg := range c.Gems.Packages {
+			script += "    gem install " + pkg + "\n"
+		}
+		script += "else\n"
+		script += "    echo \"⚠️ Gem not found; skipping Ruby packages\"\n"
+		script += "fi\n\n"
+	}
+
 	script += "echo 'User package installation completed successfully.'\n"
 	return script
 }
@@ -294,6 +313,9 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	}
 	if len(c.Pip.Packages) == 0 {
 		disabledSteps = append(disabledSteps, "pip3", "pipx")
+	}
+	if len(c.Gems.Packages) == 0 {
+		disabledSteps = append(disabledSteps, "gem")
 	}
 
 	config := "[misc]\n"
