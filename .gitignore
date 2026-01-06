@@ -43,3 +43,4 @@ test-results/
 /.gemini-clipboard
 /reference-only-codex-main
 /.construct-clipboard
+/.gocache

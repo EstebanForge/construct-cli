@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/env"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -208,11 +207,9 @@ func Run() {
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
-	imageAvailable := false
 	if err := checkCmd.Run(); err == nil {
 		imageCheck.Status = CheckStatusOK
 		imageCheck.Message = "Image exists (construct-box:latest)"
-		imageAvailable = true
 	} else {
 		imageCheck.Status = CheckStatusWarning
 		imageCheck.Message = "Image missing"
@@ -220,35 +217,7 @@ func Run() {
 	}
 	checks = append(checks, imageCheck)
 
-	// 8. Agents Installation Check
-	volumeCheck := CheckResult{Name: "Agent Installation"}
-	if cfg != nil && hasAgentBinaries(config.GetConfigDir()) {
-		volumeCheck.Status = CheckStatusOK
-		volumeCheck.Message = "Agent tools installed"
-	} else if cfg != nil && imageAvailable && runtimeName != "" {
-		found, detail, err := hasAgentBinariesInContainer(runtimeName, config.GetConfigDir())
-		if err != nil {
-			volumeCheck.Status = CheckStatusWarning
-			volumeCheck.Message = "Agent check failed inside container"
-			volumeCheck.Details = append(volumeCheck.Details, err.Error())
-			volumeCheck.Suggestion = "Run 'construct sys init' or start an agent to reinstall"
-		} else if found {
-			volumeCheck.Status = CheckStatusOK
-			volumeCheck.Message = "Agent tools installed"
-			if detail != "" {
-				volumeCheck.Details = append(volumeCheck.Details, detail)
-			}
-		} else {
-			volumeCheck.Status = CheckStatusWarning
-			volumeCheck.Message = "Agents not found (will install on first run)"
-		}
-	} else {
-		volumeCheck.Status = CheckStatusWarning
-		volumeCheck.Message = "Agents not found (will install on first run)"
-	}
-	checks = append(checks, volumeCheck)
-
-	// 9. SSH Agent Check
+	// 8. SSH Agent Check
 	sshCheck := CheckResult{Name: "SSH Agent"}
 	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
 		sshCheck.Status = CheckStatusSkipped
@@ -268,7 +237,7 @@ func Run() {
 	}
 	checks = append(checks, sshCheck)
 
-	// 10. SSH Keys Check (Imported)
+	// 9. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Local SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
 	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
@@ -383,62 +352,6 @@ func latestLogFile(logDir, pattern string) (string, error) {
 	})
 
 	return matches[0], nil
-}
-
-func hasAgentBinaries(configDir string) bool {
-	binDir := filepath.Join(configDir, "home", ".local", "bin")
-	candidates := agentBinaryCandidates()
-
-	for _, name := range candidates {
-		if _, err := os.Stat(filepath.Join(binDir, name)); err == nil {
-			return true
-		}
-	}
-
-	return false
-}
-
-func hasAgentBinariesInContainer(containerRuntime, configPath string) (bool, string, error) {
-	script := `for a in claude gemini qwen copilot opencode cline codex mcp-cli-ent qwen-code; do if command -v "$a" >/dev/null 2>&1; then echo "$a:$(command -v "$a")"; exit 0; fi; done; exit 1`
-	constructPath := env.BuildConstructPath("/home/construct")
-	runFlags := []string{
-		"--rm",
-		"--entrypoint",
-		"/bin/sh",
-		"-e",
-		"HOME=/home/construct",
-		"-e",
-		"PATH=" + constructPath,
-		"construct-box",
-		"-lc",
-		script,
-	}
-	runFlags = append(runtimepkg.GetPlatformRunFlags(), runFlags...)
-
-	cmd, err := runtimepkg.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
-	if err != nil {
-		return false, "", err
-	}
-	cmd.Dir = config.GetContainerDir()
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return false, "", fmt.Errorf("%s", strings.TrimSpace(string(output)))
-	}
-	return true, strings.TrimSpace(string(output)), nil
-}
-
-func agentBinaryCandidates() []string {
-	return []string{
-		"claude",
-		"gemini",
-		"qwen",
-		"copilot",
-		"opencode",
-		"cline",
-		"codex",
-		"qwen-code",
-	}
 }
 
 func printCheckResult(check CheckResult) {
