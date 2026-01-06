@@ -3,7 +3,7 @@ FROM debian:trixie-slim
 # 1. Create non-root user and install system packages
 RUN useradd -m -s /bin/bash construct && \
     apt-get update && apt-get install -y \
-    build-essential git curl wget sudo gosu socat xvfb \
+    build-essential git curl wget sudo gosu socat bubblewrap xvfb \
     chromium chromium-driver chromium-sandbox \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \

@@ -100,7 +100,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	// Critical Packages (Safety check - ensure Dockerfile packages are present)
 	script += "echo 'Verifying critical packages...'\n"
 	script += "sudo apt-get update\n"
-	script += "sudo apt-get install -y build-essential git curl wget sudo gosu socat xvfb\n\n"
+	script += "sudo apt-get install -y build-essential git curl wget sudo gosu socat bubblewrap xvfb\n\n"
 
 	// Core APT Packages (Always installed)
 	script += "echo 'Installing core system packages...'\n"
