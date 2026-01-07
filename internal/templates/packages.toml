@@ -49,6 +49,7 @@ packages = [
     "@openai/codex",
     "url-to-markdown-cli-tool",
     "sass",
+    "@mariozechner/pi-coding-agent",
 ]
 
 # Python packages

@@ -35,6 +35,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **OpenCode** (`opencode`) – General code assistant.
 - **Cline** (`cline`) – Agentic workflow helper.
 - **OpenAI Codex** (`codex`) – Codex-style code generation.
+- **Pi Coding Agent** (`pi`) – General-purpose coding assistant with extensible tooling.
 - **Claude Code** with several other 3rd party providers with Anthropic compatible API: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo.
 
 ### Installation

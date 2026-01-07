@@ -17,6 +17,7 @@ var SupportedAgents = []Agent{
 	{Name: "OpenCode", Slug: "opencode", ConfigPath: "/home/construct/.config/opencode"},
 	{Name: "Cline", Slug: "cline", ConfigPath: "/home/construct/.cline"},
 	{Name: "OpenAI Codex", Slug: "codex", ConfigPath: "/home/construct/.codex"},
+	{Name: "Pi Coding Agent", Slug: "pi", ConfigPath: "/home/construct/.pi"},
 }
 
 // IsSupported checks if an agent slug is supported.

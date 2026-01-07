@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.13.0] - 2026-01-07
+
+### Added
+- **Pi Coding Agent**: Added support for Pi Coding Agent (`@mariozechner/pi-coding-agent`).
+  - Config mounted at `/home/construct/.pi`
+  - Added to default npm packages in `packages.toml`
+  - Auto-creates `~/.pi/agent/auth.json` (empty object) on first run
+
+---
+
 ## [0.12.0] - 2026-01-07
 
 ### Changed
