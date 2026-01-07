@@ -22,7 +22,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups.
 - **Self-Update**: Automatic checks against the published VERSION file; self-update downloads release tarballs with backup/rollback.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
-- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`).
+- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`).
 
 ---
 
