@@ -5,8 +5,10 @@
 - Lint: `make lint` (fmt, vet, golangci-lint)
 - Test all: `make test` (unit + integration)
 - Unit only: `make test-unit` or `go test ./internal/...`
+- Integration only: `make test-integration`
 - Single test: `go test -run TestName ./internal/path/...`
 - Single package: `go test -v ./internal/config`
+- Coverage: `make test-coverage` (outputs `coverage.html`)
 
 ## Code Style
 - Format: `gofmt` enforced; imports sorted by `goimports` (stdlib → third-party → internal)

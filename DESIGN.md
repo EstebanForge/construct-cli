@@ -4,7 +4,7 @@
 ---
 
 ## 1. Executive Summary
-Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, network/clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds the image, and installs tools via a generated `packages.toml`-driven script into persistent volumes. Its runtime engine is configurable (auto-detecting `container`, `podman`, or `docker`), and migrations keep templates/config aligned across versions. Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists, plus a clipboard bridge for text/image paste and optional login callback forwarding.
+Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, network/clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds the image, and installs tools via a generated `packages.toml`-driven script into persistent volumes. Its runtime engine is configurable (auto-detecting `container`, `podman`, or `docker`), and migrations keep templates/config aligned across versions. Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists, plus a clipboard bridge for text/image paste, optional login callback forwarding, and SSH agent forwarding (Linux socket mount, macOS TCP bridge) with optional key import.
 
 ---
 
@@ -14,12 +14,15 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Fast subsequent runs**: Agents and tools live in a persistent named volume (`construct-packages`).
 - **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[claude]`.
+- **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home volume.
+- **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives tool installs and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups.
 - **Self-Update**: Automatic checks against the published VERSION file; self-update downloads release tarballs with backup/rollback.
-- **Pro Toolchain**: Preloaded with utilities including `url-to-markdown-cli-tool`, `ripgrep`, `bat`, `fzf`, `eza`, `zoxide`, `tree`, `httpie`, `gh`, `neovim`, `uv`, `prettier`, programming languages (Go, Rust, Python, Node.js, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang), cloud tools (AWS CLI, Terraform), and development utilities (git-delta, git-cliff, shellcheck, yamllint, webpack, vite, and many more).
+- **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
+- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`).
 
 ---
 
@@ -50,6 +53,8 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `home/.config/topgrade.toml` (generated update configuration)
   - `agents-config/<agent>/` (host-side config mounts)
   - `logs/` (timestamped build/update logs)
+  - `config.toml.backup` / `packages.toml.backup` (migration backups)
+  - `.logs_cleanup_last_run` (log cleanup marker)
   - `cache/` (binary backups for self-update rollback)
   - `last-update-check` (timestamp for rate-limiting update checks)
   - `.version` (installed version for migrations)
@@ -64,6 +69,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts.
 - **Mounts**: host project directory → `/projects/<folder_name>`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
 - **Isolation**: Each agent run is isolated within its container; the `/projects/<folder_name>` mount is the only bridge to host project files.
+- **SSH agent forwarding**: Linux mounts the host socket directly; macOS uses a TCP bridge exposed to the container.
 - **Network modes**:
   - `permissive`: full egress
   - `strict`: custom `construct-net` bridge + UFW rules; allow/block lists via env
@@ -119,9 +125,8 @@ API_TIMEOUT_MS = "3000000"
   - Attempts to create `ct` symlink/alias (also triggered by `construct`, `construct sys`, and `construct sys help`).
   - Sets up Claude provider configuration template with `CNSTR_` prefixed environment variables.
 - **Updates** (`sys update` → `templates/update-all.sh`):
-  - apt update/upgrade.
-  - claude installer via curl.
-  - mcp-cli-ent installer via curl.
+  - apt update/upgrade (via topgrade or fallback).
+  - `claude update` (fallback path when topgrade is missing).
   - Homebrew: `brew update/upgrade/cleanup` (all packages).
   - Topgrade: runs if installed with generated config; falls back to manual updates.
   - npm: `npm update -g` (all globals).
@@ -156,8 +161,10 @@ make cross-compile   # all platforms
 - `sys self-update`: Update the Construct binary itself.
 - `sys packages`: Open `packages.toml` for customization.
 - `sys install-packages`: Regenerate/install user packages into the running container.
+- `sys agents-md`: Manage global instruction files (rules) per agent.
 - `sys migrate`: Refresh templates/config to match the running binary.
 - `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
+- `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
 - `daemon start|stop|attach|status`: Keep a background container running for faster agent spins.
 - Long operations use gum spinners; logs go to `~/.config/construct-cli/logs/` (timestamped).
 - Containers are ephemeral; volumes persist `/home/construct` installs/state.
@@ -166,7 +173,7 @@ make cross-compile   # all platforms
 ---
 
 ## 9. Implementation Details
-- Version string: `Version = "0.11.2"` in `internal/constants/constants.go`.
+- Version string: `Version = "0.11.6"` in `internal/constants/constants.go`.
 - Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.
