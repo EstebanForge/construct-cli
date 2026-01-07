@@ -299,6 +299,16 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.RestoreConfig()
 	case "login-bridge":
 		sys.LoginBridge(args[1:])
+	case "set-password":
+		if cfg == nil {
+			var err error
+			cfg, _, err = config.Load()
+			if err != nil {
+				ui.LogError(err)
+				os.Exit(1)
+			}
+		}
+		sys.SetPassword(cfg)
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		fmt.Println("Run 'construct sys' for a list of available commands.")

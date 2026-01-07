@@ -40,6 +40,7 @@ Global Flags:
   construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   construct sys restore-config   # Restore config from backup
   construct sys self-update      # Update construct itself to the latest version
+  construct sys set-password     # Change the password for the construct user inside the container
   construct sys shell            # Interactive shell with all agents inside The Construct
   construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   construct sys update           # Update agents and packages to latest versions inside The Construct
@@ -102,6 +103,7 @@ Commands:
   reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
   restore-config   # Restore config from backup
   self-update      # Update construct itself to the latest version
+  set-password     # Change the password for the construct user inside the container
   shell            # Interactive shell with all agents inside The Construct
   ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   update           # Update agents and packages to latest versions inside The Construct

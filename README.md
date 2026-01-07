@@ -84,6 +84,28 @@ ct cc minimax --resume session_123
 ct claude kimi "Refactor this code"  # Fallback syntax also works
 ```
 
+## Security
+
+### Container User Password
+
+The Construct container uses a fixed default password for the `construct` user:
+
+- **Default Password**: `construct`
+- **Reason**: Allows sudo access when running interactive commands inside `sys shell`
+- **Automated Operations**: All automated operations (init, build, migrate, update, rebuild) remain completely passwordless
+
+**⚠️ Security Warning**: If you expose the container to untrusted networks (port forwarding, bridge mode), you should change the default password immediately.
+
+### Changing the Container Password
+
+To change the container user password:
+
+```bash
+construct sys set-password
+```
+
+This will prompt you to enter a new password for the `construct` user inside the container.
+
 ## Updating Construct
 
 Construct can update itself to the latest version from GitHub releases.
