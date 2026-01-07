@@ -2,6 +2,7 @@ FROM debian:trixie-slim
 
 # 1. Create non-root user and install system packages
 RUN useradd -m -s /bin/bash construct && \
+    echo "construct:construct" | chpasswd && \
     apt-get update && apt-get install -y \
     build-essential git curl wget sudo gosu socat bubblewrap xvfb \
     chromium chromium-driver chromium-sandbox \

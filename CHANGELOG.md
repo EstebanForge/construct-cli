@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.12.0] - 2026-01-07
+
+### Changed
+- **Container User Authentication**: Set fixed password "construct" for the construct user to enable sudo access when running commands inside `sys shell`.
+  - All automated operations (init, build, migrate, update, rebuild) remain completely passwordless via NOPASSWD sudoers configuration
+
+---
+
 ## [0.11.6] - 2026-01-06
 
 ### Added
