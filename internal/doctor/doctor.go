@@ -59,7 +59,7 @@ func Run() {
 	}
 	fmt.Println()
 
-	var checks []CheckResult
+	checks := make([]CheckResult, 0, 13)
 
 	// 0. Version Check
 	versionCheck := CheckResult{

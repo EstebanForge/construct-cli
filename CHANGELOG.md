@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.13.2] - 2026-01-08
+
+### Fixed
+- **Stale Entrypoint Detection**: Detect and prompt rebuild when the container image entrypoint is out of date to avoid repeated setup spinners.
+
+---
+
 ## [0.13.1] - 2026-01-07
 
 ### Added

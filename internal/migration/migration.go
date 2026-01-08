@@ -194,6 +194,7 @@ func RunMigrations() error {
 		installed = "0.3.0"
 	}
 	current := constants.Version
+	entrypointChanged := entrypointTemplateChanged()
 
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Upgrading configuration: %s → %s", installed, current))
@@ -207,6 +208,11 @@ func RunMigrations() error {
 	}
 	if err := saveEntrypointTemplateHash(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save entrypoint template hash: %v\n", err)
+	}
+	if entrypointChanged {
+		if err := config.SetRebuildRequired("entrypoint template changed"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
+		}
 	}
 
 	// 2. Merge config.toml only if template structure changed

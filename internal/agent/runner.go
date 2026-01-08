@@ -162,6 +162,16 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 	hashFile := filepath.Join(homeDir, ".local", ".entrypoint_hash")
 	forceFile := filepath.Join(homeDir, ".local", ".force_entrypoint")
 
+	if reason, ok := config.GetRebuildRequired(); ok {
+		if reason != "" {
+			fmt.Printf("⚠️  Rebuild required: %s\n", reason)
+		} else {
+			fmt.Println("⚠️  Rebuild required.")
+		}
+		fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
+		return fmt.Errorf("rebuild required")
+	}
+
 	// Calculate expected hash
 	// Use embedded template as the source of truth for entrypoint
 	h := sha256.Sum256([]byte(templates.Entrypoint))
@@ -173,6 +183,15 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		if err == nil {
 			expectedHash = fmt.Sprintf("%s-%s", expectedHash, scriptHash)
 		}
+	}
+
+	if imageHash, err := getImageEntrypointHash(containerRuntime, configPath); err == nil && imageHash != entrypointHash {
+		if err := config.SetRebuildRequired("container image entrypoint is stale"); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
+		}
+		fmt.Println("⚠️  Container image entrypoint is stale.")
+		fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
+		return fmt.Errorf("rebuild required")
 	}
 
 	// Check for force flag
@@ -210,6 +229,33 @@ func getFileHash(path string) (string, error) {
 	}
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:]), nil
+}
+
+func getImageEntrypointHash(containerRuntime, configPath string) (string, error) {
+	checkCmdArgs := runtime.GetCheckImageCommand(containerRuntime)
+	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
+	checkCmd.Dir = config.GetContainerDir()
+	if err := checkCmd.Run(); err != nil {
+		return "", err
+	}
+
+	runtimeCmd := containerRuntime
+	if runtimeCmd == "container" {
+		runtimeCmd = "docker"
+	}
+
+	imageName := constants.ImageName + ":latest"
+	cmd := exec.Command(runtimeCmd, "run", "--rm", "--entrypoint", "sha256sum", imageName, "/usr/local/bin/entrypoint.sh")
+	cmd.Dir = configPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	fields := strings.Fields(string(output))
+	if len(fields) < 1 {
+		return "", fmt.Errorf("unexpected sha256sum output")
+	}
+	return fields[0], nil
 }
 
 func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
