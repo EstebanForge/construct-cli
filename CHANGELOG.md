@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.13.0] - 2026-01-07
+## [0.13.1] - 2026-01-07
 
 ### Added
 - **Pi Coding Agent**: Added support for Pi Coding Agent (`@mariozechner/pi-coding-agent`).
