@@ -94,7 +94,8 @@ func SSHImport() {
 	var selected []string
 	if ui.GumAvailable() {
 		// Use Gum for selection
-		args := []string{"choose", "--no-limit", "--header", "Select keys to import (Space to select, Enter to confirm):"}
+		args := make([]string, 0, 4+len(candidates))
+		args = append(args, "choose", "--no-limit", "--header", "Select keys to import (Space to select, Enter to confirm):")
 		args = append(args, candidates...)
 		cmd := ui.GetGumCommand(args...)
 

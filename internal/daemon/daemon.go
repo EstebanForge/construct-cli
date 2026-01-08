@@ -79,7 +79,8 @@ func Start() {
 			args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
 			cmd = exec.Command("docker-compose", args...)
 		} else {
-			args := []string{"compose"}
+			args := make([]string, 0, 1+len(composeArgs)+5)
+			args = append(args, "compose")
 			args = append(args, composeArgs...)
 			args = append(args, "run", "-d", "--name", containerName, "construct-box")
 			cmd = exec.Command("docker", args...)
@@ -88,7 +89,8 @@ func Start() {
 		args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
 		cmd = exec.Command("podman-compose", args...)
 	case "container":
-		args := []string{"compose"}
+		args := make([]string, 0, 1+len(composeArgs)+5)
+		args = append(args, "compose")
 		args = append(args, composeArgs...)
 		args = append(args, "run", "-d", "--name", containerName, "construct-box")
 		cmd = exec.Command("docker", args...)

@@ -64,8 +64,10 @@ func UpdateAgents(cfg *config.Config) {
 	var cmd *exec.Cmd
 
 	// Construct run args for update
-	runFlags := []string{"--rm", "--entrypoint", "/usr/local/bin/update-all.sh"}
-	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
+	platformFlags := runtime.GetPlatformRunFlags()
+	runFlags := make([]string, 0, 3+len(platformFlags)+1)
+	runFlags = append(runFlags, "--rm", "--entrypoint", "/usr/local/bin/update-all.sh")
+	runFlags = append(runFlags, platformFlags...)
 	runFlags = append(runFlags, "construct-box")
 
 	// Build command
@@ -216,8 +218,10 @@ func InstallPackages(cfg *config.Config) {
 
 	// 2. Execute script using 'run --rm' to ensure it works whether a container is running or not
 	scriptPath := "/home/construct/.config/construct-cli/container/install_user_packages.sh"
-	runFlags := []string{"--rm", "--entrypoint", "bash"}
-	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
+	platformFlags := runtime.GetPlatformRunFlags()
+	runFlags := make([]string, 0, 3+len(platformFlags)+2)
+	runFlags = append(runFlags, "--rm", "--entrypoint", "bash")
+	runFlags = append(runFlags, platformFlags...)
 	runFlags = append(runFlags, "construct-box", scriptPath)
 
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)

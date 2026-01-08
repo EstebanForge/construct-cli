@@ -58,7 +58,7 @@ func ListAgentMemories() {
 		fmt.Printf("%sRead more about agent instructions in AGENTS.md.%s\n", ui.ColorGrey, ui.ColorReset)
 		fmt.Printf("%sSelect an agent to edit its rules file; it will open in your default editor.%s\n\n", ui.ColorGrey, ui.ColorReset)
 
-		var choices []string
+		choices := make([]string, 0, 1+len(agents))
 		choices = append(choices, "Open all Agent Rules")
 		for _, a := range agents {
 			choices = append(choices, fmt.Sprintf("%s (%s)", a.FriendlyName, a.Paths[0]))

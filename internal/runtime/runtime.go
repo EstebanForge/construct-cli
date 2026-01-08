@@ -288,6 +288,9 @@ func BuildImage(cfg *config.Config) {
 	} else {
 		fmt.Println("\n✓ The Construct image built successfully!")
 	}
+	if err := config.ClearRebuildRequired(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to clear rebuild marker: %v\n", err)
+	}
 
 	// Check if agents are installed and install them if needed
 	if !AreAgentsInstalled() {
@@ -831,25 +834,31 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 
 	if containerRuntime == "docker" {
 		if _, err := exec.LookPath("docker-compose"); err == nil {
-			cmdArgs := append([]string{"docker-compose"}, composeArgs...)
+			cmdArgs := make([]string, 0, 1+len(composeArgs)+1+len(args))
+			cmdArgs = append(cmdArgs, "docker-compose")
+			cmdArgs = append(cmdArgs, composeArgs...)
 			cmdArgs = append(cmdArgs, subCommand)
 			cmdArgs = append(cmdArgs, args...)
 			return exec.Command("docker-compose", cmdArgs[1:]...), nil
 		}
-		cmdArgs := []string{"docker", "compose"}
+		cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
+		cmdArgs = append(cmdArgs, "docker", "compose")
 		cmdArgs = append(cmdArgs, composeArgs...)
 		cmdArgs = append(cmdArgs, subCommand)
 		cmdArgs = append(cmdArgs, args...)
 		return exec.Command("docker", cmdArgs[1:]...), nil
 	}
 	if containerRuntime == "podman" {
-		cmdArgs := append([]string{"podman-compose"}, composeArgs...)
+		cmdArgs := make([]string, 0, 1+len(composeArgs)+1+len(args))
+		cmdArgs = append(cmdArgs, "podman-compose")
+		cmdArgs = append(cmdArgs, composeArgs...)
 		cmdArgs = append(cmdArgs, subCommand)
 		cmdArgs = append(cmdArgs, args...)
 		return exec.Command("podman-compose", cmdArgs[1:]...), nil
 	}
 	if containerRuntime == "container" {
-		cmdArgs := []string{"docker", "compose"}
+		cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
+		cmdArgs = append(cmdArgs, "docker", "compose")
 		cmdArgs = append(cmdArgs, composeArgs...)
 		cmdArgs = append(cmdArgs, subCommand)
 		cmdArgs = append(cmdArgs, args...)

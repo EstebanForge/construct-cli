@@ -33,7 +33,7 @@ Available Providers:
 			help += fmt.Sprintf("  - %s", name)
 
 			if len(providerEnv) > 0 {
-				var keys []string
+				keys := make([]string, 0, len(providerEnv))
 				for k := range providerEnv {
 					keys = append(keys, k)
 				}
