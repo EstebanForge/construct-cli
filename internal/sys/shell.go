@@ -317,11 +317,12 @@ func InstallAliases() {
 	// CC providers (prefixed with cc-)
 	ccProviders := []string{"zai", "minimax", "kimi", "qwen", "mimo"}
 
-	configFile, err := getShellConfigFile()
+	shellInfo, err := getShellInfo()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error determining shell config: %v\n", err)
 		os.Exit(1)
 	}
+	configFile := shellInfo.configFile
 
 	// UX: Explain what's happening
 	if ui.GumAvailable() {
@@ -364,9 +365,9 @@ func InstallAliases() {
 	var nsAliases []string
 	for _, agent := range agents {
 		// Check if agent binary exists in PATH
-		if path, err := exec.LookPath(agent); err == nil {
-			nsAliases = append(nsAliases, fmt.Sprintf("%s|%s", agent, path))
-			fmt.Printf("  • alias ns-%-8s = %s (non-sandboxed)\n", agent, agent)
+		if _, err := exec.LookPath(agent); err == nil {
+			nsAliases = append(nsAliases, agent)
+			fmt.Printf("  • %s (non-sandboxed)\n", formatNSFunctionPreview(shellInfo.shellType, agent))
 		}
 	}
 	if len(nsAliases) > 0 {
@@ -480,11 +481,8 @@ func InstallAliases() {
 	// Add non-sandboxed (ns-) aliases for agents found in PATH
 	if len(nsAliases) > 0 {
 		sb.WriteString("\n# Non-sandboxed aliases - run agents directly without Construct sandbox\n")
-		for _, nsAlias := range nsAliases {
-			parts := strings.Split(nsAlias, "|")
-			agent := parts[0]
-			path := parts[1]
-			sb.WriteString(fmt.Sprintf("alias ns-%s='%s'\n", agent, path))
+		for _, agent := range nsAliases {
+			sb.WriteString(formatNSFunction(shellInfo.shellType, agent))
 		}
 	}
 
@@ -529,30 +527,53 @@ func InstallAliases() {
 	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
 }
 
-func getShellConfigFile() (string, error) {
+func formatNSFunction(shellType, agent string) string {
+	switch shellType {
+	case "fish":
+		return fmt.Sprintf("function ns-%s; command %s $argv; end\n", agent, agent)
+	default:
+		return fmt.Sprintf("ns-%s() { command %s \"$@\"; }\n", agent, agent)
+	}
+}
+
+func formatNSFunctionPreview(shellType, agent string) string {
+	switch shellType {
+	case "fish":
+		return fmt.Sprintf("function ns-%-8s = command %s $argv; end", agent, agent)
+	default:
+		return fmt.Sprintf("function ns-%-8s = command %s \"$@\"", agent, agent)
+	}
+}
+
+type shellInfo struct {
+	configFile string
+	shellType  string
+}
+
+func getShellInfo() (shellInfo, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return shellInfo{}, err
 	}
 
 	shell := os.Getenv("SHELL")
 	if shell == "" {
-		return "", fmt.Errorf("no shell detected")
+		return shellInfo{}, fmt.Errorf("no shell detected")
 	}
 
 	if strings.Contains(shell, "zsh") {
-		return filepath.Join(homeDir, ".zshrc"), nil
+		return shellInfo{configFile: filepath.Join(homeDir, ".zshrc"), shellType: "zsh"}, nil
 	} else if strings.Contains(shell, "bash") {
 		configFile := filepath.Join(homeDir, ".bashrc")
 		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
-			return filepath.Join(homeDir, ".bash_profile"), nil
+			return shellInfo{configFile: filepath.Join(homeDir, ".bash_profile"), shellType: "bash"}, nil
 		}
-		return configFile, nil
+		return shellInfo{configFile: configFile, shellType: "bash"}, nil
 	} else if strings.Contains(shell, "fish") {
-		return filepath.Join(homeDir, ".config/fish/config.fish"), nil
+		return shellInfo{configFile: filepath.Join(homeDir, ".config/fish/config.fish"), shellType: "fish"}, nil
 	}
 
-	return "", fmt.Errorf("unsupported shell: %s", shell)
+	return shellInfo{}, fmt.Errorf("unsupported shell: %s", shell)
 }
 
 func fileExists(path string) bool {

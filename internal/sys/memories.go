@@ -2,6 +2,7 @@ package sys
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,15 +52,18 @@ func ExpandPath(path string) (string, error) {
 // ListAgentMemories displays a selection list of supported agents
 func ListAgentMemories() {
 	agents := GetSupportedAgents()
+	agentNames := formatAgentNames(agents)
 
 	if ui.GumAvailable() {
 		// Header
 		fmt.Printf("%sThese are the main AGENTS.md files used for giving all agents rules and protocols to follow.%s\n", ui.ColorBold, ui.ColorReset)
 		fmt.Printf("%sRead more about agent instructions in AGENTS.md.%s\n", ui.ColorGrey, ui.ColorReset)
-		fmt.Printf("%sSelect an agent to edit its rules file; it will open in your default editor.%s\n\n", ui.ColorGrey, ui.ColorReset)
+		fmt.Printf("%sSelect an agent to edit its rules file; it will open in your default editor.%s\n", ui.ColorGrey, ui.ColorReset)
+		fmt.Printf("%sReplace all Agent Rules will overwrite every agent rules file: %s.%s\n\n", ui.ColorGrey, agentNames, ui.ColorReset)
 
 		choices := make([]string, 0, 1+len(agents))
 		choices = append(choices, "Open all Agent Rules")
+		choices = append(choices, "Replace all Agent Rules")
 		for _, a := range agents {
 			choices = append(choices, fmt.Sprintf("%s (%s)", a.FriendlyName, a.Paths[0]))
 		}
@@ -81,6 +85,17 @@ func ListAgentMemories() {
 			}
 			return
 		}
+		if selected == "Replace all Agent Rules" {
+			content, err := promptAllAgentRulesContent(agents)
+			if err != nil {
+				ui.GumError(fmt.Sprintf("Failed to read rules content: %v", err))
+				return
+			}
+			if err := updateAllAgentMemories(agents, content); err != nil {
+				ui.GumError(fmt.Sprintf("Failed to update rules files: %v", err))
+			}
+			return
+		}
 
 		for _, a := range agents {
 			if strings.HasPrefix(selected, a.FriendlyName) {
@@ -93,12 +108,14 @@ func ListAgentMemories() {
 		fmt.Println("These are the main AGENTS.md files used for giving all agents rules and protocols to follow.")
 		fmt.Println("Select an agent to edit its rules file:")
 		fmt.Println("0) Open all Agent Rules")
+		fmt.Println("1) Replace all Agent Rules")
+		fmt.Printf("   This overwrites every agent rules file: %s.\n", agentNames)
 		for i, a := range agents {
-			fmt.Printf("%d) %s (%s)\n", i+1, a.FriendlyName, a.Paths[0])
+			fmt.Printf("%d) %s (%s)\n", i+2, a.FriendlyName, a.Paths[0])
 		}
 		fmt.Print("\nEnter choice: ")
 		var choice int
-		if _, err := fmt.Scanln(&choice); err != nil || choice < 0 || choice > len(agents) {
+		if _, err := fmt.Scanln(&choice); err != nil || choice < 0 || choice > len(agents)+1 {
 			ui.GumError("Invalid choice")
 			return
 		}
@@ -106,10 +123,105 @@ func ListAgentMemories() {
 			for _, a := range agents {
 				OpenAgentMemory(a)
 			}
-		} else {
-			OpenAgentMemory(agents[choice-1])
+			return
+		}
+		if choice == 1 {
+			content, err := promptAllAgentRulesContent(agents)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Failed to read rules content: %v\n", err)
+				return
+			}
+			if err := updateAllAgentMemories(agents, content); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Failed to update rules files: %v\n", err)
+			}
+			return
+		}
+		OpenAgentMemory(agents[choice-2])
+	}
+}
+
+func promptAllAgentRulesContent(agents []AgentMemory) (string, error) {
+	agentNames := formatAgentNames(agents)
+	if ui.GumAvailable() {
+		fmt.Printf("%sYou are replacing rules for: %s.%s\n", ui.ColorBold, agentNames, ui.ColorReset)
+		cmd := ui.GetGumCommand("write", "--placeholder", "Paste new rules to apply to all agents (Ctrl+D to finish)")
+		cmd.Stdin = os.Stdin
+		cmd.Stderr = os.Stderr
+		output, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		content := string(output)
+		if strings.TrimSpace(content) == "" {
+			return "", fmt.Errorf("rules content cannot be empty")
+		}
+		return content, nil
+	}
+
+	fmt.Printf("You are replacing rules for: %s.\n", agentNames)
+	fmt.Println("Paste new rules to apply to all agents, then press Ctrl+D to finish:")
+	contentBytes, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return "", err
+	}
+	content := string(contentBytes)
+	if strings.TrimSpace(content) == "" {
+		return "", fmt.Errorf("rules content cannot be empty")
+	}
+	return content, nil
+}
+
+func updateAllAgentMemories(agents []AgentMemory, content string) error {
+	const copilotHeader = "---\napplyTo: \"**\"\n---\n"
+	for _, agent := range agents {
+		targetPath, err := resolveAgentMemoryPath(agent)
+		if err != nil {
+			return fmt.Errorf("resolve %s rules file: %w", agent.FriendlyName, err)
+		}
+		payload := content
+		if agent.Name == "copilot" {
+			payload = copilotHeader + content
+		}
+		if err := os.WriteFile(targetPath, []byte(payload), 0644); err != nil {
+			return fmt.Errorf("write %s rules file: %w", agent.FriendlyName, err)
 		}
 	}
+
+	if ui.GumAvailable() {
+		ui.GumSuccess("Updated all agent rules files.")
+	} else {
+		fmt.Println("✓ Updated all agent rules files.")
+	}
+	return nil
+}
+
+func resolveAgentMemoryPath(agent AgentMemory) (string, error) {
+	for _, p := range agent.Paths {
+		expanded, err := ExpandPath(p)
+		if err != nil {
+			return "", err
+		}
+		if _, err := os.Stat(expanded); err == nil {
+			return expanded, nil
+		}
+	}
+
+	targetPath, err := ExpandPath(agent.Paths[0])
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return "", err
+	}
+	return targetPath, nil
+}
+
+func formatAgentNames(agents []AgentMemory) string {
+	names := make([]string, 0, len(agents))
+	for _, agent := range agents {
+		names = append(names, agent.Name)
+	}
+	return strings.Join(names, ", ")
 }
 
 // OpenAgentMemory handles the existence check, creation, and opening of the rules file

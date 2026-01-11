@@ -32,7 +32,7 @@ Global Flags:
   construct sys ct-fix           # Fix ct symlink in ~/.local/bin
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
-  construct sys install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
+  construct sys install-aliases  # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
   construct sys install-packages # Apply changes from packages.toml to the running container
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
@@ -95,7 +95,7 @@ Commands:
   ct-fix           # Fix ct symlink in ~/.local/bin
   help             # Show this help
   init             # Initialize environment and install agents inside The Construct
-  install-aliases  # Install agent aliases to your host shell (claude, gemini, etc.) to always run inside The Construct
+  install-aliases  # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
   install-packages # Apply changes from packages.toml to the running container
   login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   migrate          # Re-run migrations to sync config/templates with the binary
