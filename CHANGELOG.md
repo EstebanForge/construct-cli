@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.14.0] - 2026-01-11
+
+### Changed
+- **Non-Sandboxed Aliases**: `ns-` entries are now shell functions in the RC file, forwarding flags and args without installing extra files.
+- **Agent Rules Bulk Replace**: `sys agents-md` now supports replacing all agent rules at once with a single pasted prompt, including Copilot frontmatter.
+
+---
+
 ## [0.13.2] - 2026-01-08
 
 ### Fixed
