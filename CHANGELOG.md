@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.14.0] - 2026-01-11
+## [0.14.1] - 2026-01-11
 
 ### Changed
 - **Non-Sandboxed Aliases**: `ns-` entries are now shell functions in the RC file, forwarding flags and args without installing extra files.

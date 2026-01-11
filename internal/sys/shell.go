@@ -362,12 +362,13 @@ func InstallAliases() {
 	fmt.Println()
 
 	// Check for non-sandboxed agents and create ns- aliases
-	var nsAliases []string
+	var nsAliases []nsAlias
 	for _, agent := range agents {
 		// Check if agent binary exists in PATH
-		if _, err := exec.LookPath(agent); err == nil {
-			nsAliases = append(nsAliases, agent)
-			fmt.Printf("  • %s (non-sandboxed)\n", formatNSFunctionPreview(shellInfo.shellType, agent))
+		if agentPath, err := exec.LookPath(agent); err == nil {
+			resolvedPath := resolveBinaryPath(agentPath)
+			nsAliases = append(nsAliases, nsAlias{agent: agent, path: resolvedPath})
+			fmt.Printf("  • %s (non-sandboxed)\n", formatNSFunctionPreview(shellInfo.shellType, agent, resolvedPath))
 		}
 	}
 	if len(nsAliases) > 0 {
@@ -481,8 +482,8 @@ func InstallAliases() {
 	// Add non-sandboxed (ns-) aliases for agents found in PATH
 	if len(nsAliases) > 0 {
 		sb.WriteString("\n# Non-sandboxed aliases - run agents directly without Construct sandbox\n")
-		for _, agent := range nsAliases {
-			sb.WriteString(formatNSFunction(shellInfo.shellType, agent))
+		for _, nsAlias := range nsAliases {
+			sb.WriteString(formatNSFunction(shellInfo.shellType, nsAlias.agent, nsAlias.path))
 		}
 	}
 
@@ -527,21 +528,44 @@ func InstallAliases() {
 	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
 }
 
-func formatNSFunction(shellType, agent string) string {
+type nsAlias struct {
+	agent string
+	path  string
+}
+
+func resolveBinaryPath(agentPath string) string {
+	resolvedPath := agentPath
+	if resolved, err := filepath.EvalSymlinks(agentPath); err == nil {
+		resolvedPath = resolved
+	}
+	if absPath, err := filepath.Abs(resolvedPath); err == nil {
+		resolvedPath = absPath
+	}
+	return resolvedPath
+}
+
+func quoteShellPath(path string) string {
+	escaped := strings.ReplaceAll(path, "\"", "\\\"")
+	return fmt.Sprintf("\"%s\"", escaped)
+}
+
+func formatNSFunction(shellType, agent, path string) string {
+	quotedPath := quoteShellPath(path)
 	switch shellType {
 	case "fish":
-		return fmt.Sprintf("function ns-%s; command %s $argv; end\n", agent, agent)
+		return fmt.Sprintf("function ns-%s; %s $argv; end\n", agent, quotedPath)
 	default:
-		return fmt.Sprintf("ns-%s() { command %s \"$@\"; }\n", agent, agent)
+		return fmt.Sprintf("ns-%s() { %s \"$@\"; }\n", agent, quotedPath)
 	}
 }
 
-func formatNSFunctionPreview(shellType, agent string) string {
+func formatNSFunctionPreview(shellType, agent, path string) string {
+	quotedPath := quoteShellPath(path)
 	switch shellType {
 	case "fish":
-		return fmt.Sprintf("function ns-%-8s = command %s $argv; end", agent, agent)
+		return fmt.Sprintf("function ns-%-8s = %s $argv; end", agent, quotedPath)
 	default:
-		return fmt.Sprintf("function ns-%-8s = command %s \"$@\"", agent, agent)
+		return fmt.Sprintf("function ns-%-8s = %s \"$@\"", agent, quotedPath)
 	}
 }
 
