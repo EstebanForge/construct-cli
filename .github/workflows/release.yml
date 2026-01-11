@@ -104,14 +104,13 @@ jobs:
       # ----------------------------------------------------------------
       - name: Prepare Linux Artifacts
         run: |
-          # Rename/Package Linux AMD64
-          # Assumes make release created dist/construct-linux-amd64 (binary) or similar
-          # The makefile seems to produce tarballs with versions. Let's look for the binary or extract it.
-          # If 'make release' produced binaries 'dist/construct-linux-amd64', we use them.
-          # Based on previous steps, it produces 'dist/construct-linux-amd64'.
-          
-          tar -czf dist/construct-cli-linux-amd64.tar.gz -C dist construct-linux-amd64
-          tar -czf dist/construct-cli-linux-arm64.tar.gz -C dist construct-linux-arm64
+          # Package Linux binaries as "construct" for the tap
+          mkdir -p dist/linux-amd64 dist/linux-arm64
+          cp dist/construct-linux-amd64 dist/linux-amd64/construct
+          cp dist/construct-linux-arm64 dist/linux-arm64/construct
+          tar -czf dist/construct-cli-linux-amd64.tar.gz -C dist/linux-amd64 construct
+          tar -czf dist/construct-cli-linux-arm64.tar.gz -C dist/linux-arm64 construct
+          rm -rf dist/linux-amd64 dist/linux-arm64
 
       - name: Verify release outputs
         env:
