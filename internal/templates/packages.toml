@@ -23,7 +23,7 @@ packages = [
     # Development tools
     "gh", "git-lfs", "git-delta", "git-cliff", "rsync", "procs", "python-setuptools", "awscli", "cmake", "pkg-config", "direnv", "gum",
     # Languages
-    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node", "python@3", "openssl@3", "llvm", "gcc", "nasm", "yasm", "postgresql@16", "mysql-client", "redis", "sqlite", "podman", "groovy", "scala", "elixir", "r", "micropython", "gleam", "ocaml", "swi-prolog",
+    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node", "python@3", "openssl@3", "llvm", "gcc", "nasm", "yasm", "postgresql@16", "mysql-client", "redis", "sqlite", "podman", "podman-compose", "groovy", "scala", "elixir", "r", "micropython", "gleam", "ocaml", "swi-prolog",
     # Linters & Formatters
     "golangci-lint", "golangci-lint-langserver", "php-cs-fixer", "prettier", "shellcheck", "yamllint",
     # Web & Build tools
