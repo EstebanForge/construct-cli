@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.14.3] - 2026-01-13
+
+### Added
+- **Podman Compose**: Added `podman-compose` to default brew packages in `packages.toml`.
+
+---
+
 ## [0.14.2] - 2026-01-11
 
 ### Changed
