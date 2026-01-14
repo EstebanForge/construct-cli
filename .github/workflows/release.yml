@@ -211,7 +211,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Homebrew Tap Update
-        uses: actions/github-script@v6
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.TAP_GITHUB_TOKEN }}
           script: |
