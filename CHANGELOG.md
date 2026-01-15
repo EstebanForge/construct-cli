@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.15.0] - 2026-01-15
+## [0.15.1] - 2026-01-15
 
 ### Added
 - **Goose CLI**: Added `goose` agent, with first-run configure guidance.

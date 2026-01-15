@@ -251,14 +251,18 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "\n"
 	}
 
-	// PIP
+	// PIP (using pipx for PEP 668 compliance)
 	if len(c.Pip.Packages) > 0 {
-		script += "echo 'Installing PIP packages...'\n"
-		script += "pip install "
+		script += "echo 'Installing PIP packages via pipx...'\n"
+		script += "# Ensure pipx PATH is configured\n"
+		script += "export PATH=\"$HOME/.local/bin:$PATH\"\n"
+		script += "if command -v pipx &> /dev/null; then\n"
 		for _, pkg := range c.Pip.Packages {
-			script += pkg + " "
+			script += "    pipx install " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
 		}
-		script += "\n\n"
+		script += "else\n"
+		script += "    echo \"⚠️ pipx not found; skipping Python packages\"\n"
+		script += "fi\n\n"
 	}
 
 	// Gems
@@ -334,8 +338,10 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	if !c.Tools.Bun {
 		disabledSteps = append(disabledSteps, "bun")
 	}
+	// Always disable pip3 (PEP 668 compliance), only enable pipx when pip packages exist
+	disabledSteps = append(disabledSteps, "pip3")
 	if len(c.Pip.Packages) == 0 {
-		disabledSteps = append(disabledSteps, "pip3", "pipx")
+		disabledSteps = append(disabledSteps, "pipx")
 	}
 	if len(c.Gems.Packages) == 0 {
 		disabledSteps = append(disabledSteps, "gem")
