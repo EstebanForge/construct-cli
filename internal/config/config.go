@@ -22,6 +22,7 @@ type Config struct {
 	Sandbox     SandboxConfig     `toml:"sandbox"`
 	Network     NetworkConfig     `toml:"network"`
 	Maintenance MaintenanceConfig `toml:"maintenance"`
+	Agents      AgentsConfig      `toml:"agents"`
 	Claude      ClaudeConfig      `toml:"claude"`
 }
 
@@ -55,6 +56,12 @@ type MaintenanceConfig struct {
 	CleanupEnabled         bool `toml:"cleanup_enabled"`
 	CleanupIntervalSeconds int  `toml:"cleanup_interval_seconds"`
 	LogRetentionDays       int  `toml:"log_retention_days"`
+}
+
+// AgentsConfig holds per-agent behavior flags.
+type AgentsConfig struct {
+	YoloAll    bool     `toml:"yolo_all"`
+	YoloAgents []string `toml:"yolo_agents"`
 }
 
 // ClaudeConfig stores Claude provider configuration.

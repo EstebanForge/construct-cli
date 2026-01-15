@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.15.0] - 2026-01-15
+
+### Added
+- **Goose CLI**: Added `goose` agent, with first-run configure guidance.
+- **Droid CLI**: Added `droid` agent.
+- **Kilo Code CLI**: Added `kilocode` agent.
+- **Yolo Mode Config**: Added `[agents]` config to enable yolo flags per-agent or globally in `config.toml`.
+- **Agent Browser**: Added `agent-browser` to default npm packages and configured its post-install dependency setup. Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
+- **LiteLLM**: Added `litellm` to default pip packages; open-source LLM gateway/SDK with a unified OpenAI-compatible API across 100+ providers, with cost/error handling and failover.
+- **Post-Install Hooks**: Added `[post_install].commands` to `packages.toml`, executed after all package managers finish.
+
+---
+
 ## [0.14.3] - 2026-01-13
 
 ### Added

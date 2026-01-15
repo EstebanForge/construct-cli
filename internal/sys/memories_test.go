@@ -8,13 +8,16 @@ import (
 
 func TestGetSupportedAgents(t *testing.T) {
 	agents := GetSupportedAgents()
-	expectedAgents := 7
+	expectedAgents := 10
 	if len(agents) != expectedAgents {
 		t.Errorf("Expected %d agents, got %d", expectedAgents, len(agents))
 	}
 
 	// Verify specific agents exist
 	foundCline := false
+	foundDroid := false
+	foundGoose := false
+	foundKilo := false
 	for _, a := range agents {
 		if a.Name == "cline" {
 			foundCline = true
@@ -22,9 +25,27 @@ func TestGetSupportedAgents(t *testing.T) {
 				t.Errorf("Expected Cline to have 2 paths, got %d", len(a.Paths))
 			}
 		}
+		if a.Name == "droid" {
+			foundDroid = true
+		}
+		if a.Name == "goose" {
+			foundGoose = true
+		}
+		if a.Name == "kilocode" {
+			foundKilo = true
+		}
 	}
 	if !foundCline {
 		t.Error("Cline CLI not found in supported agents")
+	}
+	if !foundKilo {
+		t.Error("Kilo Code CLI not found in supported agents")
+	}
+	if !foundDroid {
+		t.Error("Droid CLI not found in supported agents")
+	}
+	if !foundGoose {
+		t.Error("Goose CLI not found in supported agents")
 	}
 }
 
