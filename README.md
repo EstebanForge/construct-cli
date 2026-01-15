@@ -14,6 +14,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist. Live application of network rules while the AGENT is running.
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
+- **Agent Browser**: Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
 - **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages. Some utilities included by default: `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` among others. For full list of available packages, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
 - Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases`, and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
@@ -35,6 +36,9 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **OpenCode** (`opencode`) – General code assistant.
 - **Cline** (`cline`) – Agentic workflow helper.
 - **OpenAI Codex** (`codex`) – Codex-style code generation.
+- **Droid CLI** (`droid`) – Factory Droid agent CLI.
+- **Goose CLI** (`goose`) – Block Goose agent CLI.
+- **Kilo Code CLI** (`kilocode`) – Agentic coding CLI with modes and workspace targeting.
 - **Pi Coding Agent** (`pi`) – General-purpose coding assistant with extensible tooling.
 - **Claude Code** with several other 3rd party providers with Anthropic compatible API: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo.
 
@@ -164,6 +168,14 @@ update_check_interval = 86400  # seconds (24 hours)
 mount_home = false # keep false unless you really need your whole home dir (dangerous)
 shell = "/bin/bash"
 clipboard_host = "host.docker.internal"
+
+[agents]
+# Enable yolo mode for all supported agents
+yolo_all = false
+
+# Enable yolo mode for specific agent slugs
+# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
+yolo_agents = ["claude", "gemini"]
 
 [network]
 # permissive | strict | offline

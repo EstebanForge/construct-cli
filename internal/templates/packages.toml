@@ -29,7 +29,7 @@ packages = [
     # Web & Build tools
     "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod", "hugo", "zola",
     # AI Agents
-    "gemini-cli", "opencode", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
+    "gemini-cli", "opencode", "block-goose-cli", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
     # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
     "shivammathur/extensions/pcov@8.5",
 ]
@@ -47,6 +47,8 @@ packages = [
     "@github/copilot",
     "cline",
     "@openai/codex",
+    "@kilocode/cli",
+    "agent-browser",
     "url-to-markdown-cli-tool",
     "sass",
     "@mariozechner/pi-coding-agent",
@@ -55,6 +57,7 @@ packages = [
 # Python packages
 [pip]
 packages = [
+    "litellm",
     # "black",
     # "isort",
 ]
@@ -76,3 +79,10 @@ nvm = false
 phpbrew = false
 vmr = false
 volta = false
+
+# Commands to run after all package managers finish
+[post_install]
+commands = [
+    "agent-browser install --with-deps",
+    "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
+]

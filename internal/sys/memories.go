@@ -29,6 +29,9 @@ func GetSupportedAgents() []AgentMemory {
 		{Name: "claude", FriendlyName: "Claude CLI", Paths: []string{"~/.claude/CLAUDE.md"}},
 		{Name: "codex", FriendlyName: "Codex CLI", Paths: []string{"~/.codex/AGENTS.md"}},
 		{Name: "copilot", FriendlyName: "Copilot CLI", Paths: []string{"~/.copilot/AGENTS.md"}},
+		{Name: "droid", FriendlyName: "Droid CLI", Paths: []string{"~/.factory/AGENTS.md"}},
+		{Name: "goose", FriendlyName: "Goose CLI", Paths: []string{"~/.config/goose/AGENTS.md"}},
+		{Name: "kilocode", FriendlyName: "Kilo Code CLI", Paths: []string{"~/.kilocode/rules/AGENTS.md"}},
 		{Name: "cline", FriendlyName: "Cline CLI", Paths: []string{
 			"~/Documents/Cline/Rules/AGENTS.md",
 			"~/Cline/Rules/AGENTS.md",

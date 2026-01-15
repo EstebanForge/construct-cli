@@ -20,6 +20,9 @@ packages = ["fastlane"]
 [npm]
 packages = ["typescript"]
 
+[post_install]
+commands = ["agent-browser install --with-deps"]
+
 [pip]
 packages = ["black"]
 
@@ -46,6 +49,9 @@ mise = false
 	}
 	if config.Tools.PhpBrew != true || config.Tools.Vmr != false || config.Tools.Nix != true || config.Tools.Nvm != true {
 		t.Errorf("Tools parsing failed")
+	}
+	if len(config.PostInstall.Commands) != 1 || config.PostInstall.Commands[0] != "agent-browser install --with-deps" {
+		t.Errorf("Post_install parsing failed")
 	}
 }
 

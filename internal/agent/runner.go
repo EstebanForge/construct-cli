@@ -73,8 +73,20 @@ func RunWithArgs(args []string, networkFlag string) {
 		os.Exit(1)
 	}
 
+	if shouldPromptGooseConfigure(args, configPath) {
+		fmt.Println("Goose CLI needs initial setup.")
+		fmt.Println("Run: ct goose configure")
+		os.Exit(1)
+	}
+
 	// Continue with container execution (no provider env vars)
 	runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
+
+	if isGooseConfigure(args) {
+		if err := markGooseConfigured(configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save Goose configure state: %v\n", err)
+		}
+	}
 }
 
 // RunWithProvider executes Claude with a configured provider alias.
@@ -311,6 +323,8 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 }
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {
+	args = applyYoloArgs(args, cfg)
+
 	// Check for container collision
 	containerName := "construct-cli"
 	state := runtime.GetContainerState(containerRuntime, containerName)
@@ -618,6 +632,105 @@ func shouldEnableLoginForward(args []string) (bool, []int) {
 		}
 	}
 	return false, nil
+}
+
+func applyYoloArgs(args []string, cfg *config.Config) []string {
+	if cfg == nil || len(args) == 0 {
+		return args
+	}
+
+	agent := strings.ToLower(args[0])
+	flag, ok := yoloFlagForAgent(agent)
+	if !ok {
+		return args
+	}
+	if !shouldEnableYolo(agent, cfg) {
+		return args
+	}
+	if argsContain(args, flag) {
+		return args
+	}
+
+	updated := make([]string, 0, len(args)+1)
+	updated = append(updated, args[0], flag)
+	updated = append(updated, args[1:]...)
+	return updated
+}
+
+func shouldEnableYolo(agent string, cfg *config.Config) bool {
+	if cfg.Agents.YoloAll {
+		return true
+	}
+	for _, name := range cfg.Agents.YoloAgents {
+		if strings.EqualFold(name, agent) || strings.EqualFold(name, "all") {
+			return true
+		}
+	}
+	return false
+}
+
+func yoloFlagForAgent(agent string) (string, bool) {
+	switch agent {
+	case "claude":
+		return "--dangerously-skip-permissions", true
+	case "copilot":
+		return "--allow-all-tools", true
+	case "gemini", "codex", "qwen", "cline", "kilocode":
+		return "--yolo", true
+	default:
+		return "", false
+	}
+}
+
+func argsContain(args []string, value string) bool {
+	for _, arg := range args {
+		if arg == value {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldPromptGooseConfigure(args []string, configPath string) bool {
+	if !isGooseCommand(args) || isGooseConfigure(args) {
+		return false
+	}
+	return !isGooseConfigured(configPath)
+}
+
+func isGooseCommand(args []string) bool {
+	return len(args) > 0 && strings.EqualFold(args[0], "goose")
+}
+
+func isGooseConfigure(args []string) bool {
+	if !isGooseCommand(args) {
+		return false
+	}
+	for _, arg := range args[1:] {
+		if arg == "configure" {
+			return true
+		}
+	}
+	return false
+}
+
+func gooseConfiguredMarkerPath(configPath string) string {
+	return filepath.Join(configPath, "home", ".config", "goose", ".construct_configured")
+}
+
+func isGooseConfigured(configPath string) bool {
+	if _, err := os.Stat(gooseConfiguredMarkerPath(configPath)); err == nil {
+		return true
+	}
+	return false
+}
+
+func markGooseConfigured(configPath string) error {
+	markerPath := gooseConfiguredMarkerPath(configPath)
+	if err := os.MkdirAll(filepath.Dir(markerPath), 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(markerPath, []byte("configured\n"), 0644)
 }
 
 func readLoginBridgePorts() ([]int, bool) {

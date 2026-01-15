@@ -31,6 +31,15 @@ shell = "/bin/bash"
 # Hostname for the host clipboard bridge
 clipboard_host = "host.docker.internal"
 
+# Agent Behavior
+[agents]
+# Enable yolo mode for all supported agents (default: false, overrides yolo_agents)
+yolo_all = false
+
+# Enable yolo mode for specific agents (slugs), e.g. ["claude", "gemini"]
+# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
+yolo_agents = []
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)

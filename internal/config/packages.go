@@ -10,13 +10,14 @@ import (
 
 // PackagesConfig represents the user-defined packages configuration.
 type PackagesConfig struct {
-	Apt   AptConfig   `toml:"apt"`
-	Brew  BrewConfig  `toml:"brew"`
-	Cargo CargoConfig `toml:"cargo"`
-	Npm   NpmConfig   `toml:"npm"`
-	Pip   PipConfig   `toml:"pip"`
-	Gems  GemsConfig  `toml:"gems"`
-	Tools ToolsConfig `toml:"tools"`
+	Apt         AptConfig         `toml:"apt"`
+	Brew        BrewConfig        `toml:"brew"`
+	Cargo       CargoConfig       `toml:"cargo"`
+	Npm         NpmConfig         `toml:"npm"`
+	Pip         PipConfig         `toml:"pip"`
+	Gems        GemsConfig        `toml:"gems"`
+	PostInstall PostInstallConfig `toml:"post_install"`
+	Tools       ToolsConfig       `toml:"tools"`
 }
 
 // AptConfig holds APT package settings.
@@ -37,7 +38,8 @@ type CargoConfig struct {
 
 // NpmConfig holds NPM package settings.
 type NpmConfig struct {
-	Packages []string `toml:"packages"`
+	Packages    []string `toml:"packages"`
+	PostInstall []string `toml:"post_install"`
 }
 
 // PipConfig holds PIP package settings.
@@ -48,6 +50,11 @@ type PipConfig struct {
 // GemsConfig holds Ruby gem package settings.
 type GemsConfig struct {
 	Packages []string `toml:"packages"`
+}
+
+// PostInstallConfig holds post-install commands.
+type PostInstallConfig struct {
+	Commands []string `toml:"commands"`
 }
 
 // ToolsConfig holds specialized tool toggles.
@@ -236,6 +243,13 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		}
 		script += "\n\n"
 	}
+	if len(c.Npm.PostInstall) > 0 {
+		script += "echo 'Running NPM post-install commands...'\n"
+		for _, cmd := range c.Npm.PostInstall {
+			script += cmd + "\n"
+		}
+		script += "\n"
+	}
 
 	// PIP
 	if len(c.Pip.Packages) > 0 {
@@ -258,6 +272,15 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "else\n"
 		script += "    echo \"⚠️ Gem not found; skipping Ruby packages\"\n"
 		script += "fi\n\n"
+	}
+
+	// Post-install
+	if len(c.PostInstall.Commands) > 0 {
+		script += "echo 'Running post-install commands...'\n"
+		for _, cmd := range c.PostInstall.Commands {
+			script += cmd + "\n"
+		}
+		script += "\n"
 	}
 
 	script += "echo 'User package installation completed successfully.'\n"

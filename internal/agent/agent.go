@@ -17,6 +17,9 @@ var SupportedAgents = []Agent{
 	{Name: "OpenCode", Slug: "opencode", ConfigPath: "/home/construct/.config/opencode"},
 	{Name: "Cline", Slug: "cline", ConfigPath: "/home/construct/.cline"},
 	{Name: "OpenAI Codex", Slug: "codex", ConfigPath: "/home/construct/.codex"},
+	{Name: "Droid CLI", Slug: "droid", ConfigPath: "/home/construct/.factory"},
+	{Name: "Goose CLI", Slug: "goose", ConfigPath: "/home/construct/.config/goose"},
+	{Name: "Kilo Code CLI", Slug: "kilocode", ConfigPath: "/home/construct/.kilocode"},
 	{Name: "Pi Coding Agent", Slug: "pi", ConfigPath: "/home/construct/.pi"},
 }
 

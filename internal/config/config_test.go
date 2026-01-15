@@ -28,6 +28,10 @@ allowed_ips = ["1.1.1.1/32"]
 blocked_domains = []
 blocked_ips = []
 
+[agents]
+yolo_all = false
+yolo_agents = ["claude", "gemini"]
+
 `
 
 	var config Config
@@ -63,6 +67,14 @@ blocked_ips = []
 	// Test clipboard
 	if config.Sandbox.ClipboardHost != "host.orbstack.internal" {
 		t.Errorf("Expected clipboard host 'host.orbstack.internal', got '%s'", config.Sandbox.ClipboardHost)
+	}
+
+	// Test agents
+	if config.Agents.YoloAll {
+		t.Error("Expected yolo_all to be false")
+	}
+	if len(config.Agents.YoloAgents) != 2 || config.Agents.YoloAgents[0] != "claude" {
+		t.Errorf("Expected yolo_agents to contain claude and gemini")
 	}
 }
 
@@ -110,6 +122,10 @@ func TestConfigStructure(t *testing.T) {
 			BlockedDomains: []string{},
 			BlockedIPs:     []string{},
 		},
+		Agents: AgentsConfig{
+			YoloAll:    false,
+			YoloAgents: []string{},
+		},
 	}
 
 	if config.Runtime.Engine != "docker" {
@@ -123,6 +139,9 @@ func TestConfigStructure(t *testing.T) {
 	}
 	if config.Sandbox.ClipboardHost != "host.docker.internal" {
 		t.Error("Clipboard config initialization failed")
+	}
+	if config.Agents.YoloAll {
+		t.Error("Agents config initialization failed")
 	}
 }
 

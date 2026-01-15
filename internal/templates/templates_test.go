@@ -49,6 +49,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "[sandbox]") {
 		t.Error("config.toml template missing [sandbox] section")
 	}
+	if !strings.Contains(Config, "[agents]") {
+		t.Error("config.toml template missing [agents] section")
+	}
 
 	// Test Clipper template
 	if Clipper == "" {
