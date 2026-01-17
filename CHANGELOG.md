@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [0.15.2] - 2026-01-17
+
+### Fixed
+- **Podman Runtime Detection**: Updated Podman socket check to use `RemoteSocket.Exists` instead of `HostSocket.Exists` for Podman 5.7.1+ compatibility.
+
+---
+
 ## [0.15.1] - 2026-01-15
 
 ### Added
