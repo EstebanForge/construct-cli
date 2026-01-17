@@ -371,7 +371,6 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 
 	// Run the container once; entrypoint handles setup, then runs the command.
 	runFlags := []string{"--rm", "construct-box", "echo", "Installation complete"}
-	runFlags = append(GetPlatformRunFlags(), runFlags...) // Prepend Linux flags if needed
 
 	cmd, err := BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
 	if err != nil {
@@ -609,6 +608,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Println("✓ SSH Agent forwarding configured")
 		}
 		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
+	}
+
+	// Extra hosts for Linux (host.docker.internal)
+	if runtime.GOOS == "linux" {
+		override.WriteString("    extra_hosts:\n")
+		override.WriteString("      - \"host.docker.internal:host-gateway\"\n")
 	}
 
 	// Environment variables
