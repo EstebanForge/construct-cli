@@ -82,7 +82,7 @@ func IsRuntimeRunning(runtimeName string) bool {
 		if runtime.GOOS == "darwin" {
 			cmd = exec.Command("podman", "machine", "list")
 		} else {
-			cmd = exec.Command("podman", "info", "--format", "{{.Host.HostSocket.Exists}}")
+			cmd = exec.Command("podman", "info", "--format", "{{.Host.RemoteSocket.Exists}}")
 		}
 	case "docker":
 		// Check if docker daemon is responding
