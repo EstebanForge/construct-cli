@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -26,6 +27,8 @@ const (
 	ContainerStateExited  ContainerState = "exited"
 	ContainerStateMissing ContainerState = "missing"
 )
+
+var attemptedOwnershipFix bool
 
 // DetectRuntime selects an available container runtime.
 func DetectRuntime(preferredEngine string) string {
@@ -755,7 +758,44 @@ func warnConfigPermission(err error, configPath string) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "Warning: Config directory is not writable: %s\n", configPath)
-	fmt.Fprintf(os.Stderr, "Warning: Fix ownership with: chown -R $USER %s\n", configPath)
+	fmt.Fprintf(os.Stderr, "%sWarning: Fix ownership with: sudo chown -R $USER:$USER %s%s\n", ui.ColorYellow, configPath, ui.ColorReset)
+	if runtime.GOOS != "linux" || attemptedOwnershipFix {
+		return
+	}
+	attemptedOwnershipFix = true
+	if !ui.GumConfirm(fmt.Sprintf("Attempt to fix ownership now with sudo? (%s)", configPath)) {
+		return
+	}
+	if err := runOwnershipFix(configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Ownership fix failed: %v\n", err)
+	} else if ui.GumAvailable() {
+		ui.GumSuccess("Ownership fixed")
+	} else {
+		fmt.Println("✅ Ownership fixed")
+	}
+}
+
+func runOwnershipFix(configPath string) error {
+	username := currentUserName()
+	if username == "" {
+		username = "root"
+	}
+	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%s:%s", username, username), configPath)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func currentUserName() string {
+	if userName := os.Getenv("USER"); userName != "" {
+		return userName
+	}
+	current, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	return current.Username
 }
 
 // ExecInContainer executes a command in a running container
