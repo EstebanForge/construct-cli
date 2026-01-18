@@ -12,6 +12,8 @@ All notable changes to Construct CLI will be documented in this file.
 - **SELinux Home Relabeling**: Skip `:z` labels when running from the home directory to avoid relabel errors.
 - **Config Write Guidance**: Emit clearer permission warnings when config-generated files cannot be written.
 
+---
+
 ## [0.15.2] - 2026-01-15
 
 ### Added
