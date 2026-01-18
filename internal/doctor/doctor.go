@@ -181,6 +181,47 @@ func Run() {
 	}
 	checks = append(checks, configCheck)
 
+	// 4.5 Config Permissions Check (Linux/WSL)
+	if runtime.GOOS == "linux" {
+		permCheck := CheckResult{Name: "Config Permissions"}
+		configDir := config.GetConfigDir()
+		paths := []string{
+			filepath.Join(configDir, "home"),
+			filepath.Join(configDir, "container"),
+		}
+		missing := false
+		notWritable := false
+		for _, path := range paths {
+			if _, err := os.Stat(path); err != nil {
+				if os.IsNotExist(err) {
+					missing = true
+					permCheck.Details = append(permCheck.Details, fmt.Sprintf("Missing: %s", path))
+					continue
+				}
+				notWritable = true
+				permCheck.Details = append(permCheck.Details, fmt.Sprintf("Error: %s (%v)", path, err))
+				continue
+			}
+			if ok, err := isWritableDir(path); !ok {
+				notWritable = true
+				permCheck.Details = append(permCheck.Details, fmt.Sprintf("Not writable: %s (%v)", path, err))
+			}
+		}
+		if missing {
+			permCheck.Status = CheckStatusWarning
+			permCheck.Message = "Config directories missing"
+			permCheck.Suggestion = "Run 'construct sys init' or 'construct sys migrate'"
+		} else if notWritable {
+			permCheck.Status = CheckStatusWarning
+			permCheck.Message = "Config directories not writable"
+			permCheck.Suggestion = "Fix ownership: sudo chown -R $USER:$USER ~/.config/construct-cli/home ~/.config/construct-cli/container"
+		} else {
+			permCheck.Status = CheckStatusOK
+			permCheck.Message = "Config directories writable"
+		}
+		checks = append(checks, permCheck)
+	}
+
 	// 5. Setup Log Check
 	setupCheck := CheckResult{Name: "Setup Log"}
 	logDir := filepath.Join(config.GetConfigDir(), "logs")
@@ -443,4 +484,20 @@ func printCheckResult(check CheckResult) {
 	if check.Suggestion != "" {
 		fmt.Printf("%s  → Suggestion: %s%s\n", ui.ColorYellow, check.Suggestion, ui.ColorReset)
 	}
+}
+
+func isWritableDir(path string) (bool, error) {
+	f, err := os.CreateTemp(path, ".construct-doctor-*")
+	if err != nil {
+		return false, err
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return false, err
+	}
+	if err := os.Remove(name); err != nil {
+		return false, err
+	}
+	return true, nil
 }
