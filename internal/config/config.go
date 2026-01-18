@@ -40,6 +40,7 @@ type SandboxConfig struct {
 	PropagateGitIdentity bool   `toml:"propagate_git_identity"`
 	Shell                string `toml:"shell"`
 	ClipboardHost        string `toml:"clipboard_host"`
+	SelinuxLabels        string `toml:"selinux_labels"`
 }
 
 // NetworkConfig holds network allow/block settings.

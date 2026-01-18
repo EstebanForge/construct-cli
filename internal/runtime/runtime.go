@@ -2,6 +2,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -461,20 +462,28 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load packages configuration: %v\n", err)
 	} else {
+		containerDir := config.GetContainerDir()
+		if err := os.MkdirAll(containerDir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
+			warnConfigPermission(err, configPath)
+		}
 		script := pkgs.GenerateInstallScript()
-		scriptPath := filepath.Join(config.GetContainerDir(), "install_user_packages.sh")
+		scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
 		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
+			warnConfigPermission(err, configPath)
 		}
 
 		topgradeConfig := pkgs.GenerateTopgradeConfig()
 		topgradeDir := filepath.Join(configPath, "home", ".config")
 		if err := os.MkdirAll(topgradeDir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
+			warnConfigPermission(err, configPath)
 		} else {
 			topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
 			if err := os.WriteFile(topgradePath, []byte(topgradeConfig), 0644); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade configuration: %v\n", err)
+				warnConfigPermission(err, configPath)
 			}
 		}
 	}
@@ -548,11 +557,22 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	override.WriteString("services:\n  construct-box:\n")
 	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
 
+	// Load config to check preferences (SSH agent, Git identity, SELinux labels)
+	cfg, _, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config during runtime preparation: %v\n", err)
+	}
+
 	// Determine SELinux suffix
-	selinuxSuffix := ""
-	if IsSELinuxEnabled() {
-		selinuxSuffix = ":z"
-		fmt.Println("✓ SELinux detected - volume mounts configured with :z labels")
+	selinuxSuffix := selinuxSuffixFromConfig(cfg)
+	if selinuxSuffix != "" {
+		fmt.Println("✓ SELinux labels enabled for volume mounts")
+	}
+	projectSelinuxSuffix := selinuxSuffix
+	if selinuxSuffix != "" && isHomeCwd() {
+		projectSelinuxSuffix = ""
+		fmt.Println("Warning: SELinux relabeling of home directory is not allowed; skipping :z for project mount")
+		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
 	}
 
 	// Linux-specific: UID/GID mapping
@@ -579,23 +599,18 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	switch runtime.GOOS {
 	case "linux":
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
-		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
+		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	case "darwin":
-		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, selinuxSuffix)
+		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 
 	// SSH Agent Forwarding
-	// Load config to check preference
-	cfg, _, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load config during runtime preparation: %v\n", err)
-	}
 	forwardAgent := true
 	if cfg != nil {
 		forwardAgent = cfg.Sandbox.ForwardSSHAgent
@@ -678,6 +693,64 @@ func IsSELinuxEnabled() bool {
 
 	status := strings.TrimSpace(string(output))
 	return status == "Enforcing" || status == "Permissive"
+}
+
+func selinuxSuffixFromConfig(cfg *config.Config) string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+
+	mode := "auto"
+	if cfg != nil {
+		mode = strings.TrimSpace(strings.ToLower(cfg.Sandbox.SelinuxLabels))
+	}
+
+	switch mode {
+	case "", "auto":
+		if IsSELinuxEnabled() {
+			return ":z"
+		}
+		return ""
+	case "enabled", "true", "yes", "on":
+		return ":z"
+	case "disabled", "false", "no", "off":
+		return ""
+	default:
+		fmt.Fprintf(os.Stderr, "Warning: Unknown sandbox.selinux_labels value: %s (using auto)\n", mode)
+		if IsSELinuxEnabled() {
+			return ":z"
+		}
+		return ""
+	}
+}
+
+func isHomeCwd() bool {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return false
+	}
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	return samePath(cwd, homeDir)
+}
+
+func samePath(a, b string) bool {
+	a = filepath.Clean(a)
+	b = filepath.Clean(b)
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+func warnConfigPermission(err error, configPath string) {
+	if !errors.Is(err, os.ErrPermission) {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "Warning: Config directory is not writable: %s\n", configPath)
+	fmt.Fprintf(os.Stderr, "Warning: Fix ownership with: chown -R $USER %s\n", configPath)
 }
 
 // ExecInContainer executes a command in a running container

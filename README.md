@@ -166,6 +166,7 @@ update_check_interval = 86400  # seconds (24 hours)
 
 [sandbox]
 mount_home = false # keep false unless you really need your whole home dir (dangerous)
+selinux_labels = "auto" # auto | enabled | disabled
 shell = "/bin/bash"
 clipboard_host = "host.docker.internal"
 
@@ -358,7 +359,7 @@ API_TIMEOUT_MS = "3000000"
 ## Troubleshooting
 - **"No container runtime found"**: Install Docker Desktop/OrbStack on macOS, Podman/Docker on Linux. Ensure macOS is 26+ for the native runtime use.
 - **Build is slow**: First sys init install can take several minutes; check logs under `~/.config/construct-cli/logs/`. Be patient.
-- **SELinux volume issues (Linux)**: `docker-compose.override.yml` adds `:z` automatically; if problems persist, verify SELinux policies or temporarily relax them during testing.
+- **SELinux volume issues (Linux)**: `docker-compose.override.yml` adds `:z` automatically; if problems persist, set `sandbox.selinux_labels = "disabled"` in `config.toml` or verify SELinux policies.
 
 ## Security & Build Integrity
 
