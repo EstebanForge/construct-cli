@@ -292,7 +292,6 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	// Actually BuildComposeCommand takes subCommand as argument.
 
 	runArgs := []string{"--rm", "-T", "construct-box", "true"}
-	runArgs = append(runtime.GetPlatformRunFlags(), runArgs...)
 
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runArgs)
 	if err != nil {
@@ -519,9 +518,6 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			runFlags = append(runFlags, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
 		}
 	}
-
-	// Add platform-specific flags (e.g. --add-host on Linux)
-	runFlags = append(runFlags, runtime.GetPlatformRunFlags()...)
 
 	// Inject clipboard env vars
 	if cbServer != nil {
