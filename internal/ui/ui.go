@@ -95,6 +95,41 @@ func GetGumCommand(args ...string) *exec.Cmd {
 	return cmd
 }
 
+// IsTerminal checks if stdout is a terminal (TTY)
+func IsTerminal() bool {
+	// Check file info of stdout - character devices are terminals
+	fi, err := os.Stdout.Stat()
+	if err != nil {
+		return false
+	}
+	return (fi.Mode() & os.ModeCharDevice) != 0
+}
+
+// UseSimpleProgress returns true if we should use simple progress (no spinner)
+// This is used when:
+// - CONSTRUCT_SIMPLE_PROGRESS=1 is set
+// - Output is not a TTY
+// - Terminal doesn't support ANSI codes
+func UseSimpleProgress() bool {
+	// Check environment variable
+	if os.Getenv("CONSTRUCT_SIMPLE_PROGRESS") == "1" {
+		return true
+	}
+
+	// Check if output is a terminal
+	if !IsTerminal() {
+		return true
+	}
+
+	// Check TERM variable - dumb terminals don't support ANSI
+	term := os.Getenv("TERM")
+	if term == "" || term == "dumb" {
+		return true
+	}
+
+	return false
+}
+
 // GumSpinner runs a function with a spinner if Gum is available
 func GumSpinner(title string, fn func() []string) []string {
 	if !GumAvailable() {
@@ -183,12 +218,47 @@ func RunCommandWithSpinner(cmd *exec.Cmd, title string, logFile *os.File) error 
 	ticker := time.NewTicker(80 * time.Millisecond) // Smooth animation
 	defer ticker.Stop()
 
-	// If not a TTY or gum not available, simpler output
-	// Simplified check
-	isTTY := os.Getenv("TERM") != ""
-	if !isTTY {
-		fmt.Println(title)
-		return <-done
+	// If simple progress mode, use dots instead of spinner
+	if UseSimpleProgress() {
+		fmt.Printf("%s", title)
+		fmt.Printf(" ")
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		dotCount := 0
+
+		for {
+			select {
+			case err := <-done:
+				fmt.Println() // End the dots line
+				return err
+			case <-input:
+				// User pressed Enter: Peek logs
+				fmt.Println() // End the dots line
+				fmt.Printf("--- Log Snapshot (Last 10 lines) ---\n")
+
+				if logFile != nil {
+					tailCmd := exec.Command("tail", "-n", "10", logFile.Name())
+					output, err := tailCmd.CombinedOutput()
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
+					}
+					fmt.Print(string(output))
+				} else {
+					fmt.Println("(No log file)")
+				}
+				fmt.Println("------------------------------------")
+				// Restart dots
+				fmt.Printf("%s ", title)
+				dotCount = 0
+			case <-ticker.C:
+				fmt.Printf(".")
+				dotCount++
+				if dotCount%50 == 0 {
+					fmt.Printf("\n%s ", title) // New line every 50 dots
+					dotCount = 0
+				}
+			}
+		}
 	}
 
 	for {
