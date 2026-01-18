@@ -4,6 +4,7 @@ package migration
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -372,10 +373,12 @@ func forceEntrypointRun() {
 	forcePath := filepath.Join(config.GetConfigDir(), "home", ".local", ".force_entrypoint")
 	if err := os.MkdirAll(filepath.Dir(forcePath), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to ensure entrypoint flag dir: %v\n", err)
+		warnConfigPermission(err)
 		return
 	}
 	if err := os.WriteFile(forcePath, []byte("1\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to write entrypoint flag: %v\n", err)
+		warnConfigPermission(err)
 	}
 }
 
@@ -389,6 +392,7 @@ func regenerateTopgradeConfig() {
 	topgradeDir := filepath.Join(config.GetConfigDir(), "home", ".config")
 	if err := os.MkdirAll(topgradeDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
+		warnConfigPermission(err)
 		return
 	}
 
@@ -396,6 +400,7 @@ func regenerateTopgradeConfig() {
 	topgradeConfig := pkgs.GenerateTopgradeConfig()
 	if err := os.WriteFile(topgradePath, []byte(topgradeConfig), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade config: %v\n", err)
+		warnConfigPermission(err)
 		return
 	}
 
@@ -404,6 +409,18 @@ func regenerateTopgradeConfig() {
 	} else {
 		fmt.Println("  ✓ Topgrade configuration regenerated")
 	}
+}
+
+func warnConfigPermission(err error) {
+	if !errors.Is(err, os.ErrPermission) {
+		return
+	}
+	configPath := config.GetConfigDir()
+	fmt.Fprintf(os.Stderr, "Warning: Config directory is not writable: %s\n", configPath)
+	fmt.Fprintf(os.Stderr, "Warning: Fix ownership with: sudo chown -R $USER:$USER %s %s\n",
+		filepath.Join(configPath, "home"),
+		filepath.Join(configPath, "container"),
+	)
 }
 
 // mergeConfigFile replaces config.toml with the template and reapplies user values.
