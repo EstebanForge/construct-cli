@@ -2,10 +2,11 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.15.4] - 2026-01-18
+## [0.15.5] - 2026-01-18
 
 ### Added
 - **SELinux Label Control**: Added `sandbox.selinux_labels` config to enable, disable, or auto-detect SELinux mount labels.
+- **Doctor Ownership Check**: Added a Linux/WSL config permissions check with a `chown` fix suggestion for `~/.config/construct-cli`.
 
 ### Fixed
 - **SELinux Home Relabeling**: Skip `:z` labels when running from the home directory to avoid relabel errors.
