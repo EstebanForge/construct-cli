@@ -25,6 +25,9 @@ forward_ssh_agent = true
 # Automatically propagate host Git identity (user.name/email) to container (default: true)
 propagate_git_identity = true
 
+# SELinux mount labels on Linux: "auto" | "enabled" | "disabled"
+selinux_labels = "auto"
+
 # Default shell inside the container
 shell = "/bin/bash"
 
