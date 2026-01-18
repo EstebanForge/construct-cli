@@ -11,7 +11,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
@@ -766,15 +765,20 @@ func ensureConfigPermissions(configPath string) error {
 		return nil
 	}
 
+	// Already attempted fix this session
+	if attemptedOwnershipFix {
+		return nil
+	}
+
 	// Check critical directories that need to be writable
-	paths := []string{
+	checkPaths := []string{
 		filepath.Join(configPath, "home"),
 		filepath.Join(configPath, "container"),
 	}
 
 	// Check if any directory is not writable
-	needsFix := false
-	for _, path := range paths {
+	var problemPaths []string
+	for _, path := range checkPaths {
 		// Skip if directory doesn't exist yet (will be created with correct ownership)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			continue
@@ -783,46 +787,52 @@ func ensureConfigPermissions(configPath string) error {
 		// Try to create a test file to check writability
 		testFile := filepath.Join(path, ".construct-write-test")
 		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-			needsFix = true
-			break
+			problemPaths = append(problemPaths, path)
+			continue
 		}
 		// Ignore cleanup errors - we're just testing writability
 		//nolint:errcheck
 		os.Remove(testFile)
 	}
 
-	if !needsFix {
+	if len(problemPaths) == 0 {
 		return nil
 	}
 
-	// Permission issue detected - attempt to fix automatically
-	currentUser := os.Getenv("USER")
-	if currentUser == "" {
-		// Fallback to checking who owns the parent directory
-		if info, err := os.Stat(filepath.Dir(configPath)); err == nil {
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-				currentUser = strconv.Itoa(int(stat.Uid))
-			}
-		}
+	// Mark that we've attempted a fix this session
+	attemptedOwnershipFix = true
+
+	// Get current user info
+	username := currentUserName()
+	if username == "" {
+		username = "root"
 	}
 
-	fmt.Fprintf(os.Stderr, "Warning: Config directory permissions need fixing\n")
-	fmt.Fprintf(os.Stderr, "Attempting to fix ownership automatically...\n")
+	// Explain the problem clearly
+	fmt.Fprintf(os.Stderr, "\n%sWarning: Config directory has incorrect ownership%s\n", ui.ColorYellow, ui.ColorReset)
+	fmt.Fprintf(os.Stderr, "The following directories are not writable by your user (%s):\n", username)
+	for _, p := range problemPaths {
+		fmt.Fprintf(os.Stderr, "  • %s\n", p)
+	}
+	fmt.Fprintf(os.Stderr, "\nThis typically happens when the container created files as a different user.\n")
+	fmt.Fprintf(os.Stderr, "Fix: %ssudo chown -R %s:%s %s%s\n\n", ui.ColorCyan, username, username, configPath, ui.ColorReset)
 
-	// Build chown command to fix all paths at once
-	args := make([]string, 0, 3+len(paths))
-	args = append(args, "chown", "-R", currentUser+":"+currentUser)
-	args = append(args, paths...)
-
-	cmd := exec.Command("sudo", args...)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to fix ownership (you may need to run: sudo chown -R $USER:$USER %s): %w", configPath, err)
+	// Ask for confirmation before running sudo
+	if !ui.GumConfirm("Attempt to fix ownership now with sudo?") {
+		fmt.Fprintf(os.Stderr, "Skipping automatic fix. You can run the command manually.\n")
+		return nil
 	}
 
-	fmt.Fprintf(os.Stderr, "✓ Config directory permissions fixed\n")
+	// Fix the entire config path to catch all files
+	if err := runOwnershipFix(configPath); err != nil {
+		return fmt.Errorf("failed to fix ownership: %w", err)
+	}
+
+	if ui.GumAvailable() {
+		ui.GumSuccess("Config directory ownership fixed")
+	} else {
+		fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+	}
 	return nil
 }
 
