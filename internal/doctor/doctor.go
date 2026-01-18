@@ -214,7 +214,7 @@ func Run() {
 		} else if notWritable {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config directories not writable"
-			permCheck.Suggestion = "Fix ownership: sudo chown -R $USER:$USER ~/.config/construct-cli/home ~/.config/construct-cli/container"
+			permCheck.Suggestion = "Fix ownership: sudo chown -R $USER:$USER ~/.config/construct-cli"
 		} else {
 			permCheck.Status = CheckStatusOK
 			permCheck.Message = "Config directories writable"
