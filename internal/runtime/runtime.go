@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
@@ -446,6 +447,11 @@ func GetCheckImageCommand(containerRuntime string) []string {
 // - Creates custom network for strict mode if needed
 // - Generates docker-compose override for OS-specific settings and network isolation
 func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
+	// Fix config directory permissions if needed (Linux/WSL only)
+	if err := ensureConfigPermissions(configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to fix config permissions: %v\n", err)
+	}
+
 	// Ensure custom network exists for strict mode
 	if cfg.Network.Mode == "strict" {
 		if err := EnsureCustomNetwork(containerRuntime); err != nil {
@@ -751,6 +757,73 @@ func samePath(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
+}
+
+// ensureConfigPermissions checks and fixes config directory ownership on Linux
+func ensureConfigPermissions(configPath string) error {
+	// Only needed on Linux where we mount volumes with potential UID mismatches
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
+	// Check critical directories that need to be writable
+	paths := []string{
+		filepath.Join(configPath, "home"),
+		filepath.Join(configPath, "container"),
+	}
+
+	// Check if any directory is not writable
+	needsFix := false
+	for _, path := range paths {
+		// Skip if directory doesn't exist yet (will be created with correct ownership)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			continue
+		}
+
+		// Try to create a test file to check writability
+		testFile := filepath.Join(path, ".construct-write-test")
+		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+			needsFix = true
+			break
+		}
+		// Ignore cleanup errors - we're just testing writability
+		//nolint:errcheck
+		os.Remove(testFile)
+	}
+
+	if !needsFix {
+		return nil
+	}
+
+	// Permission issue detected - attempt to fix automatically
+	currentUser := os.Getenv("USER")
+	if currentUser == "" {
+		// Fallback to checking who owns the parent directory
+		if info, err := os.Stat(filepath.Dir(configPath)); err == nil {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				currentUser = strconv.Itoa(int(stat.Uid))
+			}
+		}
+	}
+
+	fmt.Fprintf(os.Stderr, "Warning: Config directory permissions need fixing\n")
+	fmt.Fprintf(os.Stderr, "Attempting to fix ownership automatically...\n")
+
+	// Build chown command to fix all paths at once
+	args := make([]string, 0, 3+len(paths))
+	args = append(args, "chown", "-R", currentUser+":"+currentUser)
+	args = append(args, paths...)
+
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to fix ownership (you may need to run: sudo chown -R $USER:$USER %s): %w", configPath, err)
+	}
+
+	fmt.Fprintf(os.Stderr, "✓ Config directory permissions fixed\n")
+	return nil
 }
 
 func warnConfigPermission(err error, configPath string) {
