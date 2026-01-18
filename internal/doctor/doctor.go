@@ -493,7 +493,9 @@ func isWritableDir(path string) (bool, error) {
 	}
 	name := f.Name()
 	if err := f.Close(); err != nil {
-		_ = os.Remove(name)
+		if removeErr := os.Remove(name); removeErr != nil {
+			return false, fmt.Errorf("close temp file: %w (cleanup failed: %v)", err, removeErr)
+		}
 		return false, err
 	}
 	if err := os.Remove(name); err != nil {
