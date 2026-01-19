@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.15.7] - 2026-01-18
+## [0.15.8] - 2026-01-18
 
 ### Added
 - **SELinux Label Control**: Added `sandbox.selinux_labels` config to enable, disable, or auto-detect SELinux mount labels.
@@ -10,6 +10,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Automatic Config Permission Fix**: On Linux/WSL, automatically detect and fix config directory ownership issues before runtime preparation, with clear messaging and user confirmation before running sudo.
 - **Simple Progress Mode**: Added dot-based progress output for non-TTY environments and when `CONSTRUCT_SIMPLE_PROGRESS=1` is set.
 - **Podman Rootless Support**: On Linux, container now runs as user (not root) for proper Podman rootless compatibility. macOS continues to use root with gosu drop.
+- **Truecolor Support**: Forward host `COLORTERM` to container, defaulting to `truecolor` when unset. Fixes washed-out colors over SSH.
 
 ### Fixed
 - **SELinux Home Relabeling**: Skip `:z` labels when running from the home directory to avoid relabel errors.
