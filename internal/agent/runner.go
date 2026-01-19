@@ -526,6 +526,15 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		runFlags = append(runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
 	}
 
+	// Forward COLORTERM for proper color rendering in container
+	// If host has COLORTERM set, respect it; otherwise default to truecolor
+	// Fixes washed-out colors when SSH doesn't forward terminal capabilities
+	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
+		runFlags = append(runFlags, "-e", "COLORTERM="+colorterm)
+	} else {
+		runFlags = append(runFlags, "-e", "COLORTERM=truecolor")
+	}
+
 	// Inject agent name for clipboard behavior tuning.
 	if len(args) > 0 {
 		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
