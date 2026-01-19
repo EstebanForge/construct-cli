@@ -13,7 +13,8 @@ RUN useradd -m -s /bin/bash construct && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password
-RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw" >> /etc/sudoers.d/construct && \
+# Include chown for Podman rootless permission fixes
+RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" >> /etc/sudoers.d/construct && \
     chmod 0440 /etc/sudoers.d/construct
 
 # 2. Install Homebrew for Linux

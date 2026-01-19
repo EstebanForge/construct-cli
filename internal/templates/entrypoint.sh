@@ -40,6 +40,25 @@ if [ "$(id -u)" = "0" ]; then
 
     # Drop privileges and re-run as construct user
     exec gosu construct "$0" "$@"
+else
+    # Non-root mode (Podman rootless) - fix permissions using sudo if available
+    # This handles the case where files were created by root during image build
+    # but we're now running as a non-root user
+    if command -v sudo >/dev/null 2>&1; then
+        # Fix home directory permissions
+        sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
+
+        # Fix Homebrew volume ownership
+        if [ -d /home/linuxbrew/.linuxbrew ]; then
+            sudo chown -R "$(id -u):$(id -g)" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+        fi
+
+        # Fix SSH socket permissions
+        if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
+            sudo chown "$(id -u):$(id -g)" "$SSH_AUTH_SOCK" 2>/dev/null || true
+            chmod 666 "$SSH_AUTH_SOCK" 2>/dev/null || true
+        fi
+    fi
 fi
 
 # SSH Agent Bridge (works as non-root user too)
