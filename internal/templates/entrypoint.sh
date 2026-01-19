@@ -1,89 +1,56 @@
 #!/usr/bin/env bash
 # entrypoint.sh - Install agents and packages on first run only
+# Designed to work with both Docker (may run as root) and Podman rootless (runs as user)
 
 export DEBIAN_FRONTEND=noninteractive
 
-# 0. Root-level permission fixing (if running as root)
+# Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
-    # CRITICAL: Ensure Homebrew volume is owned by construct user
-    # brew/npm MUST run as construct, not as root
-    # This fixes permission errors after updates
+    # Fix Homebrew volume ownership
     if [ -d /home/linuxbrew/.linuxbrew ]; then
         chown -R construct:construct /home/linuxbrew/.linuxbrew 2>/dev/null || true
     fi
 
-    # Fix home directory permissions (in case volume mounts overrode them)
-    # Fix entire home directory to catch .ssh, .bash_aliases, and any other files
+    # Fix home directory permissions
     chown -R construct:construct /home/construct 2>/dev/null || true
 
-    # Fix SSH Agent permissions (critical for macOS/Docker Desktop)
-    if [ -n "$SSH_AUTH_SOCK" ]; then
-        # Check if the socket file exists (it might be a bind mount)
-        if [ -e "$SSH_AUTH_SOCK" ]; then
-            chown construct:construct "$SSH_AUTH_SOCK" || true
-            chmod 666 "$SSH_AUTH_SOCK" || true
-        fi
+    # Fix SSH socket permissions
+    if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
+        chown construct:construct "$SSH_AUTH_SOCK" 2>/dev/null || true
+        chmod 666 "$SSH_AUTH_SOCK" 2>/dev/null || true
     fi
 
-    # SSH Agent Forwarding
-    if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
-        # TCP-to-Unix Bridge (macOS/OrbStack/Docker Desktop reliability)
-        PROXY_SOCK="/home/construct/.ssh/agent.sock"
-        mkdir -p /home/construct/.ssh
-        chown construct:construct /home/construct/.ssh
-        rm -f "$PROXY_SOCK"
+    # Clipboard tool symlinks (these are set up in Dockerfile but may need refresh)
+    ln -sf /usr/local/bin/clipper /usr/bin/xclip 2>/dev/null || true
+    ln -sf /usr/local/bin/clipper /usr/bin/xsel 2>/dev/null || true
+    ln -sf /usr/local/bin/clipper /usr/bin/wl-paste 2>/dev/null || true
 
-        # Bridge local Unix socket -> Host TCP listener
-        socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600,user=construct,group=construct TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
+    # WSL-like paths for Codex fallback
+    mkdir -p /mnt/c 2>/dev/null || true
+    ln -sf /tmp /mnt/c/tmp 2>/dev/null || true
+    ln -sf /projects /mnt/c/projects 2>/dev/null || true
 
-        export SSH_AUTH_SOCK="$PROXY_SOCK"
-        echo "✓ Started SSH Agent proxy"
-    elif [ -n "$SSH_AUTH_SOCK" ]; then
-        # Standard Linux path: just fix permissions
-        if [ -e "$SSH_AUTH_SOCK" ]; then
-            chown construct:construct "$SSH_AUTH_SOCK" || true
-            chmod 666 "$SSH_AUTH_SOCK" || true
-        fi
-    fi
-
-    # Ensure xclip/xsel always point to clipper (packages may overwrite binaries).
-    if [ -f /usr/bin/xclip ] && [ ! -L /usr/bin/xclip ]; then
-        mv /usr/bin/xclip /usr/bin/xclip-real 2>/dev/null || true
-    fi
-    ln -sf /usr/local/bin/clipper /usr/bin/xclip
-
-    if [ -f /usr/bin/xsel ] && [ ! -L /usr/bin/xsel ]; then
-        mv /usr/bin/xsel /usr/bin/xsel-real 2>/dev/null || true
-    fi
-    ln -sf /usr/local/bin/clipper /usr/bin/xsel
-
-    if [ -f /usr/bin/wl-paste ] && [ ! -L /usr/bin/wl-paste ]; then
-        mv /usr/bin/wl-paste /usr/bin/wl-paste-real 2>/dev/null || true
-        ln -sf /usr/local/bin/clipper /usr/bin/wl-paste
-    fi
-
-    # Setup WSL-like paths for Codex fallback
-    mkdir -p /mnt/c
-    ln -sf /tmp /mnt/c/tmp
-    ln -sf /projects /mnt/c/projects
-    chown -R construct:construct /mnt/c 2>/dev/null || true
-
-    # Patch /etc/profile to preserve PATH (prevents bash from resetting our Homebrew paths)
-    # Only patch if not already done (check for our marker comment)
+    # Patch /etc/profile to preserve PATH
     if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
-        # Backup original
-        cp /etc/profile /etc/profile.construct-backup 2>/dev/null || true
-
-        # Comment out the PATH reset block entirely
-        # PATH is always set by docker-compose.yml and this entrypoint, so the reset is not needed
         sed -i '/^if \[ "$(id -u)" -eq 0 \]; then$/,/^export PATH$/ {
             i# Construct: PATH management disabled - PATH is set by docker-compose.yml and entrypoint.sh
             s/^/# /
-        }' /etc/profile
+        }' /etc/profile 2>/dev/null || true
     fi
 
-    # Drop privileges and run the rest of the script as 'construct'
+    # Drop privileges and re-run as construct user
     exec gosu construct "$0" "$@"
+fi
+
+# SSH Agent Bridge (works as non-root user too)
+if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
+    PROXY_SOCK="$HOME/.ssh/agent.sock"
+    mkdir -p "$HOME/.ssh" 2>/dev/null || true
+    chmod 700 "$HOME/.ssh" 2>/dev/null || true
+    rm -f "$PROXY_SOCK"
+    socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
+    export SSH_AUTH_SOCK="$PROXY_SOCK"
+    echo "✓ Started SSH Agent proxy"
 fi
 
 # Ensure all required paths are in PATH

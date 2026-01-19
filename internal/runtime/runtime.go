@@ -582,21 +582,13 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
 	}
 
-	// Linux-specific: UID/GID mapping
+	// Linux-specific: Always run as user (not root) for Podman compatibility
+	// Host-side permission fixes (ensureConfigPermissions) handle ownership before mounting
 	if runtime.GOOS == "linux" {
 		uid := os.Getuid()
 		gid := os.Getgid()
-
-		// If UID is 1000, we skip setting 'user' here to allow entrypoint.sh to run as root first
-		// This enables permission fixups for volumes. entrypoint.sh will then 'gosu construct' (UID 1000).
-		// For non-1000 users, we must map to host UID/GID to ensure workspace access, at the cost of
-		// potentially breaking volume permission fixes (which is a known limitation for now).
-		if uid != 1000 {
-			fmt.Fprintf(&override, "    user: \"%d:%d\"\n", uid, gid)
-			fmt.Printf("✓ Linux UID/GID mapping configured (%d:%d)\n", uid, gid)
-		} else {
-			fmt.Println("✓ Standard UID 1000 detected - enabling permission auto-fix mode")
-		}
+		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", uid, gid)
+		fmt.Printf("✓ Container will run as user %d:%d\n", uid, gid)
 	}
 
 	// Volumes block
