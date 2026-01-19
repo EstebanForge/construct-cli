@@ -13,8 +13,8 @@ if [ "$(id -u)" = "0" ]; then
     fi
 
     # Fix home directory permissions (in case volume mounts overrode them)
-    chown -R construct:construct /home/construct/.local /home/construct/.config 2>/dev/null || true
-    chown construct:construct /home/construct || true
+    # Fix entire home directory to catch .ssh, .bash_aliases, and any other files
+    chown -R construct:construct /home/construct 2>/dev/null || true
 
     # Fix SSH Agent permissions (critical for macOS/Docker Desktop)
     if [ -n "$SSH_AUTH_SOCK" ]; then
