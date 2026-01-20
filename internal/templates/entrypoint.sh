@@ -4,19 +4,30 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
+RUN_AS_USER="construct"
+RUN_AS_CHOWN="construct:construct"
+SKIP_HOME_CHOWN=""
+if [ -n "$CONSTRUCT_HOST_UID" ] && [ -n "$CONSTRUCT_HOST_GID" ]; then
+    RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
+    RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
+    SKIP_HOME_CHOWN="1"
+fi
+
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
     # Fix Homebrew volume ownership
     if [ -d /home/linuxbrew/.linuxbrew ]; then
-        chown -R construct:construct /home/linuxbrew/.linuxbrew 2>/dev/null || true
+        chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
     fi
 
     # Fix home directory permissions
-    chown -R construct:construct /home/construct 2>/dev/null || true
+    if [ -z "$SKIP_HOME_CHOWN" ]; then
+        chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
+    fi
 
     # Fix SSH socket permissions
     if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
-        chown construct:construct "$SSH_AUTH_SOCK" 2>/dev/null || true
+        chown "$RUN_AS_CHOWN" "$SSH_AUTH_SOCK" 2>/dev/null || true
         chmod 666 "$SSH_AUTH_SOCK" 2>/dev/null || true
     fi
 
@@ -39,7 +50,7 @@ if [ "$(id -u)" = "0" ]; then
     fi
 
     # Drop privileges and re-run as construct user
-    exec gosu construct "$0" "$@"
+    exec gosu "$RUN_AS_USER" "$0" "$@"
 else
     # Non-root mode (Podman rootless) - fix permissions using sudo if available
     # This handles the case where files were created by root during image build
