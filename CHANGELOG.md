@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.0.0] - 2026-01-18
+
+### Added
+- **Production Ready**: Marked Construct CLI as production ready.
+
+---
+
 ## [0.15.11] - 2026-01-18
 
 ### Added

@@ -133,6 +133,13 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "    curl -fsSL https://claude.ai/install.sh | bash\n"
 	script += "fi\n\n"
 
+	script += "echo 'Installing Amp CLI...'\n"
+	script += "if [ -x \"/home/construct/.local/bin/amp\" ] || [ -x \"/home/construct/.amp/bin/amp\" ]; then\n"
+	script += "    echo \"Amp already installed; skipping.\"\n"
+	script += "else\n"
+	script += "    curl -fsSL https://ampcode.com/install.sh | bash\n"
+	script += "fi\n\n"
+
 	script += "echo 'Installing imagemagick (required for clipboard)...'\n"
 	script += "brew install imagemagick\n\n"
 

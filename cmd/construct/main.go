@@ -231,6 +231,10 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		agent.RunWithArgs([]string{}, "")
 	case "install-aliases":
 		sys.InstallAliases()
+	case "update-aliases":
+		sys.InstallAliases()
+	case "uninstall-aliases":
+		sys.UninstallAliases()
 	case "version":
 		ui.PrintVersion()
 	case "help":

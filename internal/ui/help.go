@@ -33,6 +33,8 @@ Global Flags:
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
   construct sys install-aliases  # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
+  construct sys update-aliases   # Alias for install-aliases (reinstall/update host aliases)
+  construct sys uninstall-aliases # Remove Construct alias block from your host shell
   construct sys install-packages # Apply changes from packages.toml to the running container
   construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   construct sys migrate          # Re-run migrations to sync config/templates with the binary
@@ -61,7 +63,7 @@ Agent Examples:
   construct shell "run bash script"        # No collision with sys shell
   ct qwen "Fix bugs"                       # Use ct alias
 
-  Available agents: claude, qwen, gemini, opencode, copilot, cline, codex, droid, goose, kilocode, pi
+  Available agents: claude, qwen, gemini, opencode, copilot, cline, codex, droid, goose, kilocode, pi, amp
 
 Network Isolation:
   Set in config.toml [network] section or use --ct-network flag:
@@ -96,6 +98,8 @@ Commands:
   help             # Show this help
   init             # Initialize environment and install agents inside The Construct
   install-aliases  # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
+  update-aliases   # Alias for install-aliases (reinstall/update host aliases)
+  uninstall-aliases # Remove Construct alias block from your host shell
   install-packages # Apply changes from packages.toml to the running container
   login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
   migrate          # Re-run migrations to sync config/templates with the binary
