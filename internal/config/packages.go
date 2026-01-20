@@ -245,6 +245,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	}
 	if len(c.Npm.PostInstall) > 0 {
 		script += "echo 'Running NPM post-install commands...'\n"
+		script += "export NPM_CONFIG_YES=true\n"
 		for _, cmd := range c.Npm.PostInstall {
 			script += cmd + "\n"
 		}
@@ -281,6 +282,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	// Post-install
 	if len(c.PostInstall.Commands) > 0 {
 		script += "echo 'Running post-install commands...'\n"
+		script += "export NPM_CONFIG_YES=true\n"
 		for _, cmd := range c.PostInstall.Commands {
 			script += cmd + "\n"
 		}
