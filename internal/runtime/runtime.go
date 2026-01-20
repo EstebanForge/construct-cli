@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
@@ -458,6 +459,12 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		}
 	}
 
+	containerDir := config.GetContainerDir()
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
+		warnConfigPermission(err, configPath)
+	}
+
 	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
 	projectPath := GetProjectMountPath()
 	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode); err != nil {
@@ -469,7 +476,6 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load packages configuration: %v\n", err)
 	} else {
-		containerDir := config.GetContainerDir()
 		if err := os.MkdirAll(containerDir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
 			warnConfigPermission(err, configPath)
@@ -582,13 +588,15 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
 	}
 
+	hostUID := -1
+	hostGID := -1
 	// Linux-specific: Always run as user (not root) for Podman compatibility
 	// Host-side permission fixes (ensureConfigPermissions) handle ownership before mounting
 	if runtime.GOOS == "linux" {
-		uid := os.Getuid()
-		gid := os.Getgid()
-		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", uid, gid)
-		fmt.Printf("✓ Container will run as user %d:%d\n", uid, gid)
+		hostUID = os.Getuid()
+		hostGID = os.Getgid()
+		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", hostUID, hostGID)
+		fmt.Printf("✓ Container will run as user %d:%d\n", hostUID, hostGID)
 	}
 
 	// Volumes block
@@ -633,6 +641,10 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	// Environment variables
 	override.WriteString("    environment:\n")
+	if runtime.GOOS == "linux" && hostUID >= 0 && hostGID >= 0 {
+		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_UID=%d\n", hostUID)
+		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_GID=%d\n", hostGID)
+	}
 
 	// Propagate Git Identity
 	propagateGit := true
@@ -770,6 +782,7 @@ func ensureConfigPermissions(configPath string) error {
 
 	// Check if any directory is not writable
 	var problemPaths []string
+	var ownedButUnwritable []string
 	for _, path := range checkPaths {
 		// Skip if directory doesn't exist yet (will be created with correct ownership)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -779,7 +792,14 @@ func ensureConfigPermissions(configPath string) error {
 		// Try to create a test file to check writability
 		testFile := filepath.Join(path, ".construct-write-test")
 		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-			problemPaths = append(problemPaths, path)
+			ownerUID, ownerErr := getOwnerUID(path)
+			if ownerErr != nil {
+				problemPaths = append(problemPaths, path)
+			} else if ownerUID != os.Getuid() {
+				problemPaths = append(problemPaths, path)
+			} else {
+				ownedButUnwritable = append(ownedButUnwritable, path)
+			}
 			continue
 		}
 		// Ignore cleanup errors - we're just testing writability
@@ -788,6 +808,13 @@ func ensureConfigPermissions(configPath string) error {
 	}
 
 	if len(problemPaths) == 0 {
+		if len(ownedButUnwritable) > 0 {
+			fmt.Fprintf(os.Stderr, "\n%sWarning: Config directory permissions prevent writing%s\n", ui.ColorYellow, ui.ColorReset)
+			fmt.Fprintf(os.Stderr, "The following directories are owned by you but not writable:\n")
+			for _, p := range ownedButUnwritable {
+				fmt.Fprintf(os.Stderr, "  • %s\n", p)
+			}
+		}
 		return nil
 	}
 
@@ -837,6 +864,10 @@ func warnConfigPermission(err error, configPath string) {
 	if runtime.GOOS != "linux" || attemptedOwnershipFix {
 		return
 	}
+	shouldFix, ownerErr := shouldAttemptOwnershipFix(configPath)
+	if ownerErr == nil && !shouldFix {
+		return
+	}
 	attemptedOwnershipFix = true
 	if !ui.GumConfirm(fmt.Sprintf("Attempt to fix ownership now with sudo? (%s)", configPath)) {
 		return
@@ -848,6 +879,26 @@ func warnConfigPermission(err error, configPath string) {
 	} else {
 		fmt.Println("✅ Ownership fixed")
 	}
+}
+
+func shouldAttemptOwnershipFix(path string) (bool, error) {
+	ownerUID, err := getOwnerUID(path)
+	if err != nil {
+		return false, err
+	}
+	return ownerUID != os.Getuid(), nil
+}
+
+func getOwnerUID(path string) (int, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return -1, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return -1, fmt.Errorf("unsupported file stat for %s", path)
+	}
+	return int(stat.Uid), nil
 }
 
 func runOwnershipFix(configPath string) error {
