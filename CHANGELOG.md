@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [0.15.10] - 2026-01-18
+## [0.15.11] - 2026-01-18
 
 ### Added
 - **SELinux Label Control**: Added `sandbox.selinux_labels` config to enable, disable, or auto-detect SELinux mount labels.
