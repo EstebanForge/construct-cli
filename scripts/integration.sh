@@ -255,6 +255,26 @@ else
     echo "---"
 fi
 
+# Test: uninstall-aliases command
+print_test "uninstall-aliases command"
+UNINSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys uninstall-aliases 2>&1)
+UNINSTALL_EXIT=$?
+if [ "${UNINSTALL_EXIT}" -ne 0 ]; then
+    print_fail "uninstall-aliases command failed with exit code ${UNINSTALL_EXIT}"
+    echo "Output: ${UNINSTALL_OUTPUT}"
+elif ! grep -q "# construct-cli aliases start" "${TOUCH_RC}" && \
+     ! grep -q "alias claude=" "${TOUCH_RC}" && \
+     ! grep -q "cc-zai" "${TOUCH_RC}" && \
+     ! grep -q "# construct-cli aliases end" "${TOUCH_RC}"; then
+    print_pass "uninstall-aliases command removes alias block"
+else
+    print_fail "uninstall-aliases command failed to remove alias block in ${TOUCH_RC}"
+    echo "Exit code: ${UNINSTALL_EXIT}"
+    echo "File content:"
+    cat "${TOUCH_RC}" || echo "(file empty or missing)"
+    echo "---"
+fi
+
 # Summary
 echo ""
 echo "======================================"

@@ -17,7 +17,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Agent Browser**: Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
 - **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages. Some utilities included by default: `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` among others. For full list of available packages, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
-- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases`, and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
+- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases` (or `construct sys update-aliases`), and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
 - **Parallel Agents Workflows** supported: Seamless Git worktree management for parallel AI agent workflows, thanks to [Worktrunk Integration](https://worktrunk.dev/) out of the box.
 
 ## Screenshots
@@ -31,6 +31,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 
 - **Claude Code** (`claude`) – Full-code agent with strong editing/refactoring.
 - **Gemini CLI** (`gemini`) – Google Gemini models with CLI UX.
+- **Amp CLI** (`amp`) – Amp agent CLI.
 - **Qwen Code** (`qwen`) – Alibaba Qwen models tuned for coding.
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot with terminal helpers.
 - **OpenCode** (`opencode`) – General code assistant.
@@ -76,6 +77,12 @@ ct sys install-packages
 
 # Install host aliases for seamless agent access (claude, gemini, etc.)
 ct sys install-aliases
+
+# Reinstall/update host aliases if they already exist
+ct sys update-aliases
+
+# Remove host aliases from your shell config
+ct sys uninstall-aliases
 
 # Rebuild everything from scratch (cleans volumes, reinstalls)
 ct sys reset

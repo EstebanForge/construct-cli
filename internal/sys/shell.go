@@ -528,6 +528,91 @@ func InstallAliases() {
 	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
 }
 
+// UninstallAliases removes the Construct alias block from the user's shell config.
+func UninstallAliases() {
+	shellInfo, err := getShellInfo()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error determining shell config: %v\n", err)
+		os.Exit(1)
+	}
+	configFile := shellInfo.configFile
+
+	contentBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
+		os.Exit(1)
+	}
+	content := string(contentBytes)
+	aliasesExist := strings.Contains(content, "# construct-cli aliases start")
+
+	if !aliasesExist {
+		if ui.GumAvailable() {
+			ui.GumInfo("No Construct aliases were found to remove.")
+		} else {
+			fmt.Println("No Construct aliases were found to remove.")
+		}
+		return
+	}
+
+	if ui.GumAvailable() {
+		if !ui.GumConfirm("Do you want to remove Construct aliases from your shell config?") {
+			fmt.Println("Canceled.")
+			return
+		}
+	} else {
+		fmt.Print("Do you want to remove Construct aliases from your shell config? [y/N]: ")
+		reader := bufio.NewReader(os.Stdin)
+		response, err := reader.ReadString('\n')
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
+			os.Exit(1)
+		}
+		response = strings.TrimSpace(response)
+		if strings.ToLower(response) != "y" {
+			fmt.Println("Canceled.")
+			return
+		}
+	}
+
+	if err := backupConfigFile(configFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+	}
+
+	startIdx := strings.Index(content, "# construct-cli aliases start")
+	endIdx := strings.Index(content, "# construct-cli aliases end")
+	if startIdx == -1 || endIdx == -1 {
+		fmt.Fprintf(os.Stderr, "Error removing aliases: alias block not found in %s\n", configFile)
+		os.Exit(1)
+	}
+
+	endLineOffset := strings.Index(content[endIdx:], "\n")
+	endLineIdx := endIdx + len("# construct-cli aliases end")
+	if endLineOffset != -1 {
+		endLineIdx = endIdx + endLineOffset + 1
+	}
+	newContent := content[:startIdx] + content[endLineIdx:]
+
+	if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Error removing aliases: %v\n", err)
+		os.Exit(1)
+	}
+
+	if ui.GumAvailable() {
+		ui.GumSuccess(fmt.Sprintf("Removed Construct aliases from %s", configFile))
+	} else {
+		fmt.Printf("✅ Removed Construct aliases from %s\n", configFile)
+	}
+
+	fmt.Println()
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error determining home directory: %v\n", err)
+		os.Exit(1)
+	}
+	displayPath := strings.Replace(configFile, homeDir, "~", 1)
+	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
+}
+
 type nsAlias struct {
 	agent string
 	path  string

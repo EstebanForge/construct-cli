@@ -342,6 +342,7 @@ func AreAgentsInstalled() bool {
 
 	candidates := []string{
 		"claude",
+		"amp",
 		"mcp-cli-ent",
 		"opencode",
 		"gemini",

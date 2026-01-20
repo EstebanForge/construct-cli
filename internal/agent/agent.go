@@ -12,6 +12,7 @@ type Agent struct {
 var SupportedAgents = []Agent{
 	{Name: "Google Gemini", Slug: "gemini", ConfigPath: "/home/construct/.gemini"},
 	{Name: "Claude Code", Slug: "claude", ConfigPath: "/home/construct/.claude"},
+	{Name: "Amp CLI", Slug: "amp", ConfigPath: "/home/construct/.config/amp"},
 	{Name: "Qwen Code", Slug: "qwen", ConfigPath: "/home/construct/.qwen"},
 	{Name: "GitHub Copilot", Slug: "copilot", ConfigPath: "/home/construct/.copilot"},
 	{Name: "OpenCode", Slug: "opencode", ConfigPath: "/home/construct/.config/opencode"},
