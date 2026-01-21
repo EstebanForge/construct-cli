@@ -10,6 +10,16 @@ echo ""
 
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" || true
 
+# Sudo detection: use empty string if root, test if sudo works, otherwise skip
+if [ "$(id -u)" = "0" ]; then
+    SUDO=""
+elif sudo -n true 2>/dev/null; then
+    SUDO="sudo"
+else
+    SUDO=""
+    echo "⚠️  sudo not available - skipping system package updates"
+fi
+
 TOPGRADE_CONFIG="$HOME/.config/topgrade.toml"
 
 if command -v topgrade &> /dev/null; then
@@ -20,9 +30,11 @@ if command -v topgrade &> /dev/null; then
     fi
 else
     echo "topgrade not found, falling back to manual updates..."
-    
-    echo "Updating system packages (apt)..."
-    sudo apt-get update -qq && sudo apt-get -y -qq dist-upgrade && sudo apt-get -y -qq autoremove && sudo apt-get -y -qq autoclean || true
+
+    if [ -n "$SUDO" ] || [ "$(id -u)" = "0" ]; then
+        echo "Updating system packages (apt)..."
+        $SUDO apt-get update -qq && $SUDO apt-get -y -qq dist-upgrade && $SUDO apt-get -y -qq autoremove && $SUDO apt-get -y -qq autoclean || true
+    fi
 
     echo "Updating claude-code..."
     claude update || true

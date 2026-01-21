@@ -76,4 +76,30 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(ClipboardX11Sync, "#!/usr/bin/env bash") {
 		t.Error("clipboard-x11-sync template missing shebang")
 	}
+
+	// Test UpdateAll template
+	if UpdateAll == "" {
+		t.Error("update-all.sh template is empty")
+	}
+	if !strings.Contains(UpdateAll, "#!/usr/bin/env bash") {
+		t.Error("update-all.sh template missing shebang")
+	}
+}
+
+func TestUpdateAllSudoDetection(t *testing.T) {
+	// Verify sudo detection is present (prevents OrbStack PAM issues)
+	if !strings.Contains(UpdateAll, "sudo -n true 2>/dev/null") {
+		t.Error("update-all.sh should test if sudo works non-interactively")
+	}
+	if !strings.Contains(UpdateAll, "SUDO=\"\"") {
+		t.Error("update-all.sh should handle case when sudo unavailable")
+	}
+	// Verify no hardcoded 'sudo apt-get' in the fallback section
+	if strings.Contains(UpdateAll, "sudo apt-get") {
+		t.Error("update-all.sh should not contain hardcoded 'sudo apt-get', should use '$SUDO apt-get'")
+	}
+	// Verify $SUDO variable is used
+	if !strings.Contains(UpdateAll, "$SUDO apt-get") {
+		t.Error("update-all.sh should use '$SUDO apt-get' for privileged operations")
+	}
 }

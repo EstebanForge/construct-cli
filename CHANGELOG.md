@@ -2,7 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.0.0] - 2026-01-18
+## [1.0.1] - 2026-01-21
+
+### Fixed
+- **OrbStack/Podman Sudo Compatibility**: Fixed `sys install-packages` and `sys update` failing with "PAM account management error" in environments where sudo is unavailable or misconfigured (OrbStack, rootless Podman, minimal containers).
+  - Install scripts now detect if running as root (no sudo needed) or test sudo availability before use
+  - Gracefully skips privileged apt operations when sudo unavailable instead of failing
+  - Applies to both `install_user_packages.sh` (generated) and `update-all.sh` (template)
+
+---
+
+## [1.0.0] - 2026-01-20
 
 ### Added
 - **Production Ready**: Marked Construct CLI as production ready.
