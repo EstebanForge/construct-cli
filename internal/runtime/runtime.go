@@ -2,13 +2,17 @@
 package runtime
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
-	"runtime"
+	runtime "runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -16,6 +20,7 @@ import (
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -31,7 +36,7 @@ const (
 
 var attemptedOwnershipFix bool
 
-// DetectRuntime selects an available container runtime.
+// DetectRuntime selects an available container runtime using parallel detection.
 func DetectRuntime(preferredEngine string) string {
 	runtimes := []string{"container", "podman", "docker"}
 
@@ -39,16 +44,17 @@ func DetectRuntime(preferredEngine string) string {
 		runtimes = append([]string{preferredEngine}, runtimes...)
 	}
 
-	// First pass: check if runtime is available
-	for _, rt := range runtimes {
-		if _, err := exec.LookPath(rt); err == nil {
-			if IsRuntimeRunning(rt) {
-				return rt
-			}
-		}
+	// First pass: parallel check if runtime is available and running
+	// Use a short timeout for parallel checks (500ms total)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	result := checkRuntimesParallel(ctx, runtimes, true) // true = check if already running
+	if result != "" {
+		return result
 	}
 
-	// Second pass: try to start runtimes in order
+	// Second pass: try to start runtimes in order (sequential to avoid races)
 	if ui.CurrentLogLevel >= ui.LogLevelInfo {
 		fmt.Fprintln(os.Stderr, "No container runtime running - checking available runtimes...")
 	}
@@ -68,6 +74,56 @@ func DetectRuntime(preferredEngine string) string {
 
 	fmt.Fprintln(os.Stderr, "Error: No container runtime available. Please install Docker, Podman, or use macOS container runtime.")
 	os.Exit(1)
+	return ""
+}
+
+// checkRuntimesParallel checks multiple runtimes in parallel and returns the first one that's ready.
+// If checkRunning is true, only returns runtimes that are already running.
+// If checkRunning is false, returns any runtime that is installed (available in PATH).
+func checkRuntimesParallel(ctx context.Context, runtimes []string, checkRunning bool) string {
+	type runtimeResult struct {
+		name  string
+		ready bool
+	}
+
+	results := make(chan runtimeResult, len(runtimes))
+
+	// Launch goroutines for each runtime check
+	for _, rt := range runtimes {
+		go func(runtimeName string) {
+			result := runtimeResult{name: runtimeName, ready: false}
+
+			// Check if runtime is in PATH
+			if _, err := exec.LookPath(runtimeName); err != nil {
+				results <- result
+				return
+			}
+
+			// Check if runtime is running (if requested)
+			if checkRunning {
+				result.ready = IsRuntimeRunning(runtimeName)
+			} else {
+				result.ready = true // Installed is enough
+			}
+
+			results <- result
+		}(rt)
+	}
+
+	// Wait for first positive result or context timeout
+	for i := 0; i < len(runtimes); i++ {
+		select {
+		case result := <-results:
+			if result.ready {
+				// Found a ready runtime
+				return result.name
+			}
+		case <-ctx.Done():
+			// Timeout - return empty to fall through to sequential startup
+			return ""
+		}
+	}
+
 	return ""
 }
 
@@ -562,15 +618,70 @@ func getProjectMountPathFromDir(dir string) string {
 	return "/projects/" + projectName
 }
 
+// overrideInputs captures all inputs that affect docker-compose.override.yml generation
+type overrideInputs struct {
+	Version        string // Construct CLI version - ensures cache invalidation on upgrades
+	UID            int    // Host user ID (Linux only)
+	GID            int    // Host group ID (Linux only)
+	SELinuxEnabled bool   // SELinux status
+	NetworkMode    string // Network isolation mode
+	GitName        string // Git user.name config
+	GitEmail       string // Git user.email config
+	ProjectPath    string // Project mount path
+	SSHAuthSock    string // SSH agent socket path
+	ForwardSSH     bool   // SSH agent forwarding enabled
+	PropagateGit   bool   // Git identity propagation enabled
+}
+
+// hashOverrideInputs computes a SHA256 hash of override inputs
+func hashOverrideInputs(inputs overrideInputs) string {
+	h := sha256.New()
+	// Hash all inputs in a deterministic order
+	// fmt.Fprintf to hash.Hash cannot error for sha256.New()
+	writeHashString(h, "version:%s", inputs.Version)
+	writeHashString(h, "uid:%d", inputs.UID)
+	writeHashString(h, "gid:%d", inputs.GID)
+	writeHashString(h, "selinux:%v", inputs.SELinuxEnabled)
+	writeHashString(h, "network:%s", inputs.NetworkMode)
+	writeHashString(h, "gitname:%s", inputs.GitName)
+	writeHashString(h, "gitemail:%s", inputs.GitEmail)
+	writeHashString(h, "project:%s", inputs.ProjectPath)
+	writeHashString(h, "sshsock:%s", inputs.SSHAuthSock)
+	writeHashString(h, "forwardssh:%v", inputs.ForwardSSH)
+	writeHashString(h, "propagategit:%v", inputs.PropagateGit)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// writeHashString writes a formatted string to a hash, ignoring errors
+// sha256.Write() never returns an error, so this is safe
+func writeHashString(h io.Writer, format string, a ...interface{}) {
+	//nolint:errcheck // sha256.Write() never returns an error
+	fmt.Fprintf(h, format, a...)
+}
+
+// getOverrideHashPath returns the path to the override hash cache file
+func getOverrideHashPath(configPath string) string {
+	return filepath.Join(configPath, "container", ".override_hash")
+}
+
+// readOverrideHash reads the stored override hash from disk
+func readOverrideHash(configPath string) string {
+	hashPath := getOverrideHashPath(configPath)
+	if data, err := os.ReadFile(hashPath); err == nil {
+		return strings.TrimSpace(string(data))
+	}
+	return ""
+}
+
+// writeOverrideHash stores the override hash to disk
+func writeOverrideHash(configPath, hash string) error {
+	hashPath := getOverrideHashPath(configPath)
+	return os.WriteFile(hashPath, []byte(hash), 0644)
+}
+
 // GenerateDockerComposeOverride creates a docker-compose.override.yml file
+// Uses hash-based caching to skip regeneration when inputs haven't changed
 func GenerateDockerComposeOverride(configPath string, projectPath string, networkMode string) error {
-	var override strings.Builder
-
-	override.WriteString("# Auto-generated docker-compose.override.yml\n")
-	override.WriteString("# This file provides runtime-specific configurations\n\n")
-	override.WriteString("services:\n  construct-box:\n")
-	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
-
 	// Load config to check preferences (SSH agent, Git identity, SELinux labels)
 	cfg, _, err := config.Load()
 	if err != nil {
@@ -579,23 +690,82 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	// Determine SELinux suffix
 	selinuxSuffix := selinuxSuffixFromConfig(cfg)
-	if selinuxSuffix != "" {
+	selinuxEnabled := selinuxSuffix != ""
+
+	// Collect all inputs that affect override generation
+	hostUID := -1
+	hostGID := -1
+	if runtime.GOOS == "linux" {
+		hostUID = os.Getuid()
+		hostGID = os.Getgid()
+	}
+
+	// Get Git identity if enabled
+	gitName := ""
+	gitEmail := ""
+	propagateGit := true
+	if cfg != nil {
+		propagateGit = cfg.Sandbox.PropagateGitIdentity
+	}
+	if propagateGit {
+		gitName = getGitConfig("user.name")
+		gitEmail = getGitConfig("user.email")
+	}
+
+	// SSH agent socket
+	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
+	forwardSSH := true
+	if cfg != nil {
+		forwardSSH = cfg.Sandbox.ForwardSSHAgent
+	}
+	if !forwardSSH {
+		sshAuthSock = "" // Don't include in hash if forwarding disabled
+	}
+
+	// Build override inputs struct
+	inputs := overrideInputs{
+		Version:        constants.Version,
+		UID:            hostUID,
+		GID:            hostGID,
+		SELinuxEnabled: selinuxEnabled,
+		NetworkMode:    networkMode,
+		GitName:        gitName,
+		GitEmail:       gitEmail,
+		ProjectPath:    projectPath,
+		SSHAuthSock:    sshAuthSock,
+		ForwardSSH:     forwardSSH,
+		PropagateGit:   propagateGit,
+	}
+
+	// Check if override needs regeneration
+	currentHash := hashOverrideInputs(inputs)
+	storedHash := readOverrideHash(configPath)
+	if currentHash == storedHash {
+		// Inputs unchanged - skip regeneration
+		return nil
+	}
+
+	// Inputs changed - regenerate override file
+	var override strings.Builder
+
+	override.WriteString("# Auto-generated docker-compose.override.yml\n")
+	override.WriteString("# This file provides runtime-specific configurations\n\n")
+	override.WriteString("services:\n  construct-box:\n")
+	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
+
+	if selinuxEnabled {
 		fmt.Println("✓ SELinux labels enabled for volume mounts")
 	}
 	projectSelinuxSuffix := selinuxSuffix
-	if selinuxSuffix != "" && isHomeCwd() {
+	if selinuxEnabled && isHomeCwd() {
 		projectSelinuxSuffix = ""
 		fmt.Println("Warning: SELinux relabeling of home directory is not allowed; skipping :z for project mount")
 		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
 	}
 
-	hostUID := -1
-	hostGID := -1
 	// Linux-specific: Always run as user (not root) for Podman compatibility
 	// Host-side permission fixes (ensureConfigPermissions) handle ownership before mounting
 	if runtime.GOOS == "linux" {
-		hostUID = os.Getuid()
-		hostGID = os.Getgid()
 		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", hostUID, hostGID)
 		fmt.Printf("✓ Container will run as user %d:%d\n", hostUID, hostGID)
 	}
@@ -619,16 +789,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	// SSH Agent Forwarding
-	forwardAgent := true
-	if cfg != nil {
-		forwardAgent = cfg.Sandbox.ForwardSSHAgent
-	}
-
-	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
-	if forwardAgent && sshAuthSock != "" {
+	forwardAgent := forwardSSH
+	sshSockPath := sshAuthSock
+	if forwardAgent && sshSockPath != "" {
 		if runtime.GOOS == "linux" {
 			// Standard Linux socket mounting
-			fmt.Fprintf(&override, "      - %s:/ssh-agent%s\n", sshAuthSock, selinuxSuffix)
+			fmt.Fprintf(&override, "      - %s:/ssh-agent%s\n", sshSockPath, selinuxSuffix)
 			fmt.Println("✓ SSH Agent forwarding configured")
 		}
 		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
@@ -648,23 +814,20 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	// Propagate Git Identity
-	propagateGit := true
-	if cfg != nil {
-		propagateGit = cfg.Sandbox.PropagateGitIdentity
-	}
+	propagateGitIdentity := propagateGit
 
-	if propagateGit {
-		if name := getGitConfig("user.name"); name != "" {
+	if propagateGitIdentity {
+		if name := gitName; name != "" {
 			fmt.Fprintf(&override, "      - GIT_AUTHOR_NAME=%s\n", name)
 			fmt.Fprintf(&override, "      - GIT_COMMITTER_NAME=%s\n", name)
 		}
-		if email := getGitConfig("user.email"); email != "" {
+		if email := gitEmail; email != "" {
 			fmt.Fprintf(&override, "      - GIT_AUTHOR_EMAIL=%s\n", email)
 			fmt.Fprintf(&override, "      - GIT_COMMITTER_EMAIL=%s\n", email)
 		}
 	}
 
-	if forwardAgent && sshAuthSock != "" {
+	if forwardAgent && sshSockPath != "" {
 		if runtime.GOOS == "linux" {
 			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
 		}
@@ -691,6 +854,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	overridePath := filepath.Join(configPath, "container", "docker-compose.override.yml")
 	if err := os.WriteFile(overridePath, []byte(override.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write docker-compose.override.yml: %w", err)
+	}
+
+	// Store hash for next time
+	if err := writeOverrideHash(configPath, currentHash); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write override hash: %v\n", err)
 	}
 
 	return nil
@@ -925,7 +1093,7 @@ func currentUserName() string {
 	return current.Username
 }
 
-// ExecInContainer executes a command in a running container
+// ExecInContainer executes a command in a running container and returns output
 func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (string, error) {
 	var cmd *exec.Cmd
 
@@ -946,6 +1114,106 @@ func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (
 	}
 
 	return string(output), nil
+}
+
+// ExecInteractive executes a command interactively in a running container
+// with stdin/stdout/stderr passed through. Returns the exit code.
+func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, envVars []string) (int, error) {
+	var cmd *exec.Cmd
+
+	// Build exec args with -it for interactive + tty
+	// Preallocate capacity for: "exec", "-it" + env vars + container name + cmd args
+	capacity := 2 + (2 * len(envVars)) + 1 + len(cmdArgs)
+	args := make([]string, 0, capacity)
+	args = append(args, "exec", "-it")
+
+	// Add environment variables
+	for _, env := range envVars {
+		args = append(args, "-e", env)
+	}
+
+	args = append(args, containerName)
+	args = append(args, cmdArgs...)
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", args...)
+	case "podman":
+		cmd = exec.Command("podman", args...)
+	default:
+		return 1, fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), nil
+		}
+		return 1, fmt.Errorf("failed to exec in container: %w", err)
+	}
+
+	return 0, nil
+}
+
+// GetContainerImageID returns the image ID that a container is using
+func GetContainerImageID(containerRuntime, containerName string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "inspect", "--format", "{{.Image}}", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "inspect", "--format", "{{.Image}}", containerName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get container image ID: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// GetImageID returns the ID of an image by name
+func GetImageID(containerRuntime, imageName string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "image", "inspect", "--format", "{{.Id}}", imageName)
+	case "podman":
+		cmd = exec.Command("podman", "image", "inspect", "--format", "{{.Id}}", imageName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to get image ID: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// IsContainerStale checks if a container is running an outdated image
+func IsContainerStale(containerRuntime, containerName, imageName string) bool {
+	containerImageID, err := GetContainerImageID(containerRuntime, containerName)
+	if err != nil {
+		return true // Assume stale if we can't check
+	}
+
+	currentImageID, err := GetImageID(containerRuntime, imageName)
+	if err != nil {
+		return true // Assume stale if we can't check
+	}
+
+	return containerImageID != currentImageID
 }
 
 // GetContainerState checks the state of a container

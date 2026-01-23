@@ -230,3 +230,124 @@ mode = "permissive"
 		_ = toml.Unmarshal(testConfig, &config)
 	}
 }
+
+// TestConfigModificationPersistence verifies that config modifications
+// (via Save()) are reflected in subsequent Load() calls.
+//
+// This is a regression test to ensure that global caching (e.g., sync.Once)
+// is NOT implemented, as config is modified during runtime via network commands.
+// See PERFORMANCE.md optimization #6 for details.
+func TestConfigModificationPersistence(t *testing.T) {
+	// Create a temporary config directory
+	tmpDir := t.TempDir()
+
+	// Save original HOME and set temporary
+	origHome := os.Getenv("HOME")
+	defer os.Setenv("HOME", origHome)
+	os.Setenv("HOME", tmpDir)
+
+	// Create all required directories and files (to avoid Init() running)
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	homeDir := filepath.Join(configDir, "home")
+
+	for _, dir := range []string{configDir, containerDir, homeDir} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatalf("Failed to create dir: %v", err)
+		}
+	}
+
+	// Write required files to prevent Init() from running
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+		"powershell.exe":        "binary\n",
+		"config.toml":           "[runtime]\nengine = \"docker\"\n\n[sandbox]\n\n[network]\nmode = \"permissive\"\nallowed_domains = []\nallowed_ips = []\nblocked_domains = []\nblocked_ips = []\n\n[agents]\nyolo_all = false\nyolo_agents = []\n\n[daemon]\nauto_start = true\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+	}
+
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("Failed to write %s: %v", file, err)
+		}
+	}
+
+	// Load config - first load
+	cfg1, _, err := Load()
+	if err != nil {
+		t.Fatalf("First Load() failed: %v", err)
+	}
+	// Note: created flag might be true if Init() ran, which is ok for this test
+	// The key is that subsequent loads should get fresh data
+
+	// Verify initial state
+	if cfg1.Network.Mode != "permissive" {
+		t.Errorf("Expected initial mode 'permissive', got '%s'", cfg1.Network.Mode)
+	}
+	if len(cfg1.Network.AllowedDomains) != 0 {
+		t.Errorf("Expected 0 allowed domains initially, got %d", len(cfg1.Network.AllowedDomains))
+	}
+
+	// Modify config (simulating network rule change)
+	cfg1.Network.Mode = "strict"
+	cfg1.Network.AllowedDomains = []string{"*.example.com"}
+	if err := cfg1.Save(); err != nil {
+		t.Fatalf("Failed to save modified config: %v", err)
+	}
+
+	// Load config again - this should get fresh data from disk
+	cfg2, created2, err := Load()
+	if err != nil {
+		t.Fatalf("Second Load() failed: %v", err)
+	}
+	// created2 might be true if Init() ran, that's ok
+	_ = created2
+
+	// Verify that the second Load() reflects the saved changes
+	// This test will FAIL if sync.Once caching is implemented
+	if cfg2.Network.Mode != "strict" {
+		t.Errorf("After Save(), Load() should return mode 'strict', got '%s'", cfg2.Network.Mode)
+	}
+	if len(cfg2.Network.AllowedDomains) != 1 {
+		t.Errorf("After Save(), Load() should return 1 allowed domain, got %d", len(cfg2.Network.AllowedDomains))
+	}
+	if len(cfg2.Network.AllowedDomains) > 0 && cfg2.Network.AllowedDomains[0] != "*.example.com" {
+		t.Errorf("Expected allowed domain '*.example.com', got '%s'", cfg2.Network.AllowedDomains[0])
+	}
+
+	// Additional modification: add blocked domain
+	cfg2.Network.BlockedDomains = []string{"malicious-site.com"}
+	if err := cfg2.Save(); err != nil {
+		t.Fatalf("Failed to save second modification: %v", err)
+	}
+
+	// Third load should get both modifications
+	cfg3, _, err := Load()
+	if err != nil {
+		t.Fatalf("Third Load() failed: %v", err)
+	}
+
+	if cfg3.Network.Mode != "strict" {
+		t.Errorf("Third Load() should preserve mode 'strict', got '%s'", cfg3.Network.Mode)
+	}
+	if len(cfg3.Network.AllowedDomains) != 1 {
+		t.Errorf("Third Load() should preserve 1 allowed domain, got %d", len(cfg3.Network.AllowedDomains))
+	}
+	if len(cfg3.Network.BlockedDomains) != 1 {
+		t.Errorf("Third Load() should have 1 blocked domain, got %d", len(cfg3.Network.BlockedDomains))
+	}
+}

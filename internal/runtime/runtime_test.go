@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestRuntimeDetection tests container runtime detection
@@ -148,5 +150,430 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	}
 	if !strings.Contains(contentStr, "working_dir: "+expectedPath) {
 		t.Errorf("Expected working_dir: %s, got: %s", expectedPath, contentStr)
+	}
+}
+
+// TestContainerStateConstants verifies container state constants exist
+func TestContainerStateConstants(t *testing.T) {
+	// Verify constants are defined and distinct
+	states := []ContainerState{
+		ContainerStateMissing,
+		ContainerStateRunning,
+		ContainerStateExited,
+	}
+
+	seen := make(map[ContainerState]bool)
+	for _, s := range states {
+		if seen[s] {
+			t.Errorf("Duplicate container state value: %v", s)
+		}
+		seen[s] = true
+	}
+}
+
+// TestIsContainerStaleLogic tests the staleness comparison logic
+func TestIsContainerStaleLogic(t *testing.T) {
+	// Test the logic conceptually - we can't easily mock exec.Command
+	// but we can verify the function handles errors correctly
+
+	tests := []struct {
+		name             string
+		containerRuntime string
+		containerName    string
+		imageName        string
+		expectStale      bool
+	}{
+		{
+			name:             "Non-existent container returns stale",
+			containerRuntime: "docker",
+			containerName:    "non-existent-container-xyz123",
+			imageName:        "construct-box:latest",
+			expectStale:      true, // Should return true because container doesn't exist
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := IsContainerStale(tt.containerRuntime, tt.containerName, tt.imageName)
+			if result != tt.expectStale {
+				t.Errorf("Expected stale=%v, got %v", tt.expectStale, result)
+			}
+		})
+	}
+}
+
+// TestExecInContainerUnsupportedRuntime tests error handling for unsupported runtimes
+func TestExecInContainerUnsupportedRuntime(t *testing.T) {
+	_, err := ExecInContainer("unsupported-runtime", "test-container", []string{"echo", "hello"})
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestExecInteractiveUnsupportedRuntime tests error handling for unsupported runtimes
+func TestExecInteractiveUnsupportedRuntime(t *testing.T) {
+	exitCode, err := ExecInteractive("unsupported-runtime", "test-container", []string{"echo"}, nil)
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if exitCode != 1 {
+		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestGetContainerImageIDUnsupportedRuntime tests error handling
+func TestGetContainerImageIDUnsupportedRuntime(t *testing.T) {
+	_, err := GetContainerImageID("unsupported-runtime", "test-container")
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestGetImageIDUnsupportedRuntime tests error handling
+func TestGetImageIDUnsupportedRuntime(t *testing.T) {
+	_, err := GetImageID("unsupported-runtime", "test-image")
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestHashOverrideInputs tests override input hashing
+func TestHashOverrideInputs(t *testing.T) {
+	tests := []struct {
+		name   string
+		inputs overrideInputs
+		sameAs int // Index of test that should produce same hash (-1 if none)
+	}{
+		{
+			name: "Basic inputs",
+			inputs: overrideInputs{
+				Version:        "1.0.0",
+				UID:            1000,
+				GID:            1000,
+				SELinuxEnabled: false,
+				NetworkMode:    "permissive",
+				GitName:        "Test User",
+				GitEmail:       "test@example.com",
+				ProjectPath:    "/projects/test",
+				SSHAuthSock:    "/tmp/ssh-agent",
+				ForwardSSH:     true,
+				PropagateGit:   true,
+			},
+			sameAs: 1,
+		},
+		{
+			name: "Same inputs - should produce same hash",
+			inputs: overrideInputs{
+				Version:        "1.0.0",
+				UID:            1000,
+				GID:            1000,
+				SELinuxEnabled: false,
+				NetworkMode:    "permissive",
+				GitName:        "Test User",
+				GitEmail:       "test@example.com",
+				ProjectPath:    "/projects/test",
+				SSHAuthSock:    "/tmp/ssh-agent",
+				ForwardSSH:     true,
+				PropagateGit:   true,
+			},
+			sameAs: 0,
+		},
+		{
+			name: "Different version",
+			inputs: overrideInputs{
+				Version:        "1.0.1",
+				UID:            1000,
+				GID:            1000,
+				SELinuxEnabled: false,
+				NetworkMode:    "permissive",
+				GitName:        "Test User",
+				GitEmail:       "test@example.com",
+				ProjectPath:    "/projects/test",
+				SSHAuthSock:    "/tmp/ssh-agent",
+				ForwardSSH:     true,
+				PropagateGit:   true,
+			},
+			sameAs: -1,
+		},
+		{
+			name: "Different UID",
+			inputs: overrideInputs{
+				Version:        "1.0.0",
+				UID:            1001,
+				GID:            1000,
+				SELinuxEnabled: false,
+				NetworkMode:    "permissive",
+				GitName:        "Test User",
+				GitEmail:       "test@example.com",
+				ProjectPath:    "/projects/test",
+				SSHAuthSock:    "/tmp/ssh-agent",
+				ForwardSSH:     true,
+				PropagateGit:   true,
+			},
+			sameAs: -1,
+		},
+		{
+			name: "Different network mode",
+			inputs: overrideInputs{
+				Version:        "1.0.0",
+				UID:            1000,
+				GID:            1000,
+				SELinuxEnabled: false,
+				NetworkMode:    "strict",
+				GitName:        "Test User",
+				GitEmail:       "test@example.com",
+				ProjectPath:    "/projects/test",
+				SSHAuthSock:    "/tmp/ssh-agent",
+				ForwardSSH:     true,
+				PropagateGit:   true,
+			},
+			sameAs: -1,
+		},
+	}
+
+	hashes := make([]string, len(tests))
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			hashes[i] = hashOverrideInputs(tt.inputs)
+			if hashes[i] == "" {
+				t.Error("Hash should not be empty")
+			}
+			if len(hashes[i]) != 64 { // SHA256 produces 64 hex characters
+				t.Errorf("Hash should be 64 characters, got %d", len(hashes[i]))
+			}
+		})
+	}
+
+	// Verify that tests marked as "sameAs" produce identical hashes
+	for i, tt := range tests {
+		if tt.sameAs >= 0 && tt.sameAs < len(hashes) {
+			if hashes[i] != hashes[tt.sameAs] {
+				t.Errorf("Test %d (%s) should have same hash as test %d, but got different hashes",
+					i, tt.name, tt.sameAs)
+			}
+		}
+	}
+
+	// Verify that all other hashes are different
+	for i := 0; i < len(hashes); i++ {
+		for j := i + 1; j < len(hashes); j++ {
+			testsI := tests[i]
+			testsJ := tests[j]
+			if testsI.sameAs != j && testsJ.sameAs != i {
+				if hashes[i] == hashes[j] {
+					t.Errorf("Tests %d (%s) and %d (%s) should have different hashes but got same hash: %s",
+						i, tests[i].name, j, tests[j].name, hashes[i])
+				}
+			}
+		}
+	}
+}
+
+// TestGetOverrideHashPath tests hash path generation
+func TestGetOverrideHashPath(t *testing.T) {
+	configPath := "/tmp/test-config"
+	expected := "/tmp/test-config/container/.override_hash"
+	result := getOverrideHashPath(configPath)
+
+	if result != expected {
+		t.Errorf("Expected hash path %s, got %s", expected, result)
+	}
+}
+
+// TestReadOverrideHash tests reading non-existent hash
+func TestReadOverrideHash(t *testing.T) {
+	tmpDir := t.TempDir()
+	hash := readOverrideHash(tmpDir)
+
+	if hash != "" {
+		t.Errorf("Expected empty hash for non-existent file, got '%s'", hash)
+	}
+}
+
+// TestWriteAndReadOverrideHash tests hash persistence
+func TestWriteAndReadOverrideHash(t *testing.T) {
+	tmpDir := t.TempDir()
+	testHash := "a1b2c3d4e5f6"
+
+	// Create container directory (required by writeOverrideHash)
+	containerDir := filepath.Join(tmpDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("Failed to create container directory: %v", err)
+	}
+
+	// Write hash
+	err := writeOverrideHash(tmpDir, testHash)
+	if err != nil {
+		t.Fatalf("Failed to write hash: %v", err)
+	}
+
+	// Read hash back
+	readHash := readOverrideHash(tmpDir)
+	if readHash != testHash {
+		t.Errorf("Expected hash '%s', got '%s'", testHash, readHash)
+	}
+
+	// Verify file exists
+	hashPath := getOverrideHashPath(tmpDir)
+	data, err := os.ReadFile(hashPath)
+	if err != nil {
+		t.Fatalf("Failed to read hash file: %v", err)
+	}
+	content := strings.TrimSpace(string(data))
+	if content != testHash {
+		t.Errorf("Expected file content '%s', got '%s'", testHash, content)
+	}
+}
+
+// TestCheckRuntimesParallel tests parallel runtime detection
+func TestCheckRuntimesParallel(t *testing.T) {
+	tests := []struct {
+		name         string
+		runtimes     []string
+		checkRunning bool
+		expectResult string // empty means any result is acceptable
+		shouldFind   bool   // true if we expect to find at least one runtime
+	}{
+		{
+			name:         "Check running runtimes - all",
+			runtimes:     []string{"container", "podman", "docker"},
+			checkRunning: true,
+			expectResult: "",
+			shouldFind:   false, // Don't enforce - runtime might be running in dev env
+		},
+		{
+			name:         "Check installed runtimes - all",
+			runtimes:     []string{"container", "podman", "docker"},
+			checkRunning: false,
+			expectResult: "",
+			shouldFind:   true, // Should at least find one installed
+		},
+		{
+			name:         "Check non-existent runtime",
+			runtimes:     []string{"nonexistent-runtime-xyz"},
+			checkRunning: false,
+			expectResult: "",
+			shouldFind:   false,
+		},
+		{
+			name:         "Preferred runtime first",
+			runtimes:     []string{"docker", "podman", "container"},
+			checkRunning: false,
+			expectResult: "",
+			shouldFind:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+
+			result := checkRuntimesParallel(ctx, tt.runtimes, tt.checkRunning)
+
+			if tt.shouldFind && result == "" {
+				t.Error("Expected to find at least one runtime, but got none")
+			}
+
+			// Note: We don't enforce !tt.shouldFind -> result == ""
+			// because runtimes might be running in the test environment
+
+			if tt.expectResult != "" && result != tt.expectResult {
+				t.Errorf("Expected runtime '%s', got '%s'", tt.expectResult, result)
+			}
+
+			// Verify result is one of the requested runtimes
+			if result != "" {
+				found := false
+				for _, rt := range tt.runtimes {
+					if result == rt {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Errorf("Result '%s' is not in the requested runtimes: %v", result, tt.runtimes)
+				}
+			}
+		})
+	}
+}
+
+// TestCheckRuntimesParallelTimeout tests that timeout works correctly
+func TestCheckRuntimesParallelTimeout(t *testing.T) {
+	// Very short timeout should cause early return
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
+	defer cancel()
+
+	// This should timeout immediately and return empty
+	result := checkRuntimesParallel(ctx, []string{"docker", "podman", "container"}, false)
+
+	// Result could be empty (timeout) or a runtime (fast response)
+	// The important thing is the function doesn't hang
+	t.Logf("Result from timeout test: %s", result)
+}
+
+// TestDetectRuntimeParallel tests the full DetectRuntime function with parallel detection
+func TestDetectRuntimeParallel(t *testing.T) {
+	// Test with auto detection (should use parallel check)
+	result := detectRuntimeSafe("auto")
+
+	// In a typical test environment, we might not have any runtime
+	// The function will exit if none found, so we catch that
+	if result == "" {
+		t.Skip("No container runtime available in test environment")
+	}
+
+	// Verify result is one of the expected runtimes
+	validRuntimes := map[string]bool{
+		"container": true,
+		"podman":    true,
+		"docker":    true,
+	}
+
+	if !validRuntimes[result] {
+		t.Errorf("Unexpected runtime: %s", result)
+	}
+}
+
+// TestCheckRuntimesParallelPrefersRunning tests that running runtimes are preferred over installed ones
+func TestCheckRuntimesParallelPrefersRunning(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	// Check for running runtimes only
+	runningResult := checkRuntimesParallel(ctx, []string{"docker", "podman", "container"}, true)
+
+	// Check for any installed runtime
+	installedResult := checkRuntimesParallel(ctx, []string{"docker", "podman", "container"}, false)
+
+	// If we found a running runtime, it should also be in the installed list
+	if runningResult != "" && installedResult != "" {
+		// Both should be valid runtimes
+		validRuntimes := map[string]bool{
+			"container": true,
+			"podman":    true,
+			"docker":    true,
+		}
+
+		if !validRuntimes[runningResult] {
+			t.Errorf("Invalid running runtime: %s", runningResult)
+		}
+
+		if !validRuntimes[installedResult] {
+			t.Errorf("Invalid installed runtime: %s", installedResult)
+		}
 	}
 }

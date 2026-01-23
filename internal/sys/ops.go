@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -79,6 +80,14 @@ func UpdateAgents(cfg *config.Config) {
 	// Use helper to run with spinner
 	if err := ui.RunCommandWithSpinner(cmd, "Updating all agents, packages & tools...", logFile); err != nil {
 		os.Exit(1)
+	}
+
+	// Clear entrypoint hash to ensure patching runs for newly updated agents
+	// This is critical for entrypoint caching optimization - without this,
+	// newly installed agents wouldn't get patched for clipboard support
+	entrypointHashPath := filepath.Join(config.GetConfigDir(), "home", ".local", ".entrypoint_hash")
+	if err := os.Remove(entrypointHashPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to clear entrypoint hash: %v\n", err)
 	}
 
 	fmt.Println()

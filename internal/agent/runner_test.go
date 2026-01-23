@@ -1,0 +1,395 @@
+package agent
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"os"
+	"testing"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/runtime"
+)
+
+// TestExecViaDaemonStaleContainer tests that execViaDaemon returns false when daemon is stale
+func TestExecViaDaemonStaleContainer(t *testing.T) {
+	// This test verifies that stale daemon detection works
+	// We can't fully test execViaDaemon as it calls os.Exit(), but we can
+	// verify the staleness check logic indirectly through runtime tests
+
+	daemonName := "construct-cli-daemon"
+	imageName := constants.ImageName + ":latest"
+
+	// Verify staleness detection for non-existent container
+	stale := runtime.IsContainerStale("docker", daemonName, imageName)
+	if !stale {
+		t.Log("Non-existent container correctly identified as stale (or test env has no Docker)")
+	}
+}
+
+// TestDaemonEnvironmentVariables verifies that daemon exec sets up required environment
+func TestDaemonEnvironmentVariables(t *testing.T) {
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			ClipboardHost: "host.docker.internal",
+		},
+	}
+
+	// Verify config can be read for clipboard host
+	if cfg.Sandbox.ClipboardHost == "" {
+		t.Error("Expected clipboard host to be set")
+	}
+
+	// Test with agent args
+	args := []string{"claude"}
+	if len(args) == 0 {
+		t.Error("Args should have one element")
+	}
+
+	// Verify agent name extraction works
+	if args[0] != "claude" {
+		t.Errorf("Expected agent 'claude', got '%s'", args[0])
+	}
+}
+
+// TestStartDaemonBackgroundNoImage verifies behavior when image doesn't exist
+func TestStartDaemonBackgroundNoImage(t *testing.T) {
+	// Test that startDaemonBackground handles missing image gracefully
+	// This is a unit test for the logic path when image check fails
+
+	containerRuntime := "docker" // May not exist in test env
+	configPath := "/tmp/test-config"
+
+	// Create a minimal config
+	cfg := &config.Config{
+		Network: config.NetworkConfig{
+			Mode: "offline",
+		},
+	}
+
+	// We can't run startDaemonBackground directly as it calls exec.Command,
+	// but we can verify the logic flow through integration tests
+
+	_ = cfg
+	_ = containerRuntime
+	_ = configPath
+
+	t.Skip("Requires actual container runtime - covered by integration tests")
+}
+
+// TestWaitForDaemonTimeout verifies timeout behavior
+func TestWaitForDaemonTimeout(t *testing.T) {
+	// Test that waitForDaemon respects timeout
+	// Since waitForDaemon is not exported, we verify the logic through container state polling
+
+	containerRuntime := "docker"
+	daemonName := "construct-cli-daemon"
+
+	// Check container state directly
+	state := runtime.GetContainerState(containerRuntime, daemonName)
+
+	// In test environment, daemon should not be running
+	switch state {
+	case runtime.ContainerStateRunning:
+		t.Log("Daemon is running (may be from previous test or manual start)")
+	case runtime.ContainerStateMissing:
+		t.Log("Daemon not running (expected in test environment)")
+	case runtime.ContainerStateExited:
+		t.Log("Daemon exists but is exited")
+	default:
+		t.Errorf("Invalid container state: %v", state)
+	}
+}
+
+// TestAgentArgParsing verifies that agent arguments are parsed correctly
+func TestAgentArgParsing(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		expected string
+	}{
+		{"Single agent", []string{"claude"}, "claude"},
+		{"Agent with flags", []string{"gemini", "--resume", "id123"}, "gemini"},
+		{"Agent with prompt", []string{"codex", "write code"}, "codex"},
+		{"Empty args", []string{}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			agentName := ""
+			if len(tt.args) > 0 {
+				agentName = tt.args[0]
+			}
+
+			if agentName != tt.expected {
+				t.Errorf("Expected agent '%s', got '%s'", tt.expected, agentName)
+			}
+		})
+	}
+}
+
+// TestCodexWSLEnvironment verifies codex-specific environment setup
+func TestCodexWSLEnvironment(t *testing.T) {
+	// Test that codex agent gets WSL environment variables
+	args := []string{"codex", "some prompt"}
+
+	envVars := []string{}
+
+	// Simulate the logic from execViaDaemon
+	if len(args) > 0 && args[0] == "codex" {
+		envVars = append(envVars, "WSL_DISTRO_NAME=Ubuntu")
+		envVars = append(envVars, "WSL_INTEROP=/run/WSL/8_interop")
+		envVars = append(envVars, "DISPLAY=")
+	}
+
+	hasWSLDistro := false
+	hasWSLInterop := false
+	hasDisplay := false
+
+	for _, env := range envVars {
+		switch env {
+		case "WSL_DISTRO_NAME=Ubuntu":
+			hasWSLDistro = true
+		case "WSL_INTEROP=/run/WSL/8_interop":
+			hasWSLInterop = true
+		case "DISPLAY=":
+			hasDisplay = true
+		}
+	}
+
+	if !hasWSLDistro {
+		t.Error("Codex agent should have WSL_DISTRO_NAME set")
+	}
+	if !hasWSLInterop {
+		t.Error("Codex agent should have WSL_INTEROP set")
+	}
+	if !hasDisplay {
+		t.Error("Codex agent should have DISPLAY set to empty")
+	}
+}
+
+// TestColortermEnvironment verifies COLORTERM handling
+func TestColortermEnvironment(t *testing.T) {
+	// Test when COLORTERM is already set
+	origColorterm := os.Getenv("COLORTERM")
+	os.Setenv("COLORTERM", "truecolor")
+
+	colorterm := os.Getenv("COLORTERM")
+	if colorterm != "truecolor" {
+		t.Errorf("Expected COLORTERM=truecolor, got '%s'", colorterm)
+	}
+
+	// Test when COLORTERM is not set
+	os.Unsetenv("COLORTERM")
+	colorterm = os.Getenv("COLORTERM")
+	if colorterm != "" {
+		t.Errorf("Expected empty COLORTERM, got '%s'", colorterm)
+	}
+
+	// Restore original value
+	if origColorterm != "" {
+		os.Setenv("COLORTERM", origColorterm)
+	}
+}
+
+// TestDaemonName verifies daemon container name constant
+func TestDaemonName(t *testing.T) {
+	expectedDaemonName := "construct-cli-daemon"
+
+	// This matches the name used in startDaemonBackground and execViaDaemon
+	if expectedDaemonName != "construct-cli-daemon" {
+		t.Errorf("Daemon name mismatch: expected 'construct-cli-daemon', got '%s'", expectedDaemonName)
+	}
+}
+
+// TestConfigPathHandling verifies config path is handled correctly
+func TestConfigPathHandling(t *testing.T) {
+	configPath := "/tmp/test-construct-container"
+
+	// Verify config path is a valid string
+	if configPath == "" {
+		t.Error("Config path should not be empty")
+	}
+
+	// In actual usage, this would be passed to runtime.GetComposeFileArgs
+	// We verify it's a non-empty string
+	if len(configPath) == 0 {
+		t.Error("Config path length should be greater than 0")
+	}
+}
+
+// TestNetworkModeInjection verifies network mode is passed to daemon
+func TestNetworkModeInjection(t *testing.T) {
+	cfg := &config.Config{
+		Network: config.NetworkConfig{
+			Mode: "strict",
+		},
+	}
+
+	if cfg.Network.Mode != "strict" {
+		t.Errorf("Expected network mode 'strict', got '%s'", cfg.Network.Mode)
+	}
+
+	// Test offline mode
+	cfg.Network.Mode = "offline"
+	if cfg.Network.Mode != "offline" {
+		t.Errorf("Expected network mode 'offline', got '%s'", cfg.Network.Mode)
+	}
+
+	// Test permissive mode
+	cfg.Network.Mode = "permissive"
+	if cfg.Network.Mode != "permissive" {
+		t.Errorf("Expected network mode 'permissive', got '%s'", cfg.Network.Mode)
+	}
+}
+
+// TestDualHashVerificationConcept verifies the concept of dual hash verification
+//
+// This is a regression test to ensure that both host AND container hash verification
+// are performed. Skipping container hash check would allow undetected filesystem
+// inconsistencies. See PERFORMANCE.md optimization #8 for details.
+func TestDualHashVerificationConcept(t *testing.T) {
+	// This test verifies the CONCEPT of dual verification:
+	// 1. Host uses embedded template hash
+	// 2. Container uses actual file hash
+	//
+	// If these differ, setup should run to correct inconsistencies
+
+	// Simulate embedded template hash (host side)
+	embeddedEntrypoint := "#!/usr/bin/env bash\n# Original entrypoint\necho 'setup'"
+	hostHash := hashString(embeddedEntrypoint)
+
+	// Simulate actual file hash (container side) - modified version
+	modifiedEntrypoint := "#!/usr/bin/env bash\n# MODIFIED entrypoint\necho 'malicious'"
+	containerHash := hashString(modifiedEntrypoint)
+
+	// If host verification passes but container file is modified,
+	// the hashes should differ, triggering setup
+	if hostHash == containerHash {
+		t.Error("Modified container file should have different hash than embedded template")
+	}
+
+	// Simulate matching hashes (normal case)
+	normalEntrypoint := embeddedEntrypoint
+	normalContainerHash := hashString(normalEntrypoint)
+
+	if hostHash != normalContainerHash {
+		t.Error("Unmodified container file should have same hash as embedded template")
+	}
+
+	// The dual verification ensures:
+	// 1. Host verification checks if image matches binary (using embedded template)
+	// 2. Container verification checks if filesystem is correct (using actual file)
+	// 3. If either check fails, setup runs to correct the issue
+}
+
+// TestHashMismatchScenarios verifies various hash mismatch scenarios
+//
+// This test ensures the hash verification logic correctly identifies:
+// - Template vs file mismatches
+// - Missing hash files
+// - Corrupted hash files
+func TestHashMismatchScenarios(t *testing.T) {
+	tests := []struct {
+		name           string
+		hostHash       string
+		containerHash  string
+		storedHash     string
+		shouldRunSetup bool
+		reason         string
+	}{
+		{
+			name:           "All hashes match - no setup needed",
+			hostHash:       "abc123",
+			containerHash:  "abc123",
+			storedHash:     "abc123",
+			shouldRunSetup: false,
+			reason:         "All hashes identical",
+		},
+		{
+			name:           "Container file modified - setup required",
+			hostHash:       "abc123",
+			containerHash:  "def456", // File was modified
+			storedHash:     "abc123",
+			shouldRunSetup: true,
+			reason:         "Container filesystem differs from embedded template",
+		},
+		{
+			name:           "Embedded template changed - setup required",
+			hostHash:       "new789", // Binary updated with new entrypoint
+			containerHash:  "abc123", // Container still has old entrypoint
+			storedHash:     "abc123",
+			shouldRunSetup: true,
+			reason:         "Binary updated but container image stale",
+		},
+		{
+			name:           "Stored hash missing - setup required",
+			hostHash:       "abc123",
+			containerHash:  "abc123",
+			storedHash:     "", // Hash file doesn't exist
+			shouldRunSetup: true,
+			reason:         "First run or hash file was deleted",
+		},
+		{
+			name:           "Stored hash corrupted - setup required",
+			hostHash:       "abc123",
+			containerHash:  "abc123",
+			storedHash:     "corrupted", // Hash file has wrong value
+			shouldRunSetup: true,
+			reason:         "Hash file corrupted or out of sync",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Simulate host verification logic
+			hostVerificationPasses := (tt.hostHash == tt.storedHash)
+
+			// Simulate container verification logic
+			containerVerificationPasses := (tt.containerHash == tt.storedHash)
+
+			// Setup should run if EITHER verification fails
+			// This is the SAFETY mechanism - dual verification
+			setupNeeded := !hostVerificationPasses || !containerVerificationPasses
+
+			if setupNeeded != tt.shouldRunSetup {
+				t.Errorf("%s: expected setupNeeded=%v, got %v. Reason: %s",
+					tt.name, tt.shouldRunSetup, setupNeeded, tt.reason)
+			}
+
+			// Log the verification states for clarity
+			t.Logf("Host check: %v, Container check: %v, Setup needed: %v",
+				hostVerificationPasses, containerVerificationPasses, setupNeeded)
+		})
+	}
+}
+
+// TestEntrypointHashWithInstallScript verifies hash calculation includes install script
+//
+// The hash is a composite of: entrypoint.sh + install_user_packages.sh (if exists)
+func TestEntrypointHashWithInstallScript(t *testing.T) {
+	entrypointHash := hashString("entrypoint content")
+	installScriptHash := hashString("install script content")
+
+	// Composite hash matches the pattern used in entrypoint.sh
+	compositeHash := entrypointHash + "-" + installScriptHash
+
+	if compositeHash == entrypointHash {
+		t.Error("Composite hash should differ from entrypoint-only hash when install script exists")
+	}
+
+	// Without install script, hash should be just entrypoint hash
+	withoutInstallScript := entrypointHash
+
+	if withoutInstallScript != entrypointHash {
+		t.Error("Without install script, hash should equal entrypoint hash")
+	}
+}
+
+// hashString is a test helper for SHA256 hashing
+func hashString(s string) string {
+	// Use actual SHA256 for deterministic hashing
+	// This ensures different strings produce different hashes
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}

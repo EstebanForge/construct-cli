@@ -23,6 +23,7 @@ type Config struct {
 	Network     NetworkConfig     `toml:"network"`
 	Maintenance MaintenanceConfig `toml:"maintenance"`
 	Agents      AgentsConfig      `toml:"agents"`
+	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
 }
 
@@ -63,6 +64,11 @@ type MaintenanceConfig struct {
 type AgentsConfig struct {
 	YoloAll    bool     `toml:"yolo_all"`
 	YoloAgents []string `toml:"yolo_agents"`
+}
+
+// DaemonConfig holds daemon behavior settings.
+type DaemonConfig struct {
+	AutoStart bool `toml:"auto_start"` // Auto-start daemon on first agent run (default: true)
 }
 
 // ClaudeConfig stores Claude provider configuration.

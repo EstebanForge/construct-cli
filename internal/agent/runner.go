@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
@@ -323,6 +324,38 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {
 	args = applyYoloArgs(args, cfg)
+
+	// Check if daemon container is running - use it for faster startup
+	daemonName := "construct-cli-daemon"
+	daemonState := runtime.GetContainerState(containerRuntime, daemonName)
+
+	if daemonState == runtime.ContainerStateRunning {
+		if execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv) {
+			return
+		}
+		// If daemon exec failed/skipped, fall through to normal path
+	} else if cfg.Daemon.AutoStart {
+		// Auto-start daemon if configured and not running
+		if daemonState == runtime.ContainerStateExited {
+			// Clean up exited daemon first
+			if err := runtime.CleanupExitedContainer(containerRuntime, daemonName); err != nil {
+				if ui.CurrentLogLevel >= ui.LogLevelDebug {
+					fmt.Printf("Debug: Failed to cleanup exited daemon: %v\n", err)
+				}
+			}
+		}
+
+		// Start daemon in background
+		if startDaemonBackground(cfg, containerRuntime, configPath) {
+			// Wait for daemon to be ready, then exec into it
+			if waitForDaemon(containerRuntime, daemonName, 10) {
+				if execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv) {
+					return
+				}
+			}
+		}
+		// If daemon start/exec failed, fall through to normal path
+	}
 
 	// Check for container collision
 	containerName := "construct-cli"
@@ -788,4 +821,161 @@ func formatPorts(ports []int) string {
 		parts = append(parts, strconv.Itoa(port))
 	}
 	return strings.Join(parts, ",")
+}
+
+// execViaDaemon attempts to execute the agent via a running daemon container.
+// Returns true if execution completed (success or failure), false if should fall back to normal path.
+func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonName string, providerEnv []string) bool {
+	// Check if daemon is stale (running old image)
+	imageName := constants.ImageName + ":latest"
+	if runtime.IsContainerStale(containerRuntime, daemonName, imageName) {
+		fmt.Println("⚠️  Daemon is running an outdated image.")
+		fmt.Println("Run 'construct daemon stop && construct daemon start' to update, or continuing with normal startup...")
+		fmt.Println()
+		return false // Fall back to normal path
+	}
+
+	// Build environment variables to pass
+	envVars := make([]string, 0, len(providerEnv)+10)
+
+	// Add provider environment variables
+	envVars = append(envVars, providerEnv...)
+
+	// Add clipboard environment (start clipboard server for this session)
+	clipboardHost := ""
+	if cfg != nil {
+		clipboardHost = cfg.Sandbox.ClipboardHost
+	}
+	cbServer, err := clipboard.StartServer(clipboardHost)
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
+		}
+	} else {
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		envVars = append(envVars, "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
+	}
+
+	// Add agent name for clipboard behavior tuning
+	if len(args) > 0 {
+		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
+
+		// For codex: Set WSL env vars to trigger clipboard fallback
+		if args[0] == "codex" {
+			envVars = append(envVars, "WSL_DISTRO_NAME=Ubuntu")
+			envVars = append(envVars, "WSL_INTEROP=/run/WSL/8_interop")
+			envVars = append(envVars, "DISPLAY=")
+		}
+	}
+
+	// Add COLORTERM for proper color rendering
+	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
+		envVars = append(envVars, "COLORTERM="+colorterm)
+	} else {
+		envVars = append(envVars, "COLORTERM=truecolor")
+	}
+
+	if len(args) == 0 {
+		fmt.Println("Entering Construct daemon shell...")
+	} else {
+		fmt.Printf("Running in Construct daemon: %v\n", args)
+	}
+
+	// Execute interactively in daemon container
+	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, args, envVars)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
+		os.Exit(1)
+	}
+
+	os.Exit(exitCode)
+	return true // Won't reach here due to os.Exit, but for clarity
+}
+
+// startDaemonBackground starts the daemon container in the background.
+// Returns true if daemon was started successfully.
+func startDaemonBackground(cfg *config.Config, containerRuntime, configPath string) bool {
+	daemonName := "construct-cli-daemon"
+
+	// Check if image exists first
+	checkCmdArgs := runtime.GetCheckImageCommand(containerRuntime)
+	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
+	checkCmd.Dir = config.GetContainerDir()
+	if err := checkCmd.Run(); err != nil {
+		// Image doesn't exist, can't start daemon - fall back to normal path which will build it
+		return false
+	}
+
+	fmt.Println("🚀 Starting daemon for faster subsequent runs...")
+
+	// Get current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Failed to get working directory: %v\n", err)
+		}
+		return false
+	}
+
+	// Prepare environment
+	env := os.Environ()
+	env = append(env, "PWD="+cwd)
+	env = network.InjectEnv(env, cfg)
+
+	// Build compose command for detached run
+	composeArgs := runtime.GetComposeFileArgs(configPath)
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker":
+		if _, err := exec.LookPath("docker-compose"); err == nil {
+			args := append(composeArgs, "run", "-d", "--rm", "--name", daemonName, "construct-box")
+			cmd = exec.Command("docker-compose", args...)
+		} else {
+			args := make([]string, 0, 1+len(composeArgs)+6)
+			args = append(args, "compose")
+			args = append(args, composeArgs...)
+			args = append(args, "run", "-d", "--rm", "--name", daemonName, "construct-box")
+			cmd = exec.Command("docker", args...)
+		}
+	case "podman":
+		args := append(composeArgs, "run", "-d", "--rm", "--name", daemonName, "construct-box")
+		cmd = exec.Command("podman-compose", args...)
+	case "container":
+		args := make([]string, 0, 1+len(composeArgs)+6)
+		args = append(args, "compose")
+		args = append(args, composeArgs...)
+		args = append(args, "run", "-d", "--rm", "--name", daemonName, "construct-box")
+		cmd = exec.Command("docker", args...)
+	default:
+		return false
+	}
+
+	cmd.Dir = config.GetContainerDir()
+	cmd.Env = env
+
+	if err := cmd.Run(); err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Failed to start daemon: %v\n", err)
+		}
+		return false
+	}
+
+	return true
+}
+
+// waitForDaemon waits for the daemon container to be running.
+// Returns true if daemon is running within timeout seconds.
+func waitForDaemon(containerRuntime, daemonName string, timeoutSeconds int) bool {
+	for i := 0; i < timeoutSeconds*2; i++ { // Check every 500ms
+		if runtime.GetContainerState(containerRuntime, daemonName) == runtime.ContainerStateRunning {
+			return true
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if ui.CurrentLogLevel >= ui.LogLevelDebug {
+		fmt.Printf("Debug: Daemon did not start within %d seconds\n", timeoutSeconds)
+	}
+	return false
 }

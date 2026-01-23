@@ -43,6 +43,14 @@ yolo_all = false
 # Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
 yolo_agents = []
 
+# Daemon Settings
+[daemon]
+# Automatically start daemon on first agent run for faster subsequent starts (default: true)
+# When enabled, running any agent will start the daemon if not already running,
+# then execute the agent via the daemon for ~2-5s faster startup times.
+# Use 'construct daemon stop' to manually stop the daemon when not needed.
+auto_start = true
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)
