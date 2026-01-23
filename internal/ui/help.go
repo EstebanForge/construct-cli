@@ -43,6 +43,9 @@ Global Flags:
   construct sys restore-config   # Restore config from backup
   construct sys self-update      # Update construct itself to the latest version
   construct sys set-password     # Change the password for the construct user inside the container
+  construct sys daemon-install   # Install daemon as auto-start service (runs on login/boot)
+  construct sys daemon-uninstall # Uninstall daemon auto-start service
+  construct sys daemon-status    # Show daemon auto-start service status
   construct sys shell            # Interactive shell with all agents inside The Construct
   construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   construct sys update           # Update agents and packages to latest versions inside The Construct
@@ -108,6 +111,9 @@ Commands:
   restore-config   # Restore config from backup
   self-update      # Update construct itself to the latest version
   set-password     # Change the password for the construct user inside the container
+  daemon-install   # Install daemon as auto-start service (runs on login/boot)
+  daemon-uninstall # Uninstall daemon auto-start service
+  daemon-status    # Show daemon auto-start service status
   shell            # Interactive shell with all agents inside The Construct
   ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   update           # Update agents and packages to latest versions inside The Construct

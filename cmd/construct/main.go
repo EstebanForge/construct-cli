@@ -313,6 +313,12 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		sys.SetPassword(cfg)
+	case "daemon-install":
+		daemon.InstallService()
+	case "daemon-uninstall":
+		daemon.UninstallService()
+	case "daemon-status":
+		daemon.ServiceStatus()
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		fmt.Println("Run 'construct sys' for a list of available commands.")

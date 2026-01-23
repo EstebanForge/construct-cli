@@ -140,6 +140,8 @@ export PATH
 export NVM_DIR="$HOME/.nvm"
 # Ensure library path includes Homebrew (for libgit2, etc.)
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
+# Suppress Node.js deprecation warnings (punycode in Node 21+, etc.)
+export NODE_NO_WARNINGS=1
 
 # Ensure SSH config prioritizes standard key names unless user provided one.
 ensure_ssh_config() {
@@ -222,6 +224,17 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     if command -v npm &> /dev/null; then
         npm config set prefix "$HOME/.npm-global"
     fi
+
+    # Fix clipboard libs for Node.js apps (Gemini CLI, etc.)
+    # This replaces bundled 'xsel' in node_modules with our bridge
+    # Only run during setup to avoid expensive find operations on every run
+    echo "🔧 Patching clipboard support for agents..."
+    fix_clipboard_libs
+
+    # Patch agent code to bypass macOS-only checks for clipboard images
+    # Only run during setup to avoid expensive find operations on every run
+    echo "🔧 Patching agent code for cross-platform clipboard..."
+    patch_agent_code
 
     # Update hash file
     echo "$CURRENT_HASH" > "$HASH_FILE"
@@ -332,7 +345,6 @@ fix_clipboard_libs() {
         ln -sf /usr/local/bin/clipper "$binary"
     done
 }
-fix_clipboard_libs
 
 
 # Patch agent code to bypass macOS-only checks for clipboard images
@@ -348,7 +360,6 @@ patch_agent_code() {
         fi
     done
 }
-patch_agent_code
 
 # Forward localhost login callbacks to the container when requested.
 if [ "$CONSTRUCT_LOGIN_FORWARD" = "1" ] && command -v socat >/dev/null; then

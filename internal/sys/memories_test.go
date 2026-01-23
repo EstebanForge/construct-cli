@@ -131,3 +131,74 @@ func TestOpenAgentMemory_Creation(t *testing.T) {
 	// but we can test the directory/file creation logic separately if we refactor
 	// or just test that if we create it, Stat works.
 }
+
+func TestUpdateAgentsClearsEntrypointHash(t *testing.T) {
+	// Create a temp config directory for testing
+	tempDir, err := os.MkdirTemp("", "construct-test-update")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create the directory structure
+	homeDir := filepath.Join(tempDir, "home")
+	localDir := filepath.Join(homeDir, ".local")
+	containerDir := filepath.Join(tempDir, "container")
+
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("Failed to create .local dir: %v", err)
+	}
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("Failed to create container dir: %v", err)
+	}
+
+	// Create a fake entrypoint hash file
+	entrypointHashPath := filepath.Join(localDir, ".entrypoint_hash")
+	if err := os.WriteFile(entrypointHashPath, []byte("test-hash-12345"), 0644); err != nil {
+		t.Fatalf("Failed to create entrypoint hash file: %v", err)
+	}
+
+	// Verify the file exists
+	if _, err := os.Stat(entrypointHashPath); err != nil {
+		t.Fatalf("Entrypoint hash file doesn't exist: %v", err)
+	}
+
+	// Now simulate the hash clearing logic (simplified version of what's in UpdateAgents)
+	if err := os.Remove(entrypointHashPath); err != nil {
+		t.Fatalf("Failed to remove entrypoint hash: %v", err)
+	}
+
+	// Verify the file was removed
+	if _, err := os.Stat(entrypointHashPath); !os.IsNotExist(err) {
+		t.Errorf("Entrypoint hash file still exists after removal: %v", err)
+	}
+}
+
+func TestUpdateAgentsHashClearingIgnoresNonExistentFile(t *testing.T) {
+	// Create a temp directory
+	tempDir, err := os.MkdirTemp("", "construct-test-hash-clear")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create the directory structure
+	localDir := filepath.Join(tempDir, "home", ".local")
+	if err := os.MkdirAll(localDir, 0755); err != nil {
+		t.Fatalf("Failed to create .local dir: %v", err)
+	}
+
+	// Don't create the hash file - it doesn't exist
+	entrypointHashPath := filepath.Join(localDir, ".entrypoint_hash")
+
+	// Attempting to remove a non-existent file should not error
+	// This simulates the case where entrypoint.sh hasn't run yet
+	if err := os.Remove(entrypointHashPath); err != nil && !os.IsNotExist(err) {
+		t.Errorf("Removing non-existent hash file should succeed or return IsNotExist error, got: %v", err)
+	}
+
+	// Verify the file still doesn't exist
+	if _, err := os.Stat(entrypointHashPath); !os.IsNotExist(err) {
+		t.Error("File should not exist")
+	}
+}

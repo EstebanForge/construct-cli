@@ -260,6 +260,7 @@ func RunMigrations() error {
 
 	// 6. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
+	clearOverrideHash()
 	forceEntrypointRun()
 
 	// 7. Update installed version
@@ -370,6 +371,13 @@ func clearEntrypointHash() {
 	hashPath := filepath.Join(config.GetConfigDir(), "home", ".local", ".entrypoint_hash")
 	if err := os.Remove(hashPath); err != nil && !os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to remove entrypoint hash: %v\n", err)
+	}
+}
+
+func clearOverrideHash() {
+	hashPath := filepath.Join(config.GetConfigDir(), "container", ".override_hash")
+	if err := os.Remove(hashPath); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to remove override hash: %v\n", err)
 	}
 }
 
@@ -589,26 +597,29 @@ func mergePackagesFile() error {
 	return nil
 }
 
-// markImageForRebuild stops the container and removes the old image to force rebuild
+// markImageForRebuild stops containers and removes the old image to force rebuild
 func markImageForRebuild() {
-	containerName := "construct-cli"
+	// Include both regular container and daemon container
+	containerNames := []string{"construct-cli", "construct-cli-daemon"}
 	imageName := "construct-box:latest"
 
 	if ui.GumAvailable() {
-		fmt.Printf("%sStopping and removing old container...%s\n", ui.ColorCyan, ui.ColorReset)
+		fmt.Printf("%sStopping and removing old containers...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
-		fmt.Println("→ Stopping and removing old container...")
+		fmt.Println("→ Stopping and removing old containers...")
 	}
 
 	// Try docker
 	if _, err := exec.LookPath("docker"); err == nil {
-		// Stop container (errors are OK - might not be running)
-		if err := exec.Command("docker", "stop", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to stop container: %v", err)
-		}
-		// Remove container (errors are OK - might not exist)
-		if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to remove container: %v", err)
+		for _, containerName := range containerNames {
+			// Stop container (errors are OK - might not be running)
+			if err := exec.Command("docker", "stop", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to stop container %s: %v", containerName, err)
+			}
+			// Remove container (errors are OK - might not exist)
+			if err := exec.Command("docker", "rm", "-f", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to remove container %s: %v", containerName, err)
+			}
 		}
 		// Remove image to force rebuild (errors are OK - might not exist)
 		if err := exec.Command("docker", "rmi", "-f", imageName).Run(); err != nil {
@@ -618,11 +629,13 @@ func markImageForRebuild() {
 
 	// Try podman
 	if _, err := exec.LookPath("podman"); err == nil {
-		if err := exec.Command("podman", "stop", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to stop container: %v", err)
-		}
-		if err := exec.Command("podman", "rm", "-f", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to remove container: %v", err)
+		for _, containerName := range containerNames {
+			if err := exec.Command("podman", "stop", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to stop container %s: %v", containerName, err)
+			}
+			if err := exec.Command("podman", "rm", "-f", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to remove container %s: %v", containerName, err)
+			}
 		}
 		if err := exec.Command("podman", "rmi", "-f", imageName).Run(); err != nil {
 			ui.LogDebug("Failed to remove image: %v", err)
@@ -631,15 +644,17 @@ func markImageForRebuild() {
 
 	// Try Apple container (macOS 26+)
 	if _, err := exec.LookPath("container"); err == nil {
-		// Apple container uses different commands:
-		// - container stop (not docker stop)
-		// - container rm (not docker rm)
-		// - container image rm (not docker rmi)
-		if err := exec.Command("container", "stop", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to stop container: %v", err)
-		}
-		if err := exec.Command("container", "rm", containerName).Run(); err != nil {
-			ui.LogDebug("Failed to remove container: %v", err)
+		for _, containerName := range containerNames {
+			// Apple container uses different commands:
+			// - container stop (not docker stop)
+			// - container rm (not docker rm)
+			// - container image rm (not docker rmi)
+			if err := exec.Command("container", "stop", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to stop container %s: %v", containerName, err)
+			}
+			if err := exec.Command("container", "rm", containerName).Run(); err != nil {
+				ui.LogDebug("Failed to remove container %s: %v", containerName, err)
+			}
 		}
 		if err := exec.Command("container", "image", "rm", imageName).Run(); err != nil {
 			ui.LogDebug("Failed to remove image: %v", err)
@@ -647,9 +662,9 @@ func markImageForRebuild() {
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Container and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
+		fmt.Printf("%s  ✓ Containers and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Container and image removed, forcing rebuild")
+		fmt.Println("  ✓ Containers and image removed, forcing rebuild")
 	}
 }
 
@@ -748,6 +763,7 @@ func ForceRefresh() error {
 
 	// 6. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
+	clearOverrideHash()
 	forceEntrypointRun()
 
 	// 7. Update installed version
