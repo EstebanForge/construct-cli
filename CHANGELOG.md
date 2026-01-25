@@ -2,6 +2,31 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.1.0] - 2026-01-25
+
+### Improved
+- Multiple performance optimizations where implemented to make the CLI faster and more efficient. Now it's fast. Really fast.
+
+### Added
+- **Daemon Auto-Start Service**: Added `sys daemon-install`, `sys daemon-uninstall`, and `sys daemon-status` for managing a background daemon service (systemd) that can auto-start on login/boot.
+- **Daemon Auto-Start Config**: New `[daemon] auto_start` setting to start the daemon on first agent run for faster subsequent startups.
+
+### Changed
+- **Faster Runtime Detection**: Runtime detection now checks container, podman, and docker in parallel to reduce startup latency on multi-runtime systems.
+- **Daemon Exec Fast Path**: When a daemon container is running, agents run via `exec` instead of `compose run` for much faster startup.
+- **Compose Override Caching**: Docker compose override generation is cached to avoid unnecessary regeneration on repeated runs.
+- **Parallel Runtime Detection**: Checks container, podman, and docker concurrently to cut detection latency by 0.5-1s.
+- **Daemon Exec Path**: Agent runs reuse the warm daemon container for 2.5-7s faster startup.
+- **Entrypoint Caching**: Skips expensive clipboard and agent patching when entrypoint hash is unchanged (200-800ms saved).
+- **Preemptive Services**: Clipboard server and SSH bridge already start asynchronously; no added latency from sequential startup.
+
+### Fixed
+- **Daemon Staleness Guard**: Detect stale daemon containers (old image) and fall back to normal startup with clear guidance to restart the daemon.
+- **Daemon Shell Exec**: `construct sys shell` now execs a default shell when attaching to a running daemon, preventing empty `exec` calls.
+- **Post-Update Entrypoint Patching**: Clearing the entrypoint hash after updates ensures new agents get patched correctly.
+
+---
+
 ## [1.0.1] - 2026-01-21
 
 ### Fixed

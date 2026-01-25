@@ -882,8 +882,17 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		fmt.Printf("Running in Construct daemon: %v\n", args)
 	}
 
+	execArgs := args
+	if len(execArgs) == 0 {
+		execShell := "/bin/bash"
+		if cfg != nil && cfg.Sandbox.Shell != "" {
+			execShell = cfg.Sandbox.Shell
+		}
+		execArgs = []string{execShell}
+	}
+
 	// Execute interactively in daemon container
-	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, args, envVars)
+	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, execArgs, envVars)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
 		os.Exit(1)
