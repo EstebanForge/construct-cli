@@ -30,7 +30,7 @@ func Start() {
 	switch state {
 	case runtime.ContainerStateRunning:
 		ui.GumWarning("Daemon is already running")
-		fmt.Println("Use 'construct daemon attach' to connect")
+		fmt.Println("Use 'construct sys daemon attach' to connect")
 		os.Exit(1)
 	case runtime.ContainerStateExited:
 		ui.GumInfo("Removing stopped daemon container...")
@@ -106,7 +106,7 @@ func Start() {
 
 	ui.GumSuccess("Daemon started")
 	fmt.Println()
-	ui.GumInfo("Use 'construct daemon attach' to connect")
+	ui.GumInfo("Use 'construct sys daemon attach' to connect")
 	ui.GumInfo("Use Ctrl+P Ctrl+Q to detach without stopping")
 }
 
@@ -161,7 +161,7 @@ func Attach() {
 
 	if state != runtime.ContainerStateRunning {
 		ui.GumWarning("Daemon is not running")
-		fmt.Println("Use 'construct daemon start' to start it")
+		fmt.Println("Use 'construct sys daemon start' to start it")
 		os.Exit(1)
 	}
 
@@ -258,7 +258,7 @@ func Status() {
 
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
-			"💡 Use 'construct daemon attach' to connect")
+			"💡 Use 'construct sys daemon attach' to connect")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
@@ -273,7 +273,7 @@ func Status() {
 		}
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
-			"💡 Use 'construct daemon start' to start")
+			"💡 Use 'construct sys daemon start' to start")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
@@ -288,7 +288,7 @@ func Status() {
 		}
 		fmt.Println()
 		cmd = exec.Command("gum", "style", "--foreground", "86",
-			"💡 Use 'construct daemon start' to create")
+			"💡 Use 'construct sys daemon start' to create")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render hint: %v\n", err)
@@ -326,17 +326,17 @@ func statusBasic(state runtime.ContainerState, containerRuntime, containerName s
 		}
 		fmt.Printf("Uptime: %s\n", strings.TrimSpace(string(output)))
 		fmt.Println()
-		fmt.Println("💡 Use 'construct daemon attach' to connect")
+		fmt.Println("💡 Use 'construct sys daemon attach' to connect")
 
 	case runtime.ContainerStateExited:
 		fmt.Println("Status: Stopped")
 		fmt.Println()
-		fmt.Println("💡 Use 'construct daemon start' to start")
+		fmt.Println("💡 Use 'construct sys daemon start' to start")
 
 	case runtime.ContainerStateMissing:
 		fmt.Println("Status: Not created")
 		fmt.Println()
-		fmt.Println("💡 Use 'construct daemon start' to create")
+		fmt.Println("💡 Use 'construct sys daemon start' to create")
 	}
 
 	fmt.Println()

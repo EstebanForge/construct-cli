@@ -48,7 +48,7 @@ yolo_agents = []
 # Automatically start daemon on first agent run for faster subsequent starts (default: true)
 # When enabled, running any agent will start the daemon if not already running,
 # then execute the agent via the daemon for ~2-5s faster startup times.
-# Use 'construct daemon stop' to manually stop the daemon when not needed.
+# Use 'construct sys daemon stop' to manually stop the daemon when not needed.
 auto_start = true
 
 # Network Isolation (Optional)

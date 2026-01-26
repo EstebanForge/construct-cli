@@ -27,7 +27,7 @@ func InstallService() {
 		installSystemd()
 	default:
 		ui.GumError(fmt.Sprintf("Auto-start service not supported on %s", runtime.GOOS))
-		fmt.Println("You can manually add 'construct daemon start' to your startup scripts.")
+		fmt.Println("You can manually add 'construct sys daemon start' to your startup scripts.")
 		os.Exit(1)
 	}
 }
@@ -104,6 +104,7 @@ func installLaunchd() {
     <key>ProgramArguments</key>
     <array>
         <string>%s</string>
+        <string>sys</string>
         <string>daemon</string>
         <string>start</string>
     </array>
@@ -134,7 +135,7 @@ func installLaunchd() {
 	ui.GumSuccess("Daemon service installed")
 	fmt.Println()
 	fmt.Println("The daemon will start automatically on login.")
-	fmt.Println("To start it now: construct daemon start")
+	fmt.Println("To start it now: construct sys daemon start")
 	fmt.Println("To remove: construct sys daemon-uninstall")
 }
 
@@ -229,9 +230,9 @@ Wants=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=%s daemon start
+ExecStart=%s sys daemon start
 RemainAfterExit=yes
-ExecStop=%s daemon stop
+ExecStop=%s sys daemon stop
 
 [Install]
 WantedBy=default.target
@@ -258,7 +259,7 @@ WantedBy=default.target
 	ui.GumSuccess("Daemon service installed")
 	fmt.Println()
 	fmt.Println("The daemon will start automatically on login.")
-	fmt.Println("To start it now: construct daemon start")
+	fmt.Println("To start it now: construct sys daemon start")
 	fmt.Println("To remove: construct sys daemon-uninstall")
 	fmt.Println()
 	fmt.Println("Note: You may need to enable lingering for the service to run without login:")

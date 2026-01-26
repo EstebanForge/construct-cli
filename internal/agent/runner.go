@@ -858,7 +858,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	imageName := constants.ImageName + ":latest"
 	if runtime.IsContainerStale(containerRuntime, daemonName, imageName) {
 		fmt.Println("⚠️  Daemon is running an outdated image.")
-		fmt.Println("Run 'construct daemon stop && construct daemon start' to update, or continuing with normal startup...")
+		fmt.Println("Run 'construct sys daemon stop && construct sys daemon start' to update, or continuing with normal startup...")
 		fmt.Println()
 		return false, 0, nil // Fall back to normal path
 	}

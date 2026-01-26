@@ -542,7 +542,7 @@ All notable changes to Construct CLI will be documented in this file.
   - `list`: Show all rules
   - `status`: Show active UFW status
   - `clear`: Clear all rules
-- **Daemon Mode** (`construct daemon`):
+- **Daemon Mode** (`construct sys daemon`):
   - `start`: Start background container
   - `stop`: Stop background container
   - `attach`: Attach to running daemon

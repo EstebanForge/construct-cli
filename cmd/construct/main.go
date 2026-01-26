@@ -115,12 +115,6 @@ func main() {
 			os.Exit(1)
 		}
 		handleNetworkCommand(args[1:])
-	case "daemon":
-		if len(args) < 2 {
-			ui.PrintDaemonHelp()
-			os.Exit(1)
-		}
-		handleDaemonCommand(args[1:])
 	case "cc":
 		if len(args) < 2 || args[1] == "--help" || args[1] == "-h" {
 			// Ensure config is loaded for PrintCCHelp
@@ -321,6 +315,12 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		daemon.UninstallService()
 	case "daemon-status":
 		daemon.ServiceStatus()
+	case "daemon":
+		if len(args) < 2 {
+			ui.PrintSysDaemonHelp()
+			os.Exit(1)
+		}
+		handleDaemonCommand(args[1:])
 	default:
 		fmt.Printf("Unknown system command: %s\n", args[0])
 		fmt.Println("Run 'construct sys' for a list of available commands.")
@@ -375,7 +375,7 @@ func handleDaemonCommand(args []string) {
 		daemon.Status()
 	default:
 		ui.GumError(fmt.Sprintf("Unknown daemon command: %s", command))
-		ui.PrintDaemonHelp()
+		ui.PrintSysDaemonHelp()
 		os.Exit(1)
 	}
 }
