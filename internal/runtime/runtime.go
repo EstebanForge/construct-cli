@@ -780,11 +780,17 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
+		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	}
 

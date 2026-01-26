@@ -183,12 +183,21 @@ ensure_ssh_config
 # Check if we need to run installation (First run or Script update)
 # We use the script hash plus install script hash to determine if a re-run is needed.
 USER_INSTALL_SCRIPT="/home/construct/.config/construct-cli/container/install_user_packages.sh"
-CURRENT_HASH=$(sha256sum "$0" | awk '{print $1}')
-if [ -f "$USER_INSTALL_SCRIPT" ]; then
-    INSTALL_HASH=$(sha256sum "$USER_INSTALL_SCRIPT" | awk '{print $1}')
-    CURRENT_HASH="${CURRENT_HASH}-${INSTALL_HASH}"
-fi
 HASH_FILE="/home/construct/.local/.entrypoint_hash"
+HASH_UTILS="/home/construct/.config/construct-cli/container/entrypoint-hash.sh"
+if [ -f "$HASH_UTILS" ]; then
+    # shellcheck source=/dev/null
+    . "$HASH_UTILS"
+fi
+if command -v compute_entrypoint_hash >/dev/null 2>&1; then
+    CURRENT_HASH=$(compute_entrypoint_hash "$0" "$USER_INSTALL_SCRIPT")
+else
+    CURRENT_HASH=$(sha256sum "$0" | awk '{print $1}')
+    if [ -f "$USER_INSTALL_SCRIPT" ]; then
+        INSTALL_HASH=$(sha256sum "$USER_INSTALL_SCRIPT" | awk '{print $1}')
+        CURRENT_HASH="${CURRENT_HASH}-${INSTALL_HASH}"
+    fi
+fi
 FORCE_FILE="/home/construct/.local/.force_entrypoint"
 PREVIOUS_HASH=""
 if [ -f "$HASH_FILE" ]; then
@@ -225,19 +234,20 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
         npm config set prefix "$HOME/.npm-global"
     fi
 
-    # Fix clipboard libs for Node.js apps (Gemini CLI, etc.)
-    # This replaces bundled 'xsel' in node_modules with our bridge
-    # Only run during setup to avoid expensive find operations on every run
-    echo "🔧 Patching clipboard support for agents..."
-    fix_clipboard_libs
-
-    # Patch agent code to bypass macOS-only checks for clipboard images
-    # Only run during setup to avoid expensive find operations on every run
-    echo "🔧 Patching agent code for cross-platform clipboard..."
-    patch_agent_code
+    # Patch agent integrations (clipboard fixes, cross-platform checks)
+    PATCH_SCRIPT="/home/construct/.config/construct-cli/container/agent-patch.sh"
+    if [ -f "$PATCH_SCRIPT" ]; then
+        bash "$PATCH_SCRIPT" || echo "⚠️ Agent patching encountered errors"
+    else
+        echo "⚠️  Agent patch script not found; skipping patching"
+    fi
 
     # Update hash file
-    echo "$CURRENT_HASH" > "$HASH_FILE"
+    if command -v write_entrypoint_hash >/dev/null 2>&1; then
+        write_entrypoint_hash "$HASH_FILE" "$0" "$USER_INSTALL_SCRIPT"
+    else
+        echo "$CURRENT_HASH" > "$HASH_FILE"
+    fi
     echo ""
     echo "✅ Setup complete! Environment ready."
 fi
@@ -307,59 +317,6 @@ fi
 if [ -f "/usr/local/bin/network-filter.sh" ]; then
     /usr/local/bin/network-filter.sh || true
 fi
-
-# Fix clipboard libs for Node.js apps (Gemini CLI, etc.)
-# This replaces bundled 'xsel' in node_modules with our bridge
-fix_clipboard_libs() {
-    # Strategy: Find the directory where clipboardy expects xsel to be.
-    # The path usually ends in .../clipboardy/fallbacks/linux
-    # We find directories matching this pattern.
-    # We search both linuxbrew (for gemini-cli) and npm-global (for qwen, etc.)
-
-    # 1. Standard clipboardy structure
-    find -L /home/linuxbrew/.linuxbrew "$HOME/.npm-global" -type d -path "*/clipboardy/fallbacks/linux" 2>/dev/null | while read -r dir; do
-        # Shim xsel
-        local xsel_bin="$dir/xsel"
-        if [ -L "$xsel_bin" ] && [[ "$(readlink "$xsel_bin")" == *"/clipper"* ]]; then
-             : # Already shimmed
-        else
-             rm -f "$xsel_bin" 2>/dev/null
-             ln -sf /usr/local/bin/clipper "$xsel_bin"
-        fi
-
-        # Shim xclip
-        local xclip_bin="$dir/xclip"
-        rm -f "$xclip_bin" 2>/dev/null
-        ln -sf /usr/local/bin/clipper "$xclip_bin"
-    done
-
-    # 2. Aggressive search for ANY rogue xsel in npm-global (for Qwen or others with weird structures)
-    find -L "$HOME/.npm-global" -name "xsel" -type f 2>/dev/null | while read -r binary; do
-        # Ignore if it's already our shim (which is a symlink, but -type f might catch it if following links? no, find -L does)
-        # Actually -type f with -L matches symlinks to files.
-        if [[ "$(readlink -f "$binary")" == *"/clipper"* ]]; then
-            continue
-        fi
-
-        rm -f "$binary"
-        ln -sf /usr/local/bin/clipper "$binary"
-    done
-}
-
-
-# Patch agent code to bypass macOS-only checks for clipboard images
-patch_agent_code() {
-    # Find all JS files that might contain the platform check
-    # We look for files containing 'process.platform' and 'darwin'
-    find -L /home/linuxbrew/.linuxbrew "$HOME/.npm-global" -type f -name "*.js" 2>/dev/null | xargs grep -l "process.platform" 2>/dev/null | xargs grep -l "darwin" 2>/dev/null | while read -r js_file; do
-        if grep -q "process.platform !== \"darwin\"" "$js_file"; then
-            # Replace platform check with a dummy 'false' to allow the code to run on Linux
-            sed -i 's/process.platform !== \"darwin\"/false/g' "$js_file"
-        elif grep -q "process.platform !== 'darwin'" "$js_file"; then
-            sed -i "s/process.platform !== 'darwin'/false/g" "$js_file"
-        fi
-    done
-}
 
 # Forward localhost login callbacks to the container when requested.
 if [ "$CONSTRUCT_LOGIN_FORWARD" = "1" ] && command -v socat >/dev/null; then

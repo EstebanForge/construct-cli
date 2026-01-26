@@ -28,10 +28,20 @@ var Packages string
 //go:embed entrypoint.sh
 var Entrypoint string
 
+// EntrypointHash is the embedded content of the entrypoint hash helper script.
+//
+//go:embed entrypoint-hash.sh
+var EntrypointHash string
+
 // UpdateAll is the embedded content of the update-all.sh script.
 //
 //go:embed update-all.sh
 var UpdateAll string
+
+// AgentPatch is the embedded content of the agent patching script.
+//
+//go:embed agent-patch.sh
+var AgentPatch string
 
 // NetworkFilter is the embedded content of the network-filter.sh script.
 //

@@ -2,6 +2,22 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.1.1] - 2026-01-25
+
+### Added
+- **Shared Entrypoint Hash Helper**: Introduced a shared script for computing and writing entrypoint hashes, used by both setup and update flows.
+- **Agent Patch Script**: Centralized clipboard and agent patching into a reusable script.
+
+### Changed
+- **Update Flow Patching**: `sys update` now runs agent patching and writes the entrypoint hash immediately to avoid redundant setup on next run.
+- **Mounted Update Scripts**: Update and patch scripts are mounted from the host into the container for faster iteration without rebuilds.
+- **Update Fallback Warning**: Warns when falling back to `/usr/local/bin/update-all.sh` and suggests running `construct sys refresh`.
+
+### Fixed
+- **Post-Update Double Setup**: Avoids re-running full setup after updates when only patching is needed.
+
+---
+
 ## [1.1.0] - 2026-01-25
 
 ### Improved
