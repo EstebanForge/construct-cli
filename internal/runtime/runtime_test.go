@@ -151,6 +151,15 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	if !strings.Contains(contentStr, "working_dir: "+expectedPath) {
 		t.Errorf("Expected working_dir: %s, got: %s", expectedPath, contentStr)
 	}
+	if !strings.Contains(contentStr, "entrypoint-hash.sh") {
+		t.Errorf("Expected entrypoint-hash.sh mount, got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "agent-patch.sh") {
+		t.Errorf("Expected agent-patch.sh mount, got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "update-all.sh") {
+		t.Errorf("Expected update-all.sh mount, got: %s", contentStr)
+	}
 }
 
 // TestContainerStateConstants verifies container state constants exist

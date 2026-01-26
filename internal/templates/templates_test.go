@@ -84,6 +84,38 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "#!/usr/bin/env bash") {
 		t.Error("update-all.sh template missing shebang")
 	}
+
+	// Test agent patch template
+	if AgentPatch == "" {
+		t.Error("agent-patch.sh template is empty")
+	}
+	if !strings.Contains(AgentPatch, "#!/usr/bin/env bash") {
+		t.Error("agent-patch.sh template missing shebang")
+	}
+
+	// Test entrypoint hash template
+	if EntrypointHash == "" {
+		t.Error("entrypoint-hash.sh template is empty")
+	}
+	if !strings.Contains(EntrypointHash, "#!/usr/bin/env bash") {
+		t.Error("entrypoint-hash.sh template missing shebang")
+	}
+
+	// Verify entrypoint uses shared hash and patch scripts
+	if !strings.Contains(Entrypoint, "entrypoint-hash.sh") {
+		t.Error("entrypoint.sh should source entrypoint-hash.sh")
+	}
+	if !strings.Contains(Entrypoint, "agent-patch.sh") {
+		t.Error("entrypoint.sh should call agent-patch.sh")
+	}
+
+	// Verify update-all uses shared hash helper
+	if !strings.Contains(UpdateAll, "entrypoint-hash.sh") {
+		t.Error("update-all.sh should source entrypoint-hash.sh")
+	}
+	if !strings.Contains(UpdateAll, "write_entrypoint_hash") {
+		t.Error("update-all.sh should write entrypoint hash via helper")
+	}
 }
 
 func TestUpdateAllSudoDetection(t *testing.T) {

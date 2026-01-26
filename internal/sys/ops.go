@@ -65,7 +65,18 @@ func UpdateAgents(cfg *config.Config) {
 	var cmd *exec.Cmd
 
 	// Construct run args for update
-	runFlags := []string{"--rm", "--entrypoint", "/usr/local/bin/update-all.sh", "construct-box"}
+	updateScript := "/home/construct/.config/construct-cli/container/update-all.sh"
+	hostUpdateScript := filepath.Join(config.GetConfigDir(), "container", "update-all.sh")
+	if _, err := os.Stat(hostUpdateScript); err != nil {
+		updateScript = "/usr/local/bin/update-all.sh"
+		if ui.GumAvailable() {
+			fmt.Printf("%sWarning: Host update script missing, using container fallback. Run 'construct sys refresh' to sync templates.%s\n", ui.ColorGrey, ui.ColorReset)
+		} else {
+			fmt.Println("Warning: Host update script missing, using container fallback. Run 'construct sys refresh' to sync templates.")
+		}
+	}
+
+	runFlags := []string{"--rm", "--entrypoint", updateScript, "construct-box"}
 
 	// Build command
 	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
@@ -80,14 +91,6 @@ func UpdateAgents(cfg *config.Config) {
 	// Use helper to run with spinner
 	if err := ui.RunCommandWithSpinner(cmd, "Updating all agents, packages & tools...", logFile); err != nil {
 		os.Exit(1)
-	}
-
-	// Clear entrypoint hash to ensure patching runs for newly updated agents
-	// This is critical for entrypoint caching optimization - without this,
-	// newly installed agents wouldn't get patched for clipboard support
-	entrypointHashPath := filepath.Join(config.GetConfigDir(), "home", ".local", ".entrypoint_hash")
-	if err := os.Remove(entrypointHashPath); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to clear entrypoint hash: %v\n", err)
 	}
 
 	fmt.Println()
