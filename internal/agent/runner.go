@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	stdruntime "runtime"
 	"sort"
@@ -330,8 +331,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	daemonState := runtime.GetContainerState(containerRuntime, daemonName)
 
 	if daemonState == runtime.ContainerStateRunning {
-		if execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv) {
-			return
+		if ok, exitCode, err := execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv); ok {
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
+				os.Exit(1)
+			}
+			os.Exit(exitCode)
 		}
 		// If daemon exec failed/skipped, fall through to normal path
 	} else if cfg.Daemon.AutoStart {
@@ -349,8 +354,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		if startDaemonBackground(cfg, containerRuntime, configPath) {
 			// Wait for daemon to be ready, then exec into it
 			if waitForDaemon(containerRuntime, daemonName, 10) {
-				if execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv) {
-					return
+				if ok, exitCode, err := execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv); ok {
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
+						os.Exit(1)
+					}
+					os.Exit(exitCode)
 				}
 			}
 		}
@@ -823,16 +832,67 @@ func formatPorts(ports []int) string {
 	return strings.Join(parts, ",")
 }
 
+func mapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
+	if cwd == "" || mountSource == "" || mountDest == "" {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(filepath.Clean(mountSource), filepath.Clean(cwd))
+	if err != nil {
+		return "", false
+	}
+	if rel == "." {
+		return mountDest, true
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+
+	return path.Join(mountDest, filepath.ToSlash(rel)), true
+}
+
 // execViaDaemon attempts to execute the agent via a running daemon container.
 // Returns true if execution completed (success or failure), false if should fall back to normal path.
-func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonName string, providerEnv []string) bool {
+func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonName string, providerEnv []string) (bool, int, error) {
 	// Check if daemon is stale (running old image)
 	imageName := constants.ImageName + ":latest"
 	if runtime.IsContainerStale(containerRuntime, daemonName, imageName) {
 		fmt.Println("⚠️  Daemon is running an outdated image.")
 		fmt.Println("Run 'construct daemon stop && construct daemon start' to update, or continuing with normal startup...")
 		fmt.Println()
-		return false // Fall back to normal path
+		return false, 0, nil // Fall back to normal path
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Failed to get working directory: %v\n", err)
+		}
+		return false, 0, nil
+	}
+
+	daemonWorkdir, err := runtime.GetContainerWorkingDir(containerRuntime, daemonName)
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Failed to inspect daemon working dir: %v\n", err)
+		}
+		return false, 0, nil
+	}
+
+	mountSource, err := runtime.GetContainerMountSource(containerRuntime, daemonName, daemonWorkdir)
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: Failed to inspect daemon mounts: %v\n", err)
+		}
+		return false, 0, nil
+	}
+
+	workdir, ok := mapDaemonWorkdir(cwd, mountSource, daemonWorkdir)
+	if !ok {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Println("Daemon workspace does not include the current directory; falling back to normal startup...")
+		}
+		return false, 0, nil
 	}
 
 	// Build environment variables to pass
@@ -892,14 +952,8 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	}
 
 	// Execute interactively in daemon container
-	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, execArgs, envVars)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
-		os.Exit(1)
-	}
-
-	os.Exit(exitCode)
-	return true // Won't reach here due to os.Exit, but for clarity
+	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, execArgs, envVars, workdir)
+	return true, exitCode, err
 }
 
 // startDaemonBackground starts the daemon container in the background.
