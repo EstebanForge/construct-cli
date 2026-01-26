@@ -60,9 +60,11 @@ func main() {
 
 	// Check for version migrations before loading config
 	// This ensures config files are updated before we try to parse them
-	// Skip migration check for self-update to avoid confusing version messages
+	// Skip migration check for self-update and rebuild to avoid duplicate migrations.
+	// Rebuild runs ForceRefresh which already handles templates/config sync.
 	isSelfUpdate := len(args) >= 2 && args[0] == "sys" && args[1] == "self-update"
-	if !isSelfUpdate && migration.NeedsMigration() {
+	isRebuild := len(args) >= 2 && args[0] == "sys" && args[1] == "rebuild"
+	if !isSelfUpdate && !isRebuild && migration.NeedsMigration() {
 		if err := migration.CheckAndMigrate(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during migration: %v\n", err)
 			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
