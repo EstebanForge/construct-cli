@@ -27,6 +27,7 @@ Global Flags:
   construct sys agents           # List supported agents
   construct sys agents-md        # Manage global instruction files (rules) for agents
   construct sys config           # Open config.toml in editor
+  construct sys daemon           # Manage background daemon (start|stop|attach|status)
   construct sys packages         # Open packages.toml in editor
   construct sys doctor           # Check system health
   construct sys ct-fix           # Fix ct symlink in ~/.local/bin
@@ -95,6 +96,7 @@ Commands:
   agents             # List supported agents
   agents-md          # Manage global instruction files (rules) for agents
   config             # Open config.toml in editor
+  daemon             # Manage background daemon (start|stop|attach|status)
   packages           # Open packages.toml in editor
   doctor             # Check system health
   ct-fix             # Fix ct symlink in ~/.local/bin
@@ -147,12 +149,12 @@ Examples:
 	fmt.Print(help)
 }
 
-// PrintDaemonHelp prints help for daemon commands.
-func PrintDaemonHelp() {
+// PrintSysDaemonHelp prints help for sys daemon commands.
+func PrintSysDaemonHelp() {
 	help := `Daemon Mode Commands
 
 Usage:
-  construct daemon <command>
+  construct sys daemon <command>
 
 Commands:
   start   # Start background container
@@ -161,10 +163,10 @@ Commands:
   status  # Show daemon status
 
 Examples:
-  construct daemon start
-  construct daemon attach
-  construct daemon status
-  construct daemon stop
+  construct sys daemon start
+  construct sys daemon attach
+  construct sys daemon status
+  construct sys daemon stop
 `
 	fmt.Print(help)
 }

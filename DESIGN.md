@@ -249,7 +249,7 @@ auto_start = true
 **Upgrade Safety:**
 - Migration system stops and removes both `construct-cli` and `construct-cli-daemon` containers during template updates
 - Staleness detection compares container image ID against current image; warns user if daemon is outdated
-- User can manually restart daemon: `construct daemon stop && construct daemon start`
+- User can manually restart daemon: `construct sys daemon stop && construct sys daemon start`
 
 **Performance Impact:**
 | Operation | Without Daemon | With Daemon |
@@ -392,7 +392,7 @@ if runtime.GetContainerState(containerRuntime, daemonName) == runtime.ContainerS
 ```go
 if isDaemonStale(containerRuntime, daemonName) {
     fmt.Println("⚠️  Daemon is running an outdated version.")
-    fmt.Println("Run 'construct daemon stop && construct daemon start' to update.")
+    fmt.Println("Run 'construct sys daemon stop && construct sys daemon start' to update.")
     // Fall through to regular compose run path
 }
 ```
