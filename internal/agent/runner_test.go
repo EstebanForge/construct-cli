@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -240,6 +241,61 @@ func TestNetworkModeInjection(t *testing.T) {
 	cfg.Network.Mode = "permissive"
 	if cfg.Network.Mode != "permissive" {
 		t.Errorf("Expected network mode 'permissive', got '%s'", cfg.Network.Mode)
+	}
+}
+
+// TestMapDaemonWorkdir verifies host-to-container working dir mapping.
+func TestMapDaemonWorkdir(t *testing.T) {
+	base := filepath.Join(string(os.PathSeparator), "Users", "esteban", "Dev")
+	mountDest := "/projects/Dev"
+
+	tests := []struct {
+		name        string
+		cwd         string
+		mountSource string
+		want        string
+		wantOK      bool
+	}{
+		{
+			name:        "Exact mount root",
+			cwd:         base,
+			mountSource: base,
+			want:        mountDest,
+			wantOK:      true,
+		},
+		{
+			name:        "Nested path",
+			cwd:         filepath.Join(base, "Projects", "construct-cli"),
+			mountSource: base,
+			want:        "/projects/Dev/Projects/construct-cli",
+			wantOK:      true,
+		},
+		{
+			name:        "Outside mount",
+			cwd:         filepath.Join(string(os.PathSeparator), "tmp"),
+			mountSource: base,
+			want:        "",
+			wantOK:      false,
+		},
+		{
+			name:        "Empty inputs",
+			cwd:         "",
+			mountSource: base,
+			want:        "",
+			wantOK:      false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := mapDaemonWorkdir(tt.cwd, tt.mountSource, mountDest)
+			if ok != tt.wantOK {
+				t.Fatalf("Expected ok=%v, got %v", tt.wantOK, ok)
+			}
+			if got != tt.want {
+				t.Fatalf("Expected %q, got %q", tt.want, got)
+			}
+		})
 	}
 }
 

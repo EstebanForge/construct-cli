@@ -1124,14 +1124,21 @@ func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (
 
 // ExecInteractive executes a command interactively in a running container
 // with stdin/stdout/stderr passed through. Returns the exit code.
-func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, envVars []string) (int, error) {
+func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir string) (int, error) {
 	var cmd *exec.Cmd
 
 	// Build exec args with -it for interactive + tty
-	// Preallocate capacity for: "exec", "-it" + env vars + container name + cmd args
+	// Preallocate capacity for: "exec", "-it", optional "-w", env vars, container name, cmd args
 	capacity := 2 + (2 * len(envVars)) + 1 + len(cmdArgs)
+	if workdir != "" {
+		capacity += 2
+	}
 	args := make([]string, 0, capacity)
 	args = append(args, "exec", "-it")
+
+	if workdir != "" {
+		args = append(args, "-w", workdir)
+	}
 
 	// Add environment variables
 	for _, env := range envVars {
@@ -1163,6 +1170,54 @@ func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, e
 	}
 
 	return 0, nil
+}
+
+// GetContainerWorkingDir returns the configured working directory for a container.
+func GetContainerWorkingDir(containerRuntime, containerName string) (string, error) {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "inspect", "--format", "{{.Config.WorkingDir}}", containerName)
+	case "podman":
+		cmd = exec.Command("podman", "inspect", "--format", "{{.Config.WorkingDir}}", containerName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect container working dir: %w", err)
+	}
+
+	return strings.TrimSpace(string(output)), nil
+}
+
+// GetContainerMountSource returns the host source path for a given container mount destination.
+func GetContainerMountSource(containerRuntime, containerName, destination string) (string, error) {
+	var cmd *exec.Cmd
+	format := fmt.Sprintf("{{range .Mounts}}{{if eq .Destination %q}}{{.Source}}{{end}}{{end}}", destination)
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "inspect", "--format", format, containerName)
+	case "podman":
+		cmd = exec.Command("podman", "inspect", "--format", format, containerName)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to inspect container mounts: %w", err)
+	}
+
+	source := strings.TrimSpace(string(output))
+	if source == "" {
+		return "", fmt.Errorf("mount destination not found: %s", destination)
+	}
+
+	return source, nil
 }
 
 // GetContainerImageID returns the image ID that a container is using

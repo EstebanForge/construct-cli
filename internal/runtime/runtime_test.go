@@ -224,12 +224,34 @@ func TestExecInContainerUnsupportedRuntime(t *testing.T) {
 
 // TestExecInteractiveUnsupportedRuntime tests error handling for unsupported runtimes
 func TestExecInteractiveUnsupportedRuntime(t *testing.T) {
-	exitCode, err := ExecInteractive("unsupported-runtime", "test-container", []string{"echo"}, nil)
+	exitCode, err := ExecInteractive("unsupported-runtime", "test-container", []string{"echo"}, nil, "")
 	if err == nil {
 		t.Error("Expected error for unsupported runtime, got nil")
 	}
 	if exitCode != 1 {
 		t.Errorf("Expected exit code 1, got %d", exitCode)
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestGetContainerWorkingDirUnsupportedRuntime tests error handling
+func TestGetContainerWorkingDirUnsupportedRuntime(t *testing.T) {
+	_, err := GetContainerWorkingDir("unsupported-runtime", "test-container")
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+// TestGetContainerMountSourceUnsupportedRuntime tests error handling
+func TestGetContainerMountSourceUnsupportedRuntime(t *testing.T) {
+	_, err := GetContainerMountSource("unsupported-runtime", "test-container", "/projects/test")
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
 	}
 	if !strings.Contains(err.Error(), "unsupported runtime") {
 		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)

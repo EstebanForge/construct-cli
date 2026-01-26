@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.1.2] - 2026-01-26
+## [1.1.3] - 2026-01-26
 
 ### Added
 - **Shared Entrypoint Hash Helper**: Introduced a shared script for computing and writing entrypoint hashes, used by both setup and update flows.
@@ -16,6 +16,7 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - **Post-Update Double Setup**: Avoids re-running full setup after updates when only patching is needed.
 - **Rebuild Template Duplication**: `construct sys rebuild` no longer copies container templates twice during automatic migration + refresh.
+- **Daemon Mount Working Dir**: Agent exec in the daemon now maps the host working directory to the correct mounted path.
 
 ---
 
