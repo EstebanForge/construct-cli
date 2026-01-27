@@ -24,7 +24,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups; daemon container is properly handled during upgrades.
 - **Self-Update**: Automatic checks against the published VERSION file; Homebrew installs defer to `brew upgrade`; manual installs use tarball update with backup/rollback.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
-- **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd).
+- **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
 - **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`, `worktrunk`).
 
 ---
@@ -233,6 +233,23 @@ Construct supports an optional daemon mode that keeps a background container run
 auto_start = true
 ```
 
+**Multi-Root Daemon Mounts (Opt-In):**
+```toml
+[daemon]
+# Enable multi-root daemon mounts (advanced)
+multi_paths_enabled = false
+# Host directories the daemon can serve
+mount_paths = ["~/Dev/Projects", "/work/client-repos"]
+```
+
+**Multi-Root Behavior:**
+- When enabled, the daemon mounts multiple host roots into deterministic container paths.
+- Each run maps the host `cwd` to the first matching mount root; if none match, it falls back to the normal (non-daemon) path with a user-facing hint.
+- Invalid/nonexistent mount paths are skipped with warnings; >32 entries warn and >64 are capped.
+- Mount root overlaps are allowed but warned (first match wins).
+- The compose override hash includes `multi_paths_enabled` and a normalized mount hash to keep mounts in sync.
+- Daemon containers carry a mounts hash label to detect stale mount configurations.
+
 **System Service Integration:**
 - **macOS (launchd)**: Creates `~/Library/LaunchAgents/com.construct-cli.daemon.plist`
   - Label: `com.construct-cli.daemon`
@@ -250,6 +267,11 @@ auto_start = true
 - Migration system stops and removes both `construct-cli` and `construct-cli-daemon` containers during template updates
 - Staleness detection compares container image ID against current image; warns user if daemon is outdated
 - User can manually restart daemon: `construct sys daemon stop && construct sys daemon start`
+
+**Daemon Fallback Messaging:**
+- When daemon mounts don’t include the current directory, show:
+  - "Daemon workspace does not include the current directory; running without daemon."
+  - "Tip: Enable multi-root daemon mounts in config for always-fast starts."
 
 **Performance Impact:**
 | Operation | Without Daemon | With Daemon |
