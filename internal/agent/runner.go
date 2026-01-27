@@ -309,6 +309,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	}
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
+	osEnv = runtime.AppendProjectPathEnv(osEnv)
 	// Inject network env if needed (though setup usually needs network)
 	osEnv = network.InjectEnv(osEnv, cfg)
 
@@ -477,6 +478,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Prepare environment variables
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
+	osEnv = runtime.AppendProjectPathEnv(osEnv)
 
 	// Ensure comprehensive PATH for container (fixes agent subprocess PATH issues)
 	// The container user's home is always /home/construct
@@ -851,6 +853,14 @@ func mapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
 	return path.Join(mountDest, filepath.ToSlash(rel)), true
 }
 
+func warnDaemonMountFallback() {
+	if ui.CurrentLogLevel < ui.LogLevelInfo {
+		return
+	}
+	fmt.Println("Daemon workspace does not include the current directory; running without daemon.")
+	fmt.Println("Tip: Enable multi-root daemon mounts in config for always-fast starts.")
+}
+
 // execViaDaemon attempts to execute the agent via a running daemon container.
 // Returns true if execution completed (success or failure), false if should fall back to normal path.
 func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonName string, providerEnv []string) (bool, int, error) {
@@ -871,28 +881,47 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		return false, 0, nil
 	}
 
-	daemonWorkdir, err := runtime.GetContainerWorkingDir(containerRuntime, daemonName)
-	if err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Printf("Debug: Failed to inspect daemon working dir: %v\n", err)
+	daemonMounts := runtime.ResolveDaemonMounts(cfg)
+	workdir := ""
+	if daemonMounts.Enabled {
+		label, err := runtime.GetContainerLabel(containerRuntime, daemonName, runtime.DaemonMountsLabelKey)
+		if err != nil || label == "" || label != daemonMounts.Hash {
+			if ui.CurrentLogLevel >= ui.LogLevelInfo {
+				fmt.Println("Daemon mount paths do not match current config; running without daemon.")
+				fmt.Println("Tip: Restart the daemon to apply updated mount paths.")
+			}
+			return false, 0, nil
 		}
-		return false, 0, nil
-	}
 
-	mountSource, err := runtime.GetContainerMountSource(containerRuntime, daemonName, daemonWorkdir)
-	if err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Printf("Debug: Failed to inspect daemon mounts: %v\n", err)
+		var ok bool
+		workdir, ok = runtime.MapDaemonWorkdirFromMounts(cwd, daemonMounts.Mounts)
+		if !ok {
+			warnDaemonMountFallback()
+			return false, 0, nil
 		}
-		return false, 0, nil
-	}
+	} else {
+		daemonWorkdir, err := runtime.GetContainerWorkingDir(containerRuntime, daemonName)
+		if err != nil {
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Failed to inspect daemon working dir: %v\n", err)
+			}
+			return false, 0, nil
+		}
 
-	workdir, ok := mapDaemonWorkdir(cwd, mountSource, daemonWorkdir)
-	if !ok {
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Println("Daemon workspace does not include the current directory; falling back to normal startup...")
+		mountSource, err := runtime.GetContainerMountSource(containerRuntime, daemonName, daemonWorkdir)
+		if err != nil {
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Failed to inspect daemon mounts: %v\n", err)
+			}
+			return false, 0, nil
 		}
-		return false, 0, nil
+
+		var ok bool
+		workdir, ok = mapDaemonWorkdir(cwd, mountSource, daemonWorkdir)
+		if !ok {
+			warnDaemonMountFallback()
+			return false, 0, nil
+		}
 	}
 
 	// Build environment variables to pass
@@ -970,6 +999,14 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 		return false
 	}
 
+	daemonMounts := runtime.ResolveDaemonMounts(cfg)
+	if cfg != nil && cfg.Daemon.MultiPathsEnabled && !daemonMounts.Enabled {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Println("Warning: daemon.multi_paths_enabled is true but no valid daemon.mount_paths were found; skipping daemon auto-start.")
+		}
+		return false
+	}
+
 	fmt.Println("🚀 Starting daemon for faster subsequent runs...")
 
 	// Get current working directory
@@ -984,6 +1021,7 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 	// Prepare environment
 	env := os.Environ()
 	env = append(env, "PWD="+cwd)
+	env = runtime.AppendProjectPathEnv(env)
 	env = network.InjectEnv(env, cfg)
 
 	// Build compose command for detached run

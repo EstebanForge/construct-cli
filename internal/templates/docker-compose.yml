@@ -19,7 +19,7 @@ services:
 
     # Persistent volumes for agent installations
     volumes:
-      - ${PWD}:${CONSTRUCT_PROJECT_PATH:-/workspace}                                      # Current project
+      - ${PWD}:${CONSTRUCT_PROJECT_PATH}                                      # Current project
       - ~/.config/construct-cli/home:/home/construct    # Entire home directory (configs, caches, etc.)
       - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
 
@@ -27,7 +27,7 @@ services:
     # NOTE: PATH must be kept in sync with internal/env/env.go PathComponents and entrypoint.sh
     environment:
       - HOME=/home/construct
-      - CONSTRUCT_PROJECT_PATH=${CONSTRUCT_PROJECT_PATH:-/workspace}
+      - CONSTRUCT_PROJECT_PATH=${CONSTRUCT_PROJECT_PATH}
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.volta/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - LD_LIBRARY_PATH=/home/linuxbrew/.linuxbrew/lib
 
@@ -36,7 +36,7 @@ services:
     # network_mode: none    # airgapped
 
     # Working directory
-    working_dir: ${CONSTRUCT_PROJECT_PATH:-/workspace}
+    working_dir: ${CONSTRUCT_PROJECT_PATH}
 
     # Named volumes for persistent agent and packages storage
     # CRITICAL: volumes must be owned by construct user (not root)

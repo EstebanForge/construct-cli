@@ -61,6 +61,7 @@ func UpdateAgents(cfg *config.Config) {
 	// Prepare environment variables
 	env := os.Environ()
 	env = append(env, "PWD="+cwd)
+	env = runtime.AppendProjectPathEnv(env)
 
 	var cmd *exec.Cmd
 
