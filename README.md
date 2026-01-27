@@ -177,6 +177,8 @@ update_check_interval = 86400  # seconds (24 hours)
 
 [sandbox]
 mount_home = false # keep false unless you really need your whole home dir (dangerous)
+forward_ssh_agent = true # forward host SSH agent into the container
+propagate_git_identity = true # sync host git name/email into container
 selinux_labels = "auto" # auto | enabled | disabled
 shell = "/bin/bash"
 clipboard_host = "host.docker.internal"
@@ -188,6 +190,17 @@ yolo_all = false
 # Enable yolo mode for specific agent slugs
 # Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
 yolo_agents = ["claude", "gemini"]
+
+[daemon]
+# Auto-start the daemon on first agent run for faster subsequent startups
+auto_start = true
+# Enable multi-root daemon mounts (advanced)
+# Purpose: allow the daemon to serve runs from multiple host roots, not just the current repo.
+# Benefits: faster agent startups across different projects without restarting the daemon.
+multi_paths_enabled = false
+# Host directories the daemon can serve (used only when multi_paths_enabled=true)
+# Supports "~" home expansion, e.g. ["~/Dev/Projects", "/work/client-repos"]
+mount_paths = ["/Users/you/Projects", "/work/client-repos"]
 
 [network]
 # permissive | strict | offline
@@ -205,6 +218,12 @@ blocked_domains = [
   "*.crypto-miner.net"
 ]
 blocked_ips = ["203.0.113.0/24", "198.51.100.25"]
+
+[maintenance]
+# Periodically clean up old log files
+cleanup_enabled = true
+cleanup_interval_seconds = 86400
+log_retention_days = 15
 
 ```
 
@@ -285,6 +304,10 @@ ANTHROPIC_MODEL = "MiniMax-M2"
 ```bash
 export CNSTR_ZAI_API_KEY="sk-z-..."
 export CNSTR_MINIMAX_API_KEY="sk-mm-..."
+
+# Or map existing env vars to Construct's expected names
+export CNSTR_ZAI_API_KEY="${ZAI_API_KEY}"
+export CNSTR_MINIMAX_API_KEY="${MINIMAX_API_KEY}"
 ```
 
 3. **Use your configured providers**:

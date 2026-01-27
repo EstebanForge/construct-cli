@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.0] - 2026-01-27
+
+### Added
+- **Daemon Control Commands**: Added `construct sys daemon` subcommands to start, stop, attach, and check status of the background daemon.
+- **Multi-Root Daemon Mounts**: Support for multiple host root mounts for the daemon with validation, overlap warnings, and deterministic mount hashing.
+
+### Changed
+- **Workspace Mount Path**: Removed the legacy `/workspace` fallback; project mounts now always use `/projects/<folder>` via `CONSTRUCT_PROJECT_PATH`.
+- **Compose Env Injection**: `CONSTRUCT_PROJECT_PATH` is now injected automatically for all compose-based commands to keep mount paths consistent.
+
+### Fixed
+- **Daemon Workdir Mapping**: Improved daemon working directory mapping to resolve host paths against validated daemon mounts.
+
 ## [1.1.3] - 2026-01-26
 
 ### Added
