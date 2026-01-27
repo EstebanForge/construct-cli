@@ -68,7 +68,9 @@ type AgentsConfig struct {
 
 // DaemonConfig holds daemon behavior settings.
 type DaemonConfig struct {
-	AutoStart bool `toml:"auto_start"` // Auto-start daemon on first agent run (default: true)
+	AutoStart         bool     `toml:"auto_start"`          // Auto-start daemon on first agent run (default: true)
+	MultiPathsEnabled bool     `toml:"multi_paths_enabled"` // Enable multi-path daemon mounts (default: false)
+	MountPaths        []string `toml:"mount_paths"`         // Multi-path daemon mount roots (opt-in)
 }
 
 // ClaudeConfig stores Claude provider configuration.

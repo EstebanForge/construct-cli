@@ -51,6 +51,14 @@ yolo_agents = []
 # Use 'construct sys daemon stop' to manually stop the daemon when not needed.
 auto_start = true
 
+# Enable multi-path daemon mounts (default: false)
+# Warning: mounting large portions of your home directory reduces sandbox isolation.
+multi_paths_enabled = false
+
+# When empty, behavior is unchanged (single-root, current workspace).
+# When set, daemon mounts these host paths and can serve any agent run inside them.
+mount_paths = []
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)

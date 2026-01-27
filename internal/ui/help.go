@@ -75,6 +75,11 @@ Network Isolation:
     mode = "strict"      # Custom network + domain/IP filtering (use network commands)
     mode = "offline"     # No network access
 
+Daemon Opt-In (Multi-Root):
+  Set in config.toml [daemon] section:
+    multi_paths_enabled = true
+    mount_paths = ["~/Dev/Projects", "~/Dev/Local"]
+
 For more information, visit: https://github.com/EstebanForge/construct-cli
 `
 	if GumAvailable() {

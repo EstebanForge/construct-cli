@@ -605,9 +605,27 @@ func EnsureCustomNetwork(containerRuntime string) error {
 func GetProjectMountPath() string {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return "/workspace"
+		return "/projects"
 	}
 	return getProjectMountPathFromDir(cwd)
+}
+
+// AppendProjectPathEnv ensures CONSTRUCT_PROJECT_PATH is set for compose interpolation.
+func AppendProjectPathEnv(env []string) []string {
+	if envHasKey(env, "CONSTRUCT_PROJECT_PATH") {
+		return env
+	}
+	return append(env, "CONSTRUCT_PROJECT_PATH="+GetProjectMountPath())
+}
+
+func envHasKey(env []string, key string) bool {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func getProjectMountPathFromDir(dir string) string {
@@ -631,6 +649,8 @@ type overrideInputs struct {
 	SSHAuthSock    string // SSH agent socket path
 	ForwardSSH     bool   // SSH agent forwarding enabled
 	PropagateGit   bool   // Git identity propagation enabled
+	DaemonMulti    bool   // Multi-path daemon mounts enabled
+	DaemonMounts   string // Hash of normalized mount paths
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -649,6 +669,8 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "sshsock:%s", inputs.SSHAuthSock)
 	writeHashString(h, "forwardssh:%v", inputs.ForwardSSH)
 	writeHashString(h, "propagategit:%v", inputs.PropagateGit)
+	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
+	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -686,6 +708,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	cfg, _, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load config during runtime preparation: %v\n", err)
+	}
+
+	daemonMounts := ResolveDaemonMounts(cfg)
+	for _, warning := range daemonMounts.Warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", warning)
 	}
 
 	// Determine SELinux suffix
@@ -735,6 +762,8 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		SSHAuthSock:    sshAuthSock,
 		ForwardSSH:     forwardSSH,
 		PropagateGit:   propagateGit,
+		DaemonMulti:    cfg != nil && cfg.Daemon.MultiPathsEnabled,
+		DaemonMounts:   daemonMounts.Hash,
 	}
 
 	// Check if override needs regeneration
@@ -752,6 +781,10 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	override.WriteString("# This file provides runtime-specific configurations\n\n")
 	override.WriteString("services:\n  construct-box:\n")
 	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
+	if daemonMounts.Enabled {
+		override.WriteString("    labels:\n")
+		fmt.Fprintf(&override, "      - %s=%s\n", DaemonMountsLabelKey, daemonMounts.Hash)
+	}
 
 	if selinuxEnabled {
 		fmt.Println("✓ SELinux labels enabled for volume mounts")
@@ -778,6 +811,9 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	case "linux":
 		// On Linux, we must re-declare base volumes to apply permissions/SELinux labels correctly
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
+		for _, mount := range daemonMounts.Mounts {
+			fmt.Fprintf(&override, "      - %s:%s%s\n", mount.HostPath, mount.ContainerPath, selinuxSuffix)
+		}
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
@@ -786,6 +822,9 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
+		for _, mount := range daemonMounts.Mounts {
+			fmt.Fprintf(&override, "      - %s:%s%s\n", mount.HostPath, mount.ContainerPath, selinuxSuffix)
+		}
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/home:/home/construct%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/install_user_packages.sh:/home/construct/.config/construct-cli/container/install_user_packages.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
@@ -1405,6 +1444,7 @@ func getGitConfig(key string) string {
 // BuildComposeCommand constructs a docker-compose command
 func BuildComposeCommand(containerRuntime, configPath, subCommand string, args []string) (*exec.Cmd, error) {
 	composeArgs := GetComposeFileArgs(configPath)
+	var cmd *exec.Cmd
 
 	if containerRuntime == "docker" {
 		if _, err := exec.LookPath("docker-compose"); err == nil {
@@ -1413,14 +1453,15 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 			cmdArgs = append(cmdArgs, composeArgs...)
 			cmdArgs = append(cmdArgs, subCommand)
 			cmdArgs = append(cmdArgs, args...)
-			return exec.Command("docker-compose", cmdArgs[1:]...), nil
+			cmd = exec.Command("docker-compose", cmdArgs[1:]...)
+		} else {
+			cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
+			cmdArgs = append(cmdArgs, "docker", "compose")
+			cmdArgs = append(cmdArgs, composeArgs...)
+			cmdArgs = append(cmdArgs, subCommand)
+			cmdArgs = append(cmdArgs, args...)
+			cmd = exec.Command("docker", cmdArgs[1:]...)
 		}
-		cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
-		cmdArgs = append(cmdArgs, "docker", "compose")
-		cmdArgs = append(cmdArgs, composeArgs...)
-		cmdArgs = append(cmdArgs, subCommand)
-		cmdArgs = append(cmdArgs, args...)
-		return exec.Command("docker", cmdArgs[1:]...), nil
 	}
 	if containerRuntime == "podman" {
 		cmdArgs := make([]string, 0, 1+len(composeArgs)+1+len(args))
@@ -1428,7 +1469,7 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 		cmdArgs = append(cmdArgs, composeArgs...)
 		cmdArgs = append(cmdArgs, subCommand)
 		cmdArgs = append(cmdArgs, args...)
-		return exec.Command("podman-compose", cmdArgs[1:]...), nil
+		cmd = exec.Command("podman-compose", cmdArgs[1:]...)
 	}
 	if containerRuntime == "container" {
 		cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
@@ -1436,9 +1477,13 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 		cmdArgs = append(cmdArgs, composeArgs...)
 		cmdArgs = append(cmdArgs, subCommand)
 		cmdArgs = append(cmdArgs, args...)
-		return exec.Command("docker", cmdArgs[1:]...), nil
+		cmd = exec.Command("docker", cmdArgs[1:]...)
 	}
-	return nil, fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	if cmd == nil {
+		return nil, fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+	cmd.Env = AppendProjectPathEnv(os.Environ())
+	return cmd, nil
 }
 
 // GetPlatformRunFlags returns platform-specific flags for the 'run' command

@@ -35,7 +35,7 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(DockerCompose, "construct-box") {
 		t.Error("docker-compose.yml template missing service name")
 	}
-	if !strings.Contains(DockerCompose, "${CONSTRUCT_PROJECT_PATH:-/workspace}") {
+	if !strings.Contains(DockerCompose, "${CONSTRUCT_PROJECT_PATH}") {
 		t.Error("docker-compose.yml template missing dynamic project path")
 	}
 
