@@ -325,14 +325,15 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 }
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {
-	args = applyYoloArgs(args, cfg)
+	baseArgs := args
 
 	// Check if daemon container is running - use it for faster startup
 	daemonName := "construct-cli-daemon"
 	daemonState := runtime.GetContainerState(containerRuntime, daemonName)
 
 	if daemonState == runtime.ContainerStateRunning {
-		if ok, exitCode, err := execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv); ok {
+		daemonArgs := applyYoloArgs(baseArgs, cfg)
+		if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, providerEnv); ok {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
 				os.Exit(1)
@@ -355,7 +356,8 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		if startDaemonBackground(cfg, containerRuntime, configPath) {
 			// Wait for daemon to be ready, then exec into it
 			if waitForDaemon(containerRuntime, daemonName, 10) {
-				if ok, exitCode, err := execViaDaemon(args, cfg, containerRuntime, daemonName, providerEnv); ok {
+				daemonArgs := applyYoloArgs(baseArgs, cfg)
+				if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, providerEnv); ok {
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
 						os.Exit(1)
@@ -366,6 +368,8 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		}
 		// If daemon start/exec failed, fall through to normal path
 	}
+
+	args = applyYoloArgs(baseArgs, cfg)
 
 	// Check for container collision
 	containerName := "construct-cli"
@@ -555,6 +559,9 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 	// Construct common arguments for 'run' command
 	runFlags := []string{"--rm"}
+	if stdruntime.GOOS == "darwin" {
+		runFlags = append(runFlags, "--user", "construct")
+	}
 
 	if loginForward {
 		for _, port := range loginPorts {
@@ -980,8 +987,12 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		execArgs = []string{execShell}
 	}
 
+	execUser := ""
+	if stdruntime.GOOS == "darwin" {
+		execUser = "construct"
+	}
 	// Execute interactively in daemon container
-	exitCode, err := runtime.ExecInteractive(containerRuntime, daemonName, execArgs, envVars, workdir)
+	exitCode, err := runtime.ExecInteractiveAsUser(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
 	return true, exitCode, err
 }
 
