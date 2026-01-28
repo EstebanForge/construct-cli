@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.1] - 2026-01-28
+
+### Fixed
+- **Daemon Yolo Flag**: Avoid injecting `--dangerously-skip-permissions` when execing into a root-running daemon to prevent permission errors.
+- **Daemon User Enforcement (macOS)**: Run all agent execs inside the daemon as the `construct` user to avoid root exec on macOS.
+
+### Changed
+- **Run User (macOS)**: Force non-daemon agent runs to use the `construct` user to avoid root exec on macOS.
+
 ## [1.2.0] - 2026-01-27
 
 ### Added

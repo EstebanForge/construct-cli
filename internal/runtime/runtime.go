@@ -1164,6 +1164,12 @@ func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (
 // ExecInteractive executes a command interactively in a running container
 // with stdin/stdout/stderr passed through. Returns the exit code.
 func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir string) (int, error) {
+	return ExecInteractiveAsUser(containerRuntime, containerName, cmdArgs, envVars, workdir, "")
+}
+
+// ExecInteractiveAsUser executes a command interactively in a running container as a specific user.
+// with stdin/stdout/stderr passed through. Returns the exit code.
+func ExecInteractiveAsUser(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir, user string) (int, error) {
 	var cmd *exec.Cmd
 
 	// Build exec args with -it for interactive + tty
@@ -1172,11 +1178,18 @@ func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, e
 	if workdir != "" {
 		capacity += 2
 	}
+	if user != "" {
+		capacity += 2
+	}
 	args := make([]string, 0, capacity)
 	args = append(args, "exec", "-it")
 
 	if workdir != "" {
 		args = append(args, "-w", workdir)
+	}
+
+	if user != "" {
+		args = append(args, "-u", user)
 	}
 
 	// Add environment variables
