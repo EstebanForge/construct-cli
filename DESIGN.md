@@ -182,10 +182,10 @@ make cross-compile   # all platforms
 - `sys restore-config`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
 - `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
-- `sys daemon-install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).
-- `sys daemon-uninstall`: Remove daemon auto-start service.
-- `sys daemon-status`: Show daemon auto-start service status.
-- `daemon start|stop|attach|status`: Keep a background container running for faster agent spins (~100ms startup vs 2-5s).
+- `sys daemon install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).
+- `sys daemon uninstall`: Remove daemon auto-start service.
+- `sys daemon status`: Show daemon runtime + auto-start service status.
+- `sys daemon start|stop|attach|status`: Keep a background container running for faster agent spins (~100ms startup vs 2-5s).
 - **Daemon auto-start**: When `daemon.auto_start = true` (default), daemon automatically starts on first agent run if not already running.
 - **System service integration**: Daemon can be installed as a user service that starts on login/boot; macOS uses `~/Library/LaunchAgents/`, Linux uses `~/.config/systemd/user/`.
 - Long operations use gum spinners; logs go to `~/.config/construct-cli/logs/` (timestamped).

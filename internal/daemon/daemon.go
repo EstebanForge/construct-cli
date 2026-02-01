@@ -205,6 +205,7 @@ func Status() {
 
 	if !ui.GumAvailable() {
 		statusBasic(state, containerRuntime, containerName)
+		ServiceStatus()
 		return
 	}
 
@@ -297,6 +298,7 @@ func Status() {
 	}
 
 	fmt.Println()
+	ServiceStatus()
 }
 
 // statusBasic shows daemon status without Gum (fallback)

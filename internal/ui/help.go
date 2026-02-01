@@ -27,7 +27,7 @@ Global Flags:
   construct sys agents           # List supported agents
   construct sys agents-md        # Manage global instruction files (rules) for agents
   construct sys config           # Open config.toml in editor
-  construct sys daemon           # Manage background daemon (start|stop|attach|status)
+  construct sys daemon           # Manage background daemon (start|stop|attach|status|install|uninstall)
   construct sys packages         # Open packages.toml in editor
   construct sys doctor           # Check system health
   construct sys ct-fix           # Fix ct symlink in ~/.local/bin
@@ -44,9 +44,6 @@ Global Flags:
   construct sys restore-config   # Restore config from backup
   construct sys self-update      # Update construct itself to the latest version
   construct sys set-password     # Change the password for the construct user inside the container
-  construct sys daemon-install   # Install daemon as auto-start service (runs on login/boot)
-  construct sys daemon-uninstall # Uninstall daemon auto-start service
-  construct sys daemon-status    # Show daemon auto-start service status
   construct sys shell            # Interactive shell with all agents inside The Construct
   construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   construct sys update           # Update agents and packages to latest versions inside The Construct
@@ -101,7 +98,7 @@ Commands:
   agents             # List supported agents
   agents-md          # Manage global instruction files (rules) for agents
   config             # Open config.toml in editor
-  daemon             # Manage background daemon (start|stop|attach|status)
+  daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
   packages           # Open packages.toml in editor
   doctor             # Check system health
   ct-fix             # Fix ct symlink in ~/.local/bin
@@ -118,9 +115,6 @@ Commands:
   restore-config     # Restore config from backup
   self-update        # Update construct itself to the latest version
   set-password       # Change the password for the construct user inside the container
-  daemon-install     # Install daemon as auto-start service (runs on login/boot)
-  daemon-uninstall   # Uninstall daemon auto-start service
-  daemon-status      # Show daemon auto-start service status
   shell              # Interactive shell with all agents inside The Construct
   ssh-import         # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   update             # Update agents and packages to latest versions inside The Construct
@@ -162,16 +156,20 @@ Usage:
   construct sys daemon <command>
 
 Commands:
-  start   # Start background container
-  stop    # Stop background container
-  attach  # Attach to running daemon (Ctrl+P Ctrl+Q to detach)
-  status  # Show daemon status
+  start          # Start background container
+  stop           # Stop background container
+  attach         # Attach to running daemon (Ctrl+P Ctrl+Q to detach)
+  status         # Show daemon + auto-start service status
+  install        # Install daemon as auto-start service (runs on login/boot)
+  uninstall      # Uninstall daemon auto-start service
 
 Examples:
   construct sys daemon start
   construct sys daemon attach
   construct sys daemon status
   construct sys daemon stop
+  construct sys daemon install
+  construct sys daemon uninstall
 `
 	fmt.Print(help)
 }
