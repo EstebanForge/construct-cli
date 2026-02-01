@@ -48,7 +48,7 @@ All notable changes to Construct CLI will be documented in this file.
 - Multiple performance optimizations where implemented to make the CLI faster and more efficient. Now it's fast. Really fast.
 
 ### Added
-- **Daemon Auto-Start Service**: Added `sys daemon-install`, `sys daemon-uninstall`, and `sys daemon-status` for managing a background daemon service (systemd) that can auto-start on login/boot.
+- **Daemon Auto-Start Service**: Added `sys daemon install`, `sys daemon uninstall`, and `sys daemon status` for managing a background daemon service (systemd) that can auto-start on login/boot.
 - **Daemon Auto-Start Config**: New `[daemon] auto_start` setting to start the daemon on first agent run for faster subsequent startups.
 
 ### Changed

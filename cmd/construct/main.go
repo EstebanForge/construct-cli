@@ -309,12 +309,6 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		sys.SetPassword(cfg)
-	case "daemon-install":
-		daemon.InstallService()
-	case "daemon-uninstall":
-		daemon.UninstallService()
-	case "daemon-status":
-		daemon.ServiceStatus()
 	case "daemon":
 		if len(args) < 2 {
 			ui.PrintSysDaemonHelp()
@@ -373,6 +367,10 @@ func handleDaemonCommand(args []string) {
 		daemon.Attach()
 	case "status":
 		daemon.Status()
+	case "install":
+		daemon.InstallService()
+	case "uninstall":
+		daemon.UninstallService()
 	default:
 		ui.GumError(fmt.Sprintf("Unknown daemon command: %s", command))
 		ui.PrintSysDaemonHelp()

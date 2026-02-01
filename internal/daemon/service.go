@@ -90,7 +90,7 @@ func installLaunchd() {
 	// Check if already installed
 	if _, err := os.Stat(plistPath); err == nil {
 		ui.GumWarning("Daemon service is already installed")
-		fmt.Println("Use 'construct sys daemon-uninstall' to remove it first")
+		fmt.Println("Use 'construct sys daemon uninstall' to remove it first")
 		os.Exit(1)
 	}
 
@@ -136,7 +136,7 @@ func installLaunchd() {
 	fmt.Println()
 	fmt.Println("The daemon will start automatically on login.")
 	fmt.Println("To start it now: construct sys daemon start")
-	fmt.Println("To remove: construct sys daemon-uninstall")
+	fmt.Println("To remove: construct sys daemon uninstall")
 }
 
 func uninstallLaunchd() {
@@ -175,7 +175,7 @@ func statusLaunchd() {
 	if _, err := os.Stat(plistPath); os.IsNotExist(err) {
 		fmt.Println("Status: Not installed")
 		fmt.Println()
-		fmt.Println("Install with: construct sys daemon-install")
+		fmt.Println("Install with: construct sys daemon install")
 		return
 	}
 
@@ -218,7 +218,7 @@ func installSystemd() {
 	// Check if already installed
 	if _, err := os.Stat(unitPath); err == nil {
 		ui.GumWarning("Daemon service is already installed")
-		fmt.Println("Use 'construct sys daemon-uninstall' to remove it first")
+		fmt.Println("Use 'construct sys daemon uninstall' to remove it first")
 		os.Exit(1)
 	}
 
@@ -260,7 +260,7 @@ WantedBy=default.target
 	fmt.Println()
 	fmt.Println("The daemon will start automatically on login.")
 	fmt.Println("To start it now: construct sys daemon start")
-	fmt.Println("To remove: construct sys daemon-uninstall")
+	fmt.Println("To remove: construct sys daemon uninstall")
 	fmt.Println()
 	fmt.Println("Note: You may need to enable lingering for the service to run without login:")
 	fmt.Println("  loginctl enable-linger $USER")
@@ -313,7 +313,7 @@ func statusSystemd() {
 	if _, err := os.Stat(unitPath); os.IsNotExist(err) {
 		fmt.Println("Status: Not installed")
 		fmt.Println()
-		fmt.Println("Install with: construct sys daemon-install")
+		fmt.Println("Install with: construct sys daemon install")
 		return
 	}
 
