@@ -222,6 +222,17 @@ func TestExecInContainerUnsupportedRuntime(t *testing.T) {
 	}
 }
 
+// TestExecInContainerWithEnvUnsupportedRuntime tests error handling for unsupported runtimes
+func TestExecInContainerWithEnvUnsupportedRuntime(t *testing.T) {
+	_, err := ExecInContainerWithEnv("unsupported-runtime", "test-container", []string{"echo", "hello"}, []string{"FOO=bar"}, "")
+	if err == nil {
+		t.Error("Expected error for unsupported runtime, got nil")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
 // TestExecInteractiveUnsupportedRuntime tests error handling for unsupported runtimes
 func TestExecInteractiveUnsupportedRuntime(t *testing.T) {
 	exitCode, err := ExecInteractive("unsupported-runtime", "test-container", []string{"echo"}, nil, "")

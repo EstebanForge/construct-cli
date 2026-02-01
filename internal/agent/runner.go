@@ -28,6 +28,7 @@ import (
 const defaultLoginForwardPorts = "1455,8085"
 const loginForwardListenOffset = 10000
 const loginBridgeFlagFile = ".login_bridge"
+const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
 
 // RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
@@ -972,6 +973,20 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		envVars = append(envVars, "COLORTERM=truecolor")
 	}
 
+	execUser := ""
+	if stdruntime.GOOS == "darwin" {
+		execUser = "construct"
+	}
+
+	if bridge, bridgeEnv, err := startDaemonSSHBridge(cfg, containerRuntime, daemonName, execUser); err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to start SSH bridge for daemon: %v\n", err)
+		}
+	} else if bridge != nil {
+		defer bridge.Stop()
+		envVars = append(envVars, bridgeEnv...)
+	}
+
 	if len(args) == 0 {
 		fmt.Println("Entering Construct daemon shell...")
 	} else {
@@ -987,13 +1002,45 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		execArgs = []string{execShell}
 	}
 
-	execUser := ""
-	if stdruntime.GOOS == "darwin" {
-		execUser = "construct"
-	}
 	// Execute interactively in daemon container
 	exitCode, err := runtime.ExecInteractiveAsUser(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
 	return true, exitCode, err
+}
+
+func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, execUser string) (*SSHBridge, []string, error) {
+	if stdruntime.GOOS != "darwin" {
+		return nil, nil, nil
+	}
+	if cfg == nil || !cfg.Sandbox.ForwardSSHAgent {
+		return nil, nil, nil
+	}
+	if os.Getenv("SSH_AUTH_SOCK") == "" {
+		return nil, nil, nil
+	}
+
+	bridge, err := StartSSHBridge()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, bridge.Port, execUser); err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to ensure SSH proxy in daemon: %v\n", err)
+		}
+	}
+
+	envVars := []string{
+		fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", bridge.Port),
+		"SSH_AUTH_SOCK=" + daemonSSHProxySock,
+	}
+	return bridge, envVars, nil
+}
+
+func ensureDaemonSSHProxy(containerRuntime, daemonName string, port int, execUser string) error {
+	envVars := []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)}
+	cmdArgs := []string{"bash", "-lc", `if command -v socat >/dev/null; then PROXY_SOCK="$HOME/.ssh/agent.sock"; mkdir -p "$HOME/.ssh" 2>/dev/null || true; chmod 700 "$HOME/.ssh" 2>/dev/null || true; if [ ! -S "$PROXY_SOCK" ]; then rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 & fi; fi`}
+	_, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser)
+	return err
 }
 
 // startDaemonBackground starts the daemon container in the background.

@@ -219,6 +219,35 @@ func TestConfigPathHandling(t *testing.T) {
 	}
 }
 
+// TestStartDaemonSSHBridgeNoop verifies that the daemon SSH bridge is a no-op
+// when forwarding is disabled or SSH_AUTH_SOCK is unset.
+func TestStartDaemonSSHBridgeNoop(t *testing.T) {
+	origSock := os.Getenv("SSH_AUTH_SOCK")
+	os.Unsetenv("SSH_AUTH_SOCK")
+	t.Cleanup(func() {
+		if origSock != "" {
+			os.Setenv("SSH_AUTH_SOCK", origSock)
+		}
+	})
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			ForwardSSHAgent: false,
+		},
+	}
+
+	bridge, envVars, err := startDaemonSSHBridge(cfg, "docker", "construct-cli-daemon", "")
+	if err != nil {
+		t.Fatalf("Expected no error, got: %v", err)
+	}
+	if bridge != nil {
+		t.Error("Expected no bridge to be created")
+	}
+	if envVars != nil {
+		t.Errorf("Expected no env vars, got: %v", envVars)
+	}
+}
+
 // TestNetworkModeInjection verifies network mode is passed to daemon
 func TestNetworkModeInjection(t *testing.T) {
 	cfg := &config.Config{

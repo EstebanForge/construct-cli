@@ -1161,6 +1161,42 @@ func ExecInContainer(containerRuntime, containerName string, cmdArgs []string) (
 	return string(output), nil
 }
 
+// ExecInContainerWithEnv executes a command in a running container with environment variables.
+func ExecInContainerWithEnv(containerRuntime, containerName string, cmdArgs []string, envVars []string, user string) (string, error) {
+	var cmd *exec.Cmd
+
+	args := make([]string, 0, 3+2*len(envVars)+len(cmdArgs))
+	args = append(args, "exec")
+	if user != "" {
+		args = append(args, "-u", user)
+	}
+	for _, envVar := range envVars {
+		args = append(args, "-e", envVar)
+	}
+	args = append(args, containerName)
+	args = append(args, cmdArgs...)
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", args...)
+	case "podman":
+		cmd = exec.Command("podman", args...)
+	default:
+		return "", fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return "", fmt.Errorf("failed to exec in container: %w", err)
+		}
+		return string(output), fmt.Errorf("failed to exec in container: %w: %s", err, msg)
+	}
+
+	return string(output), nil
+}
+
 // ExecInteractive executes a command interactively in a running container
 // with stdin/stdout/stderr passed through. Returns the exit code.
 func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir string) (int, error) {
