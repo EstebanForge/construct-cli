@@ -2,6 +2,11 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.2] - 2026-02-01
+
+### Fixed
+- **Daemon SSH Agent Bridge**: Ensure daemon execs initialize the SSH agent proxy and expose `SSH_AUTH_SOCK` on macOS so agents can access forwarded keys.
+
 ## [1.2.1] - 2026-01-28
 
 ### Fixed
