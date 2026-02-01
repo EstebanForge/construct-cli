@@ -7,6 +7,8 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - **Daemon SSH Agent Bridge**: Ensure daemon execs initialize the SSH agent proxy and expose `SSH_AUTH_SOCK` on macOS so agents can access forwarded keys.
 
+---
+
 ## [1.2.1] - 2026-01-28
 
 ### Fixed
@@ -15,6 +17,8 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Changed
 - **Run User (macOS)**: Force non-daemon agent runs to use the `construct` user to avoid root exec on macOS.
+
+---
 
 ## [1.2.0] - 2026-01-27
 
@@ -28,6 +32,8 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Fixed
 - **Daemon Workdir Mapping**: Improved daemon working directory mapping to resolve host paths against validated daemon mounts.
+
+---
 
 ## [1.1.3] - 2026-01-26
 
