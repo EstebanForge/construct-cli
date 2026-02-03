@@ -48,7 +48,7 @@ func ExpandProviderEnv(envMap map[string]string) []string {
 			for _, match := range matches {
 				if len(match) > 1 {
 					varName := strings.TrimSpace(match[1])
-					envValue, exists := os.LookupEnv(varName)
+					envValue, exists := lookupEnvWithFallback(varName)
 
 					if !exists {
 						ui.LogWarning("Environment variable %s not set for %s (did you forget to export it?)", varName, key)
@@ -65,6 +65,118 @@ func ExpandProviderEnv(envMap map[string]string) []string {
 	}
 
 	return expanded
+}
+
+// lookupEnvWithFallback allows CNSTR_ prefixed variables to fall back to unprefixed names.
+func lookupEnvWithFallback(varName string) (string, bool) {
+	if value, exists := os.LookupEnv(varName); exists && value != "" {
+		return value, true
+	}
+
+	if strings.HasPrefix(varName, "CNSTR_") {
+		if value, exists := os.LookupEnv(strings.TrimPrefix(varName, "CNSTR_")); exists && value != "" {
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Using fallback env var %s for %s\n", strings.TrimPrefix(varName, "CNSTR_"), varName)
+			}
+			return value, true
+		}
+	}
+
+	return "", false
+}
+
+// ProviderKeyVars defines unprefixed provider key names supported for passthrough and aliasing.
+var ProviderKeyVars = []string{
+	"ANTHROPIC_API_KEY",
+	"OPENAI_API_KEY",
+	"GEMINI_API_KEY",
+	"OPENROUTER_API_KEY",
+	"ZAI_API_KEY",
+	"OPENCODE_API_KEY",
+	"HF_TOKEN",
+	"KIMI_API_KEY",
+	"MINIMAX_API_KEY",
+	"MINIMAX_CN_API_KEY",
+}
+
+// CollectProviderEnv builds environment variables for common provider keys.
+// It passes through unprefixed keys and ensures CNSTR_ aliases exist when only unprefixed keys are set.
+func CollectProviderEnv() []string {
+	envs := make([]string, 0, len(ProviderKeyVars)*2)
+	added := make(map[string]struct{}, len(ProviderKeyVars)*2)
+
+	add := func(key, value string) {
+		if _, exists := added[key]; exists {
+			return
+		}
+		envs = append(envs, fmt.Sprintf("%s=%s", key, value))
+		added[key] = struct{}{}
+	}
+
+	for _, key := range ProviderKeyVars {
+		cnstrKey := "CNSTR_" + key
+		if value, exists := os.LookupEnv(cnstrKey); exists && value != "" {
+			add(cnstrKey, value)
+		}
+
+		if value, exists := os.LookupEnv(key); exists && value != "" {
+			add(key, value)
+			if cnstrValue, exists := os.LookupEnv(cnstrKey); !exists || cnstrValue == "" {
+				add(cnstrKey, value)
+			}
+		}
+	}
+
+	return envs
+}
+
+// MergeEnvVars merges base and override env vars, keeping override values on key conflicts.
+func MergeEnvVars(base []string, override []string) []string {
+	if len(base) == 0 && len(override) == 0 {
+		return nil
+	}
+
+	orderedKeys := make([]string, 0, len(base)+len(override))
+	values := make(map[string]string, len(base)+len(override))
+
+	addKey := func(key, value string) {
+		if _, exists := values[key]; !exists {
+			orderedKeys = append(orderedKeys, key)
+		}
+		values[key] = value
+	}
+
+	for _, entry := range base {
+		key, value := splitEnvEntry(entry)
+		if key == "" {
+			continue
+		}
+		addKey(key, value)
+	}
+
+	for _, entry := range override {
+		key, value := splitEnvEntry(entry)
+		if key == "" {
+			continue
+		}
+		addKey(key, value)
+	}
+
+	merged := make([]string, 0, len(values))
+	for _, key := range orderedKeys {
+		merged = append(merged, fmt.Sprintf("%s=%s", key, values[key]))
+	}
+
+	return merged
+}
+
+func splitEnvEntry(entry string) (string, string) {
+	for i := 0; i < len(entry); i++ {
+		if entry[i] == '=' {
+			return entry[:i], entry[i+1:]
+		}
+	}
+	return "", ""
 }
 
 // MaskSensitiveValue masks sensitive values in debug output
