@@ -382,6 +382,8 @@ API_TIMEOUT_MS = "3000000"
 
 - **Reference Host Variables**: Use `${VAR_NAME}` syntax to reference environment variables from your host system
 - **Direct Values**: You can also specify values directly. Maybe less secure for API keys. Your call
+- **CNSTR_ Fallback**: If a `CNSTR_` prefixed variable is missing, Construct falls back to the unprefixed name (for example, `CNSTR_ZAI_API_KEY` → `ZAI_API_KEY`)
+- **Passthrough Keys**: Construct always forwards common provider keys and their `CNSTR_` aliases (Anthropic/OpenAI/Gemini/OpenRouter/ZAI/OpenCode/HF/Kimi/MiniMax/MiniMax CN)
 - **Auto-Reset**: Construct automatically cleans any existing Claude environment variables before injecting provider-specific ones
 
 ### Benefits

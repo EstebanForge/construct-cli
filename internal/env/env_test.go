@@ -81,6 +81,133 @@ func TestExpandProviderEnvMissing(t *testing.T) {
 	}
 }
 
+func TestExpandProviderEnvFallbackCNSTR(t *testing.T) {
+	os.Unsetenv("CNSTR_ZAI_API_KEY")
+	os.Setenv("ZAI_API_KEY", "sk-zai-123")
+	defer os.Unsetenv("ZAI_API_KEY")
+
+	envMap := map[string]string{
+		"ANTHROPIC_AUTH_TOKEN": "${CNSTR_ZAI_API_KEY}",
+	}
+
+	expanded := ExpandProviderEnv(envMap)
+
+	if len(expanded) != 1 {
+		t.Fatalf("Expected 1 env var, got %d", len(expanded))
+	}
+
+	parts := splitEnvString(expanded[0])
+	if len(parts) != 2 {
+		t.Fatalf("Invalid env format: %s", expanded[0])
+	}
+
+	if parts[1] != "sk-zai-123" {
+		t.Errorf("Expected fallback value sk-zai-123, got %s", parts[1])
+	}
+}
+
+func TestExpandProviderEnvPrefersCNSTR(t *testing.T) {
+	os.Setenv("CNSTR_ZAI_API_KEY", "sk-cnstr-456")
+	os.Setenv("ZAI_API_KEY", "sk-zai-123")
+	defer os.Unsetenv("CNSTR_ZAI_API_KEY")
+	defer os.Unsetenv("ZAI_API_KEY")
+
+	envMap := map[string]string{
+		"ANTHROPIC_AUTH_TOKEN": "${CNSTR_ZAI_API_KEY}",
+	}
+
+	expanded := ExpandProviderEnv(envMap)
+
+	if len(expanded) != 1 {
+		t.Fatalf("Expected 1 env var, got %d", len(expanded))
+	}
+
+	parts := splitEnvString(expanded[0])
+	if len(parts) != 2 {
+		t.Fatalf("Invalid env format: %s", expanded[0])
+	}
+
+	if parts[1] != "sk-cnstr-456" {
+		t.Errorf("Expected CNSTR value sk-cnstr-456, got %s", parts[1])
+	}
+}
+
+func TestExpandProviderEnvFallbackWhenCNSTREmpty(t *testing.T) {
+	os.Setenv("CNSTR_ZAI_API_KEY", "")
+	os.Setenv("ZAI_API_KEY", "sk-zai-123")
+	defer os.Unsetenv("CNSTR_ZAI_API_KEY")
+	defer os.Unsetenv("ZAI_API_KEY")
+
+	envMap := map[string]string{
+		"ANTHROPIC_AUTH_TOKEN": "${CNSTR_ZAI_API_KEY}",
+	}
+
+	expanded := ExpandProviderEnv(envMap)
+
+	if len(expanded) != 1 {
+		t.Fatalf("Expected 1 env var, got %d", len(expanded))
+	}
+
+	parts := splitEnvString(expanded[0])
+	if len(parts) != 2 {
+		t.Fatalf("Invalid env format: %s", expanded[0])
+	}
+
+	if parts[1] != "sk-zai-123" {
+		t.Errorf("Expected fallback value sk-zai-123, got %s", parts[1])
+	}
+}
+
+func TestCollectProviderEnvFallbackWhenCNSTREmpty(t *testing.T) {
+	os.Setenv("CNSTR_OPENAI_API_KEY", "")
+	os.Setenv("OPENAI_API_KEY", "sk-openai-123")
+	defer os.Unsetenv("CNSTR_OPENAI_API_KEY")
+	defer os.Unsetenv("OPENAI_API_KEY")
+
+	envs := CollectProviderEnv()
+
+	values := make(map[string]string, len(envs))
+	for _, e := range envs {
+		parts := splitEnvString(e)
+		if len(parts) != 2 {
+			t.Fatalf("Invalid env format: %s", e)
+		}
+		values[parts[0]] = parts[1]
+	}
+
+	if values["OPENAI_API_KEY"] != "sk-openai-123" {
+		t.Errorf("Expected OPENAI_API_KEY to be set, got %s", values["OPENAI_API_KEY"])
+	}
+	if values["CNSTR_OPENAI_API_KEY"] != "sk-openai-123" {
+		t.Errorf("Expected CNSTR_OPENAI_API_KEY fallback to be set, got %s", values["CNSTR_OPENAI_API_KEY"])
+	}
+}
+
+func TestMergeEnvVarsOverride(t *testing.T) {
+	base := []string{"OPENAI_API_KEY=base", "HF_TOKEN=base-hf"}
+	override := []string{"OPENAI_API_KEY=override", "GEMINI_API_KEY=gem"}
+
+	merged := MergeEnvVars(base, override)
+	values := make(map[string]string, len(merged))
+	for _, e := range merged {
+		parts := splitEnvString(e)
+		if len(parts) != 2 {
+			t.Fatalf("Invalid env format: %s", e)
+		}
+		values[parts[0]] = parts[1]
+	}
+
+	if values["OPENAI_API_KEY"] != "override" {
+		t.Errorf("Expected override value for OPENAI_API_KEY, got %s", values["OPENAI_API_KEY"])
+	}
+	if values["HF_TOKEN"] != "base-hf" {
+		t.Errorf("Expected base HF_TOKEN to be preserved, got %s", values["HF_TOKEN"])
+	}
+	if values["GEMINI_API_KEY"] != "gem" {
+		t.Errorf("Expected GEMINI_API_KEY to be set, got %s", values["GEMINI_API_KEY"])
+	}
+}
+
 // TestMaskSensitiveValue tests sensitive value masking
 func TestMaskSensitiveValue(t *testing.T) {
 	tests := []struct {

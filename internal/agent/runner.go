@@ -327,6 +327,8 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {
 	baseArgs := args
+	commonProviderEnv := env.CollectProviderEnv()
+	mergedProviderEnv := env.MergeEnvVars(commonProviderEnv, providerEnv)
 
 	// Check if daemon container is running - use it for faster startup
 	daemonName := "construct-cli-daemon"
@@ -334,7 +336,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 	if daemonState == runtime.ContainerStateRunning {
 		daemonArgs := applyYoloArgs(baseArgs, cfg)
-		if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, providerEnv); ok {
+		if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, mergedProviderEnv); ok {
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
 				os.Exit(1)
@@ -358,7 +360,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			// Wait for daemon to be ready, then exec into it
 			if waitForDaemon(containerRuntime, daemonName, 10) {
 				daemonArgs := applyYoloArgs(baseArgs, cfg)
-				if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, providerEnv); ok {
+				if ok, exitCode, err := execViaDaemon(daemonArgs, cfg, containerRuntime, daemonName, mergedProviderEnv); ok {
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Error: Failed to exec in daemon: %v\n", err)
 						os.Exit(1)
@@ -527,18 +529,18 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	}
 
 	// Provider configuration (if provided)
-	if len(providerEnv) > 0 {
+	if len(mergedProviderEnv) > 0 {
 		// Reset any existing Claude environment variables to avoid conflicts
 		osEnv = env.ResetClaudeEnv(osEnv)
 
 		// Inject provider-specific environment variables
-		osEnv = append(osEnv, providerEnv...)
+		osEnv = append(osEnv, mergedProviderEnv...)
 
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Provider environment variables injected: %d\n", len(providerEnv))
+			fmt.Printf("Provider environment variables injected: %d\n", len(mergedProviderEnv))
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			for _, e := range providerEnv {
+			for _, e := range mergedProviderEnv {
 				parts := strings.SplitN(e, "=", 2)
 				if len(parts) == 2 {
 					fmt.Printf("  %s=%s\n", parts[0], env.MaskSensitiveValue(parts[0], parts[1]))
@@ -621,7 +623,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	}
 
 	// Inject provider env vars
-	for _, envVar := range providerEnv {
+	for _, envVar := range mergedProviderEnv {
 		runFlags = append(runFlags, "-e", envVar)
 	}
 

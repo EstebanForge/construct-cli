@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.3] - 2026-02-03
+
+### Added
+- **Provider Key Passthrough**: Always forward common provider API keys into containers, preferring `CNSTR_` values and falling back to unprefixed names when empty or missing. Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `OPENCODE_API_KEY`, `HF_TOKEN`, `KIMI_API_KEY`, `MINIMAX_API_KEY`, `MINIMAX_CN_API_KEY`.
+
+---
+
 ## [1.2.2] - 2026-02-01
 
 ### Fixed
