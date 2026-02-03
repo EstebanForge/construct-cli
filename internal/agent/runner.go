@@ -987,6 +987,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	} else if bridge != nil {
 		defer bridge.Stop()
 		envVars = append(envVars, bridgeEnv...)
+		fmt.Println("✓ Started SSH Agent proxy (daemon)")
 	}
 
 	if len(args) == 0 {
@@ -1026,9 +1027,12 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 	}
 
 	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, bridge.Port, execUser); err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Warning: Failed to ensure SSH proxy in daemon: %v\n", err)
-		}
+		bridge.Stop()
+		return nil, nil, err
+	}
+	if err := waitForDaemonSSHProxy(containerRuntime, daemonName, execUser); err != nil {
+		bridge.Stop()
+		return nil, nil, err
 	}
 
 	envVars := []string{
@@ -1040,9 +1044,34 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 
 func ensureDaemonSSHProxy(containerRuntime, daemonName string, port int, execUser string) error {
 	envVars := []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)}
-	cmdArgs := []string{"bash", "-lc", `if command -v socat >/dev/null; then PROXY_SOCK="$HOME/.ssh/agent.sock"; mkdir -p "$HOME/.ssh" 2>/dev/null || true; chmod 700 "$HOME/.ssh" 2>/dev/null || true; if [ ! -S "$PROXY_SOCK" ]; then rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 & fi; fi`}
+	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + daemonSSHProxySock + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
 	_, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser)
 	return err
+}
+
+func waitForDaemonSSHProxy(containerRuntime, daemonName, execUser string) error {
+	var lastErr error
+	for i := 0; i < 10; i++ {
+		err := checkDaemonSSHProxy(containerRuntime, daemonName, execUser)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		time.Sleep(150 * time.Millisecond)
+	}
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("SSH agent proxy not ready")
+}
+
+func checkDaemonSSHProxy(containerRuntime, daemonName, execUser string) error {
+	cmdArgs := []string{"bash", "-lc", `test -S "` + daemonSSHProxySock + `"`}
+	_, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, nil, execUser)
+	if err != nil {
+		return fmt.Errorf("SSH agent proxy socket not ready: %w", err)
+	}
+	return nil
 }
 
 // startDaemonBackground starts the daemon container in the background.
