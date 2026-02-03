@@ -7,10 +7,6 @@ All notable changes to Construct CLI will be documented in this file.
 ### Added
 - **Provider Key Passthrough**: Always forward common provider API keys into containers, preferring `CNSTR_` values and falling back to unprefixed names when empty or missing. Keys: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY`, `ZAI_API_KEY`, `OPENCODE_API_KEY`, `HF_TOKEN`, `KIMI_API_KEY`, `MINIMAX_API_KEY`, `MINIMAX_CN_API_KEY`.
 
----
-
-## [1.2.2] - 2026-02-01
-
 ### Fixed
 - **Daemon SSH Agent Bridge**: Ensure daemon execs initialize the SSH agent proxy and expose `SSH_AUTH_SOCK` on macOS so agents can access forwarded keys.
 
