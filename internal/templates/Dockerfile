@@ -55,9 +55,11 @@ ENV HOMEBREW_NO_ENV_HINTS=1
 # Use standard Linux Homebrew paths for bottle compatibility
 ENV HOMEBREW_CELLAR=/home/linuxbrew/.linuxbrew/Cellar
 ENV HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew
-# Construct: PATH_COMPONENTS_START
+# NOTE: Keep this PATH list in sync with:
+# - internal/env/env.go (BuildConstructPath)
+# - internal/templates/entrypoint.sh
+# - internal/templates/docker-compose.yml
 ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/home/construct/.volta/bin:/home/construct/.local/share/pnpm:/home/construct/.yarn/bin:/home/construct/.config/yarn/global/node_modules/.bin:/home/construct/go/bin:/home/construct/.composer/vendor/bin:/home/construct/.config/composer/vendor/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-# Construct: PATH_COMPONENTS_END
 # Force node-gyp to use python3.12 to avoid compat issues with 3.13/3.14
 ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
 # Configure Puppeteer to use system Chromium (prevents arch mismatch on arm64)

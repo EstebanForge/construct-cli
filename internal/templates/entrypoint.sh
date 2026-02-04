@@ -84,7 +84,10 @@ if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
 fi
 
 # Ensure all required paths are in PATH
-# NOTE: This PATH definition must be kept in sync with internal/env/env.go PathComponents
+# NOTE: Keep this PATH list in sync with:
+# - internal/env/env.go (BuildConstructPath)
+# - internal/templates/docker-compose.yml
+# - internal/templates/Dockerfile
 # Any changes here should be reflected in env.go and vice versa
 ORIGINAL_PATH="$PATH"
 PATH=""
@@ -102,7 +105,6 @@ add_path() {
     fi
 }
 
-# Construct: PATH_COMPONENTS_START
 add_path "/home/linuxbrew/.linuxbrew/bin"
 add_path "/home/linuxbrew/.linuxbrew/sbin"
 add_path "$HOME/.local/bin"
@@ -129,7 +131,6 @@ add_path "/usr/sbin"
 add_path "/usr/bin"
 add_path "/sbin"
 add_path "/bin"
-# Construct: PATH_COMPONENTS_END
 
 if [ -d "$HOME/.nvm/versions/node" ]; then
     for dir in "$HOME"/.nvm/versions/node/*/bin; do

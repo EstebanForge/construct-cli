@@ -11,7 +11,10 @@ import (
 )
 
 // PathComponents defines the standard PATH components for The Construct environment.
-// Single source of truth for PATH generation (see scripts/generate-paths.go).
+// Keep this list in sync with:
+// - internal/templates/entrypoint.sh
+// - internal/templates/docker-compose.yml
+// - internal/templates/Dockerfile
 var PathComponents = []string{
 	"/home/linuxbrew/.linuxbrew/bin",
 	"/home/linuxbrew/.linuxbrew/sbin",

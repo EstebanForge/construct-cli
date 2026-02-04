@@ -24,13 +24,14 @@ services:
       - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
 
     # Environment variables
-    # NOTE: PATH must be kept in sync with internal/env/env.go PathComponents and entrypoint.sh
+    # NOTE: Keep this PATH list in sync with:
+    # - internal/env/env.go (BuildConstructPath)
+    # - internal/templates/entrypoint.sh
+    # - internal/templates/Dockerfile
     environment:
       - HOME=/home/construct
       - CONSTRUCT_PROJECT_PATH=${CONSTRUCT_PROJECT_PATH}
-      # Construct: PATH_COMPONENTS_START
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/home/construct/.volta/bin:/home/construct/.local/share/pnpm:/home/construct/.yarn/bin:/home/construct/.config/yarn/global/node_modules/.bin:/home/construct/go/bin:/home/construct/.composer/vendor/bin:/home/construct/.config/composer/vendor/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      # Construct: PATH_COMPONENTS_END
       - LD_LIBRARY_PATH=/home/linuxbrew/.linuxbrew/lib
 
     # Network mode (overridden by config.toml [network] section)

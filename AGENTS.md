@@ -19,6 +19,13 @@
 - Testing: `TestXxx` funcs, `BenchmarkXxx` for benches
 - Line length: No limit, let `gofmt` wrap
 
+## PATH Construction
+- PATH is hardcoded and must be kept in sync across these files:
+- `internal/env/env.go` (BuildConstructPath)
+- `internal/templates/entrypoint.sh`
+- `internal/templates/docker-compose.yml`
+- `internal/templates/Dockerfile`
+
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - When asked to bump version: update `internal/constants/constants.go` only
