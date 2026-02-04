@@ -164,7 +164,7 @@ cross-compile: ## Build for all platforms
 	@echo "✓ Cross-compilation complete"
 	@ls -lh $(DIST_DIR)/
 
-release: check-version clean test cross-compile ## Create release build
+release: check-version clean gen-paths test cross-compile ## Create release build
 	@echo "Creating release archives..."
 	@mkdir -p $(DIST_DIR)
 
