@@ -40,6 +40,7 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 	templateValues := flattenTomlMap(templateConfig)
 	replacements := make([]valueReplacement, 0, len(backupValues))
 	appliedKeys := make(map[string]bool)
+	needsFallback := false
 
 	for key, value := range backupValues {
 		templateValue, ok := templateValues[key]
@@ -48,10 +49,12 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 		}
 		valueRange, ok := templateRanges[key]
 		if !ok || valueRange.Length == 0 {
+			needsFallback = true
 			continue
 		}
 		formatted, err := formatTomlValue(value)
 		if err != nil {
+			needsFallback = true
 			continue
 		}
 		start := int(valueRange.Offset)
@@ -62,6 +65,10 @@ func mergeTemplateWithBackup(templateData, backupData []byte) ([]byte, error) {
 			value: formatted,
 		})
 		appliedKeys[key] = true
+	}
+
+	if needsFallback {
+		return mergeConfigData(templateConfig, backupConfig)
 	}
 
 	// Calculate unapplied keys (those in backup but missing from template)

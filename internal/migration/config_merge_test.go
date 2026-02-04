@@ -104,3 +104,62 @@ packages = ["two"]
 		t.Fatalf("expected bun default to be added, got %#v", tools["bun"])
 	}
 }
+
+func TestMergeTemplateWithBackupPreservesAgentsAndDaemonSettings(t *testing.T) {
+	template := `
+[agents]
+yolo_all = false
+yolo_agents = []
+
+[daemon]
+auto_start = true
+multi_paths_enabled = false
+mount_paths = []
+`
+
+	backup := `
+[agents]
+yolo_all = true
+yolo_agents = ["codex", "qwen"]
+
+[daemon]
+auto_start = false
+multi_paths_enabled = true
+mount_paths = ["/work/repos", "/work/clients"]
+`
+
+	merged, err := mergeTemplateWithBackup([]byte(template), []byte(backup))
+	if err != nil {
+		t.Fatalf("mergeTemplateWithBackup error: %v", err)
+	}
+
+	var cfg map[string]interface{}
+	if err := toml.Unmarshal(merged, &cfg); err != nil {
+		t.Fatalf("merged config invalid TOML: %v", err)
+	}
+
+	agents, ok := cfg["agents"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected agents table, got %T", cfg["agents"])
+	}
+	if yoloAll, ok := agents["yolo_all"].(bool); !ok || yoloAll != true {
+		t.Fatalf("expected yolo_all to be true, got %#v", agents["yolo_all"])
+	}
+	if yoloAgents, ok := agents["yolo_agents"].([]interface{}); !ok || len(yoloAgents) != 2 || yoloAgents[0] != "codex" {
+		t.Fatalf("expected yolo_agents to be preserved, got %#v", agents["yolo_agents"])
+	}
+
+	daemon, ok := cfg["daemon"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected daemon table, got %T", cfg["daemon"])
+	}
+	if autoStart, ok := daemon["auto_start"].(bool); !ok || autoStart != false {
+		t.Fatalf("expected auto_start to be false, got %#v", daemon["auto_start"])
+	}
+	if multi, ok := daemon["multi_paths_enabled"].(bool); !ok || multi != true {
+		t.Fatalf("expected multi_paths_enabled to be true, got %#v", daemon["multi_paths_enabled"])
+	}
+	if mountPaths, ok := daemon["mount_paths"].([]interface{}); !ok || len(mountPaths) != 2 || mountPaths[0] != "/work/repos" {
+		t.Fatalf("expected mount_paths to be preserved, got %#v", daemon["mount_paths"])
+	}
+}

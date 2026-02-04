@@ -65,7 +65,12 @@ func readEntrypointPaths(path string) ([]string, error) {
 		if start == -1 || end == -1 || end <= start {
 			return nil, errInvalidLine(line)
 		}
-		paths = append(paths, line[start+1:end])
+		value := line[start+1 : end]
+		// Skip dynamic path entries (e.g., add_path "$dir")
+		if value == "$dir" {
+			continue
+		}
+		paths = append(paths, value)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
