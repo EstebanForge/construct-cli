@@ -1,4 +1,4 @@
-.PHONY: help build test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
+.PHONY: help build gen-paths test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
 
 # Variables
 BINARY_NAME := construct
@@ -41,7 +41,10 @@ check-version: ## Ensure VERSION file matches constants.Version
 		exit 1; \
 	fi
 
-build: ## Build the binary
+gen-paths: ## Regenerate PATH blocks from env.PathComponents
+	@$(GOCMD) run ./scripts/generate-paths.go
+
+build: gen-paths ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/construct
 	@# Ad-hoc code sign on macOS (required for Gatekeeper)

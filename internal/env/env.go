@@ -10,8 +10,8 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// PathComponents defines the standard PATH components for The Construct environment
-// This list must be kept in sync with entrypoint.sh (lines 92-111)
+// PathComponents defines the standard PATH components for The Construct environment.
+// Single source of truth for PATH generation (see scripts/generate-paths.go).
 var PathComponents = []string{
 	"/home/linuxbrew/.linuxbrew/bin",
 	"/home/linuxbrew/.linuxbrew/sbin",
@@ -21,12 +21,18 @@ var PathComponents = []string{
 	"$HOME/.bun/bin",
 	"$HOME/.asdf/bin",
 	"$HOME/.asdf/shims",
+	"$HOME/.local/share/mise/bin",
+	"$HOME/.local/share/mise/shims",
 	"$HOME/.volta/bin",
+	"$HOME/.local/share/pnpm",
+	"$HOME/.yarn/bin",
+	"$HOME/.config/yarn/global/node_modules/.bin",
+	"$HOME/go/bin",
+	"$HOME/.composer/vendor/bin",
+	"$HOME/.config/composer/vendor/bin",
 	"$HOME/.nix-profile/bin",
 	"/nix/var/nix/profiles/default/bin",
 	"$HOME/.phpbrew/bin",
-	"$HOME/.local/share/mise/bin",
-	"$HOME/.local/share/mise/shims",
 	"/usr/local/sbin",
 	"/usr/local/bin",
 	"/usr/sbin",

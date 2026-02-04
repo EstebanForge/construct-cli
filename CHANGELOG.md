@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.4] - 2026-02-04
+
+### Added
+- **PATH Source of Truth**: Generate PATH blocks from `internal/env/env.go` via `make gen-paths` and wire it into `make build`.
+
+### Fixed
+- **Agent PATH Parity**: Expanded Construct PATH to include pnpm, Yarn, Go, and Composer tool bins across env, entrypoint, compose, and Dockerfile.
+- **Setup + Daemon PATH Injection**: Ensure full Construct PATH is injected for setup runs and daemon exec sessions so tools are available everywhere.
+
+---
+
 ## [1.2.3] - 2026-02-03
 
 ### Added
