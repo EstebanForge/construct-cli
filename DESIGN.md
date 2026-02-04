@@ -46,6 +46,12 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - network-filter script for strict mode; update-all for maintenance.
   - clipper, clipboard-x11-sync.sh, osascript shim, and powershell.exe for clipboard bridging.
   - packages.toml template used to generate the install script (apt/brew/npm/pip/cargo/gems + post-install hooks).
+- **PATH Construction**
+  - PATH is hardcoded and must be kept in sync across these files:
+  - `internal/env/env.go` (BuildConstructPath)
+  - `internal/templates/entrypoint.sh`
+  - `internal/templates/docker-compose.yml`
+  - `internal/templates/Dockerfile`
 - **Scripts**: `scripts/`
   - install.sh (curl-able installer to system bins), reset helpers, integration tests.
 - **Agent Documentation**: `AGENTS.md`
