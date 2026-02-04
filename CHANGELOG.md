@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.2.4] - 2026-02-04
+## [1.2.5] - 2026-02-04
 
 ### Added
 - **PATH Source of Truth**: Generate PATH blocks from `internal/env/env.go` via `make gen-paths` and wire it into `make build`.
