@@ -102,6 +102,7 @@ add_path() {
     fi
 }
 
+# Construct: PATH_COMPONENTS_START
 add_path "/home/linuxbrew/.linuxbrew/bin"
 add_path "/home/linuxbrew/.linuxbrew/sbin"
 add_path "$HOME/.local/bin"
@@ -110,18 +111,25 @@ add_path "$HOME/.cargo/bin"
 add_path "$HOME/.bun/bin"
 add_path "$HOME/.asdf/bin"
 add_path "$HOME/.asdf/shims"
+add_path "$HOME/.local/share/mise/bin"
+add_path "$HOME/.local/share/mise/shims"
 add_path "$HOME/.volta/bin"
+add_path "$HOME/.local/share/pnpm"
+add_path "$HOME/.yarn/bin"
+add_path "$HOME/.config/yarn/global/node_modules/.bin"
+add_path "$HOME/go/bin"
+add_path "$HOME/.composer/vendor/bin"
+add_path "$HOME/.config/composer/vendor/bin"
 add_path "$HOME/.nix-profile/bin"
 add_path "/nix/var/nix/profiles/default/bin"
 add_path "$HOME/.phpbrew/bin"
-add_path "$HOME/.local/share/mise/bin"
-add_path "$HOME/.local/share/mise/shims"
 add_path "/usr/local/sbin"
 add_path "/usr/local/bin"
 add_path "/usr/sbin"
 add_path "/usr/bin"
 add_path "/sbin"
 add_path "/bin"
+# Construct: PATH_COMPONENTS_END
 
 if [ -d "$HOME/.nvm/versions/node" ]; then
     for dir in "$HOME"/.nvm/versions/node/*/bin; do

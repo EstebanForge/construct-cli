@@ -311,6 +311,10 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
+
+	// Ensure comprehensive PATH for setup container runs.
+	// The container user's home is always /home/construct.
+	env.EnsureConstructPath(&osEnv, "/home/construct")
 	// Inject network env if needed (though setup usually needs network)
 	osEnv = network.InjectEnv(osEnv, cfg)
 
@@ -935,10 +939,14 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	}
 
 	// Build environment variables to pass
-	envVars := make([]string, 0, len(providerEnv)+10)
+	envVars := make([]string, 0, len(providerEnv)+12)
 
 	// Add provider environment variables
 	envVars = append(envVars, providerEnv...)
+
+	// Ensure PATH is complete for daemon exec sessions.
+	// The container user's home is always /home/construct.
+	env.EnsureConstructPath(&envVars, "/home/construct")
 
 	// Add clipboard environment (start clipboard server for this session)
 	clipboardHost := ""
