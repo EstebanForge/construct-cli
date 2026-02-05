@@ -281,3 +281,15 @@ func EnsureConstructPath(env *[]string, homeDir string) {
 		*env = append(*env, "PATH="+constructPath)
 	}
 }
+
+// SetEnvVar sets or replaces a key=value entry in an environment slice.
+func SetEnvVar(env *[]string, key, value string) {
+	prefix := key + "="
+	for i, e := range *env {
+		if strings.HasPrefix(e, prefix) {
+			(*env)[i] = prefix + value
+			return
+		}
+	}
+	*env = append(*env, prefix+value)
+}

@@ -5,10 +5,12 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 )
 
@@ -190,6 +192,36 @@ func TestColortermEnvironment(t *testing.T) {
 	// Restore original value
 	if origColorterm != "" {
 		os.Setenv("COLORTERM", origColorterm)
+	}
+}
+
+func TestApplyConstructPath(t *testing.T) {
+	envVars := []string{
+		"PATH=/usr/bin",
+		"CONSTRUCT_PATH=/tmp/old",
+		"HOME=/home/construct",
+	}
+
+	applyConstructPath(&envVars)
+
+	want := env.BuildConstructPath("/home/construct")
+
+	var gotPath string
+	var gotConstructPath string
+	for _, envVar := range envVars {
+		if strings.HasPrefix(envVar, "PATH=") {
+			gotPath = strings.TrimPrefix(envVar, "PATH=")
+		}
+		if strings.HasPrefix(envVar, "CONSTRUCT_PATH=") {
+			gotConstructPath = strings.TrimPrefix(envVar, "CONSTRUCT_PATH=")
+		}
+	}
+
+	if gotPath != want {
+		t.Fatalf("Expected PATH %q, got %q", want, gotPath)
+	}
+	if gotConstructPath != want {
+		t.Fatalf("Expected CONSTRUCT_PATH %q, got %q", want, gotConstructPath)
 	}
 }
 

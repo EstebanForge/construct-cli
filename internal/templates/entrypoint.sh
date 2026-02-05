@@ -146,6 +146,24 @@ if [ -n "$ORIGINAL_PATH" ]; then
 fi
 
 export PATH
+export CONSTRUCT_PATH="$PATH"
+
+construct_profile="$HOME/.construct-path.sh"
+cat > "$construct_profile" <<EOF
+# construct-managed: true
+export CONSTRUCT_PATH="$CONSTRUCT_PATH"
+export PATH="$CONSTRUCT_PATH"
+export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:\$LD_LIBRARY_PATH"
+export NODE_NO_WARNINGS=1
+EOF
+
+profile_file="$HOME/.profile"
+if [ ! -f "$profile_file" ]; then
+    touch "$profile_file" 2>/dev/null || true
+fi
+if [ -w "$profile_file" ] && ! grep -q "construct-path.sh" "$profile_file" 2>/dev/null; then
+    printf '\n# Construct PATH\nif [ -f "$HOME/.construct-path.sh" ]; then\n  . "$HOME/.construct-path.sh"\nfi\n' >> "$profile_file"
+fi
 export NVM_DIR="$HOME/.nvm"
 # Ensure library path includes Homebrew (for libgit2, etc.)
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"

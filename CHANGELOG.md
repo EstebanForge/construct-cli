@@ -2,10 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.2.7] - 2026-02-05
+## [1.2.8] - 2026-02-05
 
 ### Added
 - **Config Defaults Check**: `construct sys doctor` now reports missing default config keys and can append them with `--fix` (with backup).
+- **Construct PATH Export**: Entry point now writes a construct-managed PATH profile to stabilize login shells.
+- **Non-Daemon PATH Injection**: Inject full Construct PATH for setup, container runs, and daemon exec sessions via `CONSTRUCT_PATH`.
 - **PATH Sync Test**: Added a unit test to verify PATH parity across Go and template files.
 - **Clipboard Patch Flag**: Added `agents.clipboard_image_patch` to enable/disable clipboard image patching and codex WSL clipboard workaround.
 - **Brew Package**: Added `nano` to default Homebrew packages.
