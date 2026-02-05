@@ -2,10 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.2.6] - 2026-02-04
+## [1.2.7] - 2026-02-05
 
 ### Added
+- **Config Defaults Check**: `construct sys doctor` now reports missing default config keys and can append them with `--fix` (with backup).
 - **PATH Sync Test**: Added a unit test to verify PATH parity across Go and template files.
+- **Clipboard Patch Flag**: Added `agents.clipboard_image_patch` to enable/disable clipboard image patching and codex WSL clipboard workaround.
+- **Brew Package**: Added `nano` to default Homebrew packages.
+
+### Changed
+- **Safe Defaults Overlay**: Defaults are now applied in code when config values are missing.
+- **No Config Auto-Merge**: Removed automatic `config.toml` merges and config template hash tracking.
 
 ### Fixed
 - **Agent PATH Parity**: Hardcoded PATH across env, entrypoint, compose, and Dockerfile to keep agent binaries available everywhere.

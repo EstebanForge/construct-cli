@@ -21,7 +21,6 @@ import (
 )
 
 const versionFile = ".version"
-const configTemplateHashFile = ".config_template_hash"
 const packagesTemplateHashFile = ".packages_template_hash"
 const entrypointTemplateHashFile = ".entrypoint_template_hash"
 
@@ -66,7 +65,7 @@ func NeedsMigration() bool {
 	}
 
 	// 2. Template changes trigger migration even if version is same
-	if configTemplateChanged() || packagesTemplateChanged() || entrypointTemplateChanged() {
+	if packagesTemplateChanged() || entrypointTemplateChanged() {
 		return true
 	}
 
@@ -101,12 +100,6 @@ func compareVersions(v1, v2 string) int {
 	return 0
 }
 
-// getConfigTemplateHash returns SHA256 hash of the embedded config template
-func getConfigTemplateHash() string {
-	hash := sha256.Sum256([]byte(templates.Config))
-	return hex.EncodeToString(hash[:])
-}
-
 // getPackagesTemplateHash returns SHA256 hash of the embedded packages template
 func getPackagesTemplateHash() string {
 	hash := sha256.Sum256([]byte(templates.Packages))
@@ -117,30 +110,6 @@ func getPackagesTemplateHash() string {
 func getEntrypointTemplateHash() string {
 	hash := sha256.Sum256([]byte(templates.Entrypoint))
 	return hex.EncodeToString(hash[:])
-}
-
-// configTemplateChanged checks if embedded config template differs from last applied
-func configTemplateChanged() bool {
-	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
-
-	storedHash, err := os.ReadFile(hashPath)
-	if err != nil {
-		// No hash file - either fresh install or upgrade from old version
-		// If config.toml exists, assume template changed (be conservative)
-		configPath := filepath.Join(config.GetConfigDir(), "config.toml")
-		if _, err := os.Stat(configPath); err == nil {
-			return true
-		}
-		return false
-	}
-
-	return strings.TrimSpace(string(storedHash)) != getConfigTemplateHash()
-}
-
-// saveConfigTemplateHash stores the current template hash
-func saveConfigTemplateHash() error {
-	hashPath := filepath.Join(config.GetConfigDir(), configTemplateHashFile)
-	return os.WriteFile(hashPath, []byte(getConfigTemplateHash()+"\n"), 0644)
 }
 
 // packagesTemplateChanged checks if embedded packages template differs from last applied
@@ -220,23 +189,7 @@ func RunMigrations() error {
 		}
 	}
 
-	// 2. Merge config.toml only if template structure changed
-	if configTemplateChanged() {
-		if err := mergeConfigFile(); err != nil {
-			return fmt.Errorf("failed to merge config file: %w", err)
-		}
-		if err := saveConfigTemplateHash(); err != nil {
-			return fmt.Errorf("failed to save config template hash: %w", err)
-		}
-	} else {
-		if ui.GumAvailable() {
-			fmt.Printf("%s  → Config structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
-		} else {
-			fmt.Println("  → Config structure unchanged, skipping merge")
-		}
-	}
-
-	// 3. Merge packages.toml only if template structure changed
+	// 2. Merge packages.toml only if template structure changed
 	if packagesTemplateChanged() {
 		if err := mergePackagesFile(); err != nil {
 			return fmt.Errorf("failed to merge packages file: %w", err)
@@ -252,18 +205,18 @@ func RunMigrations() error {
 		}
 	}
 
-	// 4. Regenerate topgrade config (depends on packages.toml)
+	// 3. Regenerate topgrade config (depends on packages.toml)
 	regenerateTopgradeConfig()
 
-	// 5. Mark image for rebuild
+	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 6. Force entrypoint setup to rerun on next container start.
+	// 5. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
 	clearOverrideHash()
 	forceEntrypointRun()
 
-	// 7. Update installed version
+	// 6. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
@@ -469,63 +422,6 @@ func currentUserName() string {
 		return ""
 	}
 	return current.Username
-}
-
-// mergeConfigFile replaces config.toml with the template and reapplies user values.
-// Preserves template layout/comments while copying supported values.
-func mergeConfigFile() error {
-	configPath := filepath.Join(config.GetConfigDir(), "config.toml")
-	backupPath := configPath + ".backup"
-
-	if ui.GumAvailable() {
-		fmt.Printf("%sMerging configuration file...%s\n", ui.ColorCyan, ui.ColorReset)
-	} else {
-		fmt.Println("→ Merging configuration file...")
-	}
-
-	if _, err := os.Stat(backupPath); err == nil {
-		if err := os.Remove(backupPath); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to remove backup: %v\n", err)
-		}
-	}
-
-	// Backup current config if present
-	if _, err := os.Stat(configPath); err == nil {
-		if err := os.Rename(configPath, backupPath); err != nil {
-			return fmt.Errorf("failed to backup config: %w", err)
-		}
-		if ui.GumAvailable() {
-			fmt.Printf("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
-		} else {
-			fmt.Printf("  → Backup saved: %s\n", backupPath)
-		}
-	}
-
-	// Write fresh template config
-	templateData := []byte(templates.Config)
-	if err := os.WriteFile(configPath, templateData, 0644); err != nil {
-		return fmt.Errorf("failed to write template config: %w", err)
-	}
-
-	// Apply user values from backup onto template
-	if backupData, err := os.ReadFile(backupPath); err == nil {
-		mergedData, err := mergeTemplateWithBackup(templateData, backupData)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to merge user config values: %v\n", err)
-		} else {
-			if err := os.WriteFile(configPath, mergedData, 0644); err != nil {
-				return fmt.Errorf("failed to write merged config: %w", err)
-			}
-		}
-	}
-
-	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Configuration merged (user settings preserved)%s\n", ui.ColorPink, ui.ColorReset)
-	} else {
-		fmt.Println("  ✓ Configuration merged (user settings preserved)")
-	}
-
-	return nil
 }
 
 // mergePackagesFile replaces packages.toml with the template and reapplies user values.
@@ -741,15 +637,7 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to update container templates: %w", err)
 	}
 
-	// 2. Always merge config on force refresh (user explicitly requested)
-	if err := mergeConfigFile(); err != nil {
-		return fmt.Errorf("failed to merge config file: %w", err)
-	}
-	if err := saveConfigTemplateHash(); err != nil {
-		return fmt.Errorf("failed to save config template hash: %w", err)
-	}
-
-	// 3. Merge packages config
+	// 2. Merge packages config
 	if err := mergePackagesFile(); err != nil {
 		return fmt.Errorf("failed to merge packages file: %w", err)
 	}
@@ -757,18 +645,18 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to save packages template hash: %w", err)
 	}
 
-	// 4. Regenerate topgrade config
+	// 3. Regenerate topgrade config
 	regenerateTopgradeConfig()
 
-	// 5. Mark image for rebuild
+	// 4. Mark image for rebuild
 	markImageForRebuild()
 
-	// 6. Force entrypoint setup to rerun on next container start.
+	// 5. Force entrypoint setup to rerun on next container start.
 	clearEntrypointHash()
 	clearOverrideHash()
 	forceEntrypointRun()
 
-	// 7. Update installed version
+	// 6. Update installed version
 	if err := SetInstalledVersion(constants.Version); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}

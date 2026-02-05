@@ -46,7 +46,7 @@ type Report struct {
 }
 
 // Run performs system health checks and prints a report.
-func Run() {
+func Run(args ...string) {
 	fmt.Println()
 	if ui.GumAvailable() {
 		cmd := exec.Command("gum", "style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
@@ -59,7 +59,7 @@ func Run() {
 	}
 	fmt.Println()
 
-	checks := make([]CheckResult, 0, 13)
+	checks := make([]CheckResult, 0, 15)
 
 	// 0. Version Check
 	versionCheck := CheckResult{
@@ -180,6 +180,48 @@ func Run() {
 		configCheck.Suggestion = "Run 'construct sys init'"
 	}
 	checks = append(checks, configCheck)
+
+	fixRequested := false
+	for _, arg := range args {
+		if arg == "--fix" {
+			fixRequested = true
+		}
+	}
+
+	if fixRequested {
+		fixCheck := CheckResult{Name: "Config Fix"}
+		changed, added, err := config.FixMissingDefaults(configPath)
+		if err != nil {
+			fixCheck.Status = CheckStatusWarning
+			fixCheck.Message = "Failed to apply config defaults"
+			fixCheck.Details = append(fixCheck.Details, err.Error())
+		} else if !changed {
+			fixCheck.Status = CheckStatusOK
+			fixCheck.Message = "No defaults needed"
+		} else {
+			fixCheck.Status = CheckStatusOK
+			fixCheck.Message = fmt.Sprintf("Added %d default values", len(added))
+			fixCheck.Details = append(fixCheck.Details, added...)
+		}
+		checks = append(checks, fixCheck)
+	}
+
+	missingCheck := CheckResult{Name: "Config Defaults"}
+	missingKeys, err := config.FindMissingKeys(configPath)
+	if err != nil {
+		missingCheck.Status = CheckStatusWarning
+		missingCheck.Message = "Unable to check config defaults"
+		missingCheck.Details = append(missingCheck.Details, err.Error())
+	} else if len(missingKeys) == 0 {
+		missingCheck.Status = CheckStatusOK
+		missingCheck.Message = "All defaults present"
+	} else {
+		missingCheck.Status = CheckStatusWarning
+		missingCheck.Message = fmt.Sprintf("Missing %d default values", len(missingKeys))
+		missingCheck.Details = append(missingCheck.Details, missingKeys...)
+		missingCheck.Suggestion = "Run 'construct sys doctor --fix'"
+	}
+	checks = append(checks, missingCheck)
 
 	// 4.5 Config Permissions Check (Linux/WSL)
 	if runtime.GOOS == "linux" {

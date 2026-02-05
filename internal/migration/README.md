@@ -42,28 +42,23 @@ When migration is needed, `migration.CheckAndMigrate()`:
    - Updates clipboard sync scripts in `~/.config/construct-cli/scripts/`
    - Safe to replace - no user modifications expected here
 
-2. **Merges Config File** (`mergeConfigFile`)
-   - Deletes any existing `config.toml.backup`
-   - Moves current `config.toml` to `config.toml.backup`
-   - Writes a fresh `config.toml` from the embedded template
+2. **Merges Packages File** (`mergePackagesFile`)
+   - Moves current `packages.toml` to `packages.toml.backup`
+   - Writes a fresh `packages.toml` from the embedded template
    - Re-applies user values from the backup only for keys that exist in the template
-   - Preserves template layout/comments while syncing supported values
 
-3. **Marks Image for Rebuild** (`markImageForRebuild`)
+3. **Regenerates Topgrade Config** (`regenerateTopgradeConfig`)
+   - Regenerates `topgrade.toml` from `packages.toml`
+
+4. **Marks Image for Rebuild** (`markImageForRebuild`)
    - Removes the old `construct-box:latest` Docker image
    - Forces rebuild with new Dockerfile on next agent run
    - Tries both docker and podman runtimes
    - Persistent volumes (agents, packages) are preserved
 
-4. **Updates Version File**
+5. **Updates Version File**
    - Writes new version to `.version`
    - Prevents re-running migration on next startup
-
-### Config Merging
-
-The merge process starts from the template (source of truth) and replaces only
-the matching option values from the user backup. Unsupported keys are dropped
-to keep the config aligned with current template options.
 
 ### Example Migration Output
 
@@ -75,9 +70,9 @@ to keep the config aligned with current template options.
 → Updating container templates...
   ✓ Container templates updated
 
-→ Merging configuration file...
-  → Backup saved: ~/.config/construct-cli/config.toml.backup
-  ✓ Configuration merged (user settings preserved)
+→ Merging packages file...
+  → Backup saved: ~/.config/construct-cli/packages.toml.backup
+  ✓ Packages merged (user settings preserved)
 
 → Removing old container image...
   ✓ Image marked for rebuild
@@ -94,9 +89,9 @@ to keep the config aligned with current template options.
 → Updating container templates...
   ✓ Container templates updated
 
-→ Merging configuration file...
-  → Backup saved: ~/.config/construct-cli/config.toml.backup
-  ✓ Configuration merged (user settings preserved)
+→ Merging packages file...
+  → Backup saved: ~/.config/construct-cli/packages.toml.backup
+  ✓ Packages merged (user settings preserved)
 
 → Removing old container image...
   ✓ Image marked for rebuild
@@ -207,11 +202,11 @@ func RunMigrations() error {
     installed := GetInstalledVersion()
     current := constants.Version
 
-    // Always update templates and merge config
+    // Always update templates and merge packages
     if err := updateContainerTemplates(); err != nil {
         return err
     }
-    if err := mergeConfigFile(); err != nil {
+    if err := mergePackagesFile(); err != nil {
         return err
     }
 

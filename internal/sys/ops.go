@@ -77,7 +77,16 @@ func UpdateAgents(cfg *config.Config) {
 		}
 	}
 
-	runFlags := []string{"--rm", "--entrypoint", updateScript, "construct-box"}
+	clipboardPatchValue := "1"
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	runFlags := []string{
+		"--rm",
+		"--entrypoint", updateScript,
+		"-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH=" + clipboardPatchValue,
+		"construct-box",
+	}
 
 	// Build command
 	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)

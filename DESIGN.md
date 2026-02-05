@@ -69,7 +69,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `cache/` (binary backups for self-update rollback)
   - `last-update-check` (timestamp for rate-limiting update checks)
   - `.version` (installed version for migrations)
-  - `.config_template_hash` / `.packages_template_hash` / `.entrypoint_template_hash` (template tracking)
+  - `.packages_template_hash` / `.entrypoint_template_hash` (template tracking)
   - `home/.local/.entrypoint_hash` (entrypoint patch tracking)
   - `.login_bridge` (temporary login callback forwarding flag)
 - **Volumes**: `construct-packages` (persists Homebrew installs, npm globals, cargo, and caches). `construct-agents` is legacy and only referenced for cleanup in reset scripts.

@@ -31,6 +31,7 @@ blocked_ips = []
 [agents]
 yolo_all = false
 yolo_agents = ["claude", "gemini"]
+clipboard_image_patch = false
 
 `
 
@@ -75,6 +76,9 @@ yolo_agents = ["claude", "gemini"]
 	}
 	if len(config.Agents.YoloAgents) != 2 || config.Agents.YoloAgents[0] != "claude" {
 		t.Errorf("Expected yolo_agents to contain claude and gemini")
+	}
+	if config.Agents.ClipboardImagePatch {
+		t.Error("Expected clipboard_image_patch to be false")
 	}
 }
 
@@ -123,8 +127,9 @@ func TestConfigStructure(t *testing.T) {
 			BlockedIPs:     []string{},
 		},
 		Agents: AgentsConfig{
-			YoloAll:    false,
-			YoloAgents: []string{},
+			YoloAll:             false,
+			YoloAgents:          []string{},
+			ClipboardImagePatch: true,
 		},
 	}
 

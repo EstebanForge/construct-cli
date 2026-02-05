@@ -30,6 +30,7 @@ Global Flags:
   construct sys daemon           # Manage background daemon (start|stop|attach|status|install|uninstall)
   construct sys packages         # Open packages.toml in editor
   construct sys doctor           # Check system health
+  construct sys doctor --fix     # Append missing defaults to config.toml (backup first)
   construct sys ct-fix           # Fix ct symlink in ~/.local/bin
   construct sys help             # Show this help (alias for --help)
   construct sys init             # Initialize environment and install agents inside The Construct
@@ -101,6 +102,7 @@ Commands:
   daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
   packages           # Open packages.toml in editor
   doctor             # Check system health
+  doctor --fix       # Append missing defaults to config.toml (backup first)
   ct-fix             # Fix ct symlink in ~/.local/bin
   help               # Show this help
   init               # Initialize environment and install agents inside The Construct

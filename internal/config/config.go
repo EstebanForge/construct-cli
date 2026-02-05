@@ -62,8 +62,9 @@ type MaintenanceConfig struct {
 
 // AgentsConfig holds per-agent behavior flags.
 type AgentsConfig struct {
-	YoloAll    bool     `toml:"yolo_all"`
-	YoloAgents []string `toml:"yolo_agents"`
+	YoloAll             bool     `toml:"yolo_all"`
+	YoloAgents          []string `toml:"yolo_agents"`
+	ClipboardImagePatch bool     `toml:"clipboard_image_patch"`
 }
 
 // DaemonConfig holds daemon behavior settings.
@@ -76,6 +77,61 @@ type DaemonConfig struct {
 // ClaudeConfig stores Claude provider configuration.
 type ClaudeConfig struct {
 	Providers map[string]map[string]string `toml:"cc"`
+}
+
+// DefaultConfig returns the default configuration values.
+func DefaultConfig() Config {
+	return Config{
+		Runtime: RuntimeConfig{
+			Engine:              "auto",
+			AutoUpdateCheck:     true,
+			UpdateCheckInterval: 86400,
+		},
+		Sandbox: SandboxConfig{
+			MountHome:            false,
+			ForwardSSHAgent:      true,
+			PropagateGitIdentity: true,
+			Shell:                "/bin/bash",
+			ClipboardHost:        "host.docker.internal",
+			SelinuxLabels:        "auto",
+		},
+		Network: NetworkConfig{
+			Mode: "permissive",
+			AllowedDomains: []string{
+				"*.anthropic.com",
+				"*.openai.com",
+				"*.googleapis.com",
+				"api.z.ai",
+			},
+			AllowedIPs: []string{
+				"1.1.1.1/32",
+				"8.8.8.8/32",
+			},
+			BlockedDomains: []string{
+				"*.malicious-site.example",
+				"*.phishing.attempt.com",
+			},
+			BlockedIPs: []string{
+				"192.168.100.100/32",
+				"203.0.113.0/24",
+			},
+		},
+		Maintenance: MaintenanceConfig{
+			CleanupEnabled:         true,
+			CleanupIntervalSeconds: 86400,
+			LogRetentionDays:       15,
+		},
+		Agents: AgentsConfig{
+			YoloAll:             false,
+			YoloAgents:          []string{},
+			ClipboardImagePatch: true,
+		},
+		Daemon: DaemonConfig{
+			AutoStart:         true,
+			MultiPathsEnabled: false,
+			MountPaths:        []string{},
+		},
+	}
 }
 
 // GetConfigDir returns the user config directory path.
@@ -176,7 +232,7 @@ func Load() (*Config, bool, error) {
 		return nil, createdNew, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config Config
+	config := DefaultConfig()
 	if err := toml.Unmarshal(data, &config); err != nil {
 		return nil, createdNew, fmt.Errorf("failed to parse config.toml: %w", err)
 	}
@@ -290,10 +346,6 @@ func Init() error {
 	// This allows future migrations to detect version changes
 	SetInitialVersion()
 
-	// Set initial config template hash
-	hash := sha256.Sum256([]byte(templates.Config))
-	SetConfigTemplateHash(hex.EncodeToString(hash[:]))
-
 	// Set initial packages template hash
 	pkgHash := sha256.Sum256([]byte(templates.Packages))
 	SetPackagesTemplateHash(hex.EncodeToString(pkgHash[:]))
@@ -311,15 +363,6 @@ func SetInitialVersion() {
 	versionPath := filepath.Join(GetConfigDir(), ".version")
 	if err := os.WriteFile(versionPath, []byte(constants.Version+"\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to write version file: %v\n", err)
-	}
-}
-
-// SetConfigTemplateHash writes the SHA256 hash of the config template
-// This is called during initial setup and migration to track template changes
-func SetConfigTemplateHash(hash string) {
-	hashPath := filepath.Join(GetConfigDir(), ".config_template_hash")
-	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to write config template hash: %v\n", err)
 	}
 }
 
