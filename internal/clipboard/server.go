@@ -81,7 +81,11 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 		data, err := GetText()
 		if err != nil {
 			logf("[Clipboard Server] GetText error: %v\n", err)
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			if err == ErrNoText {
+				http.Error(w, "No text in clipboard", http.StatusNotFound)
+			} else {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+			}
 			return
 		}
 		logf("[Clipboard Server] Serving %d bytes of text data\n", len(data))

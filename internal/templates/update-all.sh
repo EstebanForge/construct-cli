@@ -49,7 +49,11 @@ else
 fi
 
 PATCH_SCRIPT="$HOME/.config/construct-cli/container/agent-patch.sh"
-if [ -f "$PATCH_SCRIPT" ]; then
+PATCH_ENABLED="${CONSTRUCT_CLIPBOARD_IMAGE_PATCH:-1}"
+if [ "$PATCH_ENABLED" = "0" ] || [ "$PATCH_ENABLED" = "false" ]; then
+    echo ""
+    echo "ℹ️  Clipboard image patch disabled; skipping agent patching"
+elif [ -f "$PATCH_SCRIPT" ]; then
     echo ""
     echo "🔧 Patching agent integrations..."
     bash "$PATCH_SCRIPT" || echo "⚠️  Agent patching encountered errors"

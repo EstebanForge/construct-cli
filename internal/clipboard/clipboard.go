@@ -20,16 +20,28 @@ var ErrNoText = errors.New("no text in clipboard")
 
 // GetText retrieves text data from the host clipboard
 func GetText() ([]byte, error) {
+	var (
+		data []byte
+		err  error
+	)
 	switch runtime.GOOS {
 	case "darwin":
-		return getMacText()
+		data, err = getMacText()
 	case "linux":
-		return getLinuxText()
+		data, err = getLinuxText()
 	case "windows":
-		return getWindowsText()
+		data, err = getWindowsText()
 	default:
 		return nil, fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
+
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, ErrNoText
+	}
+	return data, nil
 }
 
 // GetImage retrieves PNG data from the host clipboard using OS-specific tools

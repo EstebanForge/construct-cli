@@ -583,6 +583,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
 		runFlags = append(runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
 	}
+	clipboardPatchValue := "1"
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
 
 	// Forward COLORTERM for proper color rendering in container
 	// If host has COLORTERM set, respect it; otherwise default to truecolor
@@ -599,7 +604,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 		// For codex: Set WSL env vars to trigger clipboard fallback
 		// Codex will think it's in WSL and use our fake powershell.exe
-		if args[0] == "codex" {
+		if args[0] == "codex" && clipboardPatchValue != "0" {
 			runFlags = append(runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
 			runFlags = append(runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
 			// Unset DISPLAY so arboard fails and triggers WSL fallback

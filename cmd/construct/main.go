@@ -244,7 +244,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "agents-md":
 		sys.ListAgentMemories()
 	case "doctor":
-		doctor.Run()
+		doctor.Run(args[1:]...)
 	case "ct-fix":
 		changed, msg, err := sys.FixCtSymlink()
 		if err != nil {

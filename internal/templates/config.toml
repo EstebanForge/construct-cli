@@ -43,6 +43,10 @@ yolo_all = false
 # Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
 yolo_agents = []
 
+# Patch clipboard integrations for JS/NPM agents (gemini, qwen, cline, copilot, kilocode)
+# and enable codex WSL fallback + powershell shim to allow image pasting (default: true).
+clipboard_image_patch = true
+
 # Daemon Settings
 [daemon]
 # Auto-start the daemon on first agent run for faster subsequent startups (default: true)

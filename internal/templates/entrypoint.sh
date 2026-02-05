@@ -245,7 +245,10 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
 
     # Patch agent integrations (clipboard fixes, cross-platform checks)
     PATCH_SCRIPT="/home/construct/.config/construct-cli/container/agent-patch.sh"
-    if [ -f "$PATCH_SCRIPT" ]; then
+    PATCH_ENABLED="${CONSTRUCT_CLIPBOARD_IMAGE_PATCH:-1}"
+    if [ "$PATCH_ENABLED" = "0" ] || [ "$PATCH_ENABLED" = "false" ]; then
+        echo "ℹ️  Clipboard image patch disabled; skipping agent patching"
+    elif [ -f "$PATCH_SCRIPT" ]; then
         bash "$PATCH_SCRIPT" || echo "⚠️ Agent patching encountered errors"
     else
         echo "⚠️  Agent patch script not found; skipping patching"
