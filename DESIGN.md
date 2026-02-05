@@ -52,6 +52,8 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `internal/templates/entrypoint.sh`
   - `internal/templates/docker-compose.yml`
   - `internal/templates/Dockerfile`
+  - Runtime injects `PATH` and `CONSTRUCT_PATH` defensively for non-daemon runs, daemon exec sessions, and daemon startup.
+  - entrypoint exports `CONSTRUCT_PATH` and writes `~/.construct-path.sh`, which is sourced by `~/.profile` for login shells.
 - **Scripts**: `scripts/`
   - install.sh (curl-able installer to system bins), reset helpers, integration tests.
 - **Agent Documentation**: `AGENTS.md`
@@ -72,6 +74,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `.packages_template_hash` / `.entrypoint_template_hash` (template tracking)
   - `home/.local/.entrypoint_hash` (entrypoint patch tracking)
   - `.login_bridge` (temporary login callback forwarding flag)
+  - `home/.construct-path.sh` (construct-managed PATH exports for login shells)
 - **Volumes**: `construct-packages` (persists Homebrew installs, npm globals, cargo, and caches). `construct-agents` is legacy and only referenced for cleanup in reset scripts.
 
 ---
