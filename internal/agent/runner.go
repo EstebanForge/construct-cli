@@ -315,6 +315,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	// Ensure comprehensive PATH for setup container runs.
 	// The container user's home is always /home/construct.
 	env.EnsureConstructPath(&osEnv, "/home/construct")
+	applyConstructPath(&osEnv)
 	// Inject network env if needed (though setup usually needs network)
 	osEnv = network.InjectEnv(osEnv, cfg)
 
@@ -494,6 +495,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Ensure comprehensive PATH for container (fixes agent subprocess PATH issues)
 	// The container user's home is always /home/construct
 	env.EnsureConstructPath(&osEnv, "/home/construct")
+	applyConstructPath(&osEnv)
 
 	// Start Clipboard Server
 	clipboardHost := ""
@@ -725,6 +727,12 @@ func applyYoloArgs(args []string, cfg *config.Config) []string {
 	return updated
 }
 
+func applyConstructPath(envVars *[]string) {
+	constructPath := env.BuildConstructPath("/home/construct")
+	env.SetEnvVar(envVars, "PATH", constructPath)
+	env.SetEnvVar(envVars, "CONSTRUCT_PATH", constructPath)
+}
+
 func shouldEnableYolo(agent string, cfg *config.Config) bool {
 	if cfg.Agents.YoloAll {
 		return true
@@ -952,6 +960,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	// Ensure PATH is complete for daemon exec sessions.
 	// The container user's home is always /home/construct.
 	env.EnsureConstructPath(&envVars, "/home/construct")
+	applyConstructPath(&envVars)
 
 	// Add clipboard environment (start clipboard server for this session)
 	clipboardHost := ""
@@ -1121,10 +1130,11 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 	}
 
 	// Prepare environment
-	env := os.Environ()
-	env = append(env, "PWD="+cwd)
-	env = runtime.AppendProjectPathEnv(env)
-	env = network.InjectEnv(env, cfg)
+	osEnv := os.Environ()
+	osEnv = append(osEnv, "PWD="+cwd)
+	osEnv = runtime.AppendProjectPathEnv(osEnv)
+	osEnv = network.InjectEnv(osEnv, cfg)
+	applyConstructPath(&osEnv)
 
 	// Build compose command for detached run
 	composeArgs := runtime.GetComposeFileArgs(configPath)
@@ -1156,7 +1166,7 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 	}
 
 	cmd.Dir = config.GetContainerDir()
-	cmd.Env = env
+	cmd.Env = osEnv
 
 	if err := cmd.Run(); err != nil {
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
