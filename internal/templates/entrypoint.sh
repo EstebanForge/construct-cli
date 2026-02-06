@@ -156,6 +156,7 @@ export CONSTRUCT_PATH="$CONSTRUCT_PATH"
 export PATH="$CONSTRUCT_PATH"
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:\$LD_LIBRARY_PATH"
 export NODE_NO_WARNINGS=1
+export CGO_ENABLED="${CGO_ENABLED:-1}"
 EOF
 
 profile_file="$HOME/.profile"
@@ -170,6 +171,7 @@ export NVM_DIR="$HOME/.nvm"
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
 # Suppress Node.js deprecation warnings (punycode in Node 21+, etc.)
 export NODE_NO_WARNINGS=1
+export CGO_ENABLED="${CGO_ENABLED:-1}"
 
 # Ensure SSH config prioritizes standard key names unless user provided one.
 ensure_ssh_config() {
