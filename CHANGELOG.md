@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.2.9] - 2026-02-06
+
+### Changed
+- **Design Docs Mount Model**: Updated `DESIGN.md` to document the active dual mount behavior: `/projects/<folder>` for ephemeral runs and `/workspaces/<hash>/...` for daemon multi-root runs.
+
+### Fixed
+- **Clipboard Host Command Timeouts (macOS)**: Added a timeout for `osascript` image reads in the host clipboard bridge to prevent hangs when reading image clipboard data.
+- **Clipboard HTTP Server Timeouts**: Added read/write/idle timeouts to the clipboard HTTP server to avoid stuck connections.
+- **Codex WSL Fallback Request Timeout**: Added `curl` connection and overall time limits in `powershell.exe` to avoid indefinite waits when fetching clipboard images.
+- **Codex Daemon Workspace Path Mapping**: Added `/mnt/c/workspaces -> /workspaces` aliasing and expanded shim path handling so WSL-style fallback paths resolve correctly in daemon sessions.
+
+---
+
 ## [1.2.8] - 2026-02-05
 
 ### Added

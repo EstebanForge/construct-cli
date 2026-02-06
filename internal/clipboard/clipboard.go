@@ -3,6 +3,7 @@ package clipboard
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"time"
 )
 
 // ErrNoImage indicates the clipboard contains no image data.
@@ -17,6 +19,8 @@ var ErrNoImage = errors.New("no image in clipboard")
 
 // ErrNoText indicates the clipboard contains no text data.
 var ErrNoText = errors.New("no text in clipboard")
+
+const clipboardCommandTimeout = 10 * time.Second
 
 // GetText retrieves text data from the host clipboard
 func GetText() ([]byte, error) {
@@ -62,9 +66,15 @@ func getMacImage() ([]byte, error) {
 	// Request clipboard as PNG data. osascript will return it as a hex string
 	// in the format: «data PNGf89504E47...»
 	script := "get the clipboard as «class PNGf»"
-	cmd := exec.Command("osascript", "-e", script)
+	ctx, cancel := context.WithTimeout(context.Background(), clipboardCommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "osascript", "-e", script)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, ErrNoImage
+		}
 		// If it fails, maybe no image
 		return nil, ErrNoImage
 	}
