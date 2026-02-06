@@ -84,8 +84,11 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
 - **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it; Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
-- **Mounts**: host project directory → `/projects/<folder_name>`; host config/agents under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
-- **Isolation**: Each agent run is isolated within its container; the `/projects/<folder_name>` mount is the only bridge to host project files.
+- **Mounts**:
+  - Ephemeral runs: host project directory → `/projects/<folder_name>`.
+  - Daemon runs with `daemon.multi_paths_enabled = true`: host paths mount under deterministic roots at `/workspaces/<hash>/...` and the runtime maps the current host `cwd` into that tree.
+  - Host config/agents mount under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
+- **Isolation**: Each agent run is isolated within its container; only the active project/workspace mount (`/projects/...` or `/workspaces/...`) bridges host project files.
 - **SSH agent forwarding**: Linux mounts the host socket directly; macOS uses a TCP bridge exposed to the container.
 - **Network modes**:
   - `permissive`: full egress
@@ -253,6 +256,7 @@ mount_paths = ["~/Dev/Projects", "/work/client-repos"]
 
 **Multi-Root Behavior:**
 - When enabled, the daemon mounts multiple host roots into deterministic container paths.
+- Container mount destinations use `/workspaces/<hash>` (hash derived from each normalized host root path).
 - Each run maps the host `cwd` to the first matching mount root; if none match, it falls back to the normal (non-daemon) path with a user-facing hint.
 - Invalid/nonexistent mount paths are skipped with warnings; >32 entries warn and >64 are capped.
 - Mount root overlaps are allowed but warned (first match wins).
@@ -306,6 +310,7 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
   - **Binary Interception**: System-wide shims for `xclip`, `xsel`, and `wl-paste` redirect all clipboard calls to the bridge script (`clipper`).
   - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Gemini/Qwen's `clipboardy` dependency).
 - **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux; a fake `powershell.exe` enables Codex WSL clipboard fallback.
+- **WSL Path Mapping for Codex**: The entrypoint creates `/mnt/c` aliases for container paths used by fallback image paste (`/projects`, `/workspaces`, and `/tmp`) so Windows-style paths returned by the shim resolve correctly inside the container.
 - **Dynamic Content Bridging**:
   - **Image-First Behavior**: The bridge always attempts to fetch image data first; if present, it returns resized/normalized image bytes for most agents.
   - **Agent-Specific Paths**: Gemini, Qwen, and Codex receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.

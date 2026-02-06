@@ -3,6 +3,7 @@ package clipboard
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -17,6 +18,12 @@ type Server struct {
 	URL      string
 	listener net.Listener
 }
+
+const (
+	serverReadTimeout  = 15 * time.Second
+	serverWriteTimeout = 15 * time.Second
+	serverIdleTimeout  = 30 * time.Second
+)
 
 // StartServer starts the clipboard server on a random port.
 func StartServer(host string) (*Server, error) {
@@ -59,8 +66,15 @@ func (s *Server) serve() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/paste", s.handlePaste)
 
+	server := &http.Server{
+		Handler:      mux,
+		ReadTimeout:  serverReadTimeout,
+		WriteTimeout: serverWriteTimeout,
+		IdleTimeout:  serverIdleTimeout,
+	}
+
 	// We use the existing listener
-	if err := http.Serve(s.listener, mux); err != nil {
+	if err := server.Serve(s.listener); err != nil && !errors.Is(err, net.ErrClosed) && !errors.Is(err, http.ErrServerClosed) {
 		logf("[Clipboard Server] serve error: %v\n", err)
 	}
 }

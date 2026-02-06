@@ -40,6 +40,7 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p /mnt/c 2>/dev/null || true
     ln -sf /tmp /mnt/c/tmp 2>/dev/null || true
     ln -sf /projects /mnt/c/projects 2>/dev/null || true
+    ln -sf /workspaces /mnt/c/workspaces 2>/dev/null || true
 
     # Patch /etc/profile to preserve PATH
     if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
@@ -317,7 +318,8 @@ EOF
 setup_shell_environment
 
 # Start a headless X11 clipboard bridge when no DISPLAY is available.
-if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ]; then
+# Skip for Codex WSL fallback path to avoid forcing X11 and breaking paste.
+if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ] && [ -z "$WSL_DISTRO_NAME" ] && [ -z "$WSL_INTEROP" ]; then
     if command -v Xvfb >/dev/null; then
         DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
         export DISPLAY

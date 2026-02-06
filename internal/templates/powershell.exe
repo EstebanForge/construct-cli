@@ -44,7 +44,7 @@ fi
 
 debug_log "Fetching image to: $ABS_PNG"
 
-if curl -s -f \
+if curl -s -f --connect-timeout 3 --max-time 10 \
     -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
     "${HOST_URL}/paste?type=image/png" -o "$ABS_PNG"; then
     SIZE=$(wc -c < "$ABS_PNG" 2>/dev/null || echo "0")
@@ -56,12 +56,17 @@ if curl -s -f \
     # we return C:/projects/my-project/.construct-clipboard/img.png
     # which Codex converts back to /mnt/c/projects/my-project/.construct-clipboard/img.png
     
-    if [[ "$ABS_PNG" == "/projects/"* ]]; then
-        WIN_PATH="C:${ABS_PNG}"
-    else
-        # Fallback for /tmp or other paths
-        WIN_PATH="C:${ABS_PNG}"
-    fi
+    case "$ABS_PNG" in
+        /projects/*|/workspaces/*|/tmp/*)
+            WIN_PATH="C:${ABS_PNG}"
+            ;;
+        *)
+            # Ensure WSL conversion has a stable path that always exists.
+            FALLBACK_PNG="/tmp/clipboard-$(date +%s%3N).png"
+            cp "$ABS_PNG" "$FALLBACK_PNG" 2>/dev/null || true
+            WIN_PATH="C:${FALLBACK_PNG}"
+            ;;
+    esac
     
 debug_log "Returning fake Windows path: $WIN_PATH"
     echo "$WIN_PATH"
