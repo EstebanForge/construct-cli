@@ -38,6 +38,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(DockerCompose, "${CONSTRUCT_PROJECT_PATH}") {
 		t.Error("docker-compose.yml template missing dynamic project path")
 	}
+	if !strings.Contains(DockerCompose, "- CGO_ENABLED=1") {
+		t.Error("docker-compose.yml template missing CGO_ENABLED=1")
+	}
 
 	// Test that config.toml contains expected sections
 	if !strings.Contains(Config, "[runtime]") {

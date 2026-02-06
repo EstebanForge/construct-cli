@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.2.9] - 2026-02-06
+## [1.2.10] - 2026-02-06
 
 ### Changed
 - **Design Docs Mount Model**: Updated `DESIGN.md` to document the active dual mount behavior: `/projects/<folder>` for ephemeral runs and `/workspaces/<hash>/...` for daemon multi-root runs.
