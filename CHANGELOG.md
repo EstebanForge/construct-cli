@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.0] - 2026-02-19
+## [1.3.1] - 2026-02-19
 
 ### Added
 - **Issue Template Diagnostics**: Added GitHub bug report template fields requiring `construct sys doctor` output and setup/update logs.
@@ -21,6 +21,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Entrypoint Shell Setup Noise**: Ensured `.bashrc` is created before alias-source checks to avoid missing-file warnings.
 - **Daemon Exec UX**: Added targeted hinting when daemon exec exits with command-not-found.
 - **Exec User Fallback Safety**: When `exec_as_host_user=true`, Construct now verifies host UID exists in container `/etc/passwd`; if not, it warns and falls back to the container default user.
+- **Stable `ns-*` Alias Paths**: `sys aliases --install` now preserves stable shim paths (for example `/opt/homebrew/bin/...`) instead of resolving to versioned `Cellar`/`Caskroom` paths.
 
 ---
 
@@ -139,7 +140,7 @@ All notable changes to Construct CLI will be documented in this file.
 ## [1.0.1] - 2026-01-21
 
 ### Fixed
-- **OrbStack/Podman Sudo Compatibility**: Fixed `sys install-packages` and `sys update` failing with "PAM account management error" in environments where sudo is unavailable or misconfigured (OrbStack, rootless Podman, minimal containers). Thanks @KingMob for the bug report.
+- **OrbStack/Podman Sudo Compatibility**: Fixed package install/update flows (`sys packages --install` and `sys update`) failing with "PAM account management error" in environments where sudo is unavailable or misconfigured (OrbStack, rootless Podman, minimal containers). Thanks @KingMob for the bug report.
   - Install scripts now detect if running as root (no sudo needed) or test sudo availability before use
   - Gracefully skips privileged apt operations when sudo unavailable instead of failing
   - Applies to both `install_user_packages.sh` (generated) and `update-all.sh` (template)
@@ -263,7 +264,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Brew Installation Detection**: `self-update` and update notifications now detect if the CLI was installed via Homebrew and provide appropriate instructions (`brew upgrade estebanforge/tap/construct-cli`) instead of attempting a manual binary overwrite.
 
 ### Fixed
-- **Package Installation Reliability**: Improved `sys install-packages` to use `run --rm` instead of `exec`, allowing it to work correctly even if The Construct is not already running.
+- **Package Installation Reliability**: Improved package install flow (`sys packages --install`) to use `run --rm` instead of `exec`, allowing it to work correctly even if The Construct is not already running.
 - **Initialization Consistency**: Updated `sys init` and `sys rebuild` to always perform a full migration (syncing config and templates) before building the image.
 - **Migration Messaging**: Clarified migration messages to indicate when an image is "marked for rebuild" versus being actively rebuilt.
 - **Container Rebuild Reliability**: improved `sys rebuild` to force fresh container images.
@@ -271,7 +272,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Added support for macOS 26+ native `container` runtime management.
 - **Container Image Optimization**: Updated base image to a more stable version.
   - Leaner base image means faster rebuilds and reduced storage footprint.
-- **Template Synchronization**: Improved `sys migrate` to ensure binary rebuilds are correctly triggered when embedded templates change.
+- **Template Synchronization**: Improved migration flow (`sys config --migrate`) to ensure binary rebuilds are correctly triggered when embedded templates change.
   - Automatic removal of old Docker image (forces rebuild with new Dockerfile)
   - New hash-based template change detection (more reliable than version checks)
 
@@ -316,10 +317,10 @@ All notable changes to Construct CLI will be documented in this file.
   - When enabled (`CONSTRUCT_DEBUG=1`), logs are written to `~/.config/construct-cli/logs/` on the host.
   - Container-side logs (like `powershell.exe` and `clipboard-x11-sync`) are redirected to `/tmp/` for guaranteed visibility and write access.
   - Replaced legacy `CONSTRUCT_CLIPBOARD_LOG` with the new unified system.
-- **Non-Sandboxed Agent Aliases**: `install-aliases` now creates `ns-*` prefixed aliases for agents found in PATH.
+- **Non-Sandboxed Agent Aliases**: `sys aliases --install` now creates `ns-*` prefixed aliases for agents found in PATH.
   - Example: `ns-claude`, `ns-gemini`, etc. run agents directly without Construct sandbox
   - Useful for running agents with full host access when needed
-- **Alias Re-installation**: `install-aliases` now supports updating existing installations.
+- **Alias Re-installation**: `sys aliases --update` now supports updating existing installations.
   - Detects existing aliases and offers to re-install with gum confirmation prompt
   - Automatically removes old alias block before installing fresh
   - Adds missing `ns-*` aliases when updating existing installations
@@ -363,7 +364,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Install additional APT, Homebrew, NPM, and PIP packages beyond the defaults.
   - Easy activation of specialized version managers: NVM, PHPBrew, Nix, Asdf, Mise, VMR, Volta, and Bun.
   - New `construct sys packages` command to quickly edit package configuration.
-  - New `construct sys install-packages` command to apply package changes to running containers without restart.
+  - New package install command `construct sys packages --install` to apply package changes to running containers without restart.
   - Package configuration persists across updates and environments.
 - **Dynamic Project Mount Paths**: Agents now mount the current host directory to `/projects/<folder_name>` instead of static `/workspace`.
   - Improves agent contextual awareness and long-term memory.
@@ -409,7 +410,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Implemented hash-based change detection for `entrypoint.sh` to automatically trigger re-installation when scripts are updated.
 - **Smart Runtime Configuration**:
   - Optimized Linux runtime detection to avoid unnecessary user ID mapping for UID 1000 users, enabling proper permission fixups.
-  - Improved `sys migrate` to ensure binary rebuilds are correctly triggered when embedded templates change.
+  - Improved migration flow (`sys config --migrate`) to ensure binary rebuilds are correctly triggered when embedded templates change.
 
 ### Fixed
 - **Permission Issues**: Fixed permission errors during initial setup by allowing the container to start as root for volume ownership fixes before dropping privileges.
@@ -468,7 +469,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Interactive multi-select UI powered by `gum`.
   - Automatic permission fixing (0600) and matching `.pub`/`known_hosts` support.
   - Smart logic to skip selection if only one key is found.
-- **Config Restoration**: New `construct sys restore-config` command to immediately recover from configuration backups.
+- **Config Restoration**: New `construct sys config --restore` command to immediately recover from configuration backups.
 - **Shell Productivity Enhancements**:
   - Automatic management of `.bash_aliases` inside the container.
   - Standard aliases included: `ll`, `la`, `l`, and color-coded `ls`/`grep`.
@@ -476,7 +477,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Improved Diagnostics**: `construct sys doctor` now reports SSH Agent connectivity and lists imported local keys.
 
 ### Changed
-- **Non-Destructive Migration**: Redesigned `sys migrate` logic to be strictly additive.
+- **Non-Destructive Migration**: Redesigned migration flow (`sys config --migrate`) logic to be strictly additive.
   - Preserves all user comments and formatting.
   - Automatically identifies and preserves custom Claude Code aliases, moving them to a dedicated "User-defined" section.
   - Prevents TOML section duplication.
@@ -547,7 +548,7 @@ All notable changes to Construct CLI will be documented in this file.
   - Persistent volumes preserved (agents, packages, configurations)
   - Backup of old config created during migration (`config.toml.backup`)
   - Clear migration progress output with success/error reporting
-  - New `construct sys migrate` command for manual config/template refresh (useful for debugging)
+  - New migration command `construct sys config --migrate` for manual config/template refresh (useful for debugging)
 - **Expanded Container Toolchain**: Added comprehensive language support to the sandbox:
   - **Languages**: Rust, Go, Java (OpenJDK), Kotlin, Swift, Zig, Ruby, PHP, Dart, Perl, Erlang, COBOL.
   - **Build Tools**: Ninja, Gradle, UV, Composer.
@@ -619,13 +620,13 @@ All notable changes to Construct CLI will be documented in this file.
   - `update`: Update agents to latest versions
   - `reset`: Delete volumes and reinstall
   - `shell`: Interactive shell with all agents
-  - `install-aliases`: Install agent aliases to host shell
+  - `aliases --install`: Install agent aliases to host shell
   - `version`: Show version
   - `config`: Open config in editor
   - `agents`: List supported agents
   - `doctor`: System health checks
   - `self-update`: Update construct binary
-  - `update-check`: Check for available updates
+  - `check-update`: Check for available updates
 - **Network Commands** (`construct network`):
   - `allow <domain|ip>`: Add to allowlist
   - `block <domain|ip>`: Add to blocklist

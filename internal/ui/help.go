@@ -24,32 +24,35 @@ Global Flags:
   -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline)
 
 [sys] System Commands:
-  construct sys agents           # List supported agents
-  construct sys agents-md        # Manage global instruction files (rules) for agents
-  construct sys config           # Open config.toml in editor
-  construct sys daemon           # Manage background daemon (start|stop|attach|status|install|uninstall)
-  construct sys packages         # Open packages.toml in editor
-  construct sys doctor           # Check system health
-  construct sys doctor --fix     # Append missing defaults to config.toml (backup first)
-  construct sys ct-fix           # Fix ct symlink in ~/.local/bin
-  construct sys help             # Show this help (alias for --help)
-  construct sys init             # Initialize environment and install agents inside The Construct
-  construct sys install-aliases  # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
-  construct sys update-aliases   # Alias for install-aliases (reinstall/update host aliases)
-  construct sys uninstall-aliases # Remove Construct alias block from your host shell
-  construct sys install-packages # Apply changes from packages.toml to the running container
-  construct sys login-bridge     # Start a temporary localhost login callback bridge for headless-unfriendly agents
-  construct sys migrate          # Re-run migrations to sync config/templates with the binary
-  construct sys rebuild          # Migrate and sync config/templates, then rebuild Docker image
-  construct sys reset            # Delete agent binaries and cache for a clean reinstall (preserves personal config)
-  construct sys restore-config   # Restore config from backup
-  construct sys self-update      # Update construct itself to the latest version
-  construct sys set-password     # Change the password for the construct user inside the container
-  construct sys shell            # Interactive shell with all agents inside The Construct
-  construct sys ssh-import       # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
-  construct sys update           # Update agents and packages to latest versions inside The Construct
-  construct sys update-check     # Check if an update is available for The Construct
-  construct sys version          # Show version
+  construct sys agents             # List supported agents
+  construct sys agents-md          # Manage global instruction files (rules) for agents
+  construct sys config             # Config operations (opens config.toml by default)
+                                   # [--migrate] Re-sync config/templates with the current binary
+                                   # [--restore] Restore config.toml from backup
+  construct sys daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
+  construct sys packages           # Package operations (opens packages.toml by default)
+                                   # [--install] Apply changes from packages.toml to the running container
+                                   # [--reinstall] Recreate package volume and reinstall packages.toml contents
+                                   # [--update] Alias for 'construct sys update'
+  construct sys doctor             # System health operations
+                                   # [--fix] Append missing defaults to config.toml (backup first)
+  construct sys ct-fix             # Repair the ct shorthand command symlink
+  construct sys help               # Show this help (alias for --help)
+  construct sys init               # Initialize environment and install agents inside The Construct
+  construct sys aliases            # Host alias operations
+                                   # [--install] Install agent aliases/functions (includes ns- non-sandboxed functions)
+                                   # [--update] Reinstall/update host aliases
+                                   # [--uninstall] Remove Construct alias block from your host shell
+  construct sys login-bridge       # Start a temporary localhost login callback bridge for headless-unfriendly agents
+  construct sys rebuild            # Migrate and sync config/templates, then rebuild Docker image
+  construct sys reset              # Delete agent binaries and cache for a clean reinstall (preserves personal config)
+  construct sys self-update        # Update construct itself to the latest version
+  construct sys set-password       # Change the password for the construct user inside the container
+  construct sys shell              # Interactive shell with all agents inside The Construct
+  construct sys ssh-import         # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
+  construct sys update             # Update agents and packages to latest versions inside The Construct
+  construct sys check-update       # Check if an update is available for The Construct
+  construct sys version            # Show version
 
 [network] Network Management:
   construct network allow api.anthropic.com  # Add domain to allowlist
@@ -98,29 +101,29 @@ func PrintSysHelp() {
 Commands:
   agents             # List supported agents
   agents-md          # Manage global instruction files (rules) for agents
-  config             # Open config.toml in editor
+  config             # Config operations (opens config.toml by default)
+                     # [--migrate] Re-sync config/templates with the current binary
+                     # [--restore] Restore config.toml from backup
   daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
-  packages           # Open packages.toml in editor
-  doctor             # Check system health
-  doctor --fix       # Append missing defaults to config.toml (backup first)
-  ct-fix             # Fix ct symlink in ~/.local/bin
+  packages           # Manage packages.toml and package lifecycle (--install|--reinstall|--update)
+  doctor             # System health operations
+                     # [--fix] Append missing defaults to config.toml (backup first)
+  ct-fix             # Repair the ct shorthand command symlink
   help               # Show this help
   init               # Initialize environment and install agents inside The Construct
-  install-aliases    # Install agent aliases/functions to your host shell (includes ns- for non-sandboxed agents)
-  update-aliases     # Alias for install-aliases (reinstall/update host aliases)
-  uninstall-aliases  # Remove Construct alias block from your host shell
-  install-packages   # Apply changes from packages.toml to the running container
+  aliases            # Host alias operations
+                     # [--install] Install agent aliases/functions (includes ns- non-sandboxed functions)
+                     # [--update] Reinstall/update host aliases
+                     # [--uninstall] Remove Construct alias block from your host shell
   login-bridge       # Start a temporary localhost login callback bridge for headless-unfriendly agents
-  migrate            # Re-run migrations to sync config/templates with the binary
   rebuild            # Migrate and sync config/templates, then rebuild Docker image
   reset              # Delete agent binaries and cache for a clean reinstall (preserves personal config)
-  restore-config     # Restore config from backup
   self-update        # Update construct itself to the latest version
   set-password       # Change the password for the construct user inside the container
   shell              # Interactive shell with all agents inside The Construct
   ssh-import         # Import SSH keys from host into The Construct (for when no SSH Agent is in use)
   update             # Update agents and packages to latest versions inside The Construct
-  update-check       # Check if an update is available for The Construct
+  check-update       # Check if an update is available for The Construct
   version            # Show version
 `
 	fmt.Print(help)

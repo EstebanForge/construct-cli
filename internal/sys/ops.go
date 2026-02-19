@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -257,4 +258,42 @@ func InstallPackages(cfg *config.Config) {
 	} else {
 		fmt.Println("✅ User packages installed successfully!")
 	}
+}
+
+// ReinstallPackages clears the packages volume and reapplies packages.toml.
+func ReinstallPackages(cfg *config.Config) {
+	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+
+	if ui.GumAvailable() {
+		ui.GumInfo("Reinstalling packages: removing construct-packages volume first")
+	} else {
+		fmt.Println("Reinstalling packages: removing construct-packages volume first")
+	}
+
+	var cmd *exec.Cmd
+	switch containerRuntime {
+	case "docker":
+		cmd = exec.Command("docker", "volume", "rm", "-f", "construct-packages")
+	case "podman":
+		cmd = exec.Command("podman", "volume", "rm", "-f", "construct-packages")
+	case "container":
+		cmd = exec.Command("docker", "volume", "rm", "-f", "construct-packages")
+	default:
+		fmt.Fprintf(os.Stderr, "Warning: unsupported runtime for package volume cleanup: %s\n", containerRuntime)
+		InstallPackages(cfg)
+		return
+	}
+
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if ui.GumAvailable() {
+			ui.GumWarning(fmt.Sprintf("Failed to remove construct-packages volume: %v", err))
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to remove construct-packages volume: %v\n", err)
+		}
+		if trimmed := strings.TrimSpace(string(output)); trimmed != "" {
+			fmt.Fprintln(os.Stderr, trimmed)
+		}
+	}
+
+	InstallPackages(cfg)
 }
