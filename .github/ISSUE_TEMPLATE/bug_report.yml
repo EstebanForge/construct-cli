@@ -1,0 +1,65 @@
+name: Bug Report
+description: Report a bug and include diagnostics required for troubleshooting.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please provide all required diagnostics below.
+        Note:
+        - On Docker/Linux, avoid manually setting `user:` in `docker-compose.override.yml` unless `[sandbox].non_root_strict = true`.
+        - Construct normally uses root only for bootstrap permission fixes, then drops to non-root.
+        Before submitting:
+        1. Run `construct sys doctor`
+        2. Copy the full text output
+        3. Copy Setup Log and Update Log output using the file paths shown by `construct sys doctor`
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Describe the issue and expected behavior.
+      placeholder: "Example: `construct copilot` fails with command not found."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List exact commands and sequence used.
+      placeholder: |
+        1. construct sys shell
+        2. construct copilot
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor_output
+    attributes:
+      label: Output of `construct sys doctor` (text)
+      description: Paste full output as plain text.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup_log
+    attributes:
+      label: Setup Log output (text)
+      description: Paste relevant setup log content. Use the setup log path shown in `construct sys doctor`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: update_log
+    attributes:
+      label: Update Log output (text)
+      description: Paste relevant update log content. Use the update log path shown in `construct sys doctor`.
+      render: shell
+    validations:
+      required: true

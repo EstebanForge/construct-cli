@@ -1,3 +1,4 @@
+//revive:disable:var-naming // Package name intentionally matches folder name used across imports.
 package runtime
 
 import (
@@ -5,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -133,7 +135,7 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	}
 
 	// Generate override
-	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge"); err != nil {
+	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge", "docker"); err != nil {
 		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
 	}
 
@@ -160,6 +162,44 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	if !strings.Contains(contentStr, "update-all.sh") {
 		t.Errorf("Expected update-all.sh mount, got: %s", contentStr)
 	}
+	if stdruntime.GOOS == "linux" && strings.Contains(contentStr, "user: \"") {
+		t.Errorf("Did not expect docker override to force user mapping on Linux, got: %s", contentStr)
+	}
+}
+
+func TestGenerateDockerComposeOverridePodmanSetsUserOnLinux(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific podman user mapping behavior")
+	}
+
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	projectName := filepath.Base(tmpDir)
+	if projectName == "." || projectName == "/" {
+		projectName = "workspace"
+	}
+	expectedPath := "/projects/" + projectName
+
+	containerDir := filepath.Join(tmpDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge", "podman"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("Failed to read generated file: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "user: \"") {
+		t.Fatalf("Expected podman override to include user mapping, got: %s", contentStr)
+	}
 }
 
 // TestContainerStateConstants verifies container state constants exist
@@ -177,6 +217,180 @@ func TestContainerStateConstants(t *testing.T) {
 			t.Errorf("Duplicate container state value: %v", s)
 		}
 		seen[s] = true
+	}
+}
+
+func TestHashOverrideInputsIncludesRuntime(t *testing.T) {
+	base := overrideInputs{
+		Version:        "1.0.0",
+		Runtime:        "docker",
+		UID:            1000,
+		GID:            1000,
+		SELinuxEnabled: false,
+		NetworkMode:    "bridge",
+		GitName:        "Test User",
+		GitEmail:       "test@example.com",
+		ProjectPath:    "/projects/test",
+		SSHAuthSock:    "/tmp/ssh.sock",
+		ForwardSSH:     true,
+		PropagateGit:   true,
+		DaemonMulti:    false,
+		DaemonMounts:   "",
+	}
+	podman := base
+	podman.Runtime = "podman"
+
+	dockerHash := hashOverrideInputs(base)
+	podmanHash := hashOverrideInputs(podman)
+	if dockerHash == podmanHash {
+		t.Fatalf("expected different override hashes for different runtimes, got %s", dockerHash)
+	}
+}
+
+func TestOverrideHasUserMapping(t *testing.T) {
+	tmpDir := t.TempDir()
+	containerDir := filepath.Join(tmpDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+	contentWithUser := "services:\n  construct-box:\n    user: \"1001:1001\"\n"
+	if err := os.WriteFile(overridePath, []byte(contentWithUser), 0644); err != nil {
+		t.Fatalf("failed to write override file: %v", err)
+	}
+
+	hasUser, err := overrideHasUserMapping(tmpDir)
+	if err != nil {
+		t.Fatalf("overrideHasUserMapping failed: %v", err)
+	}
+	if !hasUser {
+		t.Fatalf("expected user mapping to be detected")
+	}
+
+	contentWithoutUser := "services:\n  construct-box:\n    image: construct-box:latest\n"
+	if err := os.WriteFile(overridePath, []byte(contentWithoutUser), 0644); err != nil {
+		t.Fatalf("failed to write override file: %v", err)
+	}
+
+	hasUser, err = overrideHasUserMapping(tmpDir)
+	if err != nil {
+		t.Fatalf("overrideHasUserMapping failed: %v", err)
+	}
+	if hasUser {
+		t.Fatalf("expected no user mapping to be detected")
+	}
+}
+
+func TestGenerateDockerComposeOverrideHealsManualDockerUserMappingOnLinux(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific docker override behavior")
+	}
+
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	projectName := filepath.Base(tmpDir)
+	if projectName == "." || projectName == "/" {
+		projectName = "workspace"
+	}
+	expectedPath := "/projects/" + projectName
+
+	containerDir := filepath.Join(tmpDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+
+	// First generate a normal override and matching hash cache.
+	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	// Manually inject a dangerous user mapping while keeping the cached hash untouched.
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+	content, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("Failed to read generated file: %v", err)
+	}
+	modified := strings.Replace(string(content), "  construct-box:\n", "  construct-box:\n    user: \"1001:1001\"\n", 1)
+	if err := os.WriteFile(overridePath, []byte(modified), 0644); err != nil {
+		t.Fatalf("Failed to write modified override: %v", err)
+	}
+
+	// Re-run generation with unchanged inputs; it should detect and heal the user mapping.
+	if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	healed, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("Failed to read healed override: %v", err)
+	}
+	if strings.Contains(string(healed), "user: \"1001:1001\"") {
+		t.Fatalf("expected docker override regeneration to remove manual user mapping, got: %s", string(healed))
+	}
+}
+
+func TestGenerateDockerComposeOverrideKeepsUserMappingWhenNonRootStrictEnabled(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific docker override behavior")
+	}
+
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\nnon_root_strict = true\n"
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"powershell.exe":        "binary\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+		"config.toml":           configToml,
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+	}
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("failed to write %s: %v", file, err)
+		}
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "user: \"") {
+		t.Fatalf("expected user mapping when non_root_strict is enabled, got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "CONSTRUCT_NON_ROOT_STRICT=1") {
+		t.Fatalf("expected strict mode marker in override env, got: %s", contentStr)
 	}
 }
 
@@ -244,6 +458,19 @@ func TestExecInteractiveUnsupportedRuntime(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unsupported runtime") {
 		t.Errorf("Expected 'unsupported runtime' error, got: %v", err)
+	}
+}
+
+func TestContainerHasUIDEntryUnsupportedRuntime(t *testing.T) {
+	hasEntry, err := ContainerHasUIDEntry("unsupported-runtime", "test-container", 1000)
+	if err == nil {
+		t.Fatal("Expected error for unsupported runtime")
+	}
+	if hasEntry {
+		t.Fatal("Expected hasEntry to be false for unsupported runtime")
+	}
+	if !strings.Contains(err.Error(), "unsupported runtime") {
+		t.Fatalf("Expected unsupported runtime error, got: %v", err)
 	}
 }
 

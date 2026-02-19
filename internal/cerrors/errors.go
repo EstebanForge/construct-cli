@@ -37,21 +37,21 @@ type ConstructError struct {
 
 func (e *ConstructError) Error() string {
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("[%s] %s failed", e.Category, e.Operation))
+	fmt.Fprintf(&b, "[%s] %s failed", e.Category, e.Operation)
 	if e.Path != "" {
-		b.WriteString(fmt.Sprintf("\n  Path: %s", e.Path))
+		fmt.Fprintf(&b, "\n  Path: %s", e.Path)
 	}
 	if e.Command != "" {
-		b.WriteString(fmt.Sprintf("\n  Command: %s", e.Command))
+		fmt.Fprintf(&b, "\n  Command: %s", e.Command)
 	}
 	if e.Runtime != "" {
-		b.WriteString(fmt.Sprintf("\n  Runtime: %s", e.Runtime))
+		fmt.Fprintf(&b, "\n  Runtime: %s", e.Runtime)
 	}
 	if e.Err != nil {
-		b.WriteString(fmt.Sprintf("\n  Cause: %v", e.Err))
+		fmt.Fprintf(&b, "\n  Cause: %v", e.Err)
 	}
 	if e.Suggestion != "" {
-		b.WriteString(fmt.Sprintf("\n  → %s", e.Suggestion))
+		fmt.Fprintf(&b, "\n  → %s", e.Suggestion)
 	}
 	return b.String()
 }

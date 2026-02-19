@@ -8,6 +8,41 @@ fi
 echo "Updating all agents, packages & tools..."
 echo ""
 
+echo "=== Construct update diagnostics ==="
+echo "Timestamp (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+echo "User IDs: uid=$(id -u) gid=$(id -g)"
+echo "User names: user=$(id -un 2>/dev/null || echo unknown) group=$(id -gn 2>/dev/null || echo unknown)"
+echo "HOME: $HOME"
+echo "SHELL: ${SHELL:-unknown}"
+echo "PATH: $PATH"
+if [ -d /home/linuxbrew/.linuxbrew ]; then
+    if [ -w /home/linuxbrew/.linuxbrew ]; then
+        echo "Homebrew dir writable: /home/linuxbrew/.linuxbrew"
+    else
+        echo "⚠️  Homebrew dir not writable by current user: /home/linuxbrew/.linuxbrew"
+        ls -ld /home/linuxbrew/.linuxbrew 2>/dev/null || true
+    fi
+fi
+if command -v brew &> /dev/null; then
+    echo "brew: $(command -v brew)"
+    brew --version | head -1 || true
+else
+    echo "brew: not found"
+fi
+if command -v npm &> /dev/null; then
+    echo "npm: $(command -v npm)"
+    npm --version || true
+else
+    echo "npm: not found"
+fi
+if command -v topgrade &> /dev/null; then
+    echo "topgrade: $(command -v topgrade)"
+else
+    echo "topgrade: not found"
+fi
+echo "==================================="
+echo ""
+
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" || true
 
 # Sudo detection: use empty string if root, test if sudo works, otherwise skip
@@ -44,6 +79,10 @@ else
 
     echo "Updating npm global packages..."
     if command -v npm &> /dev/null; then
+        mkdir -p "$HOME/.npm-global"
+        npm config set prefix "$HOME/.npm-global" || true
+        export PATH="$HOME/.npm-global/bin:$PATH"
+        echo "npm global prefix: $(npm config get prefix 2>/dev/null || echo unknown)"
         npm update -g || true
     fi
 fi
@@ -58,7 +97,7 @@ elif [ -f "$PATCH_SCRIPT" ]; then
     echo "🔧 Patching agent integrations..."
     bash "$PATCH_SCRIPT" || echo "⚠️  Agent patching encountered errors"
 else
-    echo "⚠️  Agent patch script not found; skipping patching"
+    echo "⚠️  Agent patch script not found at $PATCH_SCRIPT; skipping patching"
 fi
 
 ENTRYPOINT_SCRIPT="/usr/local/bin/entrypoint.sh"
@@ -80,6 +119,23 @@ elif [ -f "$ENTRYPOINT_SCRIPT" ]; then
     fi
     mkdir -p "$HOME/.local"
     echo "$CURRENT_HASH" > "$HASH_FILE"
+fi
+
+echo ""
+echo "Post-update command verification..."
+missing_cmds=""
+for cmd in claude amp copilot opencode qwen cline codex goose gemini kilocode pi; do
+    if command -v "$cmd" &> /dev/null; then
+        cmd_path=$(command -v "$cmd")
+        echo "  ✓ $cmd -> $cmd_path"
+    else
+        echo "  - $cmd not found in PATH"
+        missing_cmds="$missing_cmds $cmd"
+    fi
+done
+if [ -n "$missing_cmds" ]; then
+    echo "⚠️  Missing commands after update:$missing_cmds"
+    echo "    If these agents are expected, run: construct sys install-packages"
 fi
 
 echo ""

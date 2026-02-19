@@ -471,12 +471,12 @@ func InstallAliases() {
 
 	// Add standard agents
 	for _, agent := range agents {
-		sb.WriteString(fmt.Sprintf("alias %s='%s %s'\n", agent, constructCmd, agent))
+		fmt.Fprintf(&sb, "alias %s='%s %s'\n", agent, constructCmd, agent)
 	}
 
 	// Add CC providers
 	for _, provider := range ccProviders {
-		sb.WriteString(fmt.Sprintf("alias cc-%s='%s cc %s'\n", provider, constructCmd, provider))
+		fmt.Fprintf(&sb, "alias cc-%s='%s cc %s'\n", provider, constructCmd, provider)
 	}
 
 	// Add non-sandboxed (ns-) aliases for agents found in PATH

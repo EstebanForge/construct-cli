@@ -1,3 +1,4 @@
+//revive:disable:var-naming // Package name intentionally matches folder name used across imports.
 package runtime
 
 import (
@@ -180,7 +181,7 @@ func TestGenerateDockerComposeOverrideMultiPaths(t *testing.T) {
 	}
 
 	projectPath := "/projects/test"
-	if err := GenerateDockerComposeOverride(configDir, projectPath, "bridge"); err != nil {
+	if err := GenerateDockerComposeOverride(configDir, projectPath, "bridge", "docker"); err != nil {
 		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
 	}
 

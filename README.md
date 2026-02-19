@@ -179,6 +179,8 @@ update_check_interval = 86400  # seconds (24 hours)
 mount_home = false # keep false unless you really need your whole home dir (dangerous)
 forward_ssh_agent = true # forward host SSH agent into the container
 propagate_git_identity = true # sync host git name/email into container
+non_root_strict = false # force strict non-root runtime (advanced; may break brew/npm setup on Docker)
+exec_as_host_user = true # run agent exec as host UID:GID on Linux Docker (falls back if UID is missing in container passwd)
 selinux_labels = "auto" # auto | enabled | disabled
 shell = "/bin/bash"
 clipboard_host = "host.docker.internal"
@@ -228,6 +230,10 @@ log_retention_days = 15
 ```
 
 Agent and sandbox config directories on the host live inside `~/.config/construct-cli/home`.
+
+On Docker, Construct intentionally runs as root only during bootstrap to repair permissions, then drops to a non-root user (`gosu`).  
+Avoid manually setting `user:` in `docker-compose.override.yml` unless you explicitly enable `[sandbox].non_root_strict = true`.  
+If you need strict rootless behavior, prefer Podman (`[runtime].engine = "podman"`).
 
 ### User-Defined Packages
 

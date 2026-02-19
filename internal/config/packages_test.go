@@ -114,6 +114,59 @@ func TestGenerateInstallScriptWithAptPackages(t *testing.T) {
 	}
 }
 
+func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
+	config := &PackagesConfig{
+		Npm: NpmConfig{
+			Packages: []string{"@github/copilot", "cline"},
+		},
+	}
+	script := config.GenerateInstallScript()
+
+	if !strings.Contains(script, "brew install imagemagick || echo") {
+		t.Error("Script should guard imagemagick install failures")
+	}
+	if !strings.Contains(script, "brew install topgrade || echo") {
+		t.Error("Script should guard topgrade install failures")
+	}
+	if !strings.Contains(script, "if command -v brew &> /dev/null; then") {
+		t.Error("Script should check for brew before brew installs")
+	}
+
+	if !strings.Contains(script, "npm install -g @github/copilot || echo") {
+		t.Error("Script should install npm packages individually with failure guards")
+	}
+	if !strings.Contains(script, "npm install -g cline || echo") {
+		t.Error("Script should include all npm packages as separate guarded commands")
+	}
+}
+
+func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
+	config := &PackagesConfig{}
+	script := config.GenerateInstallScript()
+
+	if !strings.Contains(script, "=== Construct setup diagnostics ===") {
+		t.Error("Script should include setup diagnostics header")
+	}
+	if !strings.Contains(script, "Homebrew dir not writable by current user") {
+		t.Error("Script should include Homebrew writability diagnostics")
+	}
+	if !strings.Contains(script, "Configuring npm global prefix") {
+		t.Error("Script should configure npm prefix before npm installs")
+	}
+	if !strings.Contains(script, "npm config set prefix \"$HOME/.npm-global\"") {
+		t.Error("Script should set npm global prefix to $HOME/.npm-global")
+	}
+	if !strings.Contains(script, "Post-install command verification") {
+		t.Error("Script should include post-install command verification section")
+	}
+	if !strings.Contains(script, "for cmd in claude amp copilot opencode") {
+		t.Error("Script should verify key agent commands after installation")
+	}
+	if !strings.Contains(script, "If these agents are expected, re-run: construct sys install-packages") {
+		t.Error("Script should include guidance when expected commands are missing")
+	}
+}
+
 func TestLoadPackages(t *testing.T) {
 	// Setup temporary home for config
 	tmpDir, err := os.MkdirTemp("", "construct-test-*")

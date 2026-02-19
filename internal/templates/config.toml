@@ -25,6 +25,18 @@ forward_ssh_agent = true
 # Sync host git name/email into container (default: true)
 propagate_git_identity = true
 
+# Enforce strict non-root runtime behavior by forcing container user mapping (default: false)
+# WARNING: On Docker this can break first-run package installs (Homebrew/npm permission issues)
+# because root bootstrap permission-fixes are bypassed.
+# Enable only for strict compliance environments where non-root is mandatory.
+non_root_strict = false
+
+# Run agent exec sessions as host UID:GID on Linux Docker (default: true)
+# Purpose: preserve host file ownership for files written by agents.
+# This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.
+# If host UID is not present in container /etc/passwd, Construct falls back to container default user.
+exec_as_host_user = true
+
 # SELinux mount labels on Linux: "auto" | "enabled" | "disabled"
 selinux_labels = "auto"
 

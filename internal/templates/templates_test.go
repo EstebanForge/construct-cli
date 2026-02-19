@@ -52,6 +52,12 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "[sandbox]") {
 		t.Error("config.toml template missing [sandbox] section")
 	}
+	if !strings.Contains(Config, "non_root_strict = false") {
+		t.Error("config.toml template should include non_root_strict with default false")
+	}
+	if !strings.Contains(Config, "exec_as_host_user = true") {
+		t.Error("config.toml template should include exec_as_host_user with default true")
+	}
 	if !strings.Contains(Config, "[agents]") {
 		t.Error("config.toml template missing [agents] section")
 	}
@@ -87,6 +93,18 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "#!/usr/bin/env bash") {
 		t.Error("update-all.sh template missing shebang")
 	}
+	if !strings.Contains(UpdateAll, "Construct update diagnostics") {
+		t.Error("update-all.sh should include diagnostics header")
+	}
+	if !strings.Contains(UpdateAll, "Post-update command verification") {
+		t.Error("update-all.sh should include post-update command verification")
+	}
+	if !strings.Contains(UpdateAll, "Missing commands after update") {
+		t.Error("update-all.sh should report missing commands after verification")
+	}
+	if !strings.Contains(UpdateAll, "npm config set prefix \"$HOME/.npm-global\"") {
+		t.Error("update-all.sh should configure npm global prefix before npm updates")
+	}
 
 	// Test agent patch template
 	if AgentPatch == "" {
@@ -110,6 +128,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	}
 	if !strings.Contains(Entrypoint, "agent-patch.sh") {
 		t.Error("entrypoint.sh should call agent-patch.sh")
+	}
+	if !strings.Contains(Entrypoint, "touch \"$HOME/.bashrc\"") {
+		t.Error("entrypoint.sh should create .bashrc before grep checks")
 	}
 
 	// Verify update-all uses shared hash helper

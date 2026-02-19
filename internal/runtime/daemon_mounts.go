@@ -1,3 +1,4 @@
+//revive:disable:var-naming // Package name intentionally matches folder name used across imports.
 package runtime
 
 import (

@@ -1,4 +1,6 @@
 // Package runtime manages container runtime detection and operations.
+//
+//revive:disable:var-naming // Package name intentionally matches folder name used across imports.
 package runtime
 
 import (
@@ -524,7 +526,7 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 
 	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
 	projectPath := GetProjectMountPath()
-	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode); err != nil {
+	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode, containerRuntime); err != nil {
 		return fmt.Errorf("failed to generate docker-compose override: %w", err)
 	}
 
@@ -639,6 +641,7 @@ func getProjectMountPathFromDir(dir string) string {
 // overrideInputs captures all inputs that affect docker-compose.override.yml generation
 type overrideInputs struct {
 	Version        string // Construct CLI version - ensures cache invalidation on upgrades
+	Runtime        string // Container runtime - affects override generation
 	UID            int    // Host user ID (Linux only)
 	GID            int    // Host group ID (Linux only)
 	SELinuxEnabled bool   // SELinux status
@@ -659,6 +662,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	// Hash all inputs in a deterministic order
 	// fmt.Fprintf to hash.Hash cannot error for sha256.New()
 	writeHashString(h, "version:%s", inputs.Version)
+	writeHashString(h, "runtime:%s", inputs.Runtime)
 	writeHashString(h, "uid:%d", inputs.UID)
 	writeHashString(h, "gid:%d", inputs.GID)
 	writeHashString(h, "selinux:%v", inputs.SELinuxEnabled)
@@ -695,6 +699,24 @@ func readOverrideHash(configPath string) string {
 	return ""
 }
 
+func overrideHasUserMapping(configPath string) (bool, error) {
+	overridePath := filepath.Join(configPath, "container", "docker-compose.override.yml")
+	data, err := os.ReadFile(overridePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("failed to read docker-compose.override.yml: %w", err)
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "user:") {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // writeOverrideHash stores the override hash to disk
 func writeOverrideHash(configPath, hash string) error {
 	hashPath := getOverrideHashPath(configPath)
@@ -703,7 +725,7 @@ func writeOverrideHash(configPath, hash string) error {
 
 // GenerateDockerComposeOverride creates a docker-compose.override.yml file
 // Uses hash-based caching to skip regeneration when inputs haven't changed
-func GenerateDockerComposeOverride(configPath string, projectPath string, networkMode string) error {
+func GenerateDockerComposeOverride(configPath string, projectPath string, networkMode string, containerRuntime string) error {
 	// Load config to check preferences (SSH agent, Git identity, SELinux labels)
 	cfg, _, err := config.Load()
 	if err != nil {
@@ -752,6 +774,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	// Build override inputs struct
 	inputs := overrideInputs{
 		Version:        constants.Version,
+		Runtime:        containerRuntime,
 		UID:            hostUID,
 		GID:            hostGID,
 		SELinuxEnabled: selinuxEnabled,
@@ -770,8 +793,26 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	currentHash := hashOverrideInputs(inputs)
 	storedHash := readOverrideHash(configPath)
 	if currentHash == storedHash {
-		// Inputs unchanged - skip regeneration
-		return nil
+		// Safety check: on Linux Docker, "user:" in override can break brew/npm permissions.
+		if runtime.GOOS == "linux" && containerRuntime == "docker" {
+			hasUserMapping, err := overrideHasUserMapping(configPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+			} else if hasUserMapping {
+				if cfg != nil && cfg.Sandbox.NonRootStrict {
+					// non_root_strict explicitly requires user mapping; keep current override.
+					return nil
+				}
+				fmt.Fprintln(os.Stderr, "Warning: docker-compose.override.yml contains a manual 'user:' mapping for Docker.")
+				fmt.Fprintln(os.Stderr, "Warning: This may cause Homebrew/npm permission errors. Regenerating override without 'user:'.")
+			} else {
+				// Inputs unchanged and no unsafe manual override - skip regeneration.
+				return nil
+			}
+		} else {
+			// Inputs unchanged - skip regeneration
+			return nil
+		}
 	}
 
 	// Inputs changed - regenerate override file
@@ -796,11 +837,20 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
 	}
 
-	// Linux-specific: Always run as user (not root) for Podman compatibility
-	// Host-side permission fixes (ensureConfigPermissions) handle ownership before mounting
-	if runtime.GOOS == "linux" {
+	nonRootStrict := cfg != nil && cfg.Sandbox.NonRootStrict
+	// Linux-specific user mapping behavior:
+	// - Podman: always force user mapping for rootless compatibility.
+	// - Docker: only force user mapping when explicitly requested via non_root_strict.
+	// Default Docker flow runs as root briefly to fix permissions, then drops privileges.
+	if runtime.GOOS == "linux" && (containerRuntime == "podman" || (containerRuntime == "docker" && nonRootStrict)) {
 		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", hostUID, hostGID)
-		fmt.Printf("✓ Container will run as user %d:%d\n", hostUID, hostGID)
+		if containerRuntime == "podman" {
+			fmt.Printf("✓ Container (podman) will run as user %d:%d\n", hostUID, hostGID)
+		} else {
+			fmt.Printf("⚠️  non_root_strict enabled: Docker container will run as user %d:%d\n", hostUID, hostGID)
+			fmt.Println("⚠️  Limitations: root bootstrap permission fixes are disabled; brew/npm installs may fail on first run.")
+			fmt.Println("⚠️  Recommendation: prefer runtime.engine='podman' for strict non-root workflows.")
+		}
 	}
 
 	// Volumes block
@@ -856,6 +906,9 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	if runtime.GOOS == "linux" && hostUID >= 0 && hostGID >= 0 {
 		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_UID=%d\n", hostUID)
 		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_GID=%d\n", hostGID)
+	}
+	if nonRootStrict {
+		override.WriteString("      - CONSTRUCT_NON_ROOT_STRICT=1\n")
 	}
 
 	// Propagate Git Identity
@@ -1195,6 +1248,19 @@ func ExecInContainerWithEnv(containerRuntime, containerName string, cmdArgs []st
 	}
 
 	return string(output), nil
+}
+
+// ContainerHasUIDEntry reports whether /etc/passwd in the container has an entry for uid.
+func ContainerHasUIDEntry(containerRuntime, containerName string, uid int) (bool, error) {
+	cmdArgs := []string{"sh", "-lc", fmt.Sprintf("grep -qE '^[^:]*:[^:]*:%d:' /etc/passwd", uid)}
+	_, err := ExecInContainerWithEnv(containerRuntime, containerName, cmdArgs, nil, "")
+	if err == nil {
+		return true, nil
+	}
+	if strings.Contains(err.Error(), "unsupported runtime") {
+		return false, err
+	}
+	return false, nil
 }
 
 // ExecInteractive executes a command interactively in a running container

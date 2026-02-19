@@ -3,8 +3,10 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 	"testing"
 
@@ -223,6 +225,140 @@ func TestApplyConstructPath(t *testing.T) {
 	if gotConstructPath != want {
 		t.Fatalf("Expected CONSTRUCT_PATH %q, got %q", want, gotConstructPath)
 	}
+}
+
+func TestExecUserForAgentExec(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *config.Config
+		runtime string
+		want    string
+	}{
+		{
+			name:    "nil config",
+			cfg:     nil,
+			runtime: "docker",
+			want:    "",
+		},
+		{
+			name: "disabled setting",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: false},
+			},
+			runtime: "docker",
+			want:    "",
+		},
+		{
+			name: "enabled setting non docker runtime",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+			},
+			runtime: "podman",
+			want:    "",
+		},
+	}
+
+	if stdruntime.GOOS == "linux" {
+		tests = append(tests, struct {
+			name    string
+			cfg     *config.Config
+			runtime string
+			want    string
+		}{
+			name: "enabled setting docker runtime linux",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+			},
+			runtime: "docker",
+			want:    fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+		})
+	} else {
+		tests = append(tests, struct {
+			name    string
+			cfg     *config.Config
+			runtime string
+			want    string
+		}{
+			name: "enabled setting docker runtime non linux",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+			},
+			runtime: "docker",
+			want:    "",
+		})
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := execUserForAgentExec(tt.cfg, tt.runtime)
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}
+
+func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
+	original := containerHasUIDEntryFn
+	t.Cleanup(func() {
+		containerHasUIDEntryFn = original
+	})
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+	}
+
+	if stdruntime.GOOS != "linux" {
+		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
+			t.Fatalf("uid lookup should not be called on non-linux hosts")
+			return false, nil
+		}
+		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "" {
+			t.Fatalf("expected empty user on non-linux, got %q", got)
+		}
+		return
+	}
+
+	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+
+	t.Run("uses host uid when passwd entry exists", func(t *testing.T) {
+		containerHasUIDEntryFn = func(containerRuntime, containerName string, uid int) (bool, error) {
+			if containerRuntime != "docker" {
+				t.Fatalf("expected docker runtime, got %s", containerRuntime)
+			}
+			if containerName != "construct-cli-daemon" {
+				t.Fatalf("expected daemon container name, got %s", containerName)
+			}
+			if uid != os.Getuid() {
+				t.Fatalf("expected uid %d, got %d", os.Getuid(), uid)
+			}
+			return true, nil
+		}
+		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
+		if got != expectedUser {
+			t.Fatalf("expected %q, got %q", expectedUser, got)
+		}
+	})
+
+	t.Run("falls back when passwd entry missing", func(t *testing.T) {
+		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
+			return false, nil
+		}
+		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
+		if got != "" {
+			t.Fatalf("expected empty fallback user, got %q", got)
+		}
+	})
+
+	t.Run("falls back when uid lookup errors", func(t *testing.T) {
+		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
+			return false, fmt.Errorf("lookup failed")
+		}
+		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
+		if got != "" {
+			t.Fatalf("expected empty fallback user on lookup error, got %q", got)
+		}
+	})
 }
 
 // TestDaemonName verifies daemon container name constant
