@@ -1,6 +1,6 @@
 # Topgrade Configuration for Construct CLI
 # This file is auto-generated - manual edits will be overwritten on next run.
-# To customize, modify your packages.toml and run 'construct sys install-packages'.
+# To customize, modify your packages.toml and run 'construct sys packages --install'.
 
 [misc]
 # Non-interactive mode: answer yes to all prompts

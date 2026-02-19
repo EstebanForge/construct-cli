@@ -35,21 +35,21 @@
 
 ## Phase 3: The `sys` Command for Live Updates
 
-- [x] Task: Implement `sys install-packages` Command
-    - Add a new subcommand `install-packages` to the `sys` package/module.
+- [x] Task: Implement `sys packages --install` Command
+    - Add a package install subcommand to the `sys packages` command group.
     - This command should:
         1. Reload the configuration to get the latest `packages.toml` content.
         2. Regenerate the `user_install.sh` script.
         3. Execute the `user_install.sh` script inside the running container (using `docker exec` or similar via the runtime manager).
 - [x] Task: Wire up `sys` Command in CLI
-    - Ensure the command is accessible via the CLI (e.g., `construct sys install-packages`).
+    - Ensure the command is accessible via the CLI (e.g., `construct sys packages --install`).
 - [ ] Task: Conductor - User Manual Verification 'The sys Command for Live Updates' (Protocol in workflow.md)
 
 ## Phase 4: Integration & Verification
 
 - [x] Task: End-to-End Test
     - Verify that adding a package to `packages.toml` and restarting works.
-    - Verify that adding a package and running `sys install-packages` works.
+    - Verify that adding a package and running `sys packages --install` works.
     - Verify error handling (invalid package names).
 - [x] Task: Documentation
     - Update `README.md` or user docs to explain how to use `packages.toml`.

@@ -619,11 +619,11 @@ type nsAlias struct {
 }
 
 func resolveBinaryPath(agentPath string) string {
+	// Keep symlink-based shim paths (for example /opt/homebrew/bin/*) instead of
+	// resolving to versioned Cellar/Caskroom locations. This keeps ns-* aliases
+	// stable across package updates.
 	resolvedPath := agentPath
-	if resolved, err := filepath.EvalSymlinks(agentPath); err == nil {
-		resolvedPath = resolved
-	}
-	if absPath, err := filepath.Abs(resolvedPath); err == nil {
+	if absPath, err := filepath.Abs(agentPath); err == nil {
 		resolvedPath = absPath
 	}
 	return resolvedPath

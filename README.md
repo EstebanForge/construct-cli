@@ -21,7 +21,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Agent Browser**: Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
 - **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages. Some utilities included by default: `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` among others. For full list of available packages, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/internal/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
-- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys install-aliases` (or `construct sys update-aliases`), and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
+- Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys aliases --install` (or `construct sys aliases --update`), and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
 - **Parallel Agents Workflows** supported: Seamless Git worktree management for parallel AI agent workflows, thanks to [Worktrunk Integration](https://worktrunk.dev/) out of the box.
 
 ## Screenshots
@@ -77,16 +77,16 @@ ct gemini --ct-network offline
 ct sys update
 
 # Apply new packages from packages.toml to a running container
-ct sys install-packages
+ct sys packages --install
 
 # Install host aliases for seamless agent access (claude, gemini, etc.)
-ct sys install-aliases
+ct sys aliases --install
 
 # Reinstall/update host aliases if they already exist
-ct sys update-aliases
+ct sys aliases --update
 
 # Remove host aliases from your shell config
-ct sys uninstall-aliases
+ct sys aliases --uninstall
 
 # Rebuild everything from scratch (cleans volumes, reinstalls)
 ct sys reset
@@ -128,7 +128,7 @@ Construct can update itself to the latest version from GitHub releases.
 
 ### Check for updates
 ```bash
-construct sys update-check
+construct sys check-update
 ```
 
 ### Update to latest version
@@ -163,7 +163,7 @@ When an update is available, you'll see a notification like:
 All this happens automatically the first time you run any `construct` command after updating. Zero manual intervention required!
 
 **Manual Migration:**
-Need to debug or force a config refresh? Use `construct sys migrate` to manually trigger the migration process.
+Need to debug or force a config refresh? Use `construct sys config --migrate` to manually trigger the migration process.
 
 ## Configuration
 Main configuration lives at `~/.config/construct-cli/config.toml`. Key sections are:
@@ -270,7 +270,7 @@ vmr = true
 
 After modifying `packages.toml`, you can apply the changes to a running container:
 ```bash
-ct sys install-packages
+ct sys packages --install
 ```
 Or simply restart the Construct.
 

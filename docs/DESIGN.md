@@ -155,12 +155,12 @@ API_TIMEOUT_MS = "3000000"
   - Homebrew: `brew update/upgrade/cleanup` (all packages).
   - Topgrade: runs if installed with generated config; falls back to manual updates.
   - npm: `npm update -g` (all globals).
-- **Update Check** (`sys update-check` / automatic):
+- **Update Check** (`sys check-update` / automatic):
   - Passively checks the published VERSION file on a configurable interval (default 24h).
-  - Actively checks when `construct sys update-check` is run.
+  - Actively checks when `construct sys check-update` is run.
   - If a new version is found, it notifies the user to run the (currently manual) update command.
 - **Reset**: `sys reset` removes persistent volumes for a clean reinstall (including legacy `construct-agents`).
-- **Migrate**: `sys migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
+- **Migrate**: `sys config --migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
 
 ---
 
@@ -181,17 +181,17 @@ make cross-compile   # all platforms
 ## 8. UX Notes
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
-- `install-aliases`: One-step command to add `claude`, `gemini`, etc., and `cc-*` aliases to host shell.
-- `update-aliases`: Reinstall/update host aliases if they already exist.
-- `uninstall-aliases`: Remove Construct alias block from host shell.
-- `sys update-check`: Manual command to check for new versions.
+- `aliases --install`: One-step command to add `claude`, `gemini`, etc., and `cc-*` aliases to host shell.
+- `aliases --update`: Reinstall/update host aliases if they already exist.
+- `aliases --uninstall`: Remove Construct alias block from host shell.
+- `sys check-update`: Manual command to check for new versions.
 - `sys self-update`: Update the Construct binary itself.
 - `sys packages`: Open `packages.toml` for customization.
-- `sys install-packages`: Regenerate/install user packages into the running container.
+- `sys packages --install`: Regenerate/install user packages into the running container.
 - `sys agents-md`: Manage global instruction files (rules) per agent.
-- `sys migrate`: Refresh templates/config to match the running binary.
+- `sys config --migrate`: Refresh templates/config to match the running binary.
 - `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
-- `sys restore-config`: Restore config from backup.
+- `sys config --restore`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
 - `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
 - `sys daemon install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).

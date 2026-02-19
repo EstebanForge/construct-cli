@@ -228,8 +228,8 @@ else
     print_fail "Config file permissions incorrect"
 fi
 
-# Test: install-aliases command
-print_test "install-aliases command"
+# Test: aliases --install command
+print_test "aliases --install command"
 # Fake a shell rc file
 export SHELL="/bin/bash"
 # Ensure HOME is set to TEST_DIR for this specific test
@@ -237,38 +237,38 @@ export HOME="${TEST_DIR}"
 TOUCH_RC="${TEST_DIR}/.bashrc"
 touch "${TOUCH_RC}"
 # Capture output and exit code for debugging
-INSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys install-aliases 2>&1)
+INSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys aliases --install 2>&1)
 INSTALL_EXIT=$?
 if [ "${INSTALL_EXIT}" -ne 0 ]; then
-    print_fail "install-aliases command failed with exit code ${INSTALL_EXIT}"
+    print_fail "aliases --install command failed with exit code ${INSTALL_EXIT}"
     echo "Output: ${INSTALL_OUTPUT}"
 elif grep -q "# construct-cli aliases start" "${TOUCH_RC}" && \
      grep -q "alias claude=" "${TOUCH_RC}" && \
      grep -q "cc-zai" "${TOUCH_RC}" && \
      grep -q "# construct-cli aliases end" "${TOUCH_RC}"; then
-    print_pass "install-aliases command works and creates correct block"
+    print_pass "aliases --install command works and creates correct block"
 else
-    print_fail "install-aliases command failed to create correct block in ${TOUCH_RC}"
+    print_fail "aliases --install command failed to create correct block in ${TOUCH_RC}"
     echo "Exit code: ${INSTALL_EXIT}"
     echo "File content:"
     cat "${TOUCH_RC}" || echo "(file empty or missing)"
     echo "---"
 fi
 
-# Test: uninstall-aliases command
-print_test "uninstall-aliases command"
-UNINSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys uninstall-aliases 2>&1)
+# Test: aliases --uninstall command
+print_test "aliases --uninstall command"
+UNINSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys aliases --uninstall 2>&1)
 UNINSTALL_EXIT=$?
 if [ "${UNINSTALL_EXIT}" -ne 0 ]; then
-    print_fail "uninstall-aliases command failed with exit code ${UNINSTALL_EXIT}"
+    print_fail "aliases --uninstall command failed with exit code ${UNINSTALL_EXIT}"
     echo "Output: ${UNINSTALL_OUTPUT}"
 elif ! grep -q "# construct-cli aliases start" "${TOUCH_RC}" && \
      ! grep -q "alias claude=" "${TOUCH_RC}" && \
      ! grep -q "cc-zai" "${TOUCH_RC}" && \
      ! grep -q "# construct-cli aliases end" "${TOUCH_RC}"; then
-    print_pass "uninstall-aliases command removes alias block"
+    print_pass "aliases --uninstall command removes alias block"
 else
-    print_fail "uninstall-aliases command failed to remove alias block in ${TOUCH_RC}"
+    print_fail "aliases --uninstall command failed to remove alias block in ${TOUCH_RC}"
     echo "Exit code: ${UNINSTALL_EXIT}"
     echo "File content:"
     cat "${TOUCH_RC}" || echo "(file empty or missing)"

@@ -193,25 +193,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		}
 		runtime.BuildImage(cfg)
 	case "update":
-		if cfg == nil {
-			var err error
-			cfg, _, err = config.Load()
-			if err != nil {
-				ui.LogError(err)
-				os.Exit(1)
-			}
-		}
-		sys.UpdateAgents(cfg)
-	case "install-packages":
-		if cfg == nil {
-			var err error
-			cfg, _, err = config.Load()
-			if err != nil {
-				ui.LogError(err)
-				os.Exit(1)
-			}
-		}
-		sys.InstallPackages(cfg)
+		runUpdate(cfg)
 	case "reset":
 		if cfg == nil {
 			var err error
@@ -225,20 +207,16 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "shell":
 		// Shell is just running with empty args (entrypoint defaults to shell)
 		agent.RunWithArgs([]string{}, "")
-	case "install-aliases":
-		sys.InstallAliases()
-	case "update-aliases":
-		sys.InstallAliases()
-	case "uninstall-aliases":
-		sys.UninstallAliases()
+	case "aliases":
+		handleAliasesCommand(args[1:])
 	case "version":
 		ui.PrintVersion()
 	case "help":
 		ui.PrintHelp()
 	case "config":
-		sys.OpenConfig()
+		handleConfigCommand(args[1:])
 	case "packages":
-		sys.OpenPackages()
+		handlePackagesCommand(args[1:], cfg)
 	case "agents":
 		agent.List()
 	case "agents-md":
@@ -265,7 +243,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
 			os.Exit(1)
 		}
-	case "update-check":
+	case "check-update":
 		latest, available, err := update.CheckForUpdates()
 		if err != nil {
 			ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
@@ -286,17 +264,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 		update.RecordUpdateCheck()
-	case "migrate":
-		// Force refresh configuration and templates from binary
-		if err := migration.ForceRefresh(); err != nil {
-			ui.GumError(fmt.Sprintf("Migration failed: %v", err))
-			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
-			os.Exit(1)
-		}
 	case "ssh-import":
 		sys.SSHImport()
-	case "restore-config":
-		sys.RestoreConfig()
 	case "login-bridge":
 		sys.LoginBridge(args[1:])
 	case "set-password":
@@ -320,6 +289,175 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		fmt.Println("Run 'construct sys' for a list of available commands.")
 		os.Exit(1)
 	}
+}
+
+func handleAliasesCommand(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: construct sys aliases --install|--update|--uninstall\n")
+		os.Exit(1)
+	}
+
+	var install bool
+	var updateFlag bool
+	var uninstall bool
+
+	for _, arg := range args {
+		switch arg {
+		case "--install":
+			install = true
+		case "--update":
+			updateFlag = true
+		case "--uninstall":
+			uninstall = true
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown aliases flag: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Usage: construct sys aliases --install|--update|--uninstall\n")
+			os.Exit(1)
+		}
+	}
+
+	selected := 0
+	if install {
+		selected++
+	}
+	if updateFlag {
+		selected++
+	}
+	if uninstall {
+		selected++
+	}
+
+	if selected != 1 {
+		fmt.Fprintf(os.Stderr, "Specify exactly one of: --install, --update, or --uninstall\n")
+		os.Exit(1)
+	}
+
+	if uninstall {
+		sys.UninstallAliases()
+		return
+	}
+
+	// --install and --update share the same implementation by design.
+	sys.InstallAliases()
+}
+
+func handlePackagesCommand(args []string, cfg *config.Config) {
+	// Default behavior remains "open packages.toml".
+	if len(args) == 0 {
+		sys.OpenPackages()
+		return
+	}
+
+	var install bool
+	var updateFlag bool
+	var reinstall bool
+
+	for _, arg := range args {
+		switch arg {
+		case "--install":
+			install = true
+		case "--update":
+			updateFlag = true
+		case "--reinstall":
+			reinstall = true
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown packages flag: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Usage: construct sys packages [--install|--update|--reinstall]\n")
+			os.Exit(1)
+		}
+	}
+
+	selected := 0
+	if install {
+		selected++
+	}
+	if updateFlag {
+		selected++
+	}
+	if reinstall {
+		selected++
+	}
+
+	if selected != 1 {
+		fmt.Fprintf(os.Stderr, "Specify exactly one of: --install, --update, or --reinstall\n")
+		os.Exit(1)
+	}
+
+	if updateFlag {
+		// Thin wrapper to the canonical global update command.
+		runUpdate(cfg)
+		return
+	}
+
+	cfg = ensureConfigLoaded(cfg)
+	if reinstall {
+		sys.ReinstallPackages(cfg)
+		return
+	}
+	sys.InstallPackages(cfg)
+}
+
+func handleConfigCommand(args []string) {
+	if len(args) == 0 {
+		sys.OpenConfig()
+		return
+	}
+
+	var migrateFlag bool
+	var restoreFlag bool
+	for _, arg := range args {
+		switch arg {
+		case "--migrate":
+			migrateFlag = true
+		case "--restore":
+			restoreFlag = true
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown config flag: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Usage: construct sys config [--migrate|--restore]\n")
+			os.Exit(1)
+		}
+	}
+
+	selected := 0
+	if migrateFlag {
+		selected++
+	}
+	if restoreFlag {
+		selected++
+	}
+	if selected != 1 {
+		fmt.Fprintf(os.Stderr, "Specify exactly one of: --migrate or --restore\n")
+		os.Exit(1)
+	}
+
+	if restoreFlag {
+		sys.RestoreConfig()
+		return
+	}
+
+	// Force refresh configuration and templates from binary.
+	if err := migration.ForceRefresh(); err != nil {
+		ui.GumError(fmt.Sprintf("Migration failed: %v", err))
+		fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
+		os.Exit(1)
+	}
+}
+
+func runUpdate(cfg *config.Config) {
+	cfg = ensureConfigLoaded(cfg)
+	sys.UpdateAgents(cfg)
+}
+
+func ensureConfigLoaded(cfg *config.Config) *config.Config {
+	if cfg != nil {
+		return cfg
+	}
+	loadedCfg, _, err := config.Load()
+	if err != nil {
+		ui.LogError(err)
+		os.Exit(1)
+	}
+	return loadedCfg
 }
 
 func handleNetworkCommand(args []string) {

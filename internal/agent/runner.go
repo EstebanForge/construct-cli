@@ -1082,7 +1082,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	if err == nil && len(execArgs) > 0 && (exitCode == 126 || exitCode == 127) {
 		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", execArgs[0])
 		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
-		fmt.Println("If needed, run 'construct sys install-packages' to reapply packages.toml.")
+		fmt.Println("If needed, run 'construct sys packages --install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
 }

@@ -46,7 +46,7 @@ Currently, the Construct environment has a hardcoded list of packages in `entryp
     - `entrypoint.sh` must be updated to process these lists and perform the installations during the setup/update phase.
     - Homebrew taps must be tapped before attempting to install packages from them.
 - **On-Demand Installation (Sys Command)**:
-    - A new command `install-packages` (or similar) will be added to the `sys` module (e.g., exposed as `/construct:sys install-packages` or similar internal command).
+    - A new command `sys packages --install` (or similar) will be added to the `sys` module.
     - This command will trigger the installation logic for the packages defined in `packages.toml` within the running container.
     - It ensures that adding a package doesn't require a full container restart.
 - **Persistence**: Since the Construct environment is designed to be reproducible, these packages should be re-installed whenever the setup script runs (e.g., after an update or on first boot).

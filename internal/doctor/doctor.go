@@ -342,7 +342,7 @@ func Run(args ...string) {
 		if missing {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config directories missing"
-			permCheck.Suggestion = "Run 'construct sys init' or 'construct sys migrate'"
+			permCheck.Suggestion = "Run 'construct sys init' or 'construct sys config --migrate'"
 		} else if notWritable {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config directories not writable"
@@ -405,7 +405,7 @@ func Run(args ...string) {
 	} else {
 		templatesCheck.Status = CheckStatusWarning
 		templatesCheck.Message = "Templates directory missing or empty"
-		templatesCheck.Suggestion = "Run 'construct sys migrate' to refresh templates"
+		templatesCheck.Suggestion = "Run 'construct sys config --migrate' to refresh templates"
 	}
 	checks = append(checks, templatesCheck)
 
