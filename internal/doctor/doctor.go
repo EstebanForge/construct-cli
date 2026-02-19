@@ -112,7 +112,54 @@ func Run(args ...string) {
 	hostCheck.Details = details
 	checks = append(checks, hostCheck)
 
-	// 2. CT Symlink Check
+	// Load config once (used across checks)
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.LogWarning("Failed to load config: %v", err)
+	}
+
+	// 2. Environment Check
+	envCheck := CheckResult{Name: "Environment"}
+	hostUID := hostID("-u")
+	hostGID := hostID("-g")
+	overridePath := filepath.Join(config.GetContainerDir(), "docker-compose.override.yml")
+	mapping, err := composeUserMapping(overridePath)
+	if hostUID == "" || hostGID == "" {
+		envCheck.Status = CheckStatusSkipped
+		envCheck.Message = "Host UID/GID unavailable"
+	} else {
+		envCheck.Status = CheckStatusOK
+		envCheck.Message = "Host UID/GID detected"
+		envCheck.Details = append(envCheck.Details, fmt.Sprintf("Host UID:GID: %s:%s", hostUID, hostGID))
+	}
+	if err != nil {
+		envCheck.Status = CheckStatusWarning
+		envCheck.Message = "Failed to read compose user mapping"
+		envCheck.Details = append(envCheck.Details, err.Error())
+	} else if mapping != "" {
+		envCheck.Details = append(envCheck.Details, fmt.Sprintf("Container user mapping: %s", mapping))
+		if cfg != nil && !cfg.Sandbox.NonRootStrict {
+			envCheck.Status = CheckStatusWarning
+			envCheck.Message = "Manual container user mapping detected"
+			envCheck.Suggestion = "Remove 'user:' from docker-compose.override.yml for Docker, or set [sandbox].non_root_strict = true if strict non-root is required"
+		}
+	} else {
+		envCheck.Details = append(envCheck.Details, "Container user mapping: not set")
+	}
+	if cfg != nil && cfg.Sandbox.NonRootStrict {
+		envCheck.Details = append(envCheck.Details, "non_root_strict: enabled")
+		envCheck.Details = append(envCheck.Details, "Limitation: root bootstrap permission fixes are disabled; brew/npm setup may fail")
+	} else {
+		envCheck.Details = append(envCheck.Details, "non_root_strict: disabled")
+	}
+	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
+		envCheck.Details = append(envCheck.Details, "exec_as_host_user: enabled")
+	} else {
+		envCheck.Details = append(envCheck.Details, "exec_as_host_user: disabled")
+	}
+	checks = append(checks, envCheck)
+
+	// 3. CT Symlink Check
 	ctCheck := CheckResult{Name: "CT Symlink"}
 	changed, msg, err := sys.FixCtSymlink()
 	if err != nil {
@@ -129,12 +176,8 @@ func Run(args ...string) {
 	}
 	checks = append(checks, ctCheck)
 
-	// 3. Runtime Check
+	// 4. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
-	cfg, _, err := config.Load() // Ignore error here, we check config file later
-	if err != nil {
-		ui.LogWarning("Failed to load config: %v", err)
-	}
 	// If config load failed, we might use default engine "auto"
 	engine := "auto"
 	if cfg != nil {
@@ -166,9 +209,56 @@ func Run(args ...string) {
 		runtimeCheck.Message = "No compatible runtime found"
 		runtimeCheck.Suggestion = "Install Docker Desktop, Podman, or OrbStack"
 	}
+	if runtimeName == "docker" {
+		if cfg != nil && cfg.Sandbox.NonRootStrict {
+			runtimeCheck.Details = append(runtimeCheck.Details, "Docker mode: strict non-root enabled")
+			runtimeCheck.Details = append(runtimeCheck.Details, "Recommendation: use runtime.engine='podman' for strict rootless workflows")
+		} else {
+			runtimeCheck.Details = append(runtimeCheck.Details, "Docker mode: root bootstrap for setup, then drop to non-root via gosu")
+		}
+	}
 	checks = append(checks, runtimeCheck)
 
-	// 4. Config Check
+	// 5. Daemon Mode Check
+	daemonCheck := CheckResult{Name: "Daemon Mode"}
+	if cfg == nil || runtimeName == "" {
+		daemonCheck.Status = CheckStatusSkipped
+		daemonCheck.Message = "Unavailable (config/runtime missing)"
+	} else {
+		daemonCheck.Details = append(daemonCheck.Details, fmt.Sprintf("Auto-start: %t", cfg.Daemon.AutoStart))
+		daemonCheck.Details = append(daemonCheck.Details, fmt.Sprintf("Multi-path mounts: %t", cfg.Daemon.MultiPathsEnabled))
+
+		daemonState := runtimepkg.GetContainerState(runtimeName, "construct-cli-daemon")
+		switch daemonState {
+		case runtimepkg.ContainerStateRunning:
+			daemonCheck.Status = CheckStatusOK
+			daemonCheck.Message = "Daemon is running"
+		case runtimepkg.ContainerStateExited:
+			daemonCheck.Status = CheckStatusWarning
+			daemonCheck.Message = "Daemon container exists but is stopped"
+			daemonCheck.Suggestion = "Run 'construct sys daemon start' to enable fast daemon execution"
+		default:
+			daemonCheck.Status = CheckStatusSkipped
+			daemonCheck.Message = "Daemon is not running"
+		}
+
+		if cfg.Daemon.MultiPathsEnabled {
+			mounts := runtimepkg.ResolveDaemonMounts(cfg)
+			if len(mounts.Paths) == 0 {
+				daemonCheck.Details = append(daemonCheck.Details, "Configured mount paths: none")
+			} else {
+				for _, path := range mounts.Paths {
+					daemonCheck.Details = append(daemonCheck.Details, fmt.Sprintf("Configured mount path: %s", path))
+				}
+			}
+			for _, warning := range mounts.Warnings {
+				daemonCheck.Details = append(daemonCheck.Details, fmt.Sprintf("Mount warning: %s", warning))
+			}
+		}
+	}
+	checks = append(checks, daemonCheck)
+
+	// 6. Config Check
 	configCheck := CheckResult{Name: "Configuration"}
 	configPath := filepath.Join(config.GetConfigDir(), "config.toml")
 	if _, err := os.Stat(configPath); err == nil {
@@ -223,7 +313,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, missingCheck)
 
-	// 4.5 Config Permissions Check (Linux/WSL)
+	// 6.5 Config Permissions Check (Linux/WSL)
 	if runtime.GOOS == "linux" {
 		permCheck := CheckResult{Name: "Config Permissions"}
 		configDir := config.GetConfigDir()
@@ -264,7 +354,7 @@ func Run(args ...string) {
 		checks = append(checks, permCheck)
 	}
 
-	// 5. Setup Log Check
+	// 7. Setup Log Check
 	setupCheck := CheckResult{Name: "Setup Log"}
 	logDir := filepath.Join(config.GetConfigDir(), "logs")
 	logPath, err := latestLogFile(logDir, "setup_install_*.log")
@@ -292,7 +382,20 @@ func Run(args ...string) {
 	}
 	checks = append(checks, setupCheck)
 
-	// 6. Templates Check
+	// 8. Update Log Check
+	updateCheck := CheckResult{Name: "Update Log"}
+	updateLogPath, err := latestLogFile(logDir, "update_*.log")
+	if err != nil || updateLogPath == "" {
+		updateCheck.Status = CheckStatusSkipped
+		updateCheck.Message = "No update log found"
+	} else {
+		updateCheck.Status = CheckStatusOK
+		updateCheck.Message = "Latest update log found"
+		updateCheck.Details = append(updateCheck.Details, fmt.Sprintf("Last log: %s", updateLogPath))
+	}
+	checks = append(checks, updateCheck)
+
+	// 9. Templates Check
 	templatesCheck := CheckResult{Name: "Templates Sync"}
 	templatesDir := config.GetContainerDir()
 	if entries, err := os.ReadDir(templatesDir); err == nil && len(entries) > 0 {
@@ -306,7 +409,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, templatesCheck)
 
-	// 7. Packages Config Check
+	// 10. Packages Config Check
 	packagesCheck := CheckResult{Name: "Packages Config"}
 	if _, err := config.LoadPackages(); err != nil {
 		packagesCheck.Status = CheckStatusError
@@ -319,7 +422,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, packagesCheck)
 
-	// 8. Entrypoint State Check
+	// 11. Entrypoint State Check
 	entrypointCheck := CheckResult{Name: "Entrypoint State"}
 	homeLocal := filepath.Join(config.GetConfigDir(), "home", ".local")
 	hashPath := filepath.Join(homeLocal, ".entrypoint_hash")
@@ -338,7 +441,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, entrypointCheck)
 
-	// 9. Image Check
+	// 12. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
@@ -352,7 +455,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, imageCheck)
 
-	// 10. SSH Agent Check
+	// 13. SSH Agent Check
 	sshCheck := CheckResult{Name: "SSH Agent"}
 	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
 		sshCheck.Status = CheckStatusSkipped
@@ -372,7 +475,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, sshCheck)
 
-	// 11. SSH Keys Check (Imported)
+	// 14. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Construct SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
 	nonKeyFiles := map[string]bool{
@@ -405,7 +508,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, keysCheck)
 
-	// 12. Clipboard Bridge Check
+	// 15. Clipboard Bridge Check
 	clipboardCheck := CheckResult{Name: "Clipboard Bridge"}
 	clipboardHost := ""
 	networkMode := ""
@@ -496,6 +599,33 @@ func latestLogFile(logDir, pattern string) (string, error) {
 	})
 
 	return matches[0], nil
+}
+
+func hostID(flag string) string {
+	output, err := exec.Command("id", flag).Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func composeUserMapping(overridePath string) (string, error) {
+	data, err := os.ReadFile(overridePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("failed to read %s: %w", overridePath, err)
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "user:") {
+			value := strings.TrimSpace(strings.TrimPrefix(trimmed, "user:"))
+			value = strings.Trim(value, "\"'")
+			return value, nil
+		}
+	}
+	return "", nil
 }
 
 func printCheckResult(check CheckResult) {

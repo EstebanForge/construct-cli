@@ -30,6 +30,8 @@ const loginForwardListenOffset = 10000
 const loginBridgeFlagFile = ".login_bridge"
 const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
 
+var containerHasUIDEntryFn = runtime.ContainerHasUIDEntry
+
 // RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
 	cfg, _, err := config.Load()
@@ -404,7 +406,14 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			case strings.HasPrefix(selected, "Attach"):
 				// Execute in existing container
 				cmdArgs := args
-				result, err := runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
+				execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
+				var result string
+				var err error
+				if execUser != "" {
+					result, err = runtime.ExecInContainerWithEnv(containerRuntime, containerName, cmdArgs, nil, execUser)
+				} else {
+					result, err = runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
+				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
@@ -439,7 +448,14 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			switch basicChoice {
 			case "1":
 				cmdArgs := args
-				result, err := runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
+				execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
+				var result string
+				var err error
+				if execUser != "" {
+					result, err = runtime.ExecInContainerWithEnv(containerRuntime, containerName, cmdArgs, nil, execUser)
+				} else {
+					result, err = runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
+				}
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
@@ -733,6 +749,40 @@ func applyConstructPath(envVars *[]string) {
 	env.SetEnvVar(envVars, "CONSTRUCT_PATH", constructPath)
 }
 
+func execUserForAgentExec(cfg *config.Config, containerRuntime string) string {
+	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
+		return ""
+	}
+	if stdruntime.GOOS != "linux" || containerRuntime != "docker" {
+		return ""
+	}
+	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
+func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, containerName string) string {
+	execUser := execUserForAgentExec(cfg, containerRuntime)
+	if execUser == "" {
+		return ""
+	}
+
+	hasUIDEntry, err := containerHasUIDEntryFn(containerRuntime, containerName, os.Getuid())
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to verify host UID mapping in container: %v\n", err)
+			fmt.Println("Warning: Falling back to container default user for this run.")
+		}
+		return ""
+	}
+	if !hasUIDEntry {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Host UID %d is not present in container /etc/passwd.\n", os.Getuid())
+			fmt.Println("Warning: Falling back to container default user for this run.")
+		}
+		return ""
+	}
+	return execUser
+}
+
 func shouldEnableYolo(agent string, cfg *config.Config) bool {
 	if cfg.Agents.YoloAll {
 		return true
@@ -997,7 +1047,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		envVars = append(envVars, "COLORTERM=truecolor")
 	}
 
-	execUser := ""
+	execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, daemonName)
 	if stdruntime.GOOS == "darwin" {
 		execUser = "construct"
 	}
@@ -1029,6 +1079,11 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 
 	// Execute interactively in daemon container
 	exitCode, err := runtime.ExecInteractiveAsUser(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
+	if err == nil && len(execArgs) > 0 && (exitCode == 126 || exitCode == 127) {
+		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", execArgs[0])
+		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
+		fmt.Println("If needed, run 'construct sys install-packages' to reapply packages.toml.")
+	}
 	return true, exitCode, err
 }
 

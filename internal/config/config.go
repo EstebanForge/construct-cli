@@ -39,6 +39,8 @@ type SandboxConfig struct {
 	MountHome            bool   `toml:"mount_home"`
 	ForwardSSHAgent      bool   `toml:"forward_ssh_agent"`
 	PropagateGitIdentity bool   `toml:"propagate_git_identity"`
+	NonRootStrict        bool   `toml:"non_root_strict"`
+	ExecAsHostUser       bool   `toml:"exec_as_host_user"`
 	Shell                string `toml:"shell"`
 	ClipboardHost        string `toml:"clipboard_host"`
 	SelinuxLabels        string `toml:"selinux_labels"`
@@ -91,6 +93,8 @@ func DefaultConfig() Config {
 			MountHome:            false,
 			ForwardSSHAgent:      true,
 			PropagateGitIdentity: true,
+			NonRootStrict:        false,
+			ExecAsHostUser:       true,
 			Shell:                "/bin/bash",
 			ClipboardHost:        "host.docker.internal",
 			SelinuxLabels:        "auto",

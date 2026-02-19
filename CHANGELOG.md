@@ -2,6 +2,28 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.3.0] - 2026-02-19
+
+### Added
+- **Issue Template Diagnostics**: Added GitHub bug report template fields requiring `construct sys doctor` output and setup/update logs.
+- **Doctor Environment Visibility**: `construct sys doctor` now reports host UID/GID, container user mapping, daemon mode details, daemon mount paths, and latest update log path.
+- **Setup/Update Diagnostics**: Added richer setup and update diagnostics (UID/GID, PATH, brew/npm/topgrade presence, Homebrew writability checks) plus post-run agent command verification summaries.
+- **`exec_as_host_user` Mode**: Added `[sandbox].exec_as_host_user` (default `true`) to run Linux Docker exec sessions as host UID:GID for better host file ownership.
+
+### Changed
+- **Docker Linux User Mapping Strategy**: Docker overrides no longer force `user:` by default on Linux; root-bootstrap remains default and user mapping is now podman-only unless strict mode is explicitly enabled.
+- **Strict Non-Root Mode Documentation**: Added explicit warnings and limitations for `[sandbox].non_root_strict` in config template, doctor output, and README.
+- **NPM Global Prefix Flow**: Setup/update now configure npm global prefix earlier to reduce EACCES failures.
+
+### Fixed
+- **Agent Installation Continuation**: Hardened package install script generation so Homebrew failures do not abort later NPM agent installs.
+- **Manual `user:` Override Recovery (Docker/Linux)**: Detects unsafe manual `user:` mappings in `docker-compose.override.yml`, warns users, and regenerates override safely (except when `non_root_strict=true`).
+- **Entrypoint Shell Setup Noise**: Ensured `.bashrc` is created before alias-source checks to avoid missing-file warnings.
+- **Daemon Exec UX**: Added targeted hinting when daemon exec exits with command-not-found.
+- **Exec User Fallback Safety**: When `exec_as_host_user=true`, Construct now verifies host UID exists in container `/etc/passwd`; if not, it warns and falls back to the container default user.
+
+---
+
 ## [1.2.10] - 2026-02-06
 
 ### Changed

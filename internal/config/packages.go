@@ -122,6 +122,36 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "    SUDO_AVAILABLE=0\n"
 	script += "fi\n\n"
 
+	// Diagnostics (helps troubleshoot UID/GID, PATH and package manager issues)
+	script += "echo '=== Construct setup diagnostics ==='\n"
+	script += "echo \"Timestamp (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)\"\n"
+	script += "echo \"User IDs: uid=$(id -u) gid=$(id -g)\"\n"
+	script += "echo \"User names: user=$(id -un 2>/dev/null || echo unknown) group=$(id -gn 2>/dev/null || echo unknown)\"\n"
+	script += "echo \"HOME: $HOME\"\n"
+	script += "echo \"SHELL: ${SHELL:-unknown}\"\n"
+	script += "echo \"PATH: $PATH\"\n"
+	script += "if [ -d /home/linuxbrew/.linuxbrew ]; then\n"
+	script += "    if [ -w /home/linuxbrew/.linuxbrew ]; then\n"
+	script += "        echo \"Homebrew dir writable: /home/linuxbrew/.linuxbrew\"\n"
+	script += "    else\n"
+	script += "        echo \"⚠️ Homebrew dir not writable by current user: /home/linuxbrew/.linuxbrew\"\n"
+	script += "        ls -ld /home/linuxbrew/.linuxbrew 2>/dev/null || true\n"
+	script += "    fi\n"
+	script += "fi\n"
+	script += "if command -v brew &> /dev/null; then\n"
+	script += "    echo \"brew: $(command -v brew)\"\n"
+	script += "    brew --version | head -1 || true\n"
+	script += "else\n"
+	script += "    echo \"brew: not found\"\n"
+	script += "fi\n"
+	script += "if command -v npm &> /dev/null; then\n"
+	script += "    echo \"npm: $(command -v npm)\"\n"
+	script += "    npm --version || true\n"
+	script += "else\n"
+	script += "    echo \"npm: not found\"\n"
+	script += "fi\n"
+	script += "echo '=================================='\n\n"
+
 	// Critical Packages (Safety check - ensure Dockerfile packages are present)
 	script += "# Critical Packages (only if sudo available)\n"
 	script += "if [ \"$SUDO_AVAILABLE\" = \"1\" ]; then\n"
@@ -142,6 +172,17 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "    eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"\n"
 	script += "fi\n\n"
 
+	// Configure npm before global installs to avoid EACCES on /usr/local with non-root UIDs
+	script += "echo 'Configuring npm global prefix...'\n"
+	script += "if command -v npm &> /dev/null; then\n"
+	script += "    mkdir -p \"$HOME/.npm-global\"\n"
+	script += "    npm config set prefix \"$HOME/.npm-global\" || echo \"⚠️ Failed to set npm prefix\"\n"
+	script += "    export PATH=\"$HOME/.npm-global/bin:$PATH\"\n"
+	script += "    echo \"npm global prefix: $(npm config get prefix 2>/dev/null || echo unknown)\"\n"
+	script += "else\n"
+	script += "    echo \"⚠️ npm not found; skipping npm prefix configuration\"\n"
+	script += "fi\n\n"
+
 	// Standard Tools (Always installed)
 	script += "echo 'Installing Claude Code...'\n"
 	script += "if [ -x \"/home/construct/.local/bin/claude\" ]; then\n"
@@ -158,15 +199,25 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "fi\n\n"
 
 	script += "echo 'Installing imagemagick (required for clipboard)...'\n"
-	script += "brew install imagemagick\n\n"
+	script += "if command -v brew &> /dev/null; then\n"
+	script += "    brew install imagemagick || echo \"⚠️ Failed to install imagemagick\"\n"
+	script += "else\n"
+	script += "    echo \"⚠️ Homebrew not found; skipping imagemagick\"\n"
+	script += "fi\n\n"
 
 	script += "echo 'Installing topgrade (system updater)...'\n"
-	script += "brew install topgrade\n\n"
+	script += "if command -v brew &> /dev/null; then\n"
+	script += "    brew install topgrade || echo \"⚠️ Failed to install topgrade\"\n"
+	script += "else\n"
+	script += "    echo \"⚠️ Homebrew not found; skipping topgrade\"\n"
+	script += "fi\n\n"
 
 	script += "echo 'Installing cargo-update (enables cargo package updates)...'\n"
 	script += "if command -v cargo &> /dev/null; then\n"
 	script += "    # Install libgit2 via Homebrew first (dependency for cargo-update)\n"
-	script += "    brew install libgit2\n"
+	script += "    if command -v brew &> /dev/null; then\n"
+	script += "        brew install libgit2 || echo \"Warning: libgit2 installation failed\"\n"
+	script += "    fi\n"
 	script += "    cargo install cargo-update 2>/dev/null || echo \"Warning: cargo-update installation failed, cargo package updates disabled\"\n"
 	script += "fi\n\n"
 
@@ -198,7 +249,11 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	if c.Tools.Asdf {
 		script += "echo 'Installing asdf via Homebrew...'\n"
-		script += "brew install asdf\n\n"
+		script += "if command -v brew &> /dev/null; then\n"
+		script += "    brew install asdf || echo \"⚠️ Failed to install asdf\"\n"
+		script += "else\n"
+		script += "    echo \"⚠️ Homebrew not found; skipping asdf\"\n"
+		script += "fi\n\n"
 	}
 
 	if c.Tools.Mise {
@@ -233,17 +288,23 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	// Brew
 	if len(c.Brew.Taps) > 0 || len(c.Brew.Packages) > 0 {
 		script += "echo 'Installing Homebrew packages...'\n"
+		script += "if command -v brew &> /dev/null; then\n"
 		for _, tap := range c.Brew.Taps {
-			script += "brew tap " + tap + "\n"
+			script += "    if ! brew tap " + tap + "; then\n"
+			script += "        echo \"⚠️ Failed to tap " + tap + "\"\n"
+			script += "    fi\n"
 		}
 		if len(c.Brew.Packages) > 0 {
 			for _, pkg := range c.Brew.Packages {
 				// Use --formula to avoid disambiguation errors with tap-qualified names
-				script += "if ! brew install --formula " + pkg + "; then\n"
-				script += "    echo \"⚠️ Failed to install " + pkg + "\"\n"
-				script += "fi\n"
+				script += "    if ! brew install --formula " + pkg + "; then\n"
+				script += "        echo \"⚠️ Failed to install " + pkg + "\"\n"
+				script += "    fi\n"
 			}
 		}
+		script += "else\n"
+		script += "    echo \"⚠️ Homebrew not found; skipping Homebrew packages\"\n"
+		script += "fi\n"
 		script += "\n"
 	}
 
@@ -253,7 +314,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "# Ensure cargo is in PATH\n"
 		script += "if command -v cargo &> /dev/null; then\n"
 		for _, pkg := range c.Cargo.Packages {
-			script += "    cargo install " + pkg + "\n"
+			script += "    cargo install " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
 		}
 		script += "else\n"
 		script += "    echo \"⚠️ Cargo not found; skipping Rust packages\"\n"
@@ -263,9 +324,8 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	// NPM
 	if len(c.Npm.Packages) > 0 {
 		script += "echo 'Installing NPM packages...'\n"
-		script += "npm install -g "
 		for _, pkg := range c.Npm.Packages {
-			script += pkg + " "
+			script += "npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
 		}
 		script += "\n\n"
 	}
@@ -298,7 +358,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "# Ensure gem is in PATH\n"
 		script += "if command -v gem &> /dev/null; then\n"
 		for _, pkg := range c.Gems.Packages {
-			script += "    gem install " + pkg + "\n"
+			script += "    gem install " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
 		}
 		script += "else\n"
 		script += "    echo \"⚠️ Gem not found; skipping Ruby packages\"\n"
@@ -314,6 +374,22 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		}
 		script += "\n"
 	}
+
+	script += "echo 'Post-install command verification...'\n"
+	script += "missing_cmds=\"\"\n"
+	script += "for cmd in claude amp copilot opencode qwen cline codex goose gemini kilocode pi; do\n"
+	script += "    if command -v \"$cmd\" &> /dev/null; then\n"
+	script += "        cmd_path=$(command -v \"$cmd\")\n"
+	script += "        echo \"  ✓ $cmd -> $cmd_path\"\n"
+	script += "    else\n"
+	script += "        echo \"  - $cmd not found in PATH\"\n"
+	script += "        missing_cmds=\"$missing_cmds $cmd\"\n"
+	script += "    fi\n"
+	script += "done\n\n"
+	script += "if [ -n \"$missing_cmds\" ]; then\n"
+	script += "    echo \"⚠️ Missing commands after setup:$missing_cmds\"\n"
+	script += "    echo \"   If these agents are expected, re-run: construct sys install-packages\"\n"
+	script += "fi\n\n"
 
 	script += "echo 'User package installation completed successfully.'\n"
 	return script

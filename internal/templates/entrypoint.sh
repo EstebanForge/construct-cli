@@ -272,7 +272,7 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     elif [ -f "$PATCH_SCRIPT" ]; then
         bash "$PATCH_SCRIPT" || echo "⚠️ Agent patching encountered errors"
     else
-        echo "⚠️  Agent patch script not found; skipping patching"
+        echo "⚠️  Agent patch script not found at $PATCH_SCRIPT; skipping patching"
     fi
 
     # Update hash file
@@ -308,7 +308,10 @@ alias ....='cd ../../../..'
 # --- Construct Provider Aliases ---
 EOF
 
-    # 2. Ensure .bashrc sources .bash_aliases
+    # 2. Ensure .bashrc exists and sources .bash_aliases
+    if [ ! -f "$HOME/.bashrc" ]; then
+        touch "$HOME/.bashrc" 2>/dev/null || true
+    fi
     if ! grep -q "test -f ~/.bash_aliases && . ~/.bash_aliases" "$HOME/.bashrc"; then
         {
             echo ""

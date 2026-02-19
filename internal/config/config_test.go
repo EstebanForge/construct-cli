@@ -18,6 +18,8 @@ auto_update_check = true
 
 [sandbox]
 mount_home = false
+non_root_strict = true
+exec_as_host_user = true
 shell = "/bin/bash"
 clipboard_host = "host.orbstack.internal"
 
@@ -55,6 +57,12 @@ clipboard_image_patch = false
 	}
 	if config.Sandbox.Shell != "/bin/bash" {
 		t.Errorf("Expected shell '/bin/bash', got '%s'", config.Sandbox.Shell)
+	}
+	if !config.Sandbox.NonRootStrict {
+		t.Error("Expected non_root_strict to be true")
+	}
+	if !config.Sandbox.ExecAsHostUser {
+		t.Error("Expected exec_as_host_user to be true")
 	}
 
 	// Test network
@@ -115,9 +123,11 @@ func TestConfigStructure(t *testing.T) {
 			AutoUpdateCheck: false,
 		},
 		Sandbox: SandboxConfig{
-			MountHome:     false,
-			Shell:         "/bin/bash",
-			ClipboardHost: "host.docker.internal",
+			MountHome:      false,
+			NonRootStrict:  false,
+			ExecAsHostUser: false,
+			Shell:          "/bin/bash",
+			ClipboardHost:  "host.docker.internal",
 		},
 		Network: NetworkConfig{
 			Mode:           "permissive",
@@ -145,8 +155,21 @@ func TestConfigStructure(t *testing.T) {
 	if config.Sandbox.ClipboardHost != "host.docker.internal" {
 		t.Error("Clipboard config initialization failed")
 	}
+	if config.Sandbox.NonRootStrict {
+		t.Error("Expected non_root_strict to be false")
+	}
+	if config.Sandbox.ExecAsHostUser {
+		t.Error("Expected exec_as_host_user to be false")
+	}
 	if config.Agents.YoloAll {
 		t.Error("Agents config initialization failed")
+	}
+}
+
+func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Sandbox.ExecAsHostUser {
+		t.Error("Expected default exec_as_host_user to be true")
 	}
 }
 
