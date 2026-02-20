@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.3.2] - 2026-02-20
+
+### Added
+- **Compose Network Health Check**: `construct sys doctor` now detects stale Docker Compose networks that require recreation (for example after Docker daemon/network default changes such as IPv4/IPv6 toggles).
+
+### Fixed
+- **One-Step Compose Network Recovery**: `construct sys doctor --fix` now automatically applies targeted compose network recovery by bringing down the compose stack with orphan cleanup and removing the stale compose network(s) when needed.
+- **Doctor Fix Regression Safety**: Added unit coverage for compose-network fix flow (success, no-op, and failure cases) to prevent regressions.
+
+---
+
 ## [1.3.1] - 2026-02-19
 
 ### Added
