@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -45,6 +46,10 @@ type Report struct {
 	HasWarnings bool
 }
 
+var execCombinedOutput = func(name string, args ...string) ([]byte, error) {
+	return exec.Command(name, args...).CombinedOutput()
+}
+
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
 	fmt.Println()
@@ -60,6 +65,12 @@ func Run(args ...string) {
 	fmt.Println()
 
 	checks := make([]CheckResult, 0, 15)
+	fixRequested := false
+	for _, arg := range args {
+		if arg == "--fix" {
+			fixRequested = true
+		}
+	}
 
 	// 0. Version Check
 	versionCheck := CheckResult{
@@ -219,6 +230,56 @@ func Run(args ...string) {
 	}
 	checks = append(checks, runtimeCheck)
 
+	// 4.5 Compose Network State Check (Docker only)
+	composeNetworkCheck := CheckResult{Name: "Compose Network State"}
+	if runtimeName != "docker" {
+		composeNetworkCheck.Status = CheckStatusSkipped
+		composeNetworkCheck.Message = "Not applicable for current runtime"
+	} else {
+		needsRecreate, details, unsupportedDryRun, err := detectComposeNetworkRecreationIssue()
+		switch {
+		case unsupportedDryRun:
+			composeNetworkCheck.Status = CheckStatusSkipped
+			composeNetworkCheck.Message = "Dry-run not supported by current docker compose"
+		case err != nil:
+			composeNetworkCheck.Status = CheckStatusSkipped
+			composeNetworkCheck.Message = "Unable to validate compose network state"
+			composeNetworkCheck.Details = append(composeNetworkCheck.Details, err.Error())
+		case needsRecreate:
+			composeNetworkCheck.Status = CheckStatusWarning
+			composeNetworkCheck.Message = "Compose network requires recreation"
+			composeNetworkCheck.Details = append(composeNetworkCheck.Details, details...)
+			composeNetworkCheck.Suggestion = "Run 'construct sys doctor --fix' to recreate stale compose networks"
+		default:
+			composeNetworkCheck.Status = CheckStatusOK
+			composeNetworkCheck.Message = "Compose network settings are compatible"
+		}
+	}
+	checks = append(checks, composeNetworkCheck)
+
+	if fixRequested && runtimeName == "docker" {
+		networkFixCheck := CheckResult{Name: "Compose Network Fix"}
+		fixed, details, unsupportedDryRun, err := fixComposeNetworkRecreationIssue()
+		switch {
+		case unsupportedDryRun:
+			networkFixCheck.Status = CheckStatusSkipped
+			networkFixCheck.Message = "Skipped (docker compose dry-run unsupported)"
+		case err != nil:
+			networkFixCheck.Status = CheckStatusWarning
+			networkFixCheck.Message = "Failed to apply compose network fix"
+			networkFixCheck.Details = append(networkFixCheck.Details, err.Error())
+			networkFixCheck.Suggestion = "Run 'docker compose down --remove-orphans' in ~/.config/construct-cli/container"
+		case fixed:
+			networkFixCheck.Status = CheckStatusOK
+			networkFixCheck.Message = "Recreated stale compose network configuration"
+			networkFixCheck.Details = append(networkFixCheck.Details, details...)
+		default:
+			networkFixCheck.Status = CheckStatusOK
+			networkFixCheck.Message = "No compose network fix needed"
+		}
+		checks = append(checks, networkFixCheck)
+	}
+
 	// 5. Daemon Mode Check
 	daemonCheck := CheckResult{Name: "Daemon Mode"}
 	if cfg == nil || runtimeName == "" {
@@ -270,13 +331,6 @@ func Run(args ...string) {
 		configCheck.Suggestion = "Run 'construct sys init'"
 	}
 	checks = append(checks, configCheck)
-
-	fixRequested := false
-	for _, arg := range args {
-		if arg == "--fix" {
-			fixRequested = true
-		}
-	}
 
 	if fixRequested {
 		fixCheck := CheckResult{Name: "Config Fix"}
@@ -626,6 +680,132 @@ func composeUserMapping(overridePath string) (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func detectComposeNetworkRecreationIssue() (bool, []string, bool, error) {
+	output, unsupportedDryRun, err := runComposeDryRun()
+	if unsupportedDryRun {
+		return false, nil, true, nil
+	}
+	lines := parseComposeNetworkRecreationLines(output)
+	if len(lines) > 0 {
+		return true, lines, false, nil
+	}
+	if err != nil {
+		return false, nil, false, fmt.Errorf("docker compose dry-run failed: %w", err)
+	}
+	return false, nil, false, nil
+}
+
+func fixComposeNetworkRecreationIssue() (bool, []string, bool, error) {
+	output, unsupportedDryRun, err := runComposeDryRun()
+	if unsupportedDryRun {
+		return false, nil, true, nil
+	}
+
+	networkLines := parseComposeNetworkRecreationLines(output)
+	if len(networkLines) == 0 {
+		if err != nil {
+			return false, nil, false, fmt.Errorf("docker compose dry-run failed: %w", err)
+		}
+		return false, nil, false, nil
+	}
+
+	composeArgs := composeBaseArgs()
+	downArgs := append(append([]string{}, composeArgs...), "down", "--remove-orphans")
+	downOutput, downErr := execCombinedOutput("docker", downArgs...)
+	if downErr != nil {
+		return false, networkLines, false, fmt.Errorf("docker compose down failed: %w (%s)", downErr, strings.TrimSpace(string(downOutput)))
+	}
+
+	networks := extractComposeNetworkNames(output)
+	var removed []string
+	for _, network := range networks {
+		if network == "" {
+			continue
+		}
+		rmOutput, rmErr := execCombinedOutput("docker", "network", "rm", network)
+		if rmErr != nil {
+			rmText := strings.ToLower(string(rmOutput))
+			if strings.Contains(rmText, "not found") || strings.Contains(rmText, "no such network") {
+				continue
+			}
+			return false, networkLines, false, fmt.Errorf("docker network rm %s failed: %w (%s)", network, rmErr, strings.TrimSpace(string(rmOutput)))
+		}
+		removed = append(removed, network)
+	}
+
+	details := append([]string{}, networkLines...)
+	if len(removed) > 0 {
+		details = append(details, fmt.Sprintf("Removed networks: %s", strings.Join(removed, ", ")))
+	}
+	return true, details, false, nil
+}
+
+func runComposeDryRun() (string, bool, error) {
+	composeArgs := composeBaseArgs()
+	args := append(append([]string{}, composeArgs...), "up", "--dry-run", "--no-build", "construct-box")
+	out, err := execCombinedOutput("docker", args...)
+	text := string(out)
+	if strings.Contains(text, "unknown flag: --dry-run") {
+		return text, true, nil
+	}
+	return text, false, err
+}
+
+func composeBaseArgs() []string {
+	containerDir := config.GetContainerDir()
+	composePath := filepath.Join(containerDir, "docker-compose.yml")
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+
+	args := []string{"compose", "-f", composePath}
+	if _, err := os.Stat(overridePath); err == nil {
+		args = append(args, "-f", overridePath)
+	}
+	return args
+}
+
+func parseComposeNetworkRecreationLines(output string) []string {
+	var lines []string
+	seen := map[string]bool{}
+
+	for _, line := range strings.Split(output, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if strings.Contains(trimmed, "needs to be recreated - option \"com.docker.network.enable_") {
+			if !seen[trimmed] {
+				seen[trimmed] = true
+				lines = append(lines, trimmed)
+			}
+		}
+	}
+
+	return lines
+}
+
+func extractComposeNetworkNames(output string) []string {
+	re := regexp.MustCompile(`Network "([^"]+)" needs to be recreated`)
+	matches := re.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+
+	seen := map[string]bool{}
+	var names []string
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		name := strings.TrimSpace(m[1])
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return names
 }
 
 func printCheckResult(check CheckResult) {
