@@ -89,12 +89,17 @@ Network "another_network" needs to be recreated - option "com.docker.network.ena
 }
 
 func TestFixComposeNetworkRecreationIssueSuccess(t *testing.T) {
-	orig := execCombinedOutput
-	t.Cleanup(func() { execCombinedOutput = orig })
+	origExec := execCombinedOutput
+	origCompose := runDockerComposeCommand
+	t.Cleanup(func() {
+		execCombinedOutput = origExec
+		runDockerComposeCommand = origCompose
+	})
 
 	var calls []string
-	execCombinedOutput = func(name string, args ...string) ([]byte, error) {
-		call := name + " " + strings.Join(args, " ")
+	removedNetwork := false
+	runDockerComposeCommand = func(args ...string) ([]byte, error) {
+		call := "docker " + strings.Join(args, " ")
 		calls = append(calls, call)
 
 		if strings.Contains(call, " compose ") && strings.Contains(call, " up ") {
@@ -103,7 +108,12 @@ func TestFixComposeNetworkRecreationIssueSuccess(t *testing.T) {
 		if strings.Contains(call, " compose ") && strings.Contains(call, " down --remove-orphans") {
 			return []byte("removed"), nil
 		}
+		return nil, fmt.Errorf("unexpected command: %s", call)
+	}
+	execCombinedOutput = func(name string, args ...string) ([]byte, error) {
+		call := name + " " + strings.Join(args, " ")
 		if strings.Contains(call, " network rm container_default") {
+			removedNetwork = true
 			return []byte("container_default"), nil
 		}
 		return nil, fmt.Errorf("unexpected command: %s", call)
@@ -123,16 +133,23 @@ func TestFixComposeNetworkRecreationIssueSuccess(t *testing.T) {
 		t.Fatalf("expected details to be populated")
 	}
 
-	if len(calls) != 3 {
-		t.Fatalf("expected 3 command calls, got %d (%v)", len(calls), calls)
+	if len(calls) != 2 {
+		t.Fatalf("expected 2 compose command calls, got %d (%v)", len(calls), calls)
+	}
+	if !removedNetwork {
+		t.Fatalf("expected stale network removal command to be executed")
 	}
 }
 
 func TestFixComposeNetworkRecreationIssueNoop(t *testing.T) {
-	orig := execCombinedOutput
-	t.Cleanup(func() { execCombinedOutput = orig })
+	origExec := execCombinedOutput
+	origCompose := runDockerComposeCommand
+	t.Cleanup(func() {
+		execCombinedOutput = origExec
+		runDockerComposeCommand = origCompose
+	})
 
-	execCombinedOutput = func(_ string, _ ...string) ([]byte, error) {
+	runDockerComposeCommand = func(_ ...string) ([]byte, error) {
 		return []byte("no network issues"), nil
 	}
 
@@ -152,11 +169,15 @@ func TestFixComposeNetworkRecreationIssueNoop(t *testing.T) {
 }
 
 func TestFixComposeNetworkRecreationIssueDownFails(t *testing.T) {
-	orig := execCombinedOutput
-	t.Cleanup(func() { execCombinedOutput = orig })
+	origExec := execCombinedOutput
+	origCompose := runDockerComposeCommand
+	t.Cleanup(func() {
+		execCombinedOutput = origExec
+		runDockerComposeCommand = origCompose
+	})
 
-	execCombinedOutput = func(name string, args ...string) ([]byte, error) {
-		call := name + " " + strings.Join(args, " ")
+	runDockerComposeCommand = func(args ...string) ([]byte, error) {
+		call := "docker " + strings.Join(args, " ")
 		if strings.Contains(call, " compose ") && strings.Contains(call, " up ") {
 			return []byte(`Network "container_default" needs to be recreated - option "com.docker.network.enable_ipv4" has changed`), nil
 		}
@@ -176,4 +197,31 @@ func TestFixComposeNetworkRecreationIssueDownFails(t *testing.T) {
 	if fixed {
 		t.Fatalf("expected fixed=false on failure")
 	}
+}
+
+func TestSetEnvVar(t *testing.T) {
+	env := []string{"A=1", "PWD=/tmp/old"}
+	got := setEnvVar(env, "PWD", "/tmp/new")
+
+	if !containsEnv(got, "PWD=/tmp/new") {
+		t.Fatalf("expected updated PWD, got %v", got)
+	}
+}
+
+func TestSetEnvVarAppendsWhenMissing(t *testing.T) {
+	env := []string{"A=1"}
+	got := setEnvVar(env, "CONSTRUCT_PROJECT_PATH", "/projects/repo")
+
+	if !containsEnv(got, "CONSTRUCT_PROJECT_PATH=/projects/repo") {
+		t.Fatalf("expected appended env var, got %v", got)
+	}
+}
+
+func containsEnv(env []string, item string) bool {
+	for _, entry := range env {
+		if entry == item {
+			return true
+		}
+	}
+	return false
 }

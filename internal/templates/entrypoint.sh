@@ -6,12 +6,6 @@ export DEBIAN_FRONTEND=noninteractive
 
 RUN_AS_USER="construct"
 RUN_AS_CHOWN="construct:construct"
-SKIP_HOME_CHOWN=""
-if [ -n "$CONSTRUCT_HOST_UID" ] && [ -n "$CONSTRUCT_HOST_GID" ]; then
-    RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
-    RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
-    SKIP_HOME_CHOWN="1"
-fi
 
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
@@ -21,9 +15,7 @@ if [ "$(id -u)" = "0" ]; then
     fi
 
     # Fix home directory permissions
-    if [ -z "$SKIP_HOME_CHOWN" ]; then
-        chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
-    fi
+    chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
 
     # Fix SSH socket permissions
     if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then

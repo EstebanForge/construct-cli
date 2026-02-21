@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.3.3] - 2026-02-21
+
+### Fixed
+- **Entrypoint HOME/Permissions Regression (Linux Docker)**: Resolved a regression where entrypoint privilege drop could run as a raw host uid:gid without a passwd entry, causing `HOME=/` and repeated permission errors writing `~/.ssh`, `~/.bashrc`, and setup files.
+- **Daemon Session Startup Reliability**: Restored reliable startup behavior for daemon-backed runs (`construct <agent>`) when host UID does not exist inside the container.
+
+---
+
 ## [1.3.2] - 2026-02-20
 
 ### Added
