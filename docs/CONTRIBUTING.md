@@ -40,6 +40,8 @@ make test
 make test          # All tests
 make test-unit     # Unit tests only
 make test-integration  # Integration tests
+# make test shows a final combined summary (unit + integration)
+# NO_COLOR=1 disables summary colors; FORCE_COLOR=1 forces colors
 ```
 
 ## Pull Request Guidelines

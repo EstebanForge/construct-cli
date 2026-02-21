@@ -435,6 +435,8 @@ sudo make install-local   # Installs to /usr/local/bin with backup
 
 # Run tests
 make test
+# `make test` ends with an All Tests Summary (unit + integration + overall status)
+# Set `NO_COLOR=1` to disable colors or `FORCE_COLOR=1` to force them
 
 # Full CI checks
 make ci

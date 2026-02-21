@@ -2,11 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.3] - 2026-02-21
+## [1.3.4] - 2026-02-21
+
+### Added
+- **Unified Test Summary (`make test`)**: Added a combined end-of-run summary that reports unit pass/fail/skip counts, unit package pass/fail counts, integration totals, and overall status.
+
+### Changed
+- **Test Runner Consolidation**: `make test` and `make test-ci` now run through a shared `scripts/test-all.sh` flow for consistent unit+integration reporting.
+- **Color Controls for Test Summaries**: Added status-aware summary coloring (green/yellow/red) with `NO_COLOR` to disable and `FORCE_COLOR=1` to force output coloring.
 
 ### Fixed
 - **Entrypoint HOME/Permissions Regression (Linux Docker)**: Resolved a regression where entrypoint privilege drop could run as a raw host uid:gid without a passwd entry, causing `HOME=/` and repeated permission errors writing `~/.ssh`, `~/.bashrc`, and setup files.
 - **Daemon Session Startup Reliability**: Restored reliable startup behavior for daemon-backed runs (`construct <agent>`) when host UID does not exist inside the container.
+- **Linux Config Ownership Auto-Recovery**: Hardened migration/runtime permission recovery to attempt non-interactive sudo ownership repair first, with clearer remediation when elevation is unavailable.
+- **Host UID Exec Fallback Messaging**: Ensured fallback warnings are visible when host UID mapping cannot be used inside the container.
+- **Docker Override Host UID Injection**: Removed runtime host UID/GID env injection from generated Docker overrides to avoid reintroducing raw-UID startup regressions.
 
 ---
 

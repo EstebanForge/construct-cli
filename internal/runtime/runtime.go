@@ -903,10 +903,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	// Environment variables
 	override.WriteString("    environment:\n")
-	if runtime.GOOS == "linux" && hostUID >= 0 && hostGID >= 0 {
-		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_UID=%d\n", hostUID)
-		fmt.Fprintf(&override, "      - CONSTRUCT_HOST_GID=%d\n", hostGID)
-	}
 	if nonRootStrict {
 		override.WriteString("      - CONSTRUCT_NON_ROOT_STRICT=1\n")
 	}
@@ -1103,6 +1099,16 @@ func ensureConfigPermissions(configPath string) error {
 	fmt.Fprintf(os.Stderr, "\nThis typically happens when the container created files as a different user.\n")
 	fmt.Fprintf(os.Stderr, "Fix: %ssudo chown -R %s:%s %s%s\n\n", ui.ColorCyan, username, username, configPath, ui.ColorReset)
 
+	// Try non-interactive sudo first (best effort, avoids blocking in non-interactive sessions).
+	if err := runOwnershipFixNonInteractive(configPath); err == nil {
+		if ui.GumAvailable() {
+			ui.GumSuccess("Config directory ownership fixed")
+		} else {
+			fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+		}
+		return nil
+	}
+
 	// Ask for confirmation before running sudo
 	if !ui.GumConfirm("Attempt to fix ownership now with sudo?") {
 		fmt.Fprintf(os.Stderr, "Skipping automatic fix. You can run the command manually.\n")
@@ -1136,6 +1142,17 @@ func warnConfigPermission(err error, configPath string) {
 		return
 	}
 	attemptedOwnershipFix = true
+
+	// Try non-interactive sudo first (best effort).
+	if err := runOwnershipFixNonInteractive(configPath); err == nil {
+		if ui.GumAvailable() {
+			ui.GumSuccess("Ownership fixed")
+		} else {
+			fmt.Println("✅ Ownership fixed")
+		}
+		return
+	}
+
 	if !ui.GumConfirm(fmt.Sprintf("Attempt to fix ownership now with sudo? (%s)", configPath)) {
 		return
 	}
@@ -1178,6 +1195,30 @@ func runOwnershipFix(configPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func runOwnershipFixNonInteractive(configPath string) error {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return fmt.Errorf("sudo not available: %w", err)
+	}
+	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
+		return fmt.Errorf("sudo non-interactive check failed: %w", err)
+	}
+
+	username := currentUserName()
+	if username == "" {
+		username = "root"
+	}
+	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%s:%s", username, username), configPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return nil
 }
 
 func currentUserName() string {
