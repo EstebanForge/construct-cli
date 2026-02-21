@@ -165,3 +165,36 @@ func TestUpdateAllSudoDetection(t *testing.T) {
 		t.Error("update-all.sh should use '$SUDO apt-get' for privileged operations")
 	}
 }
+
+func TestEntrypointPrivilegeDropRegression(t *testing.T) {
+	// Regression guard:
+	// do not run the entrypoint as raw host uid:gid (can yield HOME=/ when uid is unknown),
+	// always drop to the named construct user inside the container.
+	forbiddenFragments := []string{
+		`RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
+		`RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
+		`SKIP_HOME_CHOWN="1"`,
+		`if [ -n "$CONSTRUCT_HOST_UID" ] && [ -n "$CONSTRUCT_HOST_GID" ]; then`,
+	}
+
+	for _, fragment := range forbiddenFragments {
+		if strings.Contains(Entrypoint, fragment) {
+			t.Fatalf("entrypoint regression: found forbidden host uid/gid fragment: %s", fragment)
+		}
+	}
+
+	requiredFragments := []string{
+		`RUN_AS_USER="construct"`,
+		`RUN_AS_CHOWN="construct:construct"`,
+		`exec gosu "$RUN_AS_USER" "$0" "$@"`,
+		`chown -R "$RUN_AS_CHOWN" /home/construct`,
+		`construct_profile="$HOME/.construct-path.sh"`,
+		`local ssh_dir="$HOME/.ssh"`,
+	}
+
+	for _, fragment := range requiredFragments {
+		if !strings.Contains(Entrypoint, fragment) {
+			t.Fatalf("entrypoint regression: missing required fragment: %s", fragment)
+		}
+	}
+}
