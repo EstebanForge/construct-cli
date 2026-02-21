@@ -50,14 +50,16 @@ build: ## Build the binary
 	fi
 	@echo "✓ Built: $(BINARY_NAME)"
 
-test: test-unit test-integration ## Run all tests
+test: ## Run all tests
+	@./scripts/test-all.sh
 
 test-unit: ## Run Go unit tests
 	@echo "Running unit tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
 	@echo "✓ Unit tests passed"
 
-test-ci: test-unit-ci test-integration ## Run CI tests (fast unit + integration)
+test-ci: ## Run CI tests (fast unit + integration)
+	@./scripts/test-all.sh --ci
 
 test-unit-ci: ## Run Go unit tests (CI fast)
 	@echo "Running unit tests (CI fast)..."

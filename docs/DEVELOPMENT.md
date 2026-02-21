@@ -156,6 +156,8 @@ make dev
 ```bash
 # Run all tests
 make test
+# Prints a combined summary for unit + integration at the end.
+# Use NO_COLOR=1 to disable colors, FORCE_COLOR=1 to force colors.
 
 # Unit tests only
 make test-unit
@@ -276,6 +278,23 @@ docker images | grep construct
 
 # Check config
 cat ~/.config/construct-cli/config.toml
+```
+
+### Linux UID/ownership behavior
+
+On Linux Docker, Construct startup now uses a stable container user model and applies host UID mapping only for exec when safe.
+
+```bash
+# See current mapping/doctor details
+construct sys doctor
+```
+
+- If your host UID is not present in container `/etc/passwd`, Construct warns and falls back to the container default user for that run.
+- If migrations or runtime prep fail due to ownership, Construct first attempts non-interactive repair with sudo.
+- If sudo is unavailable/non-interactive auth is blocked, use:
+
+```bash
+sudo chown -R "$(id -u)":"$(id -g)" ~/.config/construct-cli
 ```
 
 ## Debugging

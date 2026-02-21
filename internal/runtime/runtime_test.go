@@ -165,6 +165,9 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	if stdruntime.GOOS == "linux" && strings.Contains(contentStr, "user: \"") {
 		t.Errorf("Did not expect docker override to force user mapping on Linux, got: %s", contentStr)
 	}
+	if strings.Contains(contentStr, "CONSTRUCT_HOST_UID=") || strings.Contains(contentStr, "CONSTRUCT_HOST_GID=") {
+		t.Errorf("Did not expect docker override to inject host uid/gid env vars, got: %s", contentStr)
+	}
 }
 
 func TestGenerateDockerComposeOverridePodmanSetsUserOnLinux(t *testing.T) {

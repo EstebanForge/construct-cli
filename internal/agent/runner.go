@@ -767,17 +767,13 @@ func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, co
 
 	hasUIDEntry, err := containerHasUIDEntryFn(containerRuntime, containerName, os.Getuid())
 	if err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Warning: Failed to verify host UID mapping in container: %v\n", err)
-			fmt.Println("Warning: Falling back to container default user for this run.")
-		}
+		fmt.Printf("Warning: Failed to verify host UID mapping in container: %v\n", err)
+		fmt.Println("Warning: Falling back to container default user for this run.")
 		return ""
 	}
 	if !hasUIDEntry {
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Warning: Host UID %d is not present in container /etc/passwd.\n", os.Getuid())
-			fmt.Println("Warning: Falling back to container default user for this run.")
-		}
+		fmt.Printf("Warning: Host UID %d is not present in container /etc/passwd.\n", os.Getuid())
+		fmt.Println("Warning: Falling back to container default user for this run.")
 		return ""
 	}
 	return execUser

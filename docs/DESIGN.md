@@ -82,7 +82,12 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ## 4. Runtimes & Isolation
 - **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `container`, `podman`, `docker`). If set to `auto` (the default), it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
-- **Linux specifics**: UID/GID mapping; SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it; Podman rootless runs as the construct user by default.
+- **Linux specifics**:
+  - Docker bootstrap/startup uses the stable `construct` user model (no raw host UID env injection in compose overrides).
+  - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning and falls back to container default user.
+  - Config/migration ownership checks attempt non-interactive sudo repair first (`sudo -n chown -R <uid>:<gid> ~/.config/construct-cli`) and provide explicit manual remediation when elevation is unavailable.
+  - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
+  - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
 - **Mounts**:
   - Ephemeral runs: host project directory → `/projects/<folder_name>`.
@@ -170,6 +175,7 @@ make build           # build binary
 go build -o construct
 
 make test            # unit + integration
+# includes a final combined summary (unit + integration + overall status)
 make test-unit       # unit only
 make test-integration# integration only
 make lint            # format + go vet
@@ -207,7 +213,7 @@ make cross-compile   # all platforms
 ---
 
 ## 9. Implementation Details
-- Version string: `Version = "1.0.1"` in `internal/constants/constants.go`.
+- Version string: `Version = "1.3.4"` in `internal/constants/constants.go`.
 - Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.

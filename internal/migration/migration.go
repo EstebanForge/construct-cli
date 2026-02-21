@@ -25,6 +25,7 @@ const packagesTemplateHashFile = ".packages_template_hash"
 const entrypointTemplateHashFile = ".entrypoint_template_hash"
 
 var attemptedOwnershipFix bool
+var runOwnershipFixNonInteractiveFn = runOwnershipFixNonInteractive
 
 // GetInstalledVersion returns the currently installed version from the version file
 func GetInstalledVersion() string {
@@ -259,13 +260,43 @@ func updateContainerTemplates() error {
 
 	// Ensure directory exists
 	if err := os.MkdirAll(containerDir, 0755); err != nil {
-		return fmt.Errorf("failed to ensure container templates dir: %w", err)
+		if recovered, fixErr := attemptMigrationPermissionRecovery(err, config.GetConfigDir()); recovered {
+			if retryErr := os.MkdirAll(containerDir, 0755); retryErr != nil {
+				return migrationPermissionError("ensure container templates dir", retryErr, config.GetConfigDir(), fixErr)
+			}
+		} else if fixErr != nil {
+			return migrationPermissionError("ensure container templates dir", err, config.GetConfigDir(), fixErr)
+		} else {
+			return migrationPermissionError("ensure container templates dir", err, config.GetConfigDir(), nil)
+		}
+	}
+
+	// Validate writability before replacing templates.
+	if testErr := verifyWritableDir(containerDir); testErr != nil {
+		if recovered, fixErr := attemptMigrationPermissionRecovery(testErr, config.GetConfigDir()); recovered {
+			if retryErr := verifyWritableDir(containerDir); retryErr != nil {
+				return migrationPermissionError("verify container templates dir writability", retryErr, config.GetConfigDir(), fixErr)
+			}
+		} else if fixErr != nil {
+			return migrationPermissionError("verify container templates dir writability", testErr, config.GetConfigDir(), fixErr)
+		} else {
+			return migrationPermissionError("verify container templates dir writability", testErr, config.GetConfigDir(), nil)
+		}
 	}
 
 	// Clean up old/unknown files, but handle busy files gracefully
 	entries, err := os.ReadDir(containerDir)
 	if err != nil {
-		return fmt.Errorf("failed to read container templates dir: %w", err)
+		if recovered, fixErr := attemptMigrationPermissionRecovery(err, config.GetConfigDir()); recovered {
+			entries, err = os.ReadDir(containerDir)
+			if err != nil {
+				return migrationPermissionError("read container templates dir", err, config.GetConfigDir(), fixErr)
+			}
+		} else if fixErr != nil {
+			return migrationPermissionError("read container templates dir", err, config.GetConfigDir(), fixErr)
+		} else {
+			return migrationPermissionError("read container templates dir", err, config.GetConfigDir(), nil)
+		}
 	}
 
 	for _, entry := range entries {
@@ -297,7 +328,15 @@ func updateContainerTemplates() error {
 			perm = 0755
 		}
 		if err := os.WriteFile(path, []byte(content), perm); err != nil {
-			return fmt.Errorf("failed to write %s: %w", filename, err)
+			if recovered, fixErr := attemptMigrationPermissionRecovery(err, config.GetConfigDir()); recovered {
+				if retryErr := os.WriteFile(path, []byte(content), perm); retryErr != nil {
+					return migrationPermissionError(fmt.Sprintf("write %s", filename), retryErr, config.GetConfigDir(), fixErr)
+				}
+			} else if fixErr != nil {
+				return migrationPermissionError(fmt.Sprintf("write %s", filename), err, config.GetConfigDir(), fixErr)
+			} else {
+				return migrationPermissionError(fmt.Sprintf("write %s", filename), err, config.GetConfigDir(), nil)
+			}
 		}
 		// Verify write was successful
 		if written, err := os.ReadFile(path); err != nil {
@@ -320,6 +359,62 @@ func updateContainerTemplates() error {
 	}
 
 	return nil
+}
+
+func verifyWritableDir(dir string) error {
+	testFile := filepath.Join(dir, ".construct-write-test")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		return err
+	}
+	if err := os.Remove(testFile); err != nil {
+		return err
+	}
+	return nil
+}
+
+func attemptMigrationPermissionRecovery(cause error, configPath string) (bool, error) {
+	return attemptMigrationPermissionRecoveryForOS(runtime.GOOS, cause, configPath)
+}
+
+func attemptMigrationPermissionRecoveryForOS(osName string, cause error, configPath string) (bool, error) {
+	if osName != "linux" || attemptedOwnershipFix || !isPermissionWriteError(cause) {
+		return false, nil
+	}
+
+	attemptedOwnershipFix = true
+	if ui.GumAvailable() {
+		fmt.Printf("%sDetected config ownership issue. Attempting automatic fix with sudo...%s\n", ui.ColorYellow, ui.ColorReset)
+	} else {
+		fmt.Println("Detected config ownership issue. Attempting automatic fix with sudo...")
+	}
+
+	if err := runOwnershipFixNonInteractiveFn(configPath); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func isPermissionWriteError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrPermission) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "permission denied")
+}
+
+func migrationPermissionError(operation string, err error, configPath string, fixErr error) error {
+	base := fmt.Sprintf("failed to %s: %v", operation, err)
+	if !isPermissionWriteError(err) {
+		return errors.New(base)
+	}
+
+	fixHint := fmt.Sprintf("sudo chown -R %d:%d %s", os.Getuid(), os.Getgid(), configPath)
+	if fixErr != nil {
+		return fmt.Errorf("%s (automatic ownership fix failed: %v). Fix manually: %s", base, fixErr, fixHint)
+	}
+	return fmt.Errorf("%s. Fix ownership and retry: %s", base, fixHint)
 }
 
 func clearEntrypointHash() {
@@ -411,6 +506,29 @@ func runOwnershipFix(configPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func runOwnershipFixNonInteractive(configPath string) error {
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return fmt.Errorf("sudo not available: %w", err)
+	}
+
+	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
+		return fmt.Errorf("sudo non-interactive check failed: %w", err)
+	}
+
+	uid := os.Getuid()
+	gid := os.Getgid()
+	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return err
+		}
+		return fmt.Errorf("%w: %s", err, msg)
+	}
+	return nil
 }
 
 func currentUserName() string {
