@@ -50,6 +50,13 @@ var execCombinedOutput = func(name string, args ...string) ([]byte, error) {
 	return exec.Command(name, args...).CombinedOutput()
 }
 
+var runDockerComposeCommand = func(args ...string) ([]byte, error) {
+	cmd := exec.Command("docker", args...)
+	cmd.Env = doctorComposeEnv()
+	cmd.Dir = config.GetContainerDir()
+	return cmd.CombinedOutput()
+}
+
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
 	fmt.Println()
@@ -713,7 +720,7 @@ func fixComposeNetworkRecreationIssue() (bool, []string, bool, error) {
 
 	composeArgs := composeBaseArgs()
 	downArgs := append(append([]string{}, composeArgs...), "down", "--remove-orphans")
-	downOutput, downErr := execCombinedOutput("docker", downArgs...)
+	downOutput, downErr := runDockerComposeCommand(downArgs...)
 	if downErr != nil {
 		return false, networkLines, false, fmt.Errorf("docker compose down failed: %w (%s)", downErr, strings.TrimSpace(string(downOutput)))
 	}
@@ -745,7 +752,7 @@ func fixComposeNetworkRecreationIssue() (bool, []string, bool, error) {
 func runComposeDryRun() (string, bool, error) {
 	composeArgs := composeBaseArgs()
 	args := append(append([]string{}, composeArgs...), "up", "--dry-run", "--no-build", "construct-box")
-	out, err := execCombinedOutput("docker", args...)
+	out, err := runDockerComposeCommand(args...)
 	text := string(out)
 	if strings.Contains(text, "unknown flag: --dry-run") {
 		return text, true, nil
@@ -763,6 +770,28 @@ func composeBaseArgs() []string {
 		args = append(args, "-f", overridePath)
 	}
 	return args
+}
+
+func doctorComposeEnv() []string {
+	env := runtimepkg.AppendProjectPathEnv(os.Environ())
+
+	cwd, err := os.Getwd()
+	if err == nil && cwd != "" {
+		env = setEnvVar(env, "PWD", cwd)
+	}
+
+	return env
+}
+
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
 }
 
 func parseComposeNetworkRecreationLines(output string) []string {

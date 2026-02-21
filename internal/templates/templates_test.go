@@ -132,6 +132,12 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Entrypoint, "touch \"$HOME/.bashrc\"") {
 		t.Error("entrypoint.sh should create .bashrc before grep checks")
 	}
+	if strings.Contains(Entrypoint, "RUN_AS_USER=\"${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}\"") {
+		t.Error("entrypoint.sh should not drop privileges to raw host uid:gid")
+	}
+	if !strings.Contains(Entrypoint, "RUN_AS_USER=\"construct\"") {
+		t.Error("entrypoint.sh should drop privileges to construct user")
+	}
 
 	// Verify update-all uses shared hash helper
 	if !strings.Contains(UpdateAll, "entrypoint-hash.sh") {
