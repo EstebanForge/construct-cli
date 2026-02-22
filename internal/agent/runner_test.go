@@ -136,23 +136,18 @@ func TestAgentArgParsing(t *testing.T) {
 // TestCodexWSLEnvironment verifies codex-specific environment setup
 func TestCodexWSLEnvironment(t *testing.T) {
 	// Test that codex agent gets WSL environment variables
-	args := []string{"codex", "some prompt"}
-
 	envVars := []string{}
+	appendAgentSpecificDaemonEnv(&envVars, "codex")
 
-	// Simulate the logic from execViaDaemon
-	if len(args) > 0 && args[0] == "codex" {
-		envVars = append(envVars, "WSL_DISTRO_NAME=Ubuntu")
-		envVars = append(envVars, "WSL_INTEROP=/run/WSL/8_interop")
-		envVars = append(envVars, "DISPLAY=")
-	}
-
+	hasCodexHome := false
 	hasWSLDistro := false
 	hasWSLInterop := false
 	hasDisplay := false
 
 	for _, env := range envVars {
 		switch env {
+		case "CODEX_HOME=/home/construct/.codex":
+			hasCodexHome = true
 		case "WSL_DISTRO_NAME=Ubuntu":
 			hasWSLDistro = true
 		case "WSL_INTEROP=/run/WSL/8_interop":
@@ -162,6 +157,9 @@ func TestCodexWSLEnvironment(t *testing.T) {
 		}
 	}
 
+	if !hasCodexHome {
+		t.Error("Codex agent should have CODEX_HOME set to /home/construct/.codex")
+	}
 	if !hasWSLDistro {
 		t.Error("Codex agent should have WSL_DISTRO_NAME set")
 	}
@@ -171,6 +169,78 @@ func TestCodexWSLEnvironment(t *testing.T) {
 	if !hasDisplay {
 		t.Error("Codex agent should have DISPLAY set to empty")
 	}
+}
+
+func TestAppendAgentSpecificRunFlagsCodex(t *testing.T) {
+	origDebug := os.Getenv("CONSTRUCT_DEBUG")
+	t.Cleanup(func() {
+		if origDebug == "" {
+			os.Unsetenv("CONSTRUCT_DEBUG")
+			return
+		}
+		os.Setenv("CONSTRUCT_DEBUG", origDebug)
+	})
+	os.Setenv("CONSTRUCT_DEBUG", "1")
+
+	runFlags := []string{}
+	appendAgentSpecificRunFlags(&runFlags, "codex", "1")
+
+	expected := []string{
+		"CODEX_HOME=/home/construct/.codex",
+		"WSL_DISTRO_NAME=Ubuntu",
+		"WSL_INTEROP=/run/WSL/8_interop",
+		"DISPLAY=",
+		"CONSTRUCT_DEBUG=1",
+	}
+	for _, envVar := range expected {
+		if !hasRunFlagEnv(runFlags, envVar) {
+			t.Fatalf("expected run flags to include %q, got %v", envVar, runFlags)
+		}
+	}
+}
+
+func TestAppendAgentSpecificRunFlagsCodexNoClipboardPatch(t *testing.T) {
+	runFlags := []string{}
+	appendAgentSpecificRunFlags(&runFlags, "codex", "0")
+
+	if !hasRunFlagEnv(runFlags, "CODEX_HOME=/home/construct/.codex") {
+		t.Fatalf("expected CODEX_HOME in run flags, got %v", runFlags)
+	}
+	unexpected := []string{
+		"WSL_DISTRO_NAME=Ubuntu",
+		"WSL_INTEROP=/run/WSL/8_interop",
+		"DISPLAY=",
+	}
+	for _, envVar := range unexpected {
+		if hasRunFlagEnv(runFlags, envVar) {
+			t.Fatalf("did not expect %q in run flags when clipboard patch is disabled: %v", envVar, runFlags)
+		}
+	}
+}
+
+func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
+	runFlags := []string{}
+	appendAgentSpecificRunFlags(&runFlags, "claude", "1")
+	if len(runFlags) != 0 {
+		t.Fatalf("expected no run flags for non-codex agent, got %v", runFlags)
+	}
+}
+
+func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
+	envVars := []string{}
+	appendAgentSpecificDaemonEnv(&envVars, "claude")
+	if len(envVars) != 0 {
+		t.Fatalf("expected no daemon env vars for non-codex agent, got %v", envVars)
+	}
+}
+
+func hasRunFlagEnv(runFlags []string, value string) bool {
+	for i := 0; i < len(runFlags)-1; i++ {
+		if runFlags[i] == "-e" && runFlags[i+1] == value {
+			return true
+		}
+	}
+	return false
 }
 
 // TestColortermEnvironment verifies COLORTERM handling

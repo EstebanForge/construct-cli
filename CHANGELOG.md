@@ -2,14 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.4] - 2026-02-21
+## [1.3.5] - 2026-02-22
 
 ### Added
 - **Unified Test Summary (`make test`)**: Added a combined end-of-run summary that reports unit pass/fail/skip counts, unit package pass/fail counts, integration totals, and overall status.
+- **Codex Regression Tests**: Added targeted tests for Codex env injection and fallback behavior, including `CODEX_HOME` presence for Codex runs, WSL fallback env injection when clipboard patching is enabled, and guard checks ensuring non-Codex agents do not inherit Codex-only env vars.
 
 ### Changed
 - **Test Runner Consolidation**: `make test` and `make test-ci` now run through a shared `scripts/test-all.sh` flow for consistent unit+integration reporting.
 - **Color Controls for Test Summaries**: Added status-aware summary coloring (green/yellow/red) with `NO_COLOR` to disable and `FORCE_COLOR=1` to force output coloring.
+- **Codex Config Home Resolution**: Force Codex runs (standard + daemon) to use `CODEX_HOME=/home/construct/.codex` so config is loaded from `/home/construct/.codex/config.toml` instead of project-relative `.codex` paths under `/projects/...`.
+- **Codex Agent Env Injection Refactor**: Centralized Codex-specific run/daemon environment injection into dedicated helper functions to reduce drift across execution paths.
 
 ### Fixed
 - **Entrypoint HOME/Permissions Regression (Linux Docker)**: Resolved a regression where entrypoint privilege drop could run as a raw host uid:gid without a passwd entry, causing `HOME=/` and repeated permission errors writing `~/.ssh`, `~/.bashrc`, and setup files.
