@@ -84,7 +84,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
 - **Linux specifics**:
   - Docker bootstrap/startup uses the stable `construct` user model (no raw host UID env injection in compose overrides).
-  - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning and falls back to container default user.
+  - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning, keeps host UID:GID mapping, and forces `HOME=/home/construct`.
   - Config/migration ownership checks attempt non-interactive sudo repair first (`sudo -n chown -R <uid>:<gid> ~/.config/construct-cli`) and provide explicit manual remediation when elevation is unavailable.
   - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
   - Podman rootless runs as the construct user by default.

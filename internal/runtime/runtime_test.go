@@ -397,6 +397,63 @@ func TestGenerateDockerComposeOverrideKeepsUserMappingWhenNonRootStrictEnabled(t
 	}
 }
 
+func TestGenerateDockerComposeOverrideStrictNetworkUsesConsistentName(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	configToml := "[runtime]\nengine = \"docker\"\n"
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"powershell.exe":        "binary\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+		"config.toml":           configToml,
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+	}
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("failed to write %s: %v", file, err)
+		}
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "strict", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "name: construct-net") {
+		t.Fatalf("expected strict network name to be construct-net, got: %s", contentStr)
+	}
+	if strings.Contains(contentStr, "name: construct-cli") {
+		t.Fatalf("did not expect strict network name construct-cli, got: %s", contentStr)
+	}
+}
+
 // TestIsContainerStaleLogic tests the staleness comparison logic
 func TestIsContainerStaleLogic(t *testing.T) {
 	// Test the logic conceptually - we can't easily mock exec.Command

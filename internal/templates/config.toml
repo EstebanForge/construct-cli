@@ -34,7 +34,7 @@ non_root_strict = false
 # Run agent exec sessions as host UID:GID on Linux Docker (default: true)
 # Purpose: preserve host file ownership for files written by agents.
 # This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.
-# If host UID is not present in container /etc/passwd, Construct falls back to container default user.
+# If host UID is not present in container /etc/passwd, Construct keeps host UID:GID mapping and forces HOME=/home/construct.
 exec_as_host_user = true
 
 # SELinux mount labels on Linux: "auto" | "enabled" | "disabled"

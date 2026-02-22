@@ -941,7 +941,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("✓ Network isolation: strict (allowlist mode)")
 
 		// Add network definition for strict mode
-		override.WriteString("\nnetworks:\n  construct-net:\n    name: construct-cli\n    driver: bridge\n")
+		override.WriteString("\nnetworks:\n  construct-net:\n    name: construct-net\n    driver: bridge\n")
 	}
 
 	// Write override file
