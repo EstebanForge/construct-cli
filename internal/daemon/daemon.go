@@ -69,32 +69,10 @@ func Start() {
 
 	ui.GumInfo("Starting daemon container...")
 
-	var cmd *exec.Cmd
-
-	composeArgs := runtime.GetComposeFileArgs(configPath)
-
-	// Build the run command with -d for detached and custom name
-	switch containerRuntime {
-	case "docker":
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
-			cmd = exec.Command("docker-compose", args...)
-		} else {
-			args := make([]string, 0, 1+len(composeArgs)+5)
-			args = append(args, "compose")
-			args = append(args, composeArgs...)
-			args = append(args, "run", "-d", "--name", containerName, "construct-box")
-			cmd = exec.Command("docker", args...)
-		}
-	case "podman":
-		args := append(composeArgs, "run", "-d", "--name", containerName, "construct-box")
-		cmd = exec.Command("podman-compose", args...)
-	case "container":
-		args := make([]string, 0, 1+len(composeArgs)+5)
-		args = append(args, "compose")
-		args = append(args, composeArgs...)
-		args = append(args, "run", "-d", "--name", containerName, "construct-box")
-		cmd = exec.Command("docker", args...)
+	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", []string{"-d", "--name", containerName, "construct-box"})
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to build daemon start command: %v", err))
+		os.Exit(1)
 	}
 
 	cmd.Dir = config.GetContainerDir()

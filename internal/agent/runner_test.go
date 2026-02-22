@@ -226,6 +226,64 @@ func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
 	}
 }
 
+func TestAppendAgentSpecificExecEnvCodex(t *testing.T) {
+	origDebug := os.Getenv("CONSTRUCT_DEBUG")
+	t.Cleanup(func() {
+		if origDebug == "" {
+			os.Unsetenv("CONSTRUCT_DEBUG")
+			return
+		}
+		os.Setenv("CONSTRUCT_DEBUG", origDebug)
+	})
+	os.Setenv("CONSTRUCT_DEBUG", "1")
+
+	envVars := []string{}
+	appendAgentSpecificExecEnv(&envVars, "codex", "1")
+
+	expected := []string{
+		"CODEX_HOME=/home/construct/.codex",
+		"WSL_DISTRO_NAME=Ubuntu",
+		"WSL_INTEROP=/run/WSL/8_interop",
+		"DISPLAY=",
+		"CONSTRUCT_DEBUG=1",
+	}
+
+	for _, expectedVar := range expected {
+		if !containsEnv(envVars, expectedVar) {
+			t.Fatalf("expected env vars to include %q, got %v", expectedVar, envVars)
+		}
+	}
+}
+
+func TestAppendAgentSpecificExecEnvCodexNoClipboardPatch(t *testing.T) {
+	envVars := []string{}
+	appendAgentSpecificExecEnv(&envVars, "codex", "0")
+
+	if !containsEnv(envVars, "CODEX_HOME=/home/construct/.codex") {
+		t.Fatalf("expected CODEX_HOME in env vars, got %v", envVars)
+	}
+
+	unexpected := []string{
+		"WSL_DISTRO_NAME=Ubuntu",
+		"WSL_INTEROP=/run/WSL/8_interop",
+		"DISPLAY=",
+		"CONSTRUCT_DEBUG=1",
+	}
+	for _, unexpectedVar := range unexpected {
+		if containsEnv(envVars, unexpectedVar) {
+			t.Fatalf("did not expect %q when clipboard patch is disabled: %v", unexpectedVar, envVars)
+		}
+	}
+}
+
+func TestAppendAgentSpecificExecEnvNonCodex(t *testing.T) {
+	envVars := []string{}
+	appendAgentSpecificExecEnv(&envVars, "claude", "1")
+	if len(envVars) != 0 {
+		t.Fatalf("expected no env vars for non-codex agent, got %v", envVars)
+	}
+}
+
 func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 	envVars := []string{}
 	appendAgentSpecificDaemonEnv(&envVars, "claude")
@@ -237,6 +295,15 @@ func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 func hasRunFlagEnv(runFlags []string, value string) bool {
 	for i := 0; i < len(runFlags)-1; i++ {
 		if runFlags[i] == "-e" && runFlags[i+1] == value {
+			return true
+		}
+	}
+	return false
+}
+
+func containsEnv(envVars []string, value string) bool {
+	for _, envVar := range envVars {
+		if envVar == value {
 			return true
 		}
 	}
@@ -415,18 +482,18 @@ func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
 			return false, nil
 		}
 		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-		if got != "" {
-			t.Fatalf("expected empty fallback user, got %q", got)
+		if got != expectedUser {
+			t.Fatalf("expected host uid mapping %q when passwd entry is missing, got %q", expectedUser, got)
 		}
 	})
 
-	t.Run("falls back when uid lookup errors", func(t *testing.T) {
+	t.Run("uses host uid when uid lookup errors", func(t *testing.T) {
 		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
 			return false, fmt.Errorf("lookup failed")
 		}
 		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-		if got != "" {
-			t.Fatalf("expected empty fallback user on lookup error, got %q", got)
+		if got != expectedUser {
+			t.Fatalf("expected host uid mapping %q on lookup error, got %q", expectedUser, got)
 		}
 	})
 }

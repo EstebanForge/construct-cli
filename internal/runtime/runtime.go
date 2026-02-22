@@ -1620,12 +1620,21 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 		}
 	}
 	if containerRuntime == "podman" {
-		cmdArgs := make([]string, 0, 1+len(composeArgs)+1+len(args))
-		cmdArgs = append(cmdArgs, "podman-compose")
-		cmdArgs = append(cmdArgs, composeArgs...)
-		cmdArgs = append(cmdArgs, subCommand)
-		cmdArgs = append(cmdArgs, args...)
-		cmd = exec.Command("podman-compose", cmdArgs[1:]...)
+		if _, err := exec.LookPath("podman-compose"); err == nil {
+			cmdArgs := make([]string, 0, 1+len(composeArgs)+1+len(args))
+			cmdArgs = append(cmdArgs, "podman-compose")
+			cmdArgs = append(cmdArgs, composeArgs...)
+			cmdArgs = append(cmdArgs, subCommand)
+			cmdArgs = append(cmdArgs, args...)
+			cmd = exec.Command("podman-compose", cmdArgs[1:]...)
+		} else {
+			cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
+			cmdArgs = append(cmdArgs, "podman", "compose")
+			cmdArgs = append(cmdArgs, composeArgs...)
+			cmdArgs = append(cmdArgs, subCommand)
+			cmdArgs = append(cmdArgs, args...)
+			cmd = exec.Command("podman", cmdArgs[1:]...)
+		}
 	}
 	if containerRuntime == "container" {
 		cmdArgs := make([]string, 0, 2+len(composeArgs)+1+len(args))
