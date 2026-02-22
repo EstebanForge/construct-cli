@@ -3,9 +3,19 @@
 ## Status
 - Draft proposal (revised)
 - No runtime code changes in this document
+- Implementation direction selected: hybrid model
+  - Overlay/file redaction remains the workspace boundary
+  - Run-only session authz + scoped proxy policy become the network/auth boundary
 
 ## Objective
 Provide one clean, opt-in feature that prevents LLM agents running inside Construct from seeing raw secrets in mounted project files and environment variables.
+
+Selected design direction for implementation:
+- Keep Construct's overlay-based redaction architecture.
+- Adopt an authy-like run-only session model for agent runtime credentials.
+- Adopt an aivault-like provider pinning + policy-derived host model in Construct proxy.
+- Add tamper-evident audit chaining for security-critical events.
+- Add daemon isolation as a hardening phase, not a V1 blocker.
 
 Target UX:
 - Pre-release: env master gate + config switch
@@ -36,6 +46,11 @@ Behavior when enabled:
 - Applies to project content and agent-visible env vars
 - `mount_home` is forced off for that run
 - Each agent session gets its own isolated overlay — no cross-session locking
+
+Security invariants that are not user-configurable in hide-secrets mode:
+- No direct "get raw secret value" operation is available to the agent runtime.
+- Provider traffic is allowed only through Construct proxy policy checks.
+- Run-only session authz is enforced for all agent-originated secret-use flows.
 
 ---
 
@@ -86,6 +101,27 @@ Not fully solved by this feature alone:
 
 ### Core Guarantee
 When `CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1` and `security.hide_secrets=true`, the agent process must not have direct access to raw project secrets by default.
+
+### Selected External Patterns (Adopted)
+This proposal intentionally adopts a hybrid of proven patterns:
+
+1. **Workspace/file boundary (Construct-native):**
+   - OverlayFS/APFS session view with redacted file copies.
+2. **Run-only runtime authz (authy-like):**
+   - Agent receives short-lived session credentials that allow secret use, never raw secret reads.
+3. **Pinned provider policy boundary (aivault-like):**
+   - Proxy uses provider pinning and policy-derived host/method/path decisions; caller input cannot override.
+4. **Tamper-evident security audit (authy-like):**
+   - Security events are chained with HMAC for integrity verification.
+
+Why this hybrid:
+- `agent-vault` and `psst` patterns are useful for UX/ergonomics, but their core boundaries are easier to bypass when protections are optional or workflow-dependent.
+- Construct needs structural enforcement at runtime because agents execute arbitrary commands and network requests inside the construct environment.
+
+Patterns intentionally not used as primary boundary:
+- Hook-only enforcement (can be bypassed if hooks are missing/disabled).
+- Convention-based agent instructions without runtime policy enforcement.
+- Any fallback that injects raw provider keys directly into agent env when proxy policy is unavailable.
 
 ---
 
@@ -243,15 +279,60 @@ All env vars injected into the agent process are masked using the same `CONSTRUC
 - This list is the only user-controlled way to disclose selected raw env values to the agent in hide-secrets mode.
 - Validate entries as exact env var names; ignore invalid names with warning.
 
-### Provider Key Allowlist
-Provider API keys required for agent function (LLM calls, tool access) are handled through a **trusted proxy** model:
+### Agent Runtime AuthZ (Run-Only Session Model)
+Agent processes in hide-secrets mode must run under a short-lived, run-only session authorization model.
 
-1. **V1 (required):** Construct host process holds raw provider keys. Agent communicates with providers through Construct's proxy endpoint.
+1. **Session token issuance:**
+   - Construct host mints an ephemeral token per agent session.
+   - Suggested token format prefix: `construct_hs_v1.`
+   - Token has strict TTL (default 60 minutes), scoped to `session_id`, and is revoked on session end.
+2. **Capabilities:**
+   - Token may invoke approved proxy actions only (provider request execution through policy checks).
+   - Token cannot call any path that returns raw secret values.
+   - Token cannot mutate secret storage, policy, or provider mappings.
+3. **Validation:**
+   - Store only token HMAC/hash server-side; never persist raw token in session artifacts.
+   - Validate in constant time to reduce timing-leak risk.
+4. **Failure posture:**
+   - Expired/revoked/invalid token => fail closed and abort request.
+   - No fallback to raw env/provider key injection.
+5. **Agent env exposure:**
+   - If token is injected into agent env, mark it as runtime credential and exclude from logs/reports.
+   - Token must never be printed in diagnostics; redact as `CONSTRUCT_REDACTED_TOKEN`.
+
+### Provider Key Allowlist and Pinning
+Provider API keys required for agent function are handled through a **trusted proxy + provider pinning** model:
+
+1. **V1 (required):** Construct host process holds raw provider keys. Agent communicates with providers through Construct proxy endpoint only.
 2. **Implementation:** Inject `HTTP_PROXY` and `HTTPS_PROXY` env vars into the agent process pointing to the internal Construct host.
-3. **Security:** The proxy intercepts provider requests, injects the necessary raw keys/tokens from the host's secure storage, and forwards the request. The agent never sees the raw keys in its environment or memory.
-4. **Hard rule:** If a provider is not yet supported by the proxy, it is unavailable to the agent in hide-secrets mode. No exceptions. No insecure fallbacks.
-5. **Enforcement:** Set `ALL_PROXY` to the same internal proxy endpoint; clear agent-supplied `NO_PROXY/no_proxy` unless explicitly whitelisted for internal Construct endpoints.
-6. **Network guardrail:** deny direct provider egress from the agent container in hide-secrets mode; allow provider traffic only via the trusted proxy.
+3. **Provider pinning registry:**
+   - Maintain a built-in provider map (`provider_id -> allowed_hosts, auth_strategy, managed_header_names, secret_name_patterns`).
+   - Secrets associated with known provider identities are pinned to that provider identity for hide-secrets use.
+   - Pinned provider identity is immutable for the session; mismatch fails closed.
+4. **Host derivation:**
+   - Effective upstream host is derived from proxy policy and provider mapping, never from arbitrary caller URL.
+   - Caller-supplied full URLs to provider endpoints are rejected in hide-secrets mode.
+5. **Hard rule:** If a provider is not supported by the proxy/pinning registry, it is unavailable to the agent in hide-secrets mode. No exceptions.
+6. **Enforcement:** Set `ALL_PROXY` to the same internal proxy endpoint; clear agent-supplied `NO_PROXY/no_proxy` unless explicitly whitelisted for internal Construct endpoints.
+7. **Network guardrail:** deny direct provider egress from the agent container in hide-secrets mode; allow provider traffic only via trusted proxy.
+
+### Proxy Policy Contract (Mandatory)
+The proxy contract must be explicit and testable:
+
+1. **Request sanitization:**
+   - Reject caller-supplied auth-class headers (`Authorization`, `Proxy-Authorization`, provider-specific managed auth headers).
+   - Reject caller attempts to set broker-managed query auth parameters.
+2. **Policy checks before auth injection:**
+   - Validate method/path/host against provider policy first.
+   - Inject auth only after policy pass.
+3. **Redirect handling:**
+   - Default mode: `block`.
+   - Optional strict mode: `revalidate` each hop and strip auth on cross-host redirects.
+4. **Response sanitization:**
+   - Strip auth-class response headers/cookies before returning to agent.
+   - Optional body blocklist redaction in hardening phase.
+5. **Error redaction:**
+   - Ensure URLs and diagnostics emitted by proxy never contain raw auth-bearing query/path/header fragments.
 
 ### Explicit Env Var Classification
 ```
@@ -269,13 +350,34 @@ This proposal affects:
 - `internal/env/env.go`
 - `internal/runtime/runtime.go`
 - configuration in `internal/config/config.go` and template `internal/templates/config.toml`
+- security/session and proxy authz modules (new package paths to be finalized during implementation)
 
 Key changes:
 - Before starting agent session, prepare per-session overlay (upper layer with redacted files).
 - Configure container to use OverlayFS merged view as workdir.
 - Build masked env set for agent execution path (`run` and daemon `exec` paths).
-- Route provider auth through trusted proxy (no raw keys in agent env).
+- Mint and inject run-only session credential for proxy use.
+- Route provider auth through trusted proxy with provider pinning/policy checks (no raw keys in agent env).
 - Keep hide-secrets sessions non-persistent to project files (no write-back).
+- Persist tamper-evident security audit events and verification metadata.
+
+## Isolation Modes (Chosen Path)
+
+### Mode A: In-Process Proxy Boundary (V1 Required)
+- Proxy, token validation, and auth injection run in Construct host process.
+- This is the minimum required runtime boundary for V1.
+- Must still enforce run-only token + provider pinning + policy contract.
+
+### Mode B: Daemon Proxy Boundary (Phase 2 Hardening)
+- Move proxy/decryption/auth injection into a dedicated local daemon process.
+- Agent-facing Construct process becomes a thin caller to daemon (local socket).
+- Supports tighter OS-level isolation and future operator/agent user separation.
+
+Daemon mode requirements when implemented:
+1. Socket access permissions are restrictive by default.
+2. Shared-operator mode can be enabled explicitly for multi-user setups.
+3. If configured shared socket is expected but unavailable, fail closed (no insecure fallback).
+4. Daemon and client protocol responses must never include raw secrets/tokens.
 
 ---
 
@@ -289,9 +391,12 @@ Proposed root:
 Proposed files:
 - `sessions/<session-id>/manifest.json`
 - `sessions/<session-id>/redaction-index.json`
+- `sessions/<session-id>/authz.json` (run-only session auth metadata, no raw token)
 - `sessions/<session-id>/upper/` (overlay upper layer)
 - `sessions/<session-id>/work/` (overlay workdir — required by OverlayFS)
 - `sessions/<session-id>/errors.json` (only when failures occur)
+- `audit/security-audit.log` (HMAC-chained JSONL events)
+- `audit/security-audit.state` (latest chain head + format version)
 - `cache/rules-version.json`
 
 ### `manifest.json` fields
@@ -308,6 +413,12 @@ Proposed files:
 - `mode` (`run` or `daemon`)
 - `persistence_mode` (`read_only_session`)
 - `changed_files_count`
+- `authz_mode` (`run_only_token`)
+- `session_token_id` (non-secret identifier, never raw token)
+- `session_token_expires_at`
+- `provider_capabilities` (allowed provider/capability list)
+- `audit_chain_head` (latest event chain digest seen in-session)
+- `policy_violations_count`
 
 ### `redaction-index.json` fields
 - per file:
@@ -318,6 +429,7 @@ Proposed files:
 
 Important:
 - Never persist raw secret values in session artifacts.
+- Never persist raw session tokens in session artifacts.
 - Store only metadata, counts, and hashes.
 
 ### Session Lifecycle
@@ -342,6 +454,8 @@ Important:
 - Provider auth failures if runtime keys are masked before network calls.
 - User assumes edits persist when hide-secrets mode intentionally keeps changes in session upper layer only.
 - Tooling that expects real `.env` values fails inside agent.
+- Session token leakage through logs/debug output could widen blast radius.
+- Weak proxy host derivation could allow host-swap key exfiltration.
 
 ### V1 compatibility rules
 1. Agent always runs against OverlayFS merged view.
@@ -352,6 +466,9 @@ Important:
 6. Do not auto-change `network.mode`; network policy remains independent.
 7. Provider keys routed through trusted proxy — never in agent env.
 8. Respect `hide_secrets_passthrough_vars` as explicit user-approved raw env passthrough.
+9. Agent secret-use requests must carry valid run-only session authz.
+10. Proxy host/method/path and auth injection decisions are policy-derived, not caller-derived.
+11. Unsupported provider/pinning mismatches fail closed (no direct fallback).
 
 ---
 
@@ -383,12 +500,39 @@ When enabled, emit a short session report:
 - files scanned
 - files redacted (with path list)
 - secrets redacted (count only)
+- session authz mode + token id (id only, never raw token)
+- proxy policy denials (count)
 - false-positive candidates skipped (count, with `--verbose` for details)
 - duration
 - report file path
 - persistence summary (changed files retained for review / no project write-back)
 
 Never print raw values in logs.
+
+### Tamper-Evident Security Audit
+In addition to human-readable reporting, hide-secrets mode writes structured security events to an HMAC-chained audit log.
+
+Event classes (minimum V1):
+- `session.start` / `session.end`
+- `token.mint` / `token.revoke` / `token.reject`
+- `proxy.invoke.allow` / `proxy.invoke.deny`
+- `proxy.policy.violation` (header/path/host/method/redirect categories)
+- `redaction.summary`
+
+Per-event fields (minimum):
+- `ts`, `session_id`, `event`, `actor`, `outcome`
+- `provider`/`capability` when proxy-related
+- `details` (non-secret metadata only)
+- `prev_hmac`, `chain_hmac`
+
+Integrity model:
+- `chain_hmac = HMAC(audit_key, prev_hmac || canonical_event_payload)`
+- `audit_key` derived from host master key material using dedicated context label.
+- Verification command: `construct sys security audit verify`.
+
+Hard requirements:
+- Audit failures do not leak raw secrets in error output.
+- In hide-secrets mode, inability to append required audit events is fail-closed for security-critical operations (token mint, proxy allow).
 
 ---
 
@@ -400,19 +544,28 @@ Never print raw values in logs.
 - Fixtures across env/json/yaml/toml/ini/properties/key files
 - False-positive test suite (lock files, UUIDs, base64 data, SRI hashes)
 - Add config comments warning about `hide_git_dir=false` risk
+- Define run-only session token model (TTL, scope, revocation, deny semantics)
+- Define provider pinning registry schema and policy contract
+- Define HMAC audit chain format and verification behavior
 
 ### Phase 1: Functional V1
 - OverlayFS session setup and teardown
 - Redaction pass (path-first + content scan)
 - Agent run path integration (overlay mount)
 - Masked env injection with provider proxy
+- Run-only session token mint/validate/revoke
+- Provider pinning + host/method/path policy enforcement in proxy
+- Auth-class header sanitization and redirect block behavior
 - Read-only session persistence policy implementation (no project write-back)
 - Session persistence and report
 - `deny_paths` enforcement
+- Tamper-evident security audit chain + verify command
 
 ### Phase 2: Hardening
 - Detection coverage improvements based on real-world feedback
 - Provider proxy hardening for all supported LLM providers
+- Optional daemon boundary for proxy/decryption path (unix socket)
+- Advanced proxy policy controls (rate limits, request/response size, response blocklist)
 - macOS fallback (no OverlayFS — use copy-on-write with APFS clones)
 
 ### Phase 3: Advanced features
@@ -431,6 +584,10 @@ Never print raw values in logs.
 - Entropy detector false-positive guardrails
 - `.gitignore` independence (git-ignored candidate files still scanned)
 - Session persistence policy (no project write-back in hide-secrets mode)
+- Run-only token validation (TTL, revocation, constant-time compare behavior)
+- Provider pinning resolution and mismatch failure
+- Proxy request sanitization (auth header/query rejection)
+- Audit chain append and verify logic
 
 ### Integration tests
 - Mixed-language fixture project
@@ -440,6 +597,10 @@ Never print raw values in logs.
 - Daemon works under hide mode (overlay is transparent)
 - Linux overlay mount lifecycle
 - Zero-load regression when env gate is absent
+- Agent proxy request succeeds only with valid run-only token
+- Unsupported provider in hide mode fails closed with actionable error
+- Redirect exfiltration attempts are blocked (or strictly revalidated by policy mode)
+- Audit verify command passes on untouched log and fails on tampered log
 
 ### Security tests
 - Verify no raw secrets in:
@@ -453,6 +614,10 @@ Never print raw values in logs.
 - Verify provider keys not in agent-visible env
 - Verify upper layer contains no raw secret values
 - Verify direct provider egress is blocked when hide-secrets mode is active
+- Verify caller-supplied auth-class headers are rejected by proxy
+- Verify caller cannot override provider host with arbitrary URL
+- Verify run-only session token cannot access secret-read/mutation operations
+- Verify security-critical proxy allow events are chained in audit log
 
 ---
 
@@ -468,6 +633,27 @@ Why:
 - Simple operational model (no external dependency service).
 - Reproducible behavior per binary version.
 - Easy debugging because each session states exact ruleset version used.
+
+## Provider Policy Lifecycle
+
+Approach:
+- Ship a built-in provider policy registry with the binary for hide-secrets mode.
+- Each entry defines:
+  - `provider_id`
+  - allowed host patterns
+  - allowed auth injection strategy
+  - managed auth header/query names
+  - canonical secret name patterns (for pinning)
+- Record `provider_registry_version` in session manifest and audit events.
+
+Pinning semantics:
+1. If a secret maps to a known provider identity, it is pinned to that identity for hide-secrets use.
+2. Pinned identity cannot be changed by agent-originated operations.
+3. Mismatched provider/capability resolution fails closed.
+
+Why:
+- Prevents host-swap exfiltration through arbitrary URLs or forged provider config.
+- Makes behavior deterministic and auditable across versions.
 
 ---
 
@@ -502,13 +688,18 @@ Proceed with V1 as:
 - OverlayFS per-session isolation (Linux), APFS clones (macOS)
 - Redacted upper layer with path-first + content scan pipeline
 - Masked agent env with trusted provider proxy (HTTP/HTTPS)
+- Run-only session authz token (TTL + revoke + fail-closed validation)
+- Provider pinning registry with policy-derived host/method/path checks
+- Mandatory proxy sanitization (auth header/query rejection, redirect guardrails, error redaction)
 - Explicit raw env passthrough only via `hide_secrets_passthrough_vars`
 - `.git` hidden by default (`security.hide_git_dir=true`)
 - Fail-closed startup if overlay or redaction preparation fails
 - Forced `mount_home=false` while hide mode is active
 - Read-only session persistence model (no write-back to real project)
 - `deny_paths` shipped in V1 for stricter control
+- Tamper-evident HMAC-chained security audit with verification command
 - Session cleanup when unchanged; changed sessions retained for manual review
 - No session-level locking — per-session overlay provides full parallelism
+- Daemon boundary intentionally deferred to hardening phase (keeps V1 tractable while preserving path to stronger isolation)
 
 This gives a clean user experience and meaningful protection without pretending perfect detection or breaking existing default behavior.
