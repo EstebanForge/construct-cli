@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -527,17 +526,6 @@ func runOwnershipFixNonInteractive(configPath string) error {
 		return fmt.Errorf("%w: %s", err, msg)
 	}
 	return nil
-}
-
-func currentUserName() string {
-	if userName := os.Getenv("USER"); userName != "" {
-		return userName
-	}
-	current, err := user.Current()
-	if err != nil {
-		return ""
-	}
-	return current.Username
 }
 
 // mergePackagesFile replaces packages.toml with the template and reapplies user values.
