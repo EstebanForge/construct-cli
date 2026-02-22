@@ -87,6 +87,65 @@ func TestGetCheckImageCommand(t *testing.T) {
 	}
 }
 
+func TestBuildComposeCommandPodmanFallbackToComposePlugin(t *testing.T) {
+	tmpDir := t.TempDir()
+	origPath := os.Getenv("PATH")
+	t.Cleanup(func() {
+		os.Setenv("PATH", origPath)
+	})
+
+	// No podman-compose binary available in PATH -> should use "podman compose".
+	os.Setenv("PATH", tmpDir)
+
+	cmd, err := BuildComposeCommand("podman", tmpDir, "run", []string{"--rm", "construct-box", "true"})
+	if err != nil {
+		t.Fatalf("BuildComposeCommand failed: %v", err)
+	}
+
+	if len(cmd.Args) < 2 {
+		t.Fatalf("unexpected args for podman compose fallback: %v", cmd.Args)
+	}
+	if cmd.Args[0] != "podman" || cmd.Args[1] != "compose" {
+		t.Fatalf("expected fallback to 'podman compose', got: %v", cmd.Args)
+	}
+}
+
+func TestBuildComposeCommandPodmanUsesPodmanComposeBinary(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("test relies on POSIX executable bits")
+	}
+
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("failed to create bin dir: %v", err)
+	}
+
+	// Provide a fake podman-compose binary so LookPath picks it.
+	podmanComposePath := filepath.Join(binDir, "podman-compose")
+	if err := os.WriteFile(podmanComposePath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to create fake podman-compose: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	t.Cleanup(func() {
+		os.Setenv("PATH", origPath)
+	})
+	os.Setenv("PATH", binDir)
+
+	cmd, err := BuildComposeCommand("podman", tmpDir, "run", []string{"--rm", "construct-box", "true"})
+	if err != nil {
+		t.Fatalf("BuildComposeCommand failed: %v", err)
+	}
+
+	if len(cmd.Args) == 0 {
+		t.Fatalf("unexpected empty args for podman-compose command")
+	}
+	if cmd.Args[0] != "podman-compose" {
+		t.Fatalf("expected podman-compose binary path, got: %v", cmd.Args)
+	}
+}
+
 // TestGetOSInfo tests OS information retrieval
 // getOSInfo is not in runtime package anymore (it was private in main.go and I didn't export it in runtime.go because it seemed unused except for test?)
 // Wait, getOSInfo was in main.go. Did I move it?

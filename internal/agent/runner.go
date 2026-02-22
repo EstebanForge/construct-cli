@@ -31,6 +31,8 @@ const loginBridgeFlagFile = ".login_bridge"
 const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
 
 var containerHasUIDEntryFn = runtime.ContainerHasUIDEntry
+var startClipboardServerFn = clipboard.StartServer
+var execInteractiveAsUserFn = runtime.ExecInteractiveAsUser
 
 // RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
@@ -404,7 +406,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			selected := strings.TrimSpace(string(output))
 			switch {
 			case strings.HasPrefix(selected, "Attach"):
-				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, containerName, mergedProviderEnv)
+				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, mergedProviderEnv)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
@@ -437,7 +439,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 			switch basicChoice {
 			case "1":
-				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, containerName, mergedProviderEnv)
+				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, mergedProviderEnv)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
@@ -499,7 +501,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	if cfg != nil {
 		clipboardHost = cfg.Sandbox.ClipboardHost
 	}
-	cbServer, err := clipboard.StartServer(clipboardHost)
+	cbServer, err := startClipboardServerFn(clipboardHost)
 	if err != nil {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
@@ -992,7 +994,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	if cfg != nil {
 		clipboardHost = cfg.Sandbox.ClipboardHost
 	}
-	cbServer, err := clipboard.StartServer(clipboardHost)
+	cbServer, err := startClipboardServerFn(clipboardHost)
 	if err != nil {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
@@ -1047,7 +1049,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	}
 
 	// Execute interactively in daemon container
-	exitCode, err := runtime.ExecInteractiveAsUser(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
+	exitCode, err := execInteractiveAsUserFn(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
 	if err == nil && len(execArgs) > 0 && (exitCode == 126 || exitCode == 127) {
 		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", execArgs[0])
 		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
@@ -1056,7 +1058,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	return true, exitCode, err
 }
 
-func execInRunningContainer(args []string, cfg *config.Config, containerRuntime, containerName string, providerEnv []string) (int, error) {
+func execInRunningContainer(args []string, cfg *config.Config, containerRuntime string, providerEnv []string) (int, error) {
 	envVars := make([]string, 0, len(providerEnv)+16)
 	envVars = append(envVars, providerEnv...)
 
@@ -1075,7 +1077,7 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime,
 	if cfg != nil {
 		clipboardHost = cfg.Sandbox.ClipboardHost
 	}
-	cbServer, err := clipboard.StartServer(clipboardHost)
+	cbServer, err := startClipboardServerFn(clipboardHost)
 	if err != nil {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
@@ -1106,8 +1108,9 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime,
 		execArgs = []string{execShell}
 	}
 
+	containerName := "construct-cli"
 	execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
-	return runtime.ExecInteractiveAsUser(containerRuntime, containerName, execArgs, envVars, "", execUser)
+	return execInteractiveAsUserFn(containerRuntime, containerName, execArgs, envVars, "", execUser)
 }
 
 func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, execUser string) (*SSHBridge, []string, error) {
