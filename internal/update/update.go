@@ -104,16 +104,26 @@ func compareVersions(v1, v2 string) int {
 // RecordUpdateCheck updates the update-check timestamp file.
 func RecordUpdateCheck() {
 	checkFile := filepath.Join(config.GetConfigDir(), constants.UpdateCheckFile)
-	now := time.Now()
-	if err := os.Chtimes(checkFile, now, now); err != nil {
-		ui.LogWarning("Failed to update update-check timestamp: %v", err)
+	checkDir := filepath.Dir(checkFile)
+	if err := os.MkdirAll(checkDir, 0755); err != nil {
+		ui.LogWarning("Failed to create update-check directory: %v", err)
+		return
 	}
 
-	// Ensure file exists
+	// Ensure file exists before updating timestamps.
 	if _, err := os.Stat(checkFile); os.IsNotExist(err) {
 		if err := os.WriteFile(checkFile, []byte{}, 0644); err != nil {
 			ui.LogWarning("Failed to write update-check file: %v", err)
+			return
 		}
+	} else if err != nil {
+		ui.LogWarning("Failed to stat update-check file: %v", err)
+		return
+	}
+
+	now := time.Now()
+	if err := os.Chtimes(checkFile, now, now); err != nil {
+		ui.LogWarning("Failed to update update-check timestamp: %v", err)
 	}
 }
 

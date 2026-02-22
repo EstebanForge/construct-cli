@@ -339,6 +339,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	commonProviderEnv := env.CollectProviderEnv()
 	mergedProviderEnv := env.MergeEnvVars(commonProviderEnv, providerEnv)
 
+	if err := ensureAgentRuntimeDirs(baseArgs, configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	// Check if daemon container is running - use it for faster startup
 	daemonName := "construct-cli-daemon"
 	daemonState := runtime.GetContainerState(containerRuntime, daemonName)
@@ -1248,6 +1253,21 @@ func waitForDaemon(containerRuntime, daemonName string, timeoutSeconds int) bool
 		fmt.Printf("Debug: Daemon did not start within %d seconds\n", timeoutSeconds)
 	}
 	return false
+}
+
+func ensureAgentRuntimeDirs(args []string, configPath string) error {
+	if len(args) == 0 || configPath == "" {
+		return nil
+	}
+	if !strings.EqualFold(args[0], "codex") {
+		return nil
+	}
+
+	codexHome := filepath.Join(configPath, "home", ".codex")
+	if err := os.MkdirAll(codexHome, 0755); err != nil {
+		return fmt.Errorf("failed to create Codex home directory at %s: %w", codexHome, err)
+	}
+	return nil
 }
 
 func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchValue string) {

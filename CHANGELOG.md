@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.6] - 2026-02-22
+## [1.3.7] - 2026-02-22
 
 ### Added
 - **Unified Test Summary (`make test`)**: Added a combined end-of-run summary that reports unit pass/fail/skip counts, unit package pass/fail counts, integration totals, and overall status.

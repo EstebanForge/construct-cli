@@ -134,6 +134,36 @@ func TestAgentArgParsing(t *testing.T) {
 	}
 }
 
+func TestEnsureAgentRuntimeDirsCreatesCodexHome(t *testing.T) {
+	configPath := t.TempDir()
+
+	if err := ensureAgentRuntimeDirs([]string{"codex"}, configPath); err != nil {
+		t.Fatalf("expected no error creating codex runtime dirs, got %v", err)
+	}
+
+	codexHome := filepath.Join(configPath, "home", ".codex")
+	info, err := os.Stat(codexHome)
+	if err != nil {
+		t.Fatalf("expected codex home to exist at %s: %v", codexHome, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected codex home path to be a directory, got file: %s", codexHome)
+	}
+}
+
+func TestEnsureAgentRuntimeDirsSkipsNonCodex(t *testing.T) {
+	configPath := t.TempDir()
+
+	if err := ensureAgentRuntimeDirs([]string{"claude"}, configPath); err != nil {
+		t.Fatalf("expected no error for non-codex agent, got %v", err)
+	}
+
+	codexHome := filepath.Join(configPath, "home", ".codex")
+	if _, err := os.Stat(codexHome); !os.IsNotExist(err) {
+		t.Fatalf("expected codex home to remain absent for non-codex agent, stat err=%v", err)
+	}
+}
+
 // TestCodexWSLEnvironment verifies codex-specific environment setup
 func TestCodexWSLEnvironment(t *testing.T) {
 	// Test that codex agent gets WSL environment variables
