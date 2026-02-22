@@ -497,11 +497,9 @@ func warnConfigPermission(err error) {
 }
 
 func runOwnershipFix(configPath string) error {
-	username := currentUserName()
-	if username == "" {
-		username = "root"
-	}
-	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%s:%s", username, username), configPath)
+	uid := os.Getuid()
+	gid := os.Getgid()
+	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

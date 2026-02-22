@@ -568,6 +568,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	if stdruntime.GOOS == "darwin" {
 		runFlags = append(runFlags, "--user", "construct")
 	}
+	appendExecUserRunFlags(&runFlags, cfg, containerRuntime)
 
 	if loginForward {
 		for _, port := range loginPorts {
@@ -725,6 +726,15 @@ func execUserForAgentExec(cfg *config.Config, containerRuntime string) string {
 		return ""
 	}
 	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+}
+
+func appendExecUserRunFlags(runFlags *[]string, cfg *config.Config, containerRuntime string) {
+	execUser := execUserForAgentExec(cfg, containerRuntime)
+	if execUser == "" {
+		return
+	}
+	*runFlags = append(*runFlags, "--user", execUser)
+	*runFlags = append(*runFlags, "-e", "HOME=/home/construct")
 }
 
 func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, containerName string) string {

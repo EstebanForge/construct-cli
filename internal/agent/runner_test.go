@@ -435,6 +435,69 @@ func TestExecUserForAgentExec(t *testing.T) {
 	}
 }
 
+func TestAppendExecUserRunFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     *config.Config
+		runtime string
+		wantAny []string
+		wantLen int
+	}{
+		{
+			name: "disabled setting",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: false},
+			},
+			runtime: "docker",
+			wantLen: 0,
+		},
+		{
+			name: "non-docker runtime",
+			cfg: &config.Config{
+				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+			},
+			runtime: "podman",
+			wantLen: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			runFlags := []string{}
+			appendExecUserRunFlags(&runFlags, tt.cfg, tt.runtime)
+			if len(runFlags) != tt.wantLen {
+				t.Fatalf("expected %d run flag entries, got %d: %v", tt.wantLen, len(runFlags), runFlags)
+			}
+		})
+	}
+
+	if stdruntime.GOOS == "linux" {
+		t.Run("linux docker adds host user and HOME", func(t *testing.T) {
+			runFlags := []string{}
+			cfg := &config.Config{Sandbox: config.SandboxConfig{ExecAsHostUser: true}}
+			appendExecUserRunFlags(&runFlags, cfg, "docker")
+
+			expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+			expected := []string{
+				"--user", expectedUser,
+				"-e", "HOME=/home/construct",
+			}
+			for _, expectedValue := range expected {
+				found := false
+				for _, actual := range runFlags {
+					if actual == expectedValue {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("expected run flags to include %q, got %v", expectedValue, runFlags)
+				}
+			}
+		})
+	}
+}
+
 func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
 	original := containerHasUIDEntryFn
 	t.Cleanup(func() {
