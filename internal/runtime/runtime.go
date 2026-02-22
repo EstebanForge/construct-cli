@@ -1186,11 +1186,9 @@ func getOwnerUID(path string) (int, error) {
 }
 
 func runOwnershipFix(configPath string) error {
-	username := currentUserName()
-	if username == "" {
-		username = "root"
-	}
-	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%s:%s", username, username), configPath)
+	uid := os.Getuid()
+	gid := os.Getgid()
+	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -1205,11 +1203,9 @@ func runOwnershipFixNonInteractive(configPath string) error {
 		return fmt.Errorf("sudo non-interactive check failed: %w", err)
 	}
 
-	username := currentUserName()
-	if username == "" {
-		username = "root"
-	}
-	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%s:%s", username, username), configPath)
+	uid := os.Getuid()
+	gid := os.Getgid()
+	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		msg := strings.TrimSpace(string(out))
