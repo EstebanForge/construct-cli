@@ -2,17 +2,24 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.5] - 2026-02-22
+## [1.3.6] - 2026-02-22
 
 ### Added
 - **Unified Test Summary (`make test`)**: Added a combined end-of-run summary that reports unit pass/fail/skip counts, unit package pass/fail counts, integration totals, and overall status.
 - **Codex Regression Tests**: Added targeted tests for Codex env injection and fallback behavior, including `CODEX_HOME` presence for Codex runs, WSL fallback env injection when clipboard patching is enabled, and guard checks ensuring non-Codex agents do not inherit Codex-only env vars.
+- **Attach Execution Regression Tests**: Added focused tests covering attach-session env injection (`HOME`, `PATH`, clipboard vars, Codex vars), shell fallback behavior, and Linux host-UID exec mapping.
+- **Podman Compose Selection Tests**: Added unit coverage to verify command selection prefers `podman-compose` when present and falls back to `podman compose` when it is not.
 
 ### Changed
 - **Test Runner Consolidation**: `make test` and `make test-ci` now run through a shared `scripts/test-all.sh` flow for consistent unit+integration reporting.
 - **Color Controls for Test Summaries**: Added status-aware summary coloring (green/yellow/red) with `NO_COLOR` to disable and `FORCE_COLOR=1` to force output coloring.
 - **Codex Config Home Resolution**: Force Codex runs (standard + daemon) to use `CODEX_HOME=/home/construct/.codex` so config is loaded from `/home/construct/.codex/config.toml` instead of project-relative `.codex` paths under `/projects/...`.
 - **Codex Agent Env Injection Refactor**: Centralized Codex-specific run/daemon environment injection into dedicated helper functions to reduce drift across execution paths.
+- **Attach Execution Path Parity**: Attach-to-running-container flows now use interactive exec with the same env protections as normal/daemon runs (construct `PATH`, `HOME=/home/construct`, clipboard vars, and agent-specific env injection).
+- **Linux Non-Daemon Host UID Mapping**: Non-daemon Linux Docker agent runs now apply host `UID:GID` mapping when `exec_as_host_user=true` and force `HOME=/home/construct`.
+- **Podman Compose Invocation Strategy**: Compose command resolution now uses `podman-compose` when available and otherwise falls back to `podman compose`.
+- **Strict Network Naming Consistency**: Strict mode now uses a consistent `construct-net` network name across network precreate checks and compose override generation.
+- **Ownership Repair Mapping**: Runtime and migration ownership repair commands now use numeric `uid:gid` mapping for broader Linux compatibility.
 
 ### Fixed
 - **Entrypoint HOME/Permissions Regression (Linux Docker)**: Resolved a regression where entrypoint privilege drop could run as a raw host uid:gid without a passwd entry, causing `HOME=/` and repeated permission errors writing `~/.ssh`, `~/.bashrc`, and setup files.
@@ -20,6 +27,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Linux Config Ownership Auto-Recovery**: Hardened migration/runtime permission recovery to attempt non-interactive sudo ownership repair first, with clearer remediation when elevation is unavailable.
 - **Host UID Exec Fallback Messaging**: Ensured fallback warnings are visible when host UID mapping cannot be used inside the container.
 - **Docker Override Host UID Injection**: Removed runtime host UID/GID env injection from generated Docker overrides to avoid reintroducing raw-UID startup regressions.
+- **Codex Attach Permission Path Drift (Linux)**: Fixed attach sessions that could miss home/config env injection and fall back to project-relative `.codex` resolution.
+- **Podman Runtime/Compose Mismatch**: Fixed runtime detection success followed by compose invocation failure on hosts without `podman-compose`.
+- **Linux Exec Documentation Drift**: Updated docs/comments to match current behavior when host UID is missing in container `/etc/passwd` (keep host mapping and force `HOME=/home/construct`).
 
 ---
 
