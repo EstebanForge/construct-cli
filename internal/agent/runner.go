@@ -404,22 +404,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 			selected := strings.TrimSpace(string(output))
 			switch {
 			case strings.HasPrefix(selected, "Attach"):
-				// Execute in existing container
-				cmdArgs := args
-				execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
-				var result string
-				var err error
-				if execUser != "" {
-					result, err = runtime.ExecInContainerWithEnv(containerRuntime, containerName, cmdArgs, nil, execUser)
-				} else {
-					result, err = runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
-				}
+				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, containerName, mergedProviderEnv)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
 				}
-				fmt.Print(result)
-				return
+				os.Exit(exitCode)
 			case strings.HasPrefix(selected, "Stop"):
 				if err := runtime.StopContainer(containerRuntime, containerName); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to stop container: %v\n", err)
@@ -447,21 +437,12 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 			switch basicChoice {
 			case "1":
-				cmdArgs := args
-				execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
-				var result string
-				var err error
-				if execUser != "" {
-					result, err = runtime.ExecInContainerWithEnv(containerRuntime, containerName, cmdArgs, nil, execUser)
-				} else {
-					result, err = runtime.ExecInContainer(containerRuntime, containerName, cmdArgs)
-				}
+				exitCode, err := execInRunningContainer(args, cfg, containerRuntime, containerName, mergedProviderEnv)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to attach: %v\n", err)
 					os.Exit(1)
 				}
-				fmt.Print(result)
-				return
+				os.Exit(exitCode)
 			case "2":
 				if err := runtime.StopContainer(containerRuntime, containerName); err != nil {
 					fmt.Fprintf(os.Stderr, "Error: Failed to stop container: %v\n", err)
@@ -755,13 +736,13 @@ func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, co
 	hasUIDEntry, err := containerHasUIDEntryFn(containerRuntime, containerName, os.Getuid())
 	if err != nil {
 		fmt.Printf("Warning: Failed to verify host UID mapping in container: %v\n", err)
-		fmt.Println("Warning: Falling back to container default user for this run.")
-		return ""
+		fmt.Println("Warning: Continuing with host UID:GID mapping; HOME is forced to /home/construct.")
+		return execUser
 	}
 	if !hasUIDEntry {
 		fmt.Printf("Warning: Host UID %d is not present in container /etc/passwd.\n", os.Getuid())
-		fmt.Println("Warning: Falling back to container default user for this run.")
-		return ""
+		fmt.Println("Warning: Continuing with host UID:GID mapping; HOME is forced to /home/construct.")
+		return execUser
 	}
 	return execUser
 }
@@ -994,6 +975,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	// The container user's home is always /home/construct.
 	env.EnsureConstructPath(&envVars, "/home/construct")
 	applyConstructPath(&envVars)
+	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
 	// Add clipboard environment (start clipboard server for this session)
 	clipboardHost := ""
@@ -1062,6 +1044,60 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		fmt.Println("If needed, run 'construct sys packages --install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
+}
+
+func execInRunningContainer(args []string, cfg *config.Config, containerRuntime, containerName string, providerEnv []string) (int, error) {
+	envVars := make([]string, 0, len(providerEnv)+16)
+	envVars = append(envVars, providerEnv...)
+
+	// Ensure agent subprocesses resolve tool/config paths from the Construct home.
+	env.EnsureConstructPath(&envVars, "/home/construct")
+	applyConstructPath(&envVars)
+	env.SetEnvVar(&envVars, "HOME", "/home/construct")
+
+	clipboardPatchValue := "1"
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	envVars = append(envVars, "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
+
+	clipboardHost := ""
+	if cfg != nil {
+		clipboardHost = cfg.Sandbox.ClipboardHost
+	}
+	cbServer, err := clipboard.StartServer(clipboardHost)
+	if err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
+		}
+	} else {
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		envVars = append(envVars, "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
+	}
+
+	if len(args) > 0 {
+		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
+		appendAgentSpecificExecEnv(&envVars, args[0], clipboardPatchValue)
+	}
+
+	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
+		envVars = append(envVars, "COLORTERM="+colorterm)
+	} else {
+		envVars = append(envVars, "COLORTERM=truecolor")
+	}
+
+	execArgs := args
+	if len(execArgs) == 0 {
+		execShell := "/bin/bash"
+		if cfg != nil && cfg.Sandbox.Shell != "" {
+			execShell = cfg.Sandbox.Shell
+		}
+		execArgs = []string{execShell}
+	}
+
+	execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, containerName)
+	return runtime.ExecInteractiveAsUser(containerRuntime, containerName, execArgs, envVars, "", execUser)
 }
 
 func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, execUser string) (*SSHBridge, []string, error) {
@@ -1168,32 +1204,8 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 	osEnv = network.InjectEnv(osEnv, cfg)
 	applyConstructPath(&osEnv)
 
-	// Build compose command for detached run
-	composeArgs := runtime.GetComposeFileArgs(configPath)
-	var cmd *exec.Cmd
-
-	switch containerRuntime {
-	case "docker":
-		if _, err := exec.LookPath("docker-compose"); err == nil {
-			args := append(composeArgs, "run", "-d", "--rm", "--name", daemonName, "construct-box")
-			cmd = exec.Command("docker-compose", args...)
-		} else {
-			args := make([]string, 0, 1+len(composeArgs)+6)
-			args = append(args, "compose")
-			args = append(args, composeArgs...)
-			args = append(args, "run", "-d", "--rm", "--name", daemonName, "construct-box")
-			cmd = exec.Command("docker", args...)
-		}
-	case "podman":
-		args := append(composeArgs, "run", "-d", "--rm", "--name", daemonName, "construct-box")
-		cmd = exec.Command("podman-compose", args...)
-	case "container":
-		args := make([]string, 0, 1+len(composeArgs)+6)
-		args = append(args, "compose")
-		args = append(args, composeArgs...)
-		args = append(args, "run", "-d", "--rm", "--name", daemonName, "construct-box")
-		cmd = exec.Command("docker", args...)
-	default:
+	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", []string{"-d", "--rm", "--name", daemonName, "construct-box"})
+	if err != nil {
 		return false
 	}
 
@@ -1258,4 +1270,24 @@ func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
 	*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
 	*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
 	*envVars = append(*envVars, "DISPLAY=")
+}
+
+func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValue string) {
+	if agentName != "codex" {
+		return
+	}
+
+	*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
+
+	if clipboardPatchValue == "0" {
+		return
+	}
+
+	*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
+	*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
+	*envVars = append(*envVars, "DISPLAY=")
+
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		*envVars = append(*envVars, "CONSTRUCT_DEBUG=1")
+	}
 }
