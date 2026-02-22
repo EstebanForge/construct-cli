@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
@@ -308,6 +309,208 @@ func containsEnv(envVars []string, value string) bool {
 		}
 	}
 	return false
+}
+
+func envValue(envVars []string, key string) string {
+	prefix := key + "="
+	for _, envVar := range envVars {
+		if strings.HasPrefix(envVar, prefix) {
+			return strings.TrimPrefix(envVar, prefix)
+		}
+	}
+	return ""
+}
+
+func TestExecInRunningContainerInjectsConstructHomeAndCodexEnv(t *testing.T) {
+	origStartClipboard := startClipboardServerFn
+	origExecInteractive := execInteractiveAsUserFn
+	origColorterm := os.Getenv("COLORTERM")
+	t.Cleanup(func() {
+		startClipboardServerFn = origStartClipboard
+		execInteractiveAsUserFn = origExecInteractive
+		if origColorterm == "" {
+			os.Unsetenv("COLORTERM")
+			return
+		}
+		os.Setenv("COLORTERM", origColorterm)
+	})
+	os.Setenv("COLORTERM", "truecolor")
+
+	startClipboardServerFn = func(host string) (*clipboard.Server, error) {
+		if host != "clip.local" {
+			t.Fatalf("expected clipboard host clip.local, got %s", host)
+		}
+		return &clipboard.Server{
+			URL:   "http://clip.local:1234",
+			Token: "clip-token",
+		}, nil
+	}
+
+	var gotRuntime, gotContainer, gotWorkdir, gotUser string
+	var gotCmdArgs []string
+	var gotEnvVars []string
+	execInteractiveAsUserFn = func(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir, user string) (int, error) {
+		gotRuntime = containerRuntime
+		gotContainer = containerName
+		gotWorkdir = workdir
+		gotUser = user
+		gotCmdArgs = append([]string{}, cmdArgs...)
+		gotEnvVars = append([]string{}, envVars...)
+		return 0, nil
+	}
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			ClipboardHost:   "clip.local",
+			ExecAsHostUser:  false,
+			ForwardSSHAgent: false,
+		},
+		Agents: config.AgentsConfig{
+			ClipboardImagePatch: true,
+		},
+	}
+
+	exitCode, err := execInRunningContainer(
+		[]string{"codex", "help"},
+		cfg,
+		"docker",
+		[]string{"OPENAI_API_KEY=test-key"},
+	)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+
+	if gotRuntime != "docker" {
+		t.Fatalf("expected docker runtime, got %s", gotRuntime)
+	}
+	if gotContainer != "construct-cli" {
+		t.Fatalf("expected construct-cli container, got %s", gotContainer)
+	}
+	if gotWorkdir != "" {
+		t.Fatalf("expected empty workdir for attach exec, got %q", gotWorkdir)
+	}
+	if gotUser != "" {
+		t.Fatalf("expected empty exec user when exec_as_host_user disabled, got %q", gotUser)
+	}
+
+	if len(gotCmdArgs) != 2 || gotCmdArgs[0] != "codex" || gotCmdArgs[1] != "help" {
+		t.Fatalf("unexpected command args: %v", gotCmdArgs)
+	}
+
+	requiredEnv := []string{
+		"HOME=/home/construct",
+		"CONSTRUCT_CLIPBOARD_IMAGE_PATCH=1",
+		"CONSTRUCT_AGENT_NAME=codex",
+		"CODEX_HOME=/home/construct/.codex",
+		"WSL_DISTRO_NAME=Ubuntu",
+		"WSL_INTEROP=/run/WSL/8_interop",
+		"DISPLAY=",
+		"CONSTRUCT_CLIPBOARD_URL=http://clip.local:1234",
+		"CONSTRUCT_CLIPBOARD_TOKEN=clip-token",
+		"CONSTRUCT_FILE_PASTE_AGENTS=" + constants.FileBasedPasteAgents,
+		"OPENAI_API_KEY=test-key",
+		"COLORTERM=truecolor",
+	}
+	for _, envVar := range requiredEnv {
+		if !containsEnv(gotEnvVars, envVar) {
+			t.Fatalf("expected env var %q, got env: %v", envVar, gotEnvVars)
+		}
+	}
+
+	expectedPath := env.BuildConstructPath("/home/construct")
+	if pathValue := envValue(gotEnvVars, "PATH"); pathValue != expectedPath {
+		t.Fatalf("expected PATH=%q, got %q", expectedPath, pathValue)
+	}
+	if constructPath := envValue(gotEnvVars, "CONSTRUCT_PATH"); constructPath != expectedPath {
+		t.Fatalf("expected CONSTRUCT_PATH=%q, got %q", expectedPath, constructPath)
+	}
+}
+
+func TestExecInRunningContainerUsesConfiguredShellWhenNoArgs(t *testing.T) {
+	origStartClipboard := startClipboardServerFn
+	origExecInteractive := execInteractiveAsUserFn
+	t.Cleanup(func() {
+		startClipboardServerFn = origStartClipboard
+		execInteractiveAsUserFn = origExecInteractive
+	})
+
+	startClipboardServerFn = func(string) (*clipboard.Server, error) {
+		return nil, fmt.Errorf("clipboard unavailable")
+	}
+
+	var gotCmdArgs []string
+	execInteractiveAsUserFn = func(_, _ string, cmdArgs []string, _ []string, _, _ string) (int, error) {
+		gotCmdArgs = append([]string{}, cmdArgs...)
+		return 0, nil
+	}
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			Shell:          "/bin/zsh",
+			ExecAsHostUser: false,
+		},
+	}
+
+	exitCode, err := execInRunningContainer(nil, cfg, "docker", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if exitCode != 0 {
+		t.Fatalf("expected exit code 0, got %d", exitCode)
+	}
+	if len(gotCmdArgs) != 1 || gotCmdArgs[0] != "/bin/zsh" {
+		t.Fatalf("expected shell fallback /bin/zsh, got %v", gotCmdArgs)
+	}
+}
+
+func TestExecInRunningContainerUsesHostUserOnLinuxDocker(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("linux-specific host user mapping behavior")
+	}
+
+	origStartClipboard := startClipboardServerFn
+	origExecInteractive := execInteractiveAsUserFn
+	origHasUIDEntry := containerHasUIDEntryFn
+	t.Cleanup(func() {
+		startClipboardServerFn = origStartClipboard
+		execInteractiveAsUserFn = origExecInteractive
+		containerHasUIDEntryFn = origHasUIDEntry
+	})
+
+	startClipboardServerFn = func(string) (*clipboard.Server, error) {
+		return nil, fmt.Errorf("clipboard unavailable")
+	}
+	containerHasUIDEntryFn = func(_, _ string, uid int) (bool, error) {
+		return uid == os.Getuid(), nil
+	}
+
+	var gotUser string
+	execInteractiveAsUserFn = func(_, _ string, _ []string, envVars []string, _, user string) (int, error) {
+		gotUser = user
+		if !containsEnv(envVars, "HOME=/home/construct") {
+			t.Fatalf("expected HOME to be forced to /home/construct, got %v", envVars)
+		}
+		return 0, nil
+	}
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			ExecAsHostUser: true,
+		},
+	}
+
+	_, err := execInRunningContainer([]string{"claude"}, cfg, "docker", nil)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	wantUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if gotUser != wantUser {
+		t.Fatalf("expected host exec user %q, got %q", wantUser, gotUser)
+	}
 }
 
 // TestColortermEnvironment verifies COLORTERM handling
