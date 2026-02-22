@@ -619,20 +619,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	// Inject agent name for clipboard behavior tuning.
 	if len(args) > 0 {
 		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
-
-		// For codex: Set WSL env vars to trigger clipboard fallback
-		// Codex will think it's in WSL and use our fake powershell.exe
-		if args[0] == "codex" && clipboardPatchValue != "0" {
-			runFlags = append(runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
-			runFlags = append(runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
-			// Unset DISPLAY so arboard fails and triggers WSL fallback
-			runFlags = append(runFlags, "-e", "DISPLAY=")
-
-			// Pass CONSTRUCT_DEBUG to codex container
-			if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-				runFlags = append(runFlags, "-e", "CONSTRUCT_DEBUG=1")
-			}
-		}
+		appendAgentSpecificRunFlags(&runFlags, args[0], clipboardPatchValue)
 	}
 
 	// Inject SSH bridge port
@@ -1027,13 +1014,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	// Add agent name for clipboard behavior tuning
 	if len(args) > 0 {
 		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
-
-		// For codex: Set WSL env vars to trigger clipboard fallback
-		if args[0] == "codex" {
-			envVars = append(envVars, "WSL_DISTRO_NAME=Ubuntu")
-			envVars = append(envVars, "WSL_INTEROP=/run/WSL/8_interop")
-			envVars = append(envVars, "DISPLAY=")
-		}
+		appendAgentSpecificDaemonEnv(&envVars, args[0])
 	}
 
 	// Add COLORTERM for proper color rendering
@@ -1242,4 +1223,39 @@ func waitForDaemon(containerRuntime, daemonName string, timeoutSeconds int) bool
 		fmt.Printf("Debug: Daemon did not start within %d seconds\n", timeoutSeconds)
 	}
 	return false
+}
+
+func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchValue string) {
+	if agentName != "codex" {
+		return
+	}
+
+	// Force Codex to use the container home config path (not project-relative .codex).
+	*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
+
+	// Set WSL env vars to trigger clipboard fallback.
+	// Codex will think it's in WSL and use our fake powershell.exe.
+	if clipboardPatchValue != "0" {
+		*runFlags = append(*runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
+		*runFlags = append(*runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
+		// Unset DISPLAY so arboard fails and triggers WSL fallback.
+		*runFlags = append(*runFlags, "-e", "DISPLAY=")
+
+		// Pass CONSTRUCT_DEBUG to codex container.
+		if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+			*runFlags = append(*runFlags, "-e", "CONSTRUCT_DEBUG=1")
+		}
+	}
+}
+
+func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
+	if agentName != "codex" {
+		return
+	}
+
+	// Force Codex to use the container home config path (not project-relative .codex).
+	*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
+	*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
+	*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
+	*envVars = append(*envVars, "DISPLAY=")
 }
