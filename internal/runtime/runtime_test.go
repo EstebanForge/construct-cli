@@ -440,6 +440,32 @@ func TestHashOverrideInputsIncludesRuntime(t *testing.T) {
 	}
 }
 
+func TestHashOverrideInputsIncludesAllowCustomOverride(t *testing.T) {
+	base := overrideInputs{
+		Version:        "1.0.0",
+		Runtime:        "docker",
+		UID:            1000,
+		GID:            1000,
+		SELinuxEnabled: false,
+		NetworkMode:    "bridge",
+		GitName:        "Test User",
+		GitEmail:       "test@example.com",
+		ProjectPath:    "/projects/test",
+		SSHAuthSock:    "/tmp/ssh.sock",
+		ForwardSSH:     true,
+		PropagateGit:   true,
+		AllowCustom:    false,
+	}
+	customOverride := base
+	customOverride.AllowCustom = true
+
+	baseHash := hashOverrideInputs(base)
+	customHash := hashOverrideInputs(customOverride)
+	if baseHash == customHash {
+		t.Fatalf("expected different override hashes when allow_custom override changes, got %s", baseHash)
+	}
+}
+
 func TestOverrideHasUserMapping(t *testing.T) {
 	tmpDir := t.TempDir()
 	containerDir := filepath.Join(tmpDir, "container")
@@ -584,6 +610,79 @@ func TestGenerateDockerComposeOverrideKeepsUserMappingWhenNonRootStrictEnabled(t
 	}
 	if !strings.Contains(contentStr, "CONSTRUCT_NON_ROOT_STRICT=1") {
 		t.Fatalf("expected strict mode marker in override env, got: %s", contentStr)
+	}
+}
+
+func TestGenerateDockerComposeOverrideKeepsManualUserMappingWhenCustomOverrideAllowed(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific docker override behavior")
+	}
+
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\nallow_custom_compose_override = true\n"
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"powershell.exe":        "binary\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+		"config.toml":           configToml,
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+	}
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("failed to write %s: %v", file, err)
+		}
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+	content, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	manualMapping := "    user: \"1001:1001\"\n"
+	modified := strings.Replace(string(content), "  construct-box:\n", "  construct-box:\n"+manualMapping, 1)
+	if err := os.WriteFile(overridePath, []byte(modified), 0644); err != nil {
+		t.Fatalf("failed to write modified override: %v", err)
+	}
+
+	// With allow_custom_compose_override enabled and unchanged inputs, manual mapping should be preserved.
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	healed, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("failed to read final override: %v", err)
+	}
+	if !strings.Contains(string(healed), manualMapping) {
+		t.Fatalf("expected manual user mapping to be preserved when allow_custom_compose_override is enabled, got: %s", string(healed))
 	}
 }
 

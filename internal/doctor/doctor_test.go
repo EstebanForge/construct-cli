@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/EstebanForge/construct-cli/internal/config"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 )
 
@@ -54,6 +55,28 @@ func TestComposeUserMappingHandlesMissingOrUnset(t *testing.T) {
 	}
 	if mapping != "" {
 		t.Fatalf("expected empty mapping when user key is absent, got %q", mapping)
+	}
+}
+
+func TestFixComposeOverrideSkippedWhenCustomOverrideAllowed(t *testing.T) {
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			AllowCustomOverride: true,
+		},
+	}
+
+	fixed, details, skipped, err := fixComposeOverride("docker", cfg)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if fixed {
+		t.Fatalf("expected fixed=false when skip flag is enabled")
+	}
+	if !skipped {
+		t.Fatalf("expected skipped=true when allow_custom_compose_override=true")
+	}
+	if len(details) != 1 || details[0] != "sandbox.allow_custom_compose_override=true" {
+		t.Fatalf("unexpected details: %v", details)
 	}
 }
 
