@@ -1160,7 +1160,7 @@ func recreateDaemonContainer(runtimeName, configPath string) (bool, []string, er
 	if err != nil {
 		return false, details, fmt.Errorf("failed to build daemon recreate command: %w", err)
 	}
-	cmd.Dir = config.GetContainerDir()
+	cmd.Dir = configPath
 	cmd.Env = doctorComposeEnv()
 
 	output, err := cmd.CombinedOutput()
