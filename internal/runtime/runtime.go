@@ -23,6 +23,7 @@ import (
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -523,6 +524,9 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
 		warnConfigPermission(err, configPath)
 	}
+	if err := ensureMountedTemplateFiles(configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to prepare mounted helper templates: %v\n", err)
+	}
 
 	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
 	projectPath := GetProjectMountPath()
@@ -557,6 +561,36 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 				fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade configuration: %v\n", err)
 				warnConfigPermission(err, configPath)
 			}
+		}
+	}
+
+	return nil
+}
+
+func ensureMountedTemplateFiles(configPath string) error {
+	containerDir := filepath.Join(configPath, "container")
+	files := []struct {
+		name    string
+		content string
+		perm    os.FileMode
+	}{
+		{name: "entrypoint-hash.sh", content: templates.EntrypointHash, perm: 0755},
+		{name: "update-all.sh", content: templates.UpdateAll, perm: 0755},
+		{name: "agent-patch.sh", content: templates.AgentPatch, perm: 0755},
+	}
+
+	for _, file := range files {
+		path := filepath.Join(containerDir, file.name)
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			if removeErr := os.RemoveAll(path); removeErr != nil {
+				return fmt.Errorf("failed to replace directory %s: %w", path, removeErr)
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+
+		if err := os.WriteFile(path, []byte(file.content), file.perm); err != nil {
+			return err
 		}
 	}
 

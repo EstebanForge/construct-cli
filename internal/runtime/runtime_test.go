@@ -244,6 +244,31 @@ func TestRunOwnershipFixRootlessPodmanUsesNamespaceRoot(t *testing.T) {
 	}
 }
 
+func TestEnsureMountedTemplateFilesReplacesDirectoryCollision(t *testing.T) {
+	configPath := t.TempDir()
+	containerDir := filepath.Join(configPath, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	collisionPath := filepath.Join(containerDir, "entrypoint-hash.sh")
+	if err := os.MkdirAll(collisionPath, 0755); err != nil {
+		t.Fatalf("failed to create collision dir: %v", err)
+	}
+
+	if err := ensureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	}
+
+	info, err := os.Stat(collisionPath)
+	if err != nil {
+		t.Fatalf("expected entrypoint-hash.sh to exist: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("expected entrypoint-hash.sh to be a file after repair")
+	}
+}
+
 // TestGetOSInfo tests OS information retrieval
 // getOSInfo is not in runtime package anymore (it was private in main.go and I didn't export it in runtime.go because it seemed unused except for test?)
 // Wait, getOSInfo was in main.go. Did I move it?

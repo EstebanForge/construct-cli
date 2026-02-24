@@ -398,3 +398,30 @@ func TestConfigModificationPersistence(t *testing.T) {
 		t.Errorf("Third Load() should have 1 blocked domain, got %d", len(cfg3.Network.BlockedDomains))
 	}
 }
+
+func TestInitReplacesDirectoryCollisionForTemplateFile(t *testing.T) {
+	tmpHome := t.TempDir()
+	origHome := os.Getenv("HOME")
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", origHome)
+	})
+	_ = os.Setenv("HOME", tmpHome)
+
+	containerDir := filepath.Join(GetConfigDir(), "container")
+	collisionPath := filepath.Join(containerDir, "entrypoint-hash.sh")
+	if err := os.MkdirAll(collisionPath, 0755); err != nil {
+		t.Fatalf("failed to create directory collision path: %v", err)
+	}
+
+	if err := Init(); err != nil {
+		t.Fatalf("Init failed: %v", err)
+	}
+
+	info, err := os.Stat(collisionPath)
+	if err != nil {
+		t.Fatalf("expected entrypoint-hash.sh after Init: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("expected entrypoint-hash.sh to be a file after Init")
+	}
+}
