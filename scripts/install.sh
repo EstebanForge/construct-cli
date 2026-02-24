@@ -35,6 +35,13 @@ require_cmd() {
     command -v "$1" >/dev/null 2>&1 || error "Missing required command: $1"
 }
 
+normalize_version() {
+    local value="$1"
+    value="$(echo "$value" | tr -d '[:space:]')"
+    value="${value#v}"
+    echo "$value"
+}
+
 detect_platform() {
     local os arch
     os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -65,9 +72,9 @@ latest_version() {
 
     local url="https://raw.githubusercontent.com/${REPO}/main/${version_file}"
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$url" | tr -d '[:space:]'
+        normalize_version "$(curl -fsSL "$url")"
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO- "$url" | tr -d '[:space:]'
+        normalize_version "$(wget -qO- "$url")"
     else
         error "curl or wget required to resolve latest version"
     fi
@@ -80,13 +87,13 @@ get_installed_version() {
 
     # Check .version file first (faster, more reliable)
     if [[ -f "$version_file" ]]; then
-        cat "$version_file" | tr -d '[:space:]'
+        normalize_version "$(cat "$version_file")"
         return
     fi
 
     # Fallback: query binary if .version file missing
     if [[ -x "$binary_path" ]]; then
-        "$binary_path" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo ""
+        normalize_version "$("$binary_path" version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?' | head -1 || echo "")"
     else
         echo ""
     fi
@@ -179,6 +186,8 @@ main() {
     if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
         info "Resolving latest version (channel: ${CHANNEL})..."
         VERSION="$(latest_version)"
+    else
+        VERSION="$(normalize_version "$VERSION")"
     fi
 
     # Check if same version is already installed
