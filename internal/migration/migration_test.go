@@ -3,8 +3,12 @@ package migration
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 )
 
 func TestCompareVersions(t *testing.T) {
@@ -154,5 +158,36 @@ func TestMigrationPermissionErrorIncludesManualFix(t *testing.T) {
 	}
 	if !strings.Contains(msg, "sudo chown -R") {
 		t.Fatalf("expected manual fix hint in error, got: %s", msg)
+	}
+}
+
+func TestUpdateContainerTemplatesReplacesDirectoryCollision(t *testing.T) {
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	containerDir := filepath.Join(config.GetConfigDir(), "container")
+	blockingPath := filepath.Join(containerDir, "entrypoint-hash.sh")
+	if err := os.MkdirAll(blockingPath, 0755); err != nil {
+		t.Fatalf("failed to create blocking directory: %v", err)
+	}
+
+	if err := updateContainerTemplates(); err != nil {
+		t.Fatalf("updateContainerTemplates failed: %v", err)
+	}
+
+	info, err := os.Stat(blockingPath)
+	if err != nil {
+		t.Fatalf("expected entrypoint-hash.sh to exist: %v", err)
+	}
+	if info.IsDir() {
+		t.Fatal("expected entrypoint-hash.sh to be a file, got directory")
+	}
+
+	written, err := os.ReadFile(blockingPath)
+	if err != nil {
+		t.Fatalf("failed to read entrypoint-hash.sh: %v", err)
+	}
+	if string(written) != templates.EntrypointHash {
+		t.Fatal("entrypoint-hash.sh content mismatch after collision recovery")
 	}
 }

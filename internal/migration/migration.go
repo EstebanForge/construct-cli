@@ -304,9 +304,9 @@ func updateContainerTemplates() error {
 		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" || filename == "powershell.exe" {
 			perm = 0755
 		}
-		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+		if err := writeTemplateFile(path, []byte(content), perm); err != nil {
 			if recovered, fixErr := attemptMigrationPermissionRecovery(err, config.GetConfigDir()); recovered {
-				if retryErr := os.WriteFile(path, []byte(content), perm); retryErr != nil {
+				if retryErr := writeTemplateFile(path, []byte(content), perm); retryErr != nil {
 					return migrationPermissionError(fmt.Sprintf("write %s", filename), retryErr, config.GetConfigDir(), fixErr)
 				}
 			} else if fixErr != nil {
@@ -336,6 +336,19 @@ func updateContainerTemplates() error {
 	}
 
 	return nil
+}
+
+func writeTemplateFile(path string, content []byte, perm os.FileMode) error {
+	info, err := os.Stat(path)
+	if err == nil && info.IsDir() {
+		if removeErr := os.RemoveAll(path); removeErr != nil {
+			return fmt.Errorf("remove directory blocking template write (%s): %w", path, removeErr)
+		}
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	return os.WriteFile(path, content, perm)
 }
 
 func verifyWritableDir(dir string) error {
