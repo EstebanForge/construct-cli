@@ -33,6 +33,7 @@
 - When asked to add CHANGELOG entry: add new section with current version from constants.go
 - `VERSION` is updated by release workflow for stable tags (e.g. `1.3.8`)
 - `VERSION-BETA` is updated by release workflow for prerelease tags (e.g. `1.3.9-beta.1`)
+- Version strings and release tags are plain semver/prerelease values with **no** `v` prefix (use `1.4.0-beta.3`, never `v1.4.0-beta.3`)
 - Keep `internal/constants/constants.go` version exactly aligned with the tag being released (stable or prerelease), or `make release` fails `check-version`
 - Stable users track `VERSION`; beta users track `VERSION-BETA` when `runtime.update_channel = "beta"`
 
