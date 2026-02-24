@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"time"
@@ -63,19 +62,9 @@ const (
 	ColorBold   = "\033[1m"
 )
 
-// GumAvailable checks if Gum is available
+// GumAvailable checks if embedded Gum UI should be used.
 func GumAvailable() bool {
-	path, err := exec.LookPath("gum")
-	if err != nil {
-		return false
-	}
-
-	// Some environments expose a non-executable gum binary in PATH.
-	// Probe execution once per call so callers can reliably fall back.
-	cmd := exec.Command(path, "--version")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	return cmd.Run() == nil
+	return isTTY(os.Stdin) && isTTY(os.Stdout) && isTTY(os.Stderr)
 }
 
 // GumSuccess prints a success message using ANSI colors
@@ -98,17 +87,29 @@ func GumInfo(msg string) {
 	fmt.Printf("%sℹ️  %s%s\n", ColorCyan, msg, ColorReset)
 }
 
-// GetGumCommand returns an exec.Cmd for gum with environment variables set to suppress terminal queries
+// GetGumCommand returns an exec.Cmd for embedded gum-compatible commands.
 func GetGumCommand(args ...string) *exec.Cmd {
-	cmd := exec.Command("gum", args...)
+	exePath, err := os.Executable()
+	if err != nil || exePath == "" {
+		exePath = os.Args[0]
+	}
+
+	shimArgs := make([]string, 0, len(args)+1)
+	shimArgs = append(shimArgs, "__gum")
+	shimArgs = append(shimArgs, args...)
+	cmd := exec.Command(exePath, shimArgs...)
 	cmd.Env = append(os.Environ(), "LIPGLOSS_HAS_DARK_BACKGROUND=true")
 	return cmd
 }
 
 // IsTerminal checks if stdout is a terminal (TTY)
 func IsTerminal() bool {
-	// Check file info of stdout - character devices are terminals
-	fi, err := os.Stdout.Stat()
+	return isTTY(os.Stdout)
+}
+
+func isTTY(file *os.File) bool {
+	// Check file info - character devices are terminals.
+	fi, err := file.Stat()
 	if err != nil {
 		return false
 	}
@@ -152,20 +153,23 @@ func GumSpinner(title string, fn func() []string) []string {
 		resultChan <- fn()
 	}()
 
-	// Show spinner while waiting
-	spinner := GetGumCommand("spin", "--spinner", "dot", "--title", title, "--", "sleep", "10")
-	spinner.Stdout = os.Stdout
-	spinner.Stderr = os.Stderr
-	if err := spinner.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to start spinner: %v\n", err)
-	}
+	spinnerChars := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
+	ticker := time.NewTicker(80 * time.Millisecond)
+	defer ticker.Stop()
+	i := 0
 
-	result := <-resultChan
-	if spinner.Process != nil {
-		if err := spinner.Process.Kill(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to stop spinner: %v\n", err)
+	var result []string
+	running := true
+	for running {
+		select {
+		case result = <-resultChan:
+			running = false
+		case <-ticker.C:
+			fmt.Printf("\r\033[K%s%s%s %s", ColorPink, spinnerChars[i%len(spinnerChars)], ColorReset, title)
+			i++
 		}
 	}
+	fmt.Printf("\r\033[K")
 
 	return result
 }

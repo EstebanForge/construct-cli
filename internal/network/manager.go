@@ -160,7 +160,7 @@ func ListRules() {
 
 	// Use Gum for beautiful table display
 	fmt.Println()
-	cmd := exec.Command("gum", "style", "--border", "rounded",
+	cmd := ui.GetGumCommand("style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Network Configuration")
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
@@ -168,7 +168,7 @@ func ListRules() {
 	}
 	fmt.Println()
 
-	cmd = exec.Command("gum", "style", "--foreground", "212",
+	cmd = ui.GetGumCommand("style", "--foreground", "212",
 		fmt.Sprintf("Mode: %s", cfg.Network.Mode))
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
@@ -178,7 +178,7 @@ func ListRules() {
 
 	// Allowed Domains
 	if len(cfg.Network.AllowedDomains) > 0 {
-		cmd = exec.Command("gum", "style", "--foreground", "86", "--bold", "Allowed Domains:")
+		cmd = ui.GetGumCommand("style", "--foreground", "86", "--bold", "Allowed Domains:")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed domains header: %v\n", err)
@@ -190,10 +190,10 @@ func ListRules() {
 				fmt.Fprintf(os.Stderr, "Warning: failed to resolve %s: %v\n", domain, err)
 			}
 			if len(ips) > 0 && err == nil {
-				cmd = exec.Command("gum", "style", "--foreground", "242",
+				cmd = ui.GetGumCommand("style", "--foreground", "242",
 					fmt.Sprintf("  • %s → %s", domain, strings.Join(ips, ", ")))
 			} else {
-				cmd = exec.Command("gum", "style", "--foreground", "242",
+				cmd = ui.GetGumCommand("style", "--foreground", "242",
 					fmt.Sprintf("  • %s (unresolved)", domain))
 			}
 			cmd.Stdout = os.Stdout
@@ -206,13 +206,13 @@ func ListRules() {
 
 	// Allowed IPs
 	if len(cfg.Network.AllowedIPs) > 0 {
-		cmd = exec.Command("gum", "style", "--foreground", "86", "--bold", "Allowed IPs:")
+		cmd = ui.GetGumCommand("style", "--foreground", "86", "--bold", "Allowed IPs:")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed IPs header: %v\n", err)
 		}
 		for _, ip := range cfg.Network.AllowedIPs {
-			cmd = exec.Command("gum", "style", "--foreground", "242",
+			cmd = ui.GetGumCommand("style", "--foreground", "242",
 				fmt.Sprintf("  • %s", ip))
 			cmd.Stdout = os.Stdout
 			if err := cmd.Run(); err != nil {
@@ -224,14 +224,14 @@ func ListRules() {
 
 	// Blocked rules (red)
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
-		cmd = exec.Command("gum", "style", "--foreground", "196", "--bold", "Blocked:")
+		cmd = ui.GetGumCommand("style", "--foreground", "196", "--bold", "Blocked:")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render blocked header: %v\n", err)
 		}
 
 		for _, domain := range cfg.Network.BlockedDomains {
-			cmd = exec.Command("gum", "style", "--foreground", "242",
+			cmd = ui.GetGumCommand("style", "--foreground", "242",
 				fmt.Sprintf("  • %s", domain))
 			cmd.Stdout = os.Stdout
 			if err := cmd.Run(); err != nil {
@@ -239,7 +239,7 @@ func ListRules() {
 			}
 		}
 		for _, ip := range cfg.Network.BlockedIPs {
-			cmd = exec.Command("gum", "style", "--foreground", "242",
+			cmd = ui.GetGumCommand("style", "--foreground", "242",
 				fmt.Sprintf("  • %s", ip))
 			cmd.Stdout = os.Stdout
 			if err := cmd.Run(); err != nil {

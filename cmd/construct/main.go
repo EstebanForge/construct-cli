@@ -22,6 +22,10 @@ import (
 func main() {
 	// Parse global flags
 	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "__gum" {
+		os.Exit(ui.RunEmbeddedGum(args[1:]))
+	}
+
 	var networkFlag string
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
