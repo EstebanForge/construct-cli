@@ -16,6 +16,7 @@ env:
 jobs:
   release:
     outputs:
+      version: ${{ steps.get_version.outputs.version }}
       is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
     runs-on: ubuntu-latest
     steps:
@@ -35,6 +36,10 @@ jobs:
         id: get_version
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
+          if [[ "$VERSION" == v* ]]; then
+            echo "Error: tags must not use 'v' prefix (got: $VERSION)"
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
@@ -241,7 +246,7 @@ jobs:
               ref: 'main',
               inputs: {
                 formula: 'construct-cli',
-                tag: '${{ github.ref_name }}',
+                tag: '${{ needs.release.outputs.version }}',
                 repository: '${{ github.repository }}'
               }
             })
