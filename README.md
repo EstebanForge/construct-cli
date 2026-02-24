@@ -143,11 +143,23 @@ Construct automatically checks for updates once per day (configurable in `config
 [runtime]
 auto_update_check = true          # Enable/disable automatic checks
 update_check_interval = 86400     # Check interval in seconds (24 hours)
+update_channel = "stable"         # stable | beta
 ```
 
 When an update is available, you'll see a notification like:
 ```
 ℹ Update available: 0.6.0 → 0.7.0 (run 'construct sys self-update')
+```
+
+To opt specific machines into prereleases only, set:
+```toml
+[runtime]
+update_channel = "beta"
+```
+
+For fresh installs on selected machines, you can also use:
+```bash
+CHANNEL=beta curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
 ```
 
 ### Automatic Migrations
@@ -174,6 +186,7 @@ Main configuration lives at `~/.config/construct-cli/config.toml`. Key sections 
 engine = "auto"
 auto_update_check = true
 update_check_interval = 86400  # seconds (24 hours)
+update_channel = "stable"      # stable | beta
 
 [sandbox]
 mount_home = false # keep false unless you really need your whole home dir (dangerous)

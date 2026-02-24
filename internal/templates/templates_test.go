@@ -58,6 +58,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "exec_as_host_user = true") {
 		t.Error("config.toml template should include exec_as_host_user with default true")
 	}
+	if !strings.Contains(Config, "update_channel = \"stable\"") {
+		t.Error("config.toml template should include update_channel with default stable")
+	}
 	if !strings.Contains(Config, "[agents]") {
 		t.Error("config.toml template missing [agents] section")
 	}
@@ -132,11 +135,20 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Entrypoint, "touch \"$HOME/.bashrc\"") {
 		t.Error("entrypoint.sh should create .bashrc before grep checks")
 	}
-	if strings.Contains(Entrypoint, "RUN_AS_USER=\"${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}\"") {
-		t.Error("entrypoint.sh should not drop privileges to raw host uid:gid")
-	}
 	if !strings.Contains(Entrypoint, "RUN_AS_USER=\"construct\"") {
-		t.Error("entrypoint.sh should drop privileges to construct user")
+		t.Error("entrypoint.sh should define construct user as default runtime user")
+	}
+	if !strings.Contains(Entrypoint, "RUN_AS_USER=\"${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}\"") {
+		t.Error("entrypoint.sh should support host uid:gid runtime mapping when provided")
+	}
+	if !strings.Contains(Entrypoint, "export HOME=\"${HOME:-/home/construct}\"") {
+		t.Error("entrypoint.sh should preserve HOME before privilege drop")
+	}
+	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_UID")
+	}
+	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_GID")
 	}
 
 	// Verify update-all uses shared hash helper
@@ -168,24 +180,15 @@ func TestUpdateAllSudoDetection(t *testing.T) {
 
 func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 	// Regression guard:
-	// do not run the entrypoint as raw host uid:gid (can yield HOME=/ when uid is unknown),
-	// always drop to the named construct user inside the container.
-	forbiddenFragments := []string{
-		`RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
-		`RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
-		`SKIP_HOME_CHOWN="1"`,
-		`if [ -n "$CONSTRUCT_HOST_UID" ] && [ -n "$CONSTRUCT_HOST_GID" ]; then`,
-	}
-
-	for _, fragment := range forbiddenFragments {
-		if strings.Contains(Entrypoint, fragment) {
-			t.Fatalf("entrypoint regression: found forbidden host uid/gid fragment: %s", fragment)
-		}
-	}
-
+	// keep construct as default runtime user but allow Linux host uid/gid mapping
+	// to prevent mounted home ownership drift.
 	requiredFragments := []string{
 		`RUN_AS_USER="construct"`,
 		`RUN_AS_CHOWN="construct:construct"`,
+		`if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${CONSTRUCT_HOST_GID:-}" =~ ^[0-9]+$ ]]; then`,
+		`RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
+		`RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
+		`export HOME="${HOME:-/home/construct}"`,
 		`exec gosu "$RUN_AS_USER" "$0" "$@"`,
 		`chown -R "$RUN_AS_CHOWN" /home/construct`,
 		`construct_profile="$HOME/.construct-path.sh"`,

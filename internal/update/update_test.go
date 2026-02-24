@@ -32,6 +32,11 @@ func TestCompareVersions(t *testing.T) {
 		// Handle potential non-numeric segments gracefully (should default to 0)
 		{"0.10.a", "0.10.0", 0},
 		{"0.10", "0.10.0", 0},
+
+		// Semver prerelease handling
+		{"1.3.9-beta.1", "1.3.9-beta.0", 1},
+		{"1.3.9", "1.3.9-beta.9", 1},
+		{"1.3.9-beta.1", "1.3.9", -1},
 	}
 
 	for _, tt := range tests {
@@ -39,6 +44,38 @@ func TestCompareVersions(t *testing.T) {
 		if result != tt.expected {
 			t.Errorf("compareVersions(%q, %q) = %d, want %d", tt.v1, tt.v2, result, tt.expected)
 		}
+	}
+}
+
+func TestResolveUpdateChannel(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected string
+	}{
+		{name: "nil config defaults stable", cfg: nil, expected: "stable"},
+		{name: "empty channel defaults stable", cfg: &config.Config{}, expected: "stable"},
+		{name: "explicit stable", cfg: &config.Config{Runtime: config.RuntimeConfig{UpdateChannel: "stable"}}, expected: "stable"},
+		{name: "case-insensitive beta", cfg: &config.Config{Runtime: config.RuntimeConfig{UpdateChannel: "BeTa"}}, expected: "beta"},
+		{name: "invalid channel falls back", cfg: &config.Config{Runtime: config.RuntimeConfig{UpdateChannel: "nightly"}}, expected: "stable"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := resolveUpdateChannel(tt.cfg)
+			if result != tt.expected {
+				t.Fatalf("resolveUpdateChannel() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestVersionURLForChannel(t *testing.T) {
+	if got := versionURLForChannel("stable"); got != constants.GithubRawURL {
+		t.Fatalf("stable channel URL mismatch: got %q want %q", got, constants.GithubRawURL)
+	}
+	if got := versionURLForChannel("beta"); got != constants.GithubRawBetaURL {
+		t.Fatalf("beta channel URL mismatch: got %q want %q", got, constants.GithubRawBetaURL)
 	}
 }
 

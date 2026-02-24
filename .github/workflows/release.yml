@@ -15,6 +15,8 @@ env:
 
 jobs:
   release:
+    outputs:
+      is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -35,6 +37,14 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          if [[ "$VERSION" == *-* ]]; then
+            IS_PRERELEASE=true
+          else
+            IS_PRERELEASE=false
+          fi
+          echo "IS_PRERELEASE=$IS_PRERELEASE" >> "$GITHUB_ENV"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
           
           if [ -z "$VERSION" ]; then
             echo "Error: VERSION is empty"
@@ -183,7 +193,7 @@ jobs:
           name: ${{ env.RELEASE_TITLE }}
           body_path: release_notes.md
           draft: false
-          prerelease: false
+          prerelease: ${{ steps.get_version.outputs.is_prerelease == 'true' }}
           files: |
             dist/construct-darwin-arm64-${{ env.VERSION }}.tar.gz
             dist/construct-darwin-amd64-${{ env.VERSION }}.tar.gz
@@ -196,18 +206,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update VERSION file
+      - name: Update release marker file
         env:
           VERSION: ${{ env.VERSION }}
+          IS_PRERELEASE: ${{ env.IS_PRERELEASE }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add VERSION
-          git commit -m "chore: update VERSION to $VERSION" || echo "No changes to commit"
-          git push origin HEAD:main || echo "Failed to push VERSION file update"
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            echo "$VERSION" > VERSION-BETA
+            git add VERSION-BETA
+            git commit -m "chore: update VERSION-BETA to $VERSION" || echo "No changes to commit"
+          else
+            echo "$VERSION" > VERSION
+            git add VERSION
+            git commit -m "chore: update VERSION to $VERSION" || echo "No changes to commit"
+          fi
+          git push origin HEAD:main || echo "Failed to push release marker update"
 
   update-tap:
     needs: release
+    if: ${{ needs.release.outputs.is_prerelease != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Homebrew Tap Update

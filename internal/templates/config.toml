@@ -14,6 +14,10 @@ auto_update_check = true
 # Update check interval in seconds (default: 86400 = 24 hours)
 update_check_interval = 86400
 
+# Update channel: "stable" (default) or "beta"
+# "beta" lets selected machines receive pre-release updates only.
+update_channel = "stable"
+
 # Sandbox Settings
 [sandbox]
 # Mount the entire home directory? (Dangerous, default: false)

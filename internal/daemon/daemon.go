@@ -63,6 +63,7 @@ func Start() {
 	env := os.Environ()
 	env = append(env, "PWD="+cwd)
 	env = runtime.AppendProjectPathEnv(env)
+	env = runtime.AppendHostIdentityEnv(env)
 
 	// Network configuration
 	env = network.InjectEnv(env, cfg)

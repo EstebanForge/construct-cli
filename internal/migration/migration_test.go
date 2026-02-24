@@ -37,6 +37,11 @@ func TestCompareVersions(t *testing.T) {
 		// Mixed prefix
 		{"0.4.0", "v0.3.0", 1},
 		{"v0.3.0", "0.4.0", -1},
+
+		// Prerelease handling
+		{"1.3.9-beta.1", "1.3.9-beta.0", 1},
+		{"1.3.9", "1.3.9-beta.9", 1},
+		{"1.3.9-beta.1", "1.3.9", -1},
 	}
 
 	for _, tt := range tests {

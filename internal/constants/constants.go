@@ -3,14 +3,15 @@ package constants
 
 // AppName and related constants define CLI identity, paths, and URLs.
 const (
-	AppName         = "construct"
-	ConfigDir       = ".config/construct-cli"
-	ImageName       = "construct-box"
-	Version         = "1.3.7"
-	GithubAPIURL    = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
-	GithubRawURL    = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
-	UpdateCheckFile = "last-update-check"
-	GithubRepo      = "EstebanForge/construct-cli"
+	AppName          = "construct"
+	ConfigDir        = ".config/construct-cli"
+	ImageName        = "construct-box"
+	Version          = "1.3.8"
+	GithubAPIURL     = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
+	GithubRawURL     = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
+	GithubRawBetaURL = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION-BETA"
+	UpdateCheckFile  = "last-update-check"
+	GithubRepo       = "EstebanForge/construct-cli"
 )
 
 // FileBasedPasteAgents lists agents that use file-based image paste (path reference)

@@ -10,13 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
+	semver "github.com/EstebanForge/construct-cli/internal/version"
 )
 
 const versionFile = ".version"
@@ -75,29 +75,7 @@ func NeedsMigration() bool {
 // compareVersions compares two semver strings
 // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
 func compareVersions(v1, v2 string) int {
-	v1Parts := strings.Split(strings.TrimPrefix(v1, "v"), ".")
-	v2Parts := strings.Split(strings.TrimPrefix(v2, "v"), ".")
-
-	for i := 0; i < 3; i++ {
-		var n1, n2 int
-		if i < len(v1Parts) {
-			if parsed, err := strconv.Atoi(v1Parts[i]); err == nil {
-				n1 = parsed
-			}
-		}
-		if i < len(v2Parts) {
-			if parsed, err := strconv.Atoi(v2Parts[i]); err == nil {
-				n2 = parsed
-			}
-		}
-
-		if n1 > n2 {
-			return 1
-		} else if n1 < n2 {
-			return -1
-		}
-	}
-	return 0
+	return semver.Compare(v1, v2)
 }
 
 // getPackagesTemplateHash returns SHA256 hash of the embedded packages template

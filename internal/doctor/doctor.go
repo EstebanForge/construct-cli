@@ -2,6 +2,8 @@
 package doctor
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,11 +12,13 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -55,6 +59,56 @@ var runDockerComposeCommand = func(args ...string) ([]byte, error) {
 	cmd.Env = doctorComposeEnv()
 	cmd.Dir = config.GetContainerDir()
 	return cmd.CombinedOutput()
+}
+
+var getContainerStateFn = runtimepkg.GetContainerState
+var stopContainerFn = runtimepkg.StopContainer
+var cleanupExitedContainerFn = runtimepkg.CleanupExitedContainer
+var buildComposeCommandFn = runtimepkg.BuildComposeCommand
+var getCheckImageCommandFn = runtimepkg.GetCheckImageCommand
+
+var runSudoCombinedOutput = func(args ...string) ([]byte, error) {
+	return exec.Command("sudo", args...).CombinedOutput()
+}
+
+var runSudoInteractive = func(args ...string) error {
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+var runChmodRecursive = func(path string) error {
+	return exec.Command("chmod", "-R", "u+rwX", path).Run()
+}
+
+var getOwnerUID = func(path string) (int, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return -1, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return -1, fmt.Errorf("unsupported file stat for %s", path)
+	}
+	return int(stat.Uid), nil
+}
+
+var currentUID = func() int {
+	return os.Getuid()
+}
+
+var currentGID = func() int {
+	return os.Getgid()
+}
+
+var stdinIsTTY = func() bool {
+	info, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
 // Run performs system health checks and prints a report.
@@ -287,6 +341,80 @@ func Run(args ...string) {
 		checks = append(checks, networkFixCheck)
 	}
 
+	if fixRequested && runtime.GOOS == "linux" {
+		ownershipFixCheck := CheckResult{Name: "Config Ownership Fix"}
+		fixed, details, err := fixLinuxConfigOwnership(config.GetConfigDir())
+		if err != nil {
+			ownershipFixCheck.Status = CheckStatusWarning
+			ownershipFixCheck.Message = "Failed to fix config ownership/permissions"
+			ownershipFixCheck.Details = append(ownershipFixCheck.Details, details...)
+			ownershipFixCheck.Details = append(ownershipFixCheck.Details, err.Error())
+			ownershipFixCheck.Suggestion = "Run: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli && chmod -R u+rwX ~/.config/construct-cli"
+		} else if fixed {
+			ownershipFixCheck.Status = CheckStatusOK
+			ownershipFixCheck.Message = "Config ownership/permissions fixed"
+			ownershipFixCheck.Details = append(ownershipFixCheck.Details, details...)
+		} else {
+			ownershipFixCheck.Status = CheckStatusOK
+			ownershipFixCheck.Message = "No config ownership fix needed"
+		}
+		checks = append(checks, ownershipFixCheck)
+
+		imageFixCheck := CheckResult{Name: "Image Rebuild Fix"}
+		rebuilt, rebuildDetails, err := rebuildImageForEntrypointFix(runtimeName, config.GetConfigDir())
+		if err != nil {
+			imageFixCheck.Status = CheckStatusWarning
+			imageFixCheck.Message = "Failed to rebuild image for startup fix"
+			imageFixCheck.Details = append(imageFixCheck.Details, rebuildDetails...)
+			imageFixCheck.Details = append(imageFixCheck.Details, err.Error())
+			imageFixCheck.Suggestion = "Run: construct sys rebuild"
+		} else if rebuilt {
+			imageFixCheck.Status = CheckStatusOK
+			imageFixCheck.Message = "Image rebuilt for startup ownership fix"
+			imageFixCheck.Details = append(imageFixCheck.Details, rebuildDetails...)
+		} else {
+			imageFixCheck.Status = CheckStatusOK
+			imageFixCheck.Message = "Image rebuild not needed"
+		}
+		checks = append(checks, imageFixCheck)
+
+		sessionCleanupCheck := CheckResult{Name: "Session Container Fix"}
+		cleaned, cleanupDetails, err := cleanupAgentContainer(runtimeName)
+		if err != nil {
+			sessionCleanupCheck.Status = CheckStatusWarning
+			sessionCleanupCheck.Message = "Failed to recycle session container"
+			sessionCleanupCheck.Details = append(sessionCleanupCheck.Details, cleanupDetails...)
+			sessionCleanupCheck.Details = append(sessionCleanupCheck.Details, err.Error())
+			sessionCleanupCheck.Suggestion = "Run: construct sys daemon stop && docker rm -f construct-cli (or podman rm -f construct-cli)"
+		} else if cleaned {
+			sessionCleanupCheck.Status = CheckStatusOK
+			sessionCleanupCheck.Message = "Session container recycled"
+			sessionCleanupCheck.Details = append(sessionCleanupCheck.Details, cleanupDetails...)
+		} else {
+			sessionCleanupCheck.Status = CheckStatusOK
+			sessionCleanupCheck.Message = "No session container cleanup needed"
+		}
+		checks = append(checks, sessionCleanupCheck)
+
+		daemonRecreateCheck := CheckResult{Name: "Daemon Recreate Fix"}
+		recreated, recreateDetails, err := recreateDaemonContainer(runtimeName, config.GetConfigDir())
+		if err != nil {
+			daemonRecreateCheck.Status = CheckStatusWarning
+			daemonRecreateCheck.Message = "Failed to recreate daemon container"
+			daemonRecreateCheck.Details = append(daemonRecreateCheck.Details, recreateDetails...)
+			daemonRecreateCheck.Details = append(daemonRecreateCheck.Details, err.Error())
+			daemonRecreateCheck.Suggestion = "Run: construct sys daemon stop && construct sys daemon start"
+		} else if recreated {
+			daemonRecreateCheck.Status = CheckStatusOK
+			daemonRecreateCheck.Message = "Daemon container recreated"
+			daemonRecreateCheck.Details = append(daemonRecreateCheck.Details, recreateDetails...)
+		} else {
+			daemonRecreateCheck.Status = CheckStatusOK
+			daemonRecreateCheck.Message = "No daemon recreation needed"
+		}
+		checks = append(checks, daemonRecreateCheck)
+	}
+
 	// 5. Daemon Mode Check
 	daemonCheck := CheckResult{Name: "Daemon Mode"}
 	if cfg == nil || runtimeName == "" {
@@ -377,40 +505,20 @@ func Run(args ...string) {
 	// 6.5 Config Permissions Check (Linux/WSL)
 	if runtime.GOOS == "linux" {
 		permCheck := CheckResult{Name: "Config Permissions"}
-		configDir := config.GetConfigDir()
-		paths := []string{
-			filepath.Join(configDir, "home"),
-			filepath.Join(configDir, "container"),
-		}
-		missing := false
-		notWritable := false
-		for _, path := range paths {
-			if _, err := os.Stat(path); err != nil {
-				if os.IsNotExist(err) {
-					missing = true
-					permCheck.Details = append(permCheck.Details, fmt.Sprintf("Missing: %s", path))
-					continue
-				}
-				notWritable = true
-				permCheck.Details = append(permCheck.Details, fmt.Sprintf("Error: %s (%v)", path, err))
-				continue
-			}
-			if ok, err := isWritableDir(path); !ok {
-				notWritable = true
-				permCheck.Details = append(permCheck.Details, fmt.Sprintf("Not writable: %s (%v)", path, err))
-			}
-		}
-		if missing {
+		state := inspectLinuxConfigPermissionState(config.GetConfigDir())
+		permCheck.Details = append(permCheck.Details, state.Details...)
+
+		if len(state.Missing) > 0 {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config directories missing"
 			permCheck.Suggestion = "Run 'construct sys init' or 'construct sys config --migrate'"
-		} else if notWritable {
+		} else if state.HasProblems() {
 			permCheck.Status = CheckStatusWarning
-			permCheck.Message = "Config directories not writable"
-			permCheck.Suggestion = "Fix ownership: sudo chown -R $USER:$USER ~/.config/construct-cli"
+			permCheck.Message = "Config ownership/permissions mismatch"
+			permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
 		} else {
 			permCheck.Status = CheckStatusOK
-			permCheck.Message = "Config directories writable"
+			permCheck.Message = "Config directories writable and owned by current user"
 		}
 		checks = append(checks, permCheck)
 	}
@@ -774,6 +882,7 @@ func composeBaseArgs() []string {
 
 func doctorComposeEnv() []string {
 	env := runtimepkg.AppendProjectPathEnv(os.Environ())
+	env = runtimepkg.AppendHostIdentityEnv(env)
 
 	cwd, err := os.Getwd()
 	if err == nil && cwd != "" {
@@ -883,4 +992,259 @@ func isWritableDir(path string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+type linuxConfigPermissionState struct {
+	Missing     []string
+	WrongOwner  []string
+	NotWritable []string
+	Details     []string
+}
+
+func (s linuxConfigPermissionState) HasProblems() bool {
+	return len(s.WrongOwner) > 0 || len(s.NotWritable) > 0
+}
+
+func linuxConfigPaths(configDir string) []string {
+	return []string{
+		filepath.Join(configDir, "home"),
+		filepath.Join(configDir, "container"),
+	}
+}
+
+func inspectLinuxConfigPermissionState(configDir string) linuxConfigPermissionState {
+	state := linuxConfigPermissionState{}
+	uid := currentUID()
+
+	for _, path := range linuxConfigPaths(configDir) {
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				state.Missing = append(state.Missing, path)
+				state.Details = append(state.Details, fmt.Sprintf("Missing: %s", path))
+				continue
+			}
+			state.NotWritable = append(state.NotWritable, path)
+			state.Details = append(state.Details, fmt.Sprintf("Error: %s (%v)", path, err))
+			continue
+		}
+
+		ownerUID, err := getOwnerUID(path)
+		if err != nil {
+			state.Details = append(state.Details, fmt.Sprintf("Owner check failed: %s (%v)", path, err))
+		} else if ownerUID != uid {
+			state.WrongOwner = append(state.WrongOwner, path)
+			state.Details = append(state.Details, fmt.Sprintf("Wrong owner: %s (owner uid=%d, current uid=%d)", path, ownerUID, uid))
+		}
+
+		if ok, err := isWritableDir(path); !ok {
+			state.NotWritable = append(state.NotWritable, path)
+			state.Details = append(state.Details, fmt.Sprintf("Not writable: %s (%v)", path, err))
+		}
+	}
+
+	return state
+}
+
+func fixLinuxConfigOwnership(configDir string) (bool, []string, error) {
+	if runtime.GOOS != "linux" {
+		return false, nil, nil
+	}
+
+	for _, path := range linuxConfigPaths(configDir) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return false, nil, fmt.Errorf("failed to create %s: %w", path, err)
+		}
+	}
+
+	state := inspectLinuxConfigPermissionState(configDir)
+	if !state.HasProblems() {
+		return false, nil, nil
+	}
+
+	uid := currentUID()
+	gid := currentGID()
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+	details := append([]string{}, state.Details...)
+
+	if len(state.WrongOwner) > 0 {
+		if out, err := runSudoCombinedOutput("-n", "chown", "-R", owner, configDir); err != nil {
+			if !stdinIsTTY() {
+				msg := strings.TrimSpace(string(out))
+				if msg == "" {
+					return false, details, fmt.Errorf("sudo non-interactive chown failed: %w", err)
+				}
+				return false, details, fmt.Errorf("sudo non-interactive chown failed: %w (%s)", err, msg)
+			}
+			if err := runSudoInteractive("chown", "-R", owner, configDir); err != nil {
+				return false, details, fmt.Errorf("sudo chown failed: %w", err)
+			}
+		}
+		details = append(details, fmt.Sprintf("Applied ownership fix: sudo chown -R %s %s", owner, configDir))
+	}
+
+	if err := runChmodRecursive(configDir); err != nil {
+		if out, sudoErr := runSudoCombinedOutput("-n", "chmod", "-R", "u+rwX", configDir); sudoErr != nil {
+			if !stdinIsTTY() {
+				msg := strings.TrimSpace(string(out))
+				if msg == "" {
+					return false, details, fmt.Errorf("chmod failed: %w", err)
+				}
+				return false, details, fmt.Errorf("chmod failed: %w (sudo attempt failed: %s)", err, msg)
+			}
+			if sudoErr := runSudoInteractive("chmod", "-R", "u+rwX", configDir); sudoErr != nil {
+				return false, details, fmt.Errorf("chmod failed: %w (sudo fallback failed: %v)", err, sudoErr)
+			}
+		}
+	}
+	details = append(details, fmt.Sprintf("Ensured user write access: chmod -R u+rwX %s", configDir))
+
+	after := inspectLinuxConfigPermissionState(configDir)
+	if after.HasProblems() {
+		details = append(details, after.Details...)
+		return false, details, fmt.Errorf("config directory still has ownership/permission issues")
+	}
+
+	return true, details, nil
+}
+
+func cleanupAgentContainer(runtimeName string) (bool, []string, error) {
+	if runtimeName == "" {
+		return false, nil, nil
+	}
+
+	containerName := "construct-cli"
+	state := getContainerStateFn(runtimeName, containerName)
+	if state == runtimepkg.ContainerStateMissing {
+		return false, nil, nil
+	}
+
+	details := []string{fmt.Sprintf("Previous session container state: %s", state)}
+	if state == runtimepkg.ContainerStateRunning {
+		if err := stopContainerFn(runtimeName, containerName); err != nil {
+			return false, details, fmt.Errorf("failed to stop session container: %w", err)
+		}
+		details = append(details, "Stopped running session container")
+	}
+	if err := cleanupExitedContainerFn(runtimeName, containerName); err != nil {
+		return false, details, fmt.Errorf("failed to remove session container: %w", err)
+	}
+	details = append(details, "Removed session container")
+	return true, details, nil
+}
+
+func recreateDaemonContainer(runtimeName, configPath string) (bool, []string, error) {
+	if runtimeName == "" {
+		return false, nil, nil
+	}
+
+	daemonName := "construct-cli-daemon"
+	state := getContainerStateFn(runtimeName, daemonName)
+	if state == runtimepkg.ContainerStateMissing {
+		return false, nil, nil
+	}
+
+	details := []string{fmt.Sprintf("Previous daemon state: %s", state)}
+	if state == runtimepkg.ContainerStateRunning {
+		if err := stopContainerFn(runtimeName, daemonName); err != nil {
+			return false, details, fmt.Errorf("failed to stop daemon: %w", err)
+		}
+		details = append(details, "Stopped running daemon")
+	}
+
+	if err := cleanupExitedContainerFn(runtimeName, daemonName); err != nil {
+		return false, details, fmt.Errorf("failed to remove daemon container: %w", err)
+	}
+	details = append(details, "Removed daemon container")
+
+	cmd, err := buildComposeCommandFn(runtimeName, configPath, "run", []string{"-d", "--name", daemonName, "construct-box"})
+	if err != nil {
+		return false, details, fmt.Errorf("failed to build daemon recreate command: %w", err)
+	}
+	cmd.Dir = config.GetContainerDir()
+	cmd.Env = doctorComposeEnv()
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return false, details, fmt.Errorf("failed to start daemon: %w", err)
+		}
+		return false, details, fmt.Errorf("failed to start daemon: %w (%s)", err, msg)
+	}
+
+	details = append(details, "Started fresh daemon container")
+	return true, details, nil
+}
+
+func rebuildImageForEntrypointFix(runtimeName, configPath string) (bool, []string, error) {
+	if runtimeName == "" {
+		return false, nil, nil
+	}
+
+	imageName := constants.ImageName + ":latest"
+	checkCmdArgs := getCheckImageCommandFn(runtimeName)
+	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
+	checkCmd.Dir = config.GetContainerDir()
+
+	needsRebuild := false
+	details := []string{}
+	if err := checkCmd.Run(); err != nil {
+		needsRebuild = true
+		details = append(details, fmt.Sprintf("Image %s missing; rebuilding", imageName))
+	} else {
+		expected := sha256.Sum256([]byte(templates.Entrypoint))
+		expectedHash := hex.EncodeToString(expected[:])
+
+		currentHash, err := imageEntrypointHash(runtimeName, imageName)
+		if err != nil {
+			needsRebuild = true
+			details = append(details, "Unable to verify image entrypoint hash; rebuilding for safety")
+			details = append(details, err.Error())
+		} else if currentHash != expectedHash {
+			needsRebuild = true
+			details = append(details, "Image entrypoint is stale; rebuilding")
+		}
+	}
+
+	if !needsRebuild {
+		return false, nil, nil
+	}
+
+	cmd, err := buildComposeCommandFn(runtimeName, configPath, "build", []string{"--no-cache"})
+	if err != nil {
+		return false, details, fmt.Errorf("failed to build image rebuild command: %w", err)
+	}
+	cmd.Dir = configPath
+	cmd.Env = doctorComposeEnv()
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(output))
+		if msg == "" {
+			return false, details, fmt.Errorf("image rebuild failed: %w", err)
+		}
+		return false, details, fmt.Errorf("image rebuild failed: %w (%s)", err, msg)
+	}
+
+	details = append(details, "Rebuilt construct-box image with updated entrypoint")
+	return true, details, nil
+}
+
+func imageEntrypointHash(runtimeName, imageName string) (string, error) {
+	runtimeCmd := runtimeName
+	if runtimeCmd == "container" {
+		runtimeCmd = "docker"
+	}
+
+	cmd := exec.Command(runtimeCmd, "run", "--rm", "--entrypoint", "sha256sum", imageName, "/usr/local/bin/entrypoint.sh")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+
+	fields := strings.Fields(string(output))
+	if len(fields) == 0 {
+		return "", fmt.Errorf("unexpected sha256sum output")
+	}
+	return fields[0], nil
 }
