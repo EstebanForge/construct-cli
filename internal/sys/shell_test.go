@@ -50,3 +50,41 @@ func TestResolveBinaryPathNormalizesRelativePath(t *testing.T) {
 		t.Fatalf("expected absolute path %q, got %q", want, got)
 	}
 }
+
+func TestResolveAliasConstructCommandPrefersLocalCt(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	localBin := filepath.Join(tempHome, ".local", "bin")
+	if err := os.MkdirAll(localBin, 0755); err != nil {
+		t.Fatalf("failed to create local bin: %v", err)
+	}
+	localCt := filepath.Join(localBin, "ct")
+	if err := os.WriteFile(localCt, []byte("#!/bin/sh\n"), 0755); err != nil {
+		t.Fatalf("failed to create ct shim: %v", err)
+	}
+
+	got, err := resolveAliasConstructCommand()
+	if err != nil {
+		t.Fatalf("resolveAliasConstructCommand returned error: %v", err)
+	}
+	if got != localCt {
+		t.Fatalf("expected local ct path %q, got %q", localCt, got)
+	}
+}
+
+func TestResolveAliasConstructCommandFallsBackToExecutable(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	got, err := resolveAliasConstructCommand()
+	if err != nil {
+		t.Fatalf("resolveAliasConstructCommand returned error: %v", err)
+	}
+	if got == "" {
+		t.Fatal("expected non-empty command path")
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("expected absolute path, got %q", got)
+	}
+}
