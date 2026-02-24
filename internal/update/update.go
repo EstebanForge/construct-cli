@@ -4,6 +4,7 @@ package update
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,8 @@ import (
 const (
 	updateChannelStable = "stable"
 	updateChannelBeta   = "beta"
+	binaryName          = "construct"
+	aliasName           = "ct"
 )
 
 // ShouldCheckForUpdates reports whether the update interval has elapsed.
@@ -142,7 +145,7 @@ func DisplayNotification(latestVersion string) {
 	if ui.GumAvailable() {
 		ui.GumInfo(msg)
 		if IsBrewInstalled() {
-			ui.GumInfo("Run 'brew upgrade estebanforge/tap/construct-cli' to upgrade")
+			ui.GumInfo("Run 'construct sys self-update' to upgrade (installs user-local override)")
 		} else {
 			ui.GumInfo("Run 'construct sys self-update' to upgrade")
 		}
@@ -150,7 +153,7 @@ func DisplayNotification(latestVersion string) {
 		fmt.Println()
 		fmt.Println(msg)
 		if IsBrewInstalled() {
-			fmt.Println("Run 'brew upgrade estebanforge/tap/construct-cli' to upgrade")
+			fmt.Println("Run 'construct sys self-update' to upgrade (installs user-local override)")
 		} else {
 			fmt.Println("Run 'construct sys self-update' to upgrade")
 		}
@@ -181,20 +184,6 @@ func IsBrewInstalled() bool {
 
 // SelfUpdate downloads and installs the latest version of the binary
 func SelfUpdate(cfg ...*config.Config) error {
-	// Check if installed via Homebrew
-	if IsBrewInstalled() {
-		if ui.GumAvailable() {
-			ui.GumWarning("Homebrew installation detected.")
-			ui.GumInfo("Please use Homebrew to update:")
-			fmt.Println("  brew upgrade estebanforge/tap/construct-cli")
-		} else {
-			fmt.Println("Warning: Homebrew installation detected.")
-			fmt.Println("Please use Homebrew to update:")
-			fmt.Println("  brew upgrade estebanforge/tap/construct-cli")
-		}
-		return nil
-	}
-
 	// Check for latest version
 	if ui.GumAvailable() {
 		ui.GumInfo("Checking for updates...")
@@ -284,38 +273,261 @@ func SelfUpdate(cfg ...*config.Config) error {
 		return fmt.Errorf("failed to resolve executable path: %w", err)
 	}
 
-	// Backup current binary
-	backupPath := execPath + ".backup"
-	if err := os.Rename(execPath, backupPath); err != nil {
-		return fmt.Errorf("failed to backup current binary: %w", err)
+	targetPath, userLocalOverride, err := resolveInstallTarget(execPath)
+	if err != nil {
+		return fmt.Errorf("failed to resolve install target: %w", err)
 	}
 
-	// Install new binary
-	if err := copyFile(binaryPath, execPath, 0755); err != nil {
-		// Restore backup on failure
-		if renameErr := os.Rename(backupPath, execPath); renameErr != nil {
-			ui.LogError(fmt.Errorf("CRITICAL: Failed to restore backup after update failure: %v", renameErr))
+	if ui.GumAvailable() {
+		ui.GumInfo(fmt.Sprintf("Install target: %s", displayPath(targetPath)))
+	} else {
+		fmt.Printf("Install target: %s\n", displayPath(targetPath))
+	}
+
+	if err := installBinaryWithBackup(binaryPath, targetPath); err != nil {
+		// For non-brew installs in protected paths, fall back to user-local location.
+		if !userLocalOverride && isPermissionError(err) {
+			fallbackPath, pathErr := userLocalBinaryPath()
+			if pathErr != nil {
+				return fmt.Errorf("failed to install update: %w", err)
+			}
+			if ui.GumAvailable() {
+				ui.GumWarning("No write permission to current binary location.")
+				ui.GumInfo(fmt.Sprintf("Falling back to user-local install: %s", displayPath(fallbackPath)))
+			} else {
+				fmt.Println("Warning: No write permission to current binary location.")
+				fmt.Printf("Falling back to user-local install: %s\n", displayPath(fallbackPath))
+			}
+			if fallbackErr := installBinaryWithBackup(binaryPath, fallbackPath); fallbackErr != nil {
+				return fmt.Errorf("failed to install update: %w (fallback failed: %v)", err, fallbackErr)
+			}
+			targetPath = fallbackPath
+			userLocalOverride = true
+		} else {
+			return fmt.Errorf("failed to install update: %w", err)
 		}
-		return fmt.Errorf("failed to install new binary: %w", err)
-	}
-
-	// Remove backup
-	if err := os.Remove(backupPath); err != nil {
-		ui.LogWarning("Failed to remove backup file: %v", err)
 	}
 
 	// Note: We used to delete the .version file here to force migration,
 	// but that causes confusing "0.3.0 -> current" messages.
 	// Template migrations now trigger naturally via hash-based detection
 	// in the migration package, so keeping the version file is safer.
+	if userLocalOverride {
+		if err := configureUserLocalOverride(targetPath); err != nil {
+			ui.LogWarning("Failed to finalize user-local override: %v", err)
+		}
+	}
 
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Successfully updated to %s", latestVersion))
+		if userLocalOverride {
+			ui.GumInfo(fmt.Sprintf("Now using user-local binary: %s", displayPath(targetPath)))
+			ui.GumInfo("If needed, run: export PATH=\"$HOME/.local/bin:$PATH\"")
+		}
 	} else {
 		fmt.Printf("✓ Successfully updated to %s\n", latestVersion)
+		if userLocalOverride {
+			fmt.Printf("Now using user-local binary: %s\n", displayPath(targetPath))
+			fmt.Println("If needed, run: export PATH=\"$HOME/.local/bin:$PATH\"")
+		}
 	}
 
 	return nil
+}
+
+func resolveInstallTarget(execPath string) (string, bool, error) {
+	if isBrewCellarPath(execPath) {
+		targetPath, err := userLocalBinaryPath()
+		if err != nil {
+			return "", false, err
+		}
+		return targetPath, true, nil
+	}
+	return execPath, false, nil
+}
+
+func userLocalBinaryPath() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".local", "bin", binaryName), nil
+}
+
+func isBrewCellarPath(path string) bool {
+	return strings.Contains(path, "/opt/homebrew/Cellar/construct-cli/") ||
+		strings.Contains(path, "/usr/local/Cellar/construct-cli/") ||
+		strings.Contains(path, "/home/linuxbrew/.linuxbrew/Cellar/construct-cli/")
+}
+
+func installBinaryWithBackup(srcPath, targetPath string) error {
+	targetDir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return fmt.Errorf("failed to create install directory: %w", err)
+	}
+
+	backupPath := targetPath + ".backup"
+	hasBackup := false
+
+	if _, err := os.Stat(targetPath); err == nil {
+		if err := os.Rename(targetPath, backupPath); err != nil {
+			return fmt.Errorf("failed to backup current binary: %w", err)
+		}
+		hasBackup = true
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("failed to inspect current binary: %w", err)
+	}
+
+	if err := copyFile(srcPath, targetPath, 0755); err != nil {
+		if hasBackup {
+			if removeErr := os.Remove(targetPath); removeErr != nil && !os.IsNotExist(removeErr) {
+				ui.LogWarning("Failed to remove partial binary during rollback: %v", removeErr)
+			}
+			if renameErr := os.Rename(backupPath, targetPath); renameErr != nil {
+				ui.LogError(fmt.Errorf("CRITICAL: Failed to restore backup after update failure: %v", renameErr))
+			}
+		}
+		return fmt.Errorf("failed to install new binary: %w", err)
+	}
+
+	if hasBackup {
+		if err := os.Remove(backupPath); err != nil {
+			ui.LogWarning("Failed to remove backup file: %v", err)
+		}
+	}
+
+	return nil
+}
+
+func isPermissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, os.ErrPermission) || os.IsPermission(err) {
+		return true
+	}
+	var pathErr *os.PathError
+	if errors.As(err, &pathErr) && (errors.Is(pathErr.Err, os.ErrPermission) || os.IsPermission(pathErr.Err)) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "permission denied")
+}
+
+func configureUserLocalOverride(binaryPath string) error {
+	localBin := filepath.Dir(binaryPath)
+	if err := ensureLocalBinInPath(localBin); err != nil {
+		return err
+	}
+	ensureLocalAlias(binaryPath, localBin)
+	return nil
+}
+
+func ensureLocalAlias(binaryPath, localBin string) {
+	aliasPath := filepath.Join(localBin, aliasName)
+	desiredResolved := binaryPath
+	if resolved, err := filepath.EvalSymlinks(binaryPath); err == nil {
+		desiredResolved = resolved
+	}
+
+	if info, err := os.Lstat(aliasPath); err == nil {
+		if info.Mode()&os.ModeSymlink == 0 {
+			return
+		}
+		currentResolved := aliasPath
+		if resolved, resolveErr := filepath.EvalSymlinks(aliasPath); resolveErr == nil {
+			currentResolved = resolved
+		}
+		if currentResolved == desiredResolved {
+			return
+		}
+		if !isBrewCellarPath(currentResolved) {
+			return
+		}
+		if err := os.Remove(aliasPath); err != nil {
+			return
+		}
+	} else if !os.IsNotExist(err) {
+		return
+	}
+
+	if err := os.Symlink(binaryPath, aliasPath); err != nil {
+		return
+	}
+}
+
+func ensureLocalBinInPath(localBin string) error {
+	pathEnv := os.Getenv("PATH")
+	if strings.HasPrefix(pathEnv, localBin+":") || pathEnv == localBin {
+		return nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		return nil
+	}
+
+	var configFile string
+	var pathLine string
+	var marker string
+
+	if strings.Contains(shell, "zsh") {
+		configFile = filepath.Join(homeDir, ".zshrc")
+		pathLine = "\n# Prefer Construct user-local binary\nexport PATH=\"$HOME/.local/bin:$PATH\"\n"
+		marker = "Prefer Construct user-local binary"
+	} else if strings.Contains(shell, "bash") {
+		configFile = filepath.Join(homeDir, ".bashrc")
+		if _, statErr := os.Stat(configFile); os.IsNotExist(statErr) {
+			configFile = filepath.Join(homeDir, ".bash_profile")
+		}
+		pathLine = "\n# Prefer Construct user-local binary\nexport PATH=\"$HOME/.local/bin:$PATH\"\n"
+		marker = "Prefer Construct user-local binary"
+	} else if strings.Contains(shell, "fish") {
+		configFile = filepath.Join(homeDir, ".config", "fish", "config.fish")
+		pathLine = "\n# Prefer Construct user-local binary\nset -gx PATH $HOME/.local/bin $PATH\n"
+		marker = "Prefer Construct user-local binary"
+	} else {
+		return nil
+	}
+
+	if content, readErr := os.ReadFile(configFile); readErr == nil && strings.Contains(string(content), marker) {
+		return nil
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configFile), 0755); err != nil {
+		return err
+	}
+
+	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := f.Close(); err != nil {
+			ui.LogWarning("Failed to close shell config file: %v", err)
+		}
+	}()
+
+	if _, err := f.WriteString(pathLine); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func displayPath(path string) string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if strings.HasPrefix(path, homeDir+"/") {
+		return "~/" + strings.TrimPrefix(path, homeDir+"/")
+	}
+	return path
 }
 
 // downloadFile downloads a file and returns the path to the temp file

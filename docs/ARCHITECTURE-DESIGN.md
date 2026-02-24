@@ -22,7 +22,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups; daemon container is properly handled during upgrades.
-- **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); Homebrew installs defer to `brew upgrade`; manual installs use tarball update with backup/rollback.
+- **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
 - **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`, `worktrunk`).
@@ -38,7 +38,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Applies yolo flags per-agent based on config.
   - Login-bridge toggle via a flag file to enable localhost callback forwarding.
   - Claude provider system for configurable API endpoints with environment variable management.
-  - Self-update mechanism with channel-aware version marker checks, release download, and atomic binary replacement (Homebrew installs defer to brew).
+  - Self-update mechanism with channel-aware version marker checks, release download, and atomic binary replacement (including Homebrew installs via user-local override).
 - **Templates**: `internal/templates/`
   - Dockerfile uses `debian:trixie-slim` + Homebrew (non-root) for tools; installs Chromium and Puppeteer-compatible deps; disables brew auto-update.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
@@ -222,7 +222,7 @@ make cross-compile   # all platforms
 - Migrations track installed version and template hashes, merge config files with backups, and regenerate topgrade config.
  - Yolo mode injects agent-specific flags (`--dangerously-skip-permissions`, `--allow-all-tools`, `--yolo`) based on `[agents]` config.
  - Login bridge stores ports in `.login_bridge`; entrypoint forwards ports via socat with an offset.
- - Homebrew installs skip self-update in favor of `brew upgrade`.
+ - Homebrew installs can self-update by installing a user-local override binary in `~/.local/bin/construct`.
  - Release workflow updates marker files automatically: stable tags update `VERSION`, prerelease tags update `VERSION-BETA`.
 
 ### 9.1 Self-Update Implementation

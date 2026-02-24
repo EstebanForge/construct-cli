@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.4.0-beta.1] - 2026-02-24
+## [1.4.0-beta.2] - 2026-02-24
 
 ### Changed
 - **Linux Userns/Rootless Runtime Detection**: Added runtime-level user namespace remap detection and propagation (`CONSTRUCT_USERNS_REMAP`) across compose startup, setup, daemon, and update flows.
@@ -117,7 +117,7 @@ All notable changes to Construct CLI will be documented in this file.
 ## [1.2.10] - 2026-02-06
 
 ### Changed
-- **Design Docs Mount Model**: Updated `DESIGN.md` to document the active dual mount behavior: `/projects/<folder>` for ephemeral runs and `/workspaces/<hash>/...` for daemon multi-root runs.
+- **Design Docs Mount Model**: Updated `ARCHITECTURE-DESIGN.md` to document the active dual mount behavior: `/projects/<folder>` for ephemeral runs and `/workspaces/<hash>/...` for daemon multi-root runs.
 
 ### Fixed
 - **Clipboard Host Command Timeouts (macOS)**: Added a timeout for `osascript` image reads in the host clipboard bridge to prevent hangs when reading image clipboard data.
@@ -683,7 +683,7 @@ All notable changes to Construct CLI will be documented in this file.
 - Updated README.md with cross-boundary clipboard bridge instructions
 - Added DEVELOPMENT.md with development workflow and testing guide
 - Updated AGENTS.md with correct file paths and new clipboard features
-- Updated DESIGN.md with detailed clipboard bridge architecture
+- Updated ARCHITECTURE-DESIGN.md with detailed clipboard bridge architecture
 
 
 ---
@@ -766,7 +766,7 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Documentation
 - Comprehensive README.md with examples
-- DESIGN.md with architecture details
+- ARCHITECTURE-DESIGN.md with architecture details
 - AGENTS.md for code agents working on the project
 - CONTRIBUTING.md for contributors
 - LICENSE.md (MIT)

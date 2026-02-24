@@ -8,7 +8,7 @@ Rename the internal container mount point and working directory from `/app` to `
 - Update `internal/templates/docker-compose.yml` to mount `${PWD}` to `/workspace` and set `working_dir: /workspace`.
 - Update `internal/runtime/runtime.go` to use `/workspace` in dynamically generated docker-compose overrides.
 - Update `internal/templates/osascript` log path.
-- Update documentation (`README.md`, `DESIGN.md`) to reflect the change.
+- Update documentation (`README.md`, `ARCHITECTURE-DESIGN.md`) to reflect the change.
 
 ## Verification
 - Run `construct sys reset` (or equivalent) to rebuild templates.

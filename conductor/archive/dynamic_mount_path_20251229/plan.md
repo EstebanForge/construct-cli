@@ -4,7 +4,7 @@
 - [x] Task: Audit codebase for all hardcoded references to `/workspace`. 63b8d9c
     - [x] Sub-task: Search `internal/` for `/workspace`. 63b8d9c
     - [x] Sub-task: Search `cmd/` for `/workspace`. 63b8d9c
-    - [x] Sub-task: Search `scripts/` and docs (`README.md`, `DESIGN.md`) for `/workspace`. 63b8d9c
+    - [x] Sub-task: Search `scripts/` and docs (`README.md`, `ARCHITECTURE-DESIGN.md`) for `/workspace`. 63b8d9c
 - [x] Task: Design the mechanism for passing the project name/path to the runtime. 23c6f0d
 ## Phase 2: Template Updates [x]
 - [x] Task: Update `internal/templates/docker-compose.yml`. 1b2e3f4
@@ -24,7 +24,7 @@
     - [x] Sub-task: Modify Compose override generation to inject the correct `PROJECT_MOUNT_PATH` and `working_dir`. 7c8d9e0
 
 ## Phase 4: Integration & Verification [x] [checkpoint: 4a8437f]
-- [x] Task: Update `DESIGN.md` and documentation to reflect the path change. 4e5f6a7
+- [x] Task: Update `ARCHITECTURE-DESIGN.md` and documentation to reflect the path change. 4e5f6a7
 - [x] Task: Manual Verification. 8b9c0d1
     - [x] Sub-task: Run agent in a folder named `test-project`. 8b9c0d1
     - [x] Sub-task: Verify `pwd` inside agent returns `/projects/test-project`. 8b9c0d1

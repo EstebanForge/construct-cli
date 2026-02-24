@@ -3,6 +3,7 @@ package update
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -124,5 +125,73 @@ func TestRecordUpdateCheckRefreshesTimestamp(t *testing.T) {
 	}
 	if !info.ModTime().After(stale) {
 		t.Fatalf("expected mod time %v to be after stale time %v", info.ModTime(), stale)
+	}
+}
+
+func TestResolveInstallTarget(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	tests := []struct {
+		name         string
+		execPath     string
+		wantOverride bool
+		wantTarget   string
+	}{
+		{
+			name:         "brew cellar path uses user-local override",
+			execPath:     "/opt/homebrew/Cellar/construct-cli/1.4.0/bin/construct",
+			wantOverride: true,
+			wantTarget:   filepath.Join(tempHome, ".local", "bin", "construct"),
+		},
+		{
+			name:         "non-brew path keeps executable path",
+			execPath:     "/usr/local/bin/construct",
+			wantOverride: false,
+			wantTarget:   "/usr/local/bin/construct",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTarget, gotOverride, err := resolveInstallTarget(tt.execPath)
+			if err != nil {
+				t.Fatalf("resolveInstallTarget() unexpected error: %v", err)
+			}
+			if gotTarget != tt.wantTarget {
+				t.Fatalf("resolveInstallTarget() target = %q, want %q", gotTarget, tt.wantTarget)
+			}
+			if gotOverride != tt.wantOverride {
+				t.Fatalf("resolveInstallTarget() override = %v, want %v", gotOverride, tt.wantOverride)
+			}
+		})
+	}
+}
+
+func TestIsPermissionError(t *testing.T) {
+	if !isPermissionError(os.ErrPermission) {
+		t.Fatal("expected os.ErrPermission to be detected as permission error")
+	}
+	if isPermissionError(nil) {
+		t.Fatal("expected nil error to not be detected as permission error")
+	}
+	if isPermissionError(os.ErrNotExist) {
+		t.Fatal("expected os.ErrNotExist to not be detected as permission error")
+	}
+}
+
+func TestDisplayPath(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	inHome := filepath.Join(tempHome, ".local", "bin", "construct")
+	got := displayPath(inHome)
+	if !strings.HasPrefix(got, "~/") {
+		t.Fatalf("expected displayPath to replace home prefix, got %q", got)
+	}
+
+	outside := "/usr/local/bin/construct"
+	if gotOutside := displayPath(outside); gotOutside != outside {
+		t.Fatalf("expected outside path to remain unchanged, got %q", gotOutside)
 	}
 }
