@@ -1149,32 +1149,36 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 		filepath.Join(configPath, "container"),
 	}
 
-	// Check if any directory is not writable
-	var problemPaths []string
-	var ownedButUnwritable []string
-	for _, path := range checkPaths {
-		// Skip if directory doesn't exist yet (will be created with correct ownership)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			continue
-		}
-
-		// Try to create a test file to check writability
-		testFile := filepath.Join(path, ".construct-write-test")
-		if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
-			ownerUID, ownerErr := getOwnerUID(path)
-			if ownerErr != nil {
-				problemPaths = append(problemPaths, path)
-			} else if ownerUID != os.Getuid() {
-				problemPaths = append(problemPaths, path)
-			} else {
-				ownedButUnwritable = append(ownedButUnwritable, path)
+	scanConfigPaths := func() ([]string, []string) {
+		var problemPaths []string
+		var ownedButUnwritable []string
+		for _, path := range checkPaths {
+			// Skip if directory doesn't exist yet (will be created with correct ownership)
+			if _, err := os.Stat(path); os.IsNotExist(err) {
+				continue
 			}
-			continue
+
+			// Try to create a test file to check writability
+			testFile := filepath.Join(path, ".construct-write-test")
+			if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+				ownerUID, ownerErr := getOwnerUID(path)
+				if ownerErr != nil {
+					problemPaths = append(problemPaths, path)
+				} else if ownerUID != os.Getuid() {
+					problemPaths = append(problemPaths, path)
+				} else {
+					ownedButUnwritable = append(ownedButUnwritable, path)
+				}
+				continue
+			}
+			// Ignore cleanup errors - we're just testing writability
+			//nolint:errcheck
+			os.Remove(testFile)
 		}
-		// Ignore cleanup errors - we're just testing writability
-		//nolint:errcheck
-		os.Remove(testFile)
+		return problemPaths, ownedButUnwritable
 	}
+
+	problemPaths, ownedButUnwritable := scanConfigPaths()
 
 	if len(problemPaths) == 0 {
 		if len(ownedButUnwritable) > 0 {
@@ -1208,12 +1212,16 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 	// Rootless/userns-remapped runtimes can often repair ownership without sudo.
 	if UsesUserNamespaceRemap(containerRuntime) {
 		if err := runOwnershipFixRootless(configPath, containerRuntime); err == nil {
-			if ui.GumAvailable() {
-				ui.GumSuccess("Config directory ownership fixed")
-			} else {
-				fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+			remainingProblems, _ := scanConfigPaths()
+			if len(remainingProblems) == 0 {
+				if ui.GumAvailable() {
+					ui.GumSuccess("Config directory ownership fixed")
+				} else {
+					fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+				}
+				return nil
 			}
-			return nil
+			fmt.Fprintf(os.Stderr, "Warning: Rootless ownership fix did not fully resolve permissions; trying sudo fallback.\n")
 		}
 	}
 
@@ -1336,16 +1344,13 @@ func runOwnershipFixNonInteractive(configPath string) error {
 }
 
 func runOwnershipFixRootless(configPath, containerRuntime string) error {
-	uid := os.Getuid()
-	gid := os.Getgid()
-	owner := fmt.Sprintf("%d:%d", uid, gid)
-
 	switch containerRuntime {
 	case "podman":
 		if _, err := exec.LookPath("podman"); err != nil {
 			return fmt.Errorf("podman not available: %w", err)
 		}
-		cmd := exec.Command("podman", "unshare", "chown", "-R", owner, configPath)
+		// In rootless podman userns mode, namespace root maps back to host user ownership.
+		cmd := exec.Command("podman", "unshare", "chown", "-R", "0:0", configPath)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			msg := strings.TrimSpace(string(out))

@@ -194,6 +194,56 @@ func TestBuildComposeCommandInjectsHostIdentityEnvOnLinux(t *testing.T) {
 	}
 }
 
+func TestRunOwnershipFixRootlessPodmanUsesNamespaceRoot(t *testing.T) {
+	if stdruntime.GOOS == "windows" {
+		t.Skip("test relies on POSIX executable bits")
+	}
+
+	tmpDir := t.TempDir()
+	binDir := filepath.Join(tmpDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("failed to create bin dir: %v", err)
+	}
+
+	argsFile := filepath.Join(tmpDir, "podman-args.txt")
+	fakePodman := filepath.Join(binDir, "podman")
+	script := "#!/bin/sh\nset -eu\nprintf '%s\\n' \"$@\" > \"" + argsFile + "\"\n"
+	if err := os.WriteFile(fakePodman, []byte(script), 0755); err != nil {
+		t.Fatalf("failed to create fake podman: %v", err)
+	}
+
+	origPath := os.Getenv("PATH")
+	t.Cleanup(func() {
+		os.Setenv("PATH", origPath)
+	})
+	os.Setenv("PATH", binDir)
+
+	configPath := filepath.Join(tmpDir, "config")
+	if err := os.MkdirAll(configPath, 0755); err != nil {
+		t.Fatalf("failed to create config path: %v", err)
+	}
+
+	if err := runOwnershipFixRootless(configPath, "podman"); err != nil {
+		t.Fatalf("runOwnershipFixRootless returned error: %v", err)
+	}
+
+	recorded, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("failed to read recorded args: %v", err)
+	}
+
+	got := strings.Fields(string(recorded))
+	want := []string{"unshare", "chown", "-R", "0:0", configPath}
+	if len(got) != len(want) {
+		t.Fatalf("expected %d args, got %d (%v)", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("arg %d mismatch: want %q, got %q (all: %v)", i, want[i], got[i], got)
+		}
+	}
+}
+
 // TestGetOSInfo tests OS information retrieval
 // getOSInfo is not in runtime package anymore (it was private in main.go and I didn't export it in runtime.go because it seemed unused except for test?)
 // Wait, getOSInfo was in main.go. Did I move it?
