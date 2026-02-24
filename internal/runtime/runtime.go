@@ -434,7 +434,7 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 	}
 
 	// Run the container once; entrypoint handles setup, then runs the command.
-	runFlags := []string{"--rm", "construct-box", "echo", "Installation complete"}
+	runFlags := []string{"--rm", "-T", "construct-box", "echo", "Installation complete"}
 
 	cmd, err := BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
 	if err != nil {
@@ -843,7 +843,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	override.WriteString("# Auto-generated docker-compose.override.yml\n")
 	override.WriteString("# This file provides runtime-specific configurations\n\n")
 	override.WriteString("services:\n  construct-box:\n")
-	fmt.Fprintf(&override, "    working_dir: %s\n", projectPath)
 	if daemonMounts.Enabled {
 		override.WriteString("    labels:\n")
 		fmt.Fprintf(&override, "      - %s=%s\n", DaemonMountsLabelKey, daemonMounts.Hash)
@@ -853,11 +852,15 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("✓ SELinux labels enabled for volume mounts")
 	}
 	projectSelinuxSuffix := selinuxSuffix
+	workingDir := projectPath
 	if selinuxEnabled && isHomeCwd() {
 		projectSelinuxSuffix = ""
+		workingDir = "/projects"
 		fmt.Println("Warning: SELinux relabeling of home directory is not allowed; skipping :z for project mount")
 		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
+		fmt.Println("Warning: Using /projects as fallback container working directory")
 	}
+	fmt.Fprintf(&override, "    working_dir: %s\n", workingDir)
 
 	nonRootStrict := cfg != nil && cfg.Sandbox.NonRootStrict
 	// Linux-specific user mapping behavior:

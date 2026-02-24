@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"time"
@@ -64,8 +65,17 @@ const (
 
 // GumAvailable checks if Gum is available
 func GumAvailable() bool {
-	_, err := exec.LookPath("gum")
-	return err == nil
+	path, err := exec.LookPath("gum")
+	if err != nil {
+		return false
+	}
+
+	// Some environments expose a non-executable gum binary in PATH.
+	// Probe execution once per call so callers can reliably fall back.
+	cmd := exec.Command(path, "--version")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
 }
 
 // GumSuccess prints a success message using ANSI colors
