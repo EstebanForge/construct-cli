@@ -197,6 +197,8 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 		`if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then`,
 		`RUN_AS_USER="root"`,
 		`RUN_AS_CHOWN="0:0"`,
+		`SKIP_RECURSIVE_CHOWN=1`,
+		`if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then`,
 		`export HOME="${HOME:-/home/construct}"`,
 		`exec gosu "$RUN_AS_USER" "$0" "$@"`,
 		`chown -R "$RUN_AS_CHOWN" /home/construct`,
@@ -208,5 +210,29 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 		if !strings.Contains(Entrypoint, fragment) {
 			t.Fatalf("entrypoint regression: missing required fragment: %s", fragment)
 		}
+	}
+}
+
+func TestEntrypointUsernsRemapSkipsRecursiveChown(t *testing.T) {
+	guard := `if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then`
+	chownHome := `chown -R "$RUN_AS_CHOWN" /home/construct`
+	chownBrew := `chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew`
+
+	guardIdx := strings.Index(Entrypoint, guard)
+	if guardIdx == -1 {
+		t.Fatalf("entrypoint regression: missing recursive chown guard: %s", guard)
+	}
+
+	chownHomeIdx := strings.Index(Entrypoint, chownHome)
+	if chownHomeIdx == -1 {
+		t.Fatalf("entrypoint regression: missing home recursive chown: %s", chownHome)
+	}
+	chownBrewIdx := strings.Index(Entrypoint, chownBrew)
+	if chownBrewIdx == -1 {
+		t.Fatalf("entrypoint regression: missing brew recursive chown: %s", chownBrew)
+	}
+
+	if chownHomeIdx < guardIdx || chownBrewIdx < guardIdx {
+		t.Fatalf("entrypoint regression: recursive chown must be gated by SKIP_RECURSIVE_CHOWN")
 	}
 }

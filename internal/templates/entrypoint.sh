@@ -6,6 +6,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 RUN_AS_USER="construct"
 RUN_AS_CHOWN="construct:construct"
+SKIP_RECURSIVE_CHOWN=0
 if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${CONSTRUCT_HOST_GID:-}" =~ ^[0-9]+$ ]]; then
     RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
     RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
@@ -16,17 +17,20 @@ fi
 if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then
     RUN_AS_USER="root"
     RUN_AS_CHOWN="0:0"
+    SKIP_RECURSIVE_CHOWN=1
 fi
 
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
-    # Fix Homebrew volume ownership
-    if [ -d /home/linuxbrew/.linuxbrew ]; then
-        chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
-    fi
+    if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then
+        # Fix Homebrew volume ownership
+        if [ -d /home/linuxbrew/.linuxbrew ]; then
+            chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+        fi
 
-    # Fix home directory permissions
-    chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
+        # Fix home directory permissions
+        chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
+    fi
 
     # Fix SSH socket permissions
     if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
