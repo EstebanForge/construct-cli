@@ -8,7 +8,7 @@
 - [x] Task: Conductor - User Manual Verification 'Phase 1: Code and Template Updates' (Protocol in workflow.md) 23168ca
 
 ## Phase 2: Documentation Updates
-- [x] Task: Update `DESIGN.md` to reflect the move from `/app` to `/workspace`. 40c64a6
+- [x] Task: Update `ARCHITECTURE-DESIGN.md` to reflect the move from `/app` to `/workspace`. 40c64a6
 - [x] Task: Update `README.md` to reflect the move from `/app` to `/workspace`. 9a5945d
 - [x] Task: Conductor - User Manual Verification 'Phase 2: Documentation Updates' (Protocol in workflow.md) f72e4ac
 

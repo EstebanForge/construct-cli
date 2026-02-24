@@ -189,7 +189,10 @@ main() {
         if [[ -n "$installed_version" && "$installed_version" == "$VERSION" ]]; then
             success "Already on latest version: ${VERSION}"
             echo -n "Do you want to reinstall? [y/N]: " >&2
-            read -r response
+            response=""
+            if ! read -r response; then
+                response=""
+            fi
             response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
             if [[ "$response" != "y" && "$response" != "yes" ]]; then
                 info "Installation cancelled."

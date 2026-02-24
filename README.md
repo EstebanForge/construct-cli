@@ -159,7 +159,7 @@ update_channel = "beta"
 
 For fresh installs on selected machines, you can also use:
 ```bash
-CHANNEL=beta curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | CHANNEL=beta bash
 ```
 
 ### Automatic Migrations
