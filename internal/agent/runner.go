@@ -399,7 +399,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 		// Use Gum for beautiful option selection
 		if ui.GumAvailable() {
-			cmd := exec.Command("gum", "choose",
+			cmd := ui.GetGumCommand("choose",
 				"Attach to existing session (recommended)",
 				"Stop and create new session",
 				"Abort")

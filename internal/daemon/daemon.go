@@ -189,7 +189,7 @@ func Status() {
 	}
 
 	fmt.Println()
-	cmd := exec.Command("gum", "style", "--border", "rounded",
+	cmd := ui.GetGumCommand("style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Daemon Status")
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
@@ -197,7 +197,7 @@ func Status() {
 	}
 	fmt.Println()
 
-	cmd = exec.Command("gum", "style", "--foreground", "242",
+	cmd = ui.GetGumCommand("style", "--foreground", "242",
 		fmt.Sprintf("Container: %s", containerName))
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
@@ -206,7 +206,7 @@ func Status() {
 
 	switch state {
 	case runtime.ContainerStateRunning:
-		cmd = exec.Command("gum", "style", "--foreground", "212",
+		cmd = ui.GetGumCommand("style", "--foreground", "212",
 			"Status: Running ✓")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
@@ -230,7 +230,7 @@ func Status() {
 			fmt.Fprintf(os.Stderr, "Warning: failed to get uptime: %v\n", err)
 			output = []byte("unknown")
 		}
-		cmd = exec.Command("gum", "style", "--foreground", "242",
+		cmd = ui.GetGumCommand("style", "--foreground", "242",
 			fmt.Sprintf("Uptime: %s", strings.TrimSpace(string(output))))
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
@@ -238,7 +238,7 @@ func Status() {
 		}
 
 		fmt.Println()
-		cmd = exec.Command("gum", "style", "--foreground", "86",
+		cmd = ui.GetGumCommand("style", "--foreground", "86",
 			"💡 Use 'construct sys daemon attach' to connect")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
@@ -246,14 +246,14 @@ func Status() {
 		}
 
 	case runtime.ContainerStateExited:
-		cmd = exec.Command("gum", "style", "--foreground", "214",
+		cmd = ui.GetGumCommand("style", "--foreground", "214",
 			"Status: Stopped")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
 		}
 		fmt.Println()
-		cmd = exec.Command("gum", "style", "--foreground", "86",
+		cmd = ui.GetGumCommand("style", "--foreground", "86",
 			"💡 Use 'construct sys daemon start' to start")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
@@ -261,14 +261,14 @@ func Status() {
 		}
 
 	case runtime.ContainerStateMissing:
-		cmd = exec.Command("gum", "style", "--foreground", "196",
+		cmd = ui.GetGumCommand("style", "--foreground", "196",
 			"Status: Not created")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render status: %v\n", err)
 		}
 		fmt.Println()
-		cmd = exec.Command("gum", "style", "--foreground", "86",
+		cmd = ui.GetGumCommand("style", "--foreground", "86",
 			"💡 Use 'construct sys daemon start' to create")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {

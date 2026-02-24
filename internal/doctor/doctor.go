@@ -115,7 +115,7 @@ var stdinIsTTY = func() bool {
 func Run(args ...string) {
 	fmt.Println()
 	if ui.GumAvailable() {
-		cmd := exec.Command("gum", "style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
+		cmd := ui.GetGumCommand("style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
 		cmd.Stdout = os.Stdout
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
