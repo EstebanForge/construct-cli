@@ -22,7 +22,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups; daemon container is properly handled during upgrades.
-- **Self-Update**: Automatic checks against the published VERSION file; Homebrew installs defer to `brew upgrade`; manual installs use tarball update with backup/rollback.
+- **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); Homebrew installs defer to `brew upgrade`; manual installs use tarball update with backup/rollback.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
 - **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`, `worktrunk`).
@@ -38,7 +38,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Applies yolo flags per-agent based on config.
   - Login-bridge toggle via a flag file to enable localhost callback forwarding.
   - Claude provider system for configurable API endpoints with environment variable management.
-  - Self-update mechanism with VERSION check, release download, and atomic binary replacement (Homebrew installs defer to brew).
+  - Self-update mechanism with channel-aware version marker checks, release download, and atomic binary replacement (Homebrew installs defer to brew).
 - **Templates**: `internal/templates/`
   - Dockerfile uses `debian:trixie-slim` + Homebrew (non-root) for tools; installs Chromium and Puppeteer-compatible deps; disables brew auto-update.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
@@ -83,9 +83,10 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `container`, `podman`, `docker`). If set to `auto` (the default), it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
 - **Linux specifics**:
-  - Docker bootstrap/startup uses the stable `construct` user model (no raw host UID env injection in compose overrides).
+  - Docker compose startup and daemon runs propagate host `CONSTRUCT_HOST_UID`/`CONSTRUCT_HOST_GID` on Linux to keep mounted home/config ownership aligned.
   - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning, keeps host UID:GID mapping, and forces `HOME=/home/construct`.
   - Config/migration ownership checks attempt non-interactive sudo repair first (`sudo -n chown -R <uid>:<gid> ~/.config/construct-cli`) and provide explicit manual remediation when elevation is unavailable.
+  - `construct sys doctor --fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
   - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
   - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
@@ -161,7 +162,7 @@ API_TIMEOUT_MS = "3000000"
   - Topgrade: runs if installed with generated config; falls back to manual updates.
   - npm: `npm update -g` (all globals).
 - **Update Check** (`sys check-update` / automatic):
-  - Passively checks the published VERSION file on a configurable interval (default 24h).
+  - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
   - Actively checks when `construct sys check-update` is run.
   - If a new version is found, it notifies the user to run the (currently manual) update command.
 - **Reset**: `sys reset` removes persistent volumes for a clean reinstall (including legacy `construct-agents`).
@@ -192,6 +193,7 @@ make cross-compile   # all platforms
 - `aliases --uninstall`: Remove Construct alias block from host shell.
 - `sys check-update`: Manual command to check for new versions.
 - `sys self-update`: Update the Construct binary itself.
+- `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues.
 - `sys packages`: Open `packages.toml` for customization.
 - `sys packages --install`: Regenerate/install user packages into the running container.
 - `sys agents-md`: Manage global instruction files (rules) per agent.
@@ -213,7 +215,7 @@ make cross-compile   # all platforms
 ---
 
 ## 9. Implementation Details
-- Version string: `Version = "1.3.4"` in `internal/constants/constants.go`.
+- Version string is defined in `internal/constants/constants.go` (`Version` constant) and must match the release tag.
 - Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.
@@ -221,9 +223,10 @@ make cross-compile   # all platforms
  - Yolo mode injects agent-specific flags (`--dangerously-skip-permissions`, `--allow-all-tools`, `--yolo`) based on `[agents]` config.
  - Login bridge stores ports in `.login_bridge`; entrypoint forwards ports via socat with an offset.
  - Homebrew installs skip self-update in favor of `brew upgrade`.
+ - Release workflow updates marker files automatically: stable tags update `VERSION`, prerelease tags update `VERSION-BETA`.
 
 ### 9.1 Self-Update Implementation
-Self-update checks the published VERSION file, downloads the matching release tarball, replaces the binary atomically, and leaves a `.backup` binary for rollback on failure.
+Self-update checks the configured channel marker file (`VERSION` or `VERSION-BETA`), downloads the matching release tarball, replaces the binary atomically, and leaves a `.backup` binary for rollback on failure.
 
 ### 9.2 Claude Provider System Implementation
 - **Config Schema**: `ClaudeConfig` struct with `Providers map[string]map[string]string` for TOML parsing
