@@ -28,9 +28,13 @@
 
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
+- **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases
 - When asked to bump version: update `internal/constants/constants.go` only
 - When asked to add CHANGELOG entry: add new section with current version from constants.go
-- The `VERSION` file is automatically updated during the release process
+- `VERSION` is updated by release workflow for stable tags (e.g. `1.3.8`)
+- `VERSION-BETA` is updated by release workflow for prerelease tags (e.g. `1.3.9-beta.1`)
+- Keep `internal/constants/constants.go` version exactly aligned with the tag being released (stable or prerelease), or `make release` fails `check-version`
+- Stable users track `VERSION`; beta users track `VERSION-BETA` when `runtime.update_channel = "beta"`
 
 ## Adding CLI Agents
 - Add npm package in `internal/templates/packages.toml` under `[npm].packages`.
