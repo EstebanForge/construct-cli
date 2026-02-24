@@ -283,7 +283,9 @@ func ensureLocalBinInPath(localBin string) {
 
 func resolveAliasConstructCommand() (string, error) {
 	// Best effort: keep ct symlink current before writing aliases.
-	_, _, _ = FixCtSymlink()
+	if _, _, err := FixCtSymlink(); err != nil {
+		ui.LogDebug("Failed to refresh ct symlink before alias install: %v", err)
+	}
 
 	homeDir, err := os.UserHomeDir()
 	if err == nil {
