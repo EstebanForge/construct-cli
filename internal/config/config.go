@@ -211,11 +211,19 @@ func Load() (*Config, bool, error) {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		configMissing = true
 	}
-	if _, err := os.Stat(filepath.Join(containerDir, "Dockerfile")); os.IsNotExist(err) {
-		configMissing = true
+	requiredContainerFiles := []string{
+		"Dockerfile",
+		"entrypoint.sh",
+		"entrypoint-hash.sh",
+		"update-all.sh",
+		"agent-patch.sh",
+		"powershell.exe",
 	}
-	if _, err := os.Stat(filepath.Join(containerDir, "powershell.exe")); os.IsNotExist(err) {
-		configMissing = true
+	for _, filename := range requiredContainerFiles {
+		if _, err := os.Stat(filepath.Join(containerDir, filename)); os.IsNotExist(err) {
+			configMissing = true
+			break
+		}
 	}
 	if _, err := os.Stat(packagesPath); os.IsNotExist(err) {
 		configMissing = true
@@ -271,6 +279,14 @@ func Init() error {
 
 	// Helper to create file with gum spinner
 	createFile := func(path string, content []byte, perm os.FileMode) error {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			if removeErr := os.RemoveAll(path); removeErr != nil {
+				return fmt.Errorf("failed to replace directory %s with file: %w", filepath.Base(path), removeErr)
+			}
+		} else if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to stat %s: %w", filepath.Base(path), err)
+		}
+
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			if ui.GumAvailable() {
 				// Use gum spinner for creating file
@@ -322,7 +338,9 @@ func Init() error {
 		{filepath.Join(containerDir, "Dockerfile"), []byte(templates.Dockerfile), 0644},
 		{filepath.Join(containerDir, "docker-compose.yml"), []byte(templates.DockerCompose), 0644},
 		{filepath.Join(containerDir, "entrypoint.sh"), []byte(templates.Entrypoint), 0755},
+		{filepath.Join(containerDir, "entrypoint-hash.sh"), []byte(templates.EntrypointHash), 0755},
 		{filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755},
+		{filepath.Join(containerDir, "agent-patch.sh"), []byte(templates.AgentPatch), 0755},
 		{filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755},
 		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
 		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
