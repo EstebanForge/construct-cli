@@ -468,6 +468,65 @@ func TestRecreateDaemonContainerRunning(t *testing.T) {
 	}
 }
 
+func TestRecreateDaemonContainerUsesProvidedConfigPath(t *testing.T) {
+	origGetState := getContainerStateFn
+	origStop := stopContainerFn
+	origCleanup := cleanupExitedContainerFn
+	origBuild := buildComposeCommandFn
+	t.Cleanup(func() {
+		getContainerStateFn = origGetState
+		stopContainerFn = origStop
+		cleanupExitedContainerFn = origCleanup
+		buildComposeCommandFn = origBuild
+	})
+
+	t.Setenv("HOME", t.TempDir())
+	configPath := t.TempDir()
+	markerName := ".doctor-daemon-cwd"
+	markerPath := filepath.Join(configPath, markerName)
+
+	getContainerStateFn = func(_, _ string) runtimepkg.ContainerState {
+		return runtimepkg.ContainerStateRunning
+	}
+	stopContainerFn = func(_, _ string) error { return nil }
+	cleanupExitedContainerFn = func(_, _ string) error { return nil }
+	buildComposeCommandFn = func(runtimeName, _ string, subCommand string, _ []string) (*exec.Cmd, error) {
+		if runtimeName != "docker" {
+			t.Fatalf("expected docker runtime, got %s", runtimeName)
+		}
+		if subCommand != "run" {
+			t.Fatalf("expected run subcommand, got %s", subCommand)
+		}
+		return exec.Command("sh", "-c", "pwd > "+markerName), nil
+	}
+
+	recreated, _, err := recreateDaemonContainer("docker", configPath)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !recreated {
+		t.Fatalf("expected recreated=true")
+	}
+
+	data, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("expected marker file at %s, got %v", markerPath, err)
+	}
+	gotDir := strings.TrimSpace(string(data))
+
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("failed to stat configPath %s: %v", configPath, err)
+	}
+	gotInfo, err := os.Stat(gotDir)
+	if err != nil {
+		t.Fatalf("failed to stat command cwd %s: %v", gotDir, err)
+	}
+	if !os.SameFile(configInfo, gotInfo) {
+		t.Fatalf("expected command cwd to resolve to %s, got %s", configPath, gotDir)
+	}
+}
+
 func TestRebuildImageForEntrypointFixWhenMissing(t *testing.T) {
 	origGetCheck := getCheckImageCommandFn
 	origBuild := buildComposeCommandFn
