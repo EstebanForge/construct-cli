@@ -2,7 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.3.8] - 2026-02-24
+## [1.3.9] - 2026-02-24
+
+### Fixed
+- **Podman Non-Interactive Setup Runs**: Added `-T` to non-interactive compose `run` flows used by rebuild/setup/update/package install paths to avoid Podman TTY/conmon startup failures on Linux.
+- **SELinux Home-Directory Rebuilds**: When SELinux labels are active and Construct is launched from the home directory, compose override generation now falls back container `working_dir` to `/projects` to prevent Linux startup failures while preserving the project mount.
+- **Broken Gum Binary Fallback**: UI now validates that `gum` is executable (not only present in `PATH`) before using it, ensuring clean fallback output and readable setup error logs on Linux.
+
+### Added
+- **Regression Coverage for SELinux Home Fallback**: Added Linux runtime test coverage validating `/projects` fallback `working_dir` behavior when home-directory SELinux relabeling is skipped.
 
 ### Changed
 - **Linux Startup Identity Propagation**: Linux compose runs now propagate host `UID:GID` into startup env for setup, interactive runs, daemon startup, doctor compose actions, and package/update operations.

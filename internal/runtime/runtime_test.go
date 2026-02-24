@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
 )
 
 // TestRuntimeDetection tests container runtime detection
@@ -313,6 +315,73 @@ func TestGenerateDockerComposeOverridePodmanSetsUserOnLinux(t *testing.T) {
 	contentStr := string(content)
 	if !strings.Contains(contentStr, "user: \"") {
 		t.Fatalf("Expected podman override to include user mapping, got: %s", contentStr)
+	}
+}
+
+func TestGenerateDockerComposeOverrideHomeCwdSELinuxUsesFallbackWorkingDir(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific SELinux fallback behavior")
+	}
+
+	origHome := os.Getenv("HOME")
+	origCwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("failed to read cwd: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = os.Setenv("HOME", origHome)
+		_ = os.Chdir(origCwd)
+	})
+
+	tmpHome := t.TempDir()
+	if err := os.Setenv("HOME", tmpHome); err != nil {
+		t.Fatalf("failed to set HOME: %v", err)
+	}
+	if err := os.Chdir(tmpHome); err != nil {
+		t.Fatalf("failed to chdir to temp home: %v", err)
+	}
+
+	configDir := config.GetConfigDir()
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(containerDir, "Dockerfile"), []byte("FROM scratch\n"), 0644); err != nil {
+		t.Fatalf("failed to write Dockerfile fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(containerDir, "powershell.exe"), []byte("#!/usr/bin/env bash\n"), 0755); err != nil {
+		t.Fatalf("failed to write powershell fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "packages.toml"), []byte(""), 0644); err != nil {
+		t.Fatalf("failed to write packages fixture: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.SelinuxLabels = "enabled"
+	if err := cfg.Save(); err != nil {
+		t.Fatalf("failed to save config: %v", err)
+	}
+
+	projectName := filepath.Base(tmpHome)
+	if projectName == "." || projectName == "/" {
+		projectName = "workspace"
+	}
+	projectPath := "/projects/" + projectName
+
+	if err := GenerateDockerComposeOverride(configDir, projectPath, "bridge", "podman"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "working_dir: /projects") {
+		t.Fatalf("expected fallback working_dir /projects, got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "${PWD}:"+projectPath) {
+		t.Fatalf("expected project mount to remain present, got: %s", contentStr)
 	}
 }
 

@@ -85,6 +85,7 @@ func UpdateAgents(cfg *config.Config) {
 	}
 	runFlags := []string{
 		"--rm",
+		"-T",
 		"--entrypoint", updateScript,
 		"-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH=" + clipboardPatchValue,
 		"construct-box",
@@ -238,7 +239,7 @@ func InstallPackages(cfg *config.Config) {
 
 	// 2. Execute script using 'run --rm' to ensure it works whether a container is running or not
 	scriptPath := "/home/construct/.config/construct-cli/container/install_user_packages.sh"
-	runFlags := []string{"--rm", "--entrypoint", "bash", "construct-box", scriptPath}
+	runFlags := []string{"--rm", "-T", "--entrypoint", "bash", "construct-box", scriptPath}
 
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
 	if err != nil {
