@@ -55,6 +55,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "non_root_strict = false") {
 		t.Error("config.toml template should include non_root_strict with default false")
 	}
+	if !strings.Contains(Config, "allow_custom_compose_override = false") {
+		t.Error("config.toml template should include allow_custom_compose_override with default false")
+	}
 	if !strings.Contains(Config, "exec_as_host_user = true") {
 		t.Error("config.toml template should include exec_as_host_user with default true")
 	}
@@ -150,6 +153,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID}") {
 		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_GID")
 	}
+	if !strings.Contains(DockerCompose, "CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_USERNS_REMAP")
+	}
 
 	// Verify update-all uses shared hash helper
 	if !strings.Contains(UpdateAll, "entrypoint-hash.sh") {
@@ -188,6 +194,9 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 		`if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${CONSTRUCT_HOST_GID:-}" =~ ^[0-9]+$ ]]; then`,
 		`RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
 		`RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
+		`if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then`,
+		`RUN_AS_USER="root"`,
+		`RUN_AS_CHOWN="0:0"`,
 		`export HOME="${HOME:-/home/construct}"`,
 		`exec gosu "$RUN_AS_USER" "$0" "$@"`,
 		`chown -R "$RUN_AS_CHOWN" /home/construct`,

@@ -507,7 +507,7 @@ func GetCheckImageCommand(containerRuntime string) []string {
 // - Generates docker-compose override for OS-specific settings and network isolation
 func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
 	// Fix config directory permissions if needed (Linux/WSL only)
-	if err := ensureConfigPermissions(configPath); err != nil {
+	if err := ensureConfigPermissions(configPath, containerRuntime); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to fix config permissions: %v\n", err)
 	}
 
@@ -641,6 +641,68 @@ func AppendHostIdentityEnv(env []string) []string {
 	return env
 }
 
+// AppendRuntimeIdentityEnv ensures Linux compose commands include host UID/GID
+// and whether the selected runtime uses user-namespace remapping.
+func AppendRuntimeIdentityEnv(env []string, containerRuntime string) []string {
+	env = AppendHostIdentityEnv(env)
+	if runtime.GOOS != "linux" {
+		return env
+	}
+
+	if UsesUserNamespaceRemap(containerRuntime) {
+		env = setEnvVar(env, "CONSTRUCT_USERNS_REMAP", "1")
+	} else {
+		env = setEnvVar(env, "CONSTRUCT_USERNS_REMAP", "0")
+	}
+	return env
+}
+
+// UsesUserNamespaceRemap reports whether the selected runtime remaps
+// container UIDs to a non-host UID/GID range.
+func UsesUserNamespaceRemap(containerRuntime string) bool {
+	if runtime.GOOS != "linux" {
+		return false
+	}
+
+	switch containerRuntime {
+	case "podman":
+		return podmanIsRootless()
+	case "docker", "container":
+		return dockerUsesUserNamespaceRemap()
+	default:
+		return false
+	}
+}
+
+func podmanIsRootless() bool {
+	if _, err := exec.LookPath("podman"); err != nil {
+		return false
+	}
+	out, err := exec.Command("podman", "info", "--format", "{{.Host.Security.Rootless}}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(string(out)), "true")
+}
+
+func dockerUsesUserNamespaceRemap() bool {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return false
+	}
+
+	if out, err := exec.Command("docker", "info", "--format", "{{.Rootless}}").Output(); err == nil {
+		if strings.EqualFold(strings.TrimSpace(string(out)), "true") {
+			return true
+		}
+	}
+
+	out, err := exec.Command("docker", "info", "--format", "{{json .SecurityOptions}}").Output()
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(out)), "userns")
+}
+
 func setEnvVar(env []string, key, value string) []string {
 	prefix := key + "="
 	for i, entry := range env {
@@ -666,6 +728,8 @@ type overrideInputs struct {
 	Runtime        string // Container runtime - affects override generation
 	UID            int    // Host user ID (Linux only)
 	GID            int    // Host group ID (Linux only)
+	UsernsRemap    bool   // Whether runtime remaps container users away from host IDs
+	AllowCustom    bool   // Whether custom compose override behavior is allowed
 	SELinuxEnabled bool   // SELinux status
 	NetworkMode    string // Network isolation mode
 	GitName        string // Git user.name config
@@ -687,6 +751,8 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "runtime:%s", inputs.Runtime)
 	writeHashString(h, "uid:%d", inputs.UID)
 	writeHashString(h, "gid:%d", inputs.GID)
+	writeHashString(h, "userns_remap:%v", inputs.UsernsRemap)
+	writeHashString(h, "allow_custom_override:%v", inputs.AllowCustom)
 	writeHashString(h, "selinux:%v", inputs.SELinuxEnabled)
 	writeHashString(h, "network:%s", inputs.NetworkMode)
 	writeHashString(h, "gitname:%s", inputs.GitName)
@@ -766,9 +832,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	// Collect all inputs that affect override generation
 	hostUID := -1
 	hostGID := -1
+	usernsRemap := false
 	if runtime.GOOS == "linux" {
 		hostUID = os.Getuid()
 		hostGID = os.Getgid()
+		usernsRemap = UsesUserNamespaceRemap(containerRuntime)
 	}
 
 	// Get Git identity if enabled
@@ -794,11 +862,14 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	// Build override inputs struct
+	allowCustomOverride := cfg != nil && cfg.Sandbox.AllowCustomOverride
 	inputs := overrideInputs{
 		Version:        constants.Version,
 		Runtime:        containerRuntime,
 		UID:            hostUID,
 		GID:            hostGID,
+		UsernsRemap:    usernsRemap,
+		AllowCustom:    allowCustomOverride,
 		SELinuxEnabled: selinuxEnabled,
 		NetworkMode:    networkMode,
 		GitName:        gitName,
@@ -821,8 +892,8 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 			} else if hasUserMapping {
-				if cfg != nil && cfg.Sandbox.NonRootStrict {
-					// non_root_strict explicitly requires user mapping; keep current override.
+				if cfg != nil && (cfg.Sandbox.NonRootStrict || cfg.Sandbox.AllowCustomOverride) {
+					// User explicitly opted in to custom/strict override behavior; keep current override.
 					return nil
 				}
 				fmt.Fprintln(os.Stderr, "Warning: docker-compose.override.yml contains a manual 'user:' mapping for Docker.")
@@ -864,10 +935,20 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	nonRootStrict := cfg != nil && cfg.Sandbox.NonRootStrict
 	// Linux-specific user mapping behavior:
-	// - Podman: always force user mapping for rootless compatibility.
-	// - Docker: only force user mapping when explicitly requested via non_root_strict.
-	// Default Docker flow runs as root briefly to fix permissions, then drops privileges.
-	if runtime.GOOS == "linux" && (containerRuntime == "podman" || (containerRuntime == "docker" && nonRootStrict)) {
+	// - Podman: force user mapping only when userns remap is not active.
+	// - Docker: only force user mapping when explicitly requested via non_root_strict
+	//   and when userns remap is not active.
+	// Default flow runs as root briefly to fix permissions, then drops privileges.
+	shouldForceUserMapping := false
+	if runtime.GOOS == "linux" {
+		switch containerRuntime {
+		case "podman":
+			shouldForceUserMapping = !usernsRemap
+		case "docker":
+			shouldForceUserMapping = nonRootStrict && !usernsRemap
+		}
+	}
+	if shouldForceUserMapping {
 		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", hostUID, hostGID)
 		if containerRuntime == "podman" {
 			fmt.Printf("✓ Container (podman) will run as user %d:%d\n", hostUID, hostGID)
@@ -1050,8 +1131,8 @@ func samePath(a, b string) bool {
 	return a == b
 }
 
-// ensureConfigPermissions checks and fixes config directory ownership on Linux
-func ensureConfigPermissions(configPath string) error {
+// ensureConfigPermissions checks and fixes config directory ownership on Linux.
+func ensureConfigPermissions(configPath, containerRuntime string) error {
 	// Only needed on Linux where we mount volumes with potential UID mismatches
 	if runtime.GOOS != "linux" {
 		return nil
@@ -1123,6 +1204,18 @@ func ensureConfigPermissions(configPath string) error {
 	}
 	fmt.Fprintf(os.Stderr, "\nThis typically happens when the container created files as a different user.\n")
 	fmt.Fprintf(os.Stderr, "Fix: %ssudo chown -R %s:%s %s%s\n\n", ui.ColorCyan, username, username, configPath, ui.ColorReset)
+
+	// Rootless/userns-remapped runtimes can often repair ownership without sudo.
+	if UsesUserNamespaceRemap(containerRuntime) {
+		if err := runOwnershipFixRootless(configPath, containerRuntime); err == nil {
+			if ui.GumAvailable() {
+				ui.GumSuccess("Config directory ownership fixed")
+			} else {
+				fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+			}
+			return nil
+		}
+	}
 
 	// Try non-interactive sudo first (best effort, avoids blocking in non-interactive sessions).
 	if err := runOwnershipFixNonInteractive(configPath); err == nil {
@@ -1240,6 +1333,31 @@ func runOwnershipFixNonInteractive(configPath string) error {
 		return fmt.Errorf("%w: %s", err, msg)
 	}
 	return nil
+}
+
+func runOwnershipFixRootless(configPath, containerRuntime string) error {
+	uid := os.Getuid()
+	gid := os.Getgid()
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+
+	switch containerRuntime {
+	case "podman":
+		if _, err := exec.LookPath("podman"); err != nil {
+			return fmt.Errorf("podman not available: %w", err)
+		}
+		cmd := exec.Command("podman", "unshare", "chown", "-R", owner, configPath)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			msg := strings.TrimSpace(string(out))
+			if msg == "" {
+				return err
+			}
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return nil
+	default:
+		return fmt.Errorf("rootless ownership fix not implemented for runtime: %s", containerRuntime)
+	}
 }
 
 func currentUserName() string {
@@ -1668,7 +1786,7 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 	if cmd == nil {
 		return nil, fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
-	cmd.Env = AppendHostIdentityEnv(AppendProjectPathEnv(os.Environ()))
+	cmd.Env = AppendRuntimeIdentityEnv(AppendProjectPathEnv(os.Environ()), containerRuntime)
 	return cmd, nil
 }
 

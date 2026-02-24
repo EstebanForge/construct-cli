@@ -188,6 +188,9 @@ func TestBuildComposeCommandInjectsHostIdentityEnvOnLinux(t *testing.T) {
 		if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_HOST_UID=") || !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_HOST_GID=") {
 			t.Fatalf("expected host identity env in compose command env on linux, got %v", cmd.Env)
 		}
+		if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_USERNS_REMAP=") {
+			t.Fatalf("expected CONSTRUCT_USERNS_REMAP in compose command env on linux, got %v", cmd.Env)
+		}
 	}
 }
 
@@ -283,7 +286,7 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	}
 }
 
-func TestGenerateDockerComposeOverridePodmanSetsUserOnLinux(t *testing.T) {
+func TestGenerateDockerComposeOverridePodmanUserMappingDependsOnUsernsMode(t *testing.T) {
 	if stdruntime.GOOS != "linux" {
 		t.Skip("Linux-specific podman user mapping behavior")
 	}
@@ -313,8 +316,15 @@ func TestGenerateDockerComposeOverridePodmanSetsUserOnLinux(t *testing.T) {
 		t.Fatalf("Failed to read generated file: %v", err)
 	}
 	contentStr := string(content)
-	if !strings.Contains(contentStr, "user: \"") {
-		t.Fatalf("Expected podman override to include user mapping, got: %s", contentStr)
+	hasUserMapping := strings.Contains(contentStr, "user: \"")
+	if UsesUserNamespaceRemap("podman") {
+		if hasUserMapping {
+			t.Fatalf("Expected podman override to skip user mapping in userns-remap mode, got: %s", contentStr)
+		}
+		return
+	}
+	if !hasUserMapping {
+		t.Fatalf("Expected podman override to include user mapping when userns-remap is inactive, got: %s", contentStr)
 	}
 }
 
