@@ -157,7 +157,7 @@ To opt specific machines into prereleases only, set:
 update_channel = "beta"
 ```
 
-For fresh installs on selected machines, you can also use:
+For fresh beta installs on selected machines, you can also use:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | CHANNEL=beta bash
 ```
