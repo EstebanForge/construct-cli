@@ -4,15 +4,6 @@ All notable changes to Construct CLI will be documented in this file.
 
 ## [1.4.0-beta.4] - 2026-02-24
 
-### Fixed
-- **Host Alias Version Drift (macOS/Homebrew)**: `construct sys aliases` now binds agent aliases to the local `ct` shim (with executable fallback) instead of bare `construct`, preventing downgrade/migration loops when Homebrew stable and local beta binaries coexist in `PATH`.
-- **Installer Version Prefix Tolerance**: `scripts/install.sh` now normalizes incoming versions by stripping a leading `v` and preserves prerelease suffixes during installed-version detection, preventing invalid `v...` download URLs.
-- **Release Guardrails for Non-`v` Tags**: Release workflow now hard-fails on `v`-prefixed tags and dispatches Homebrew tap updates using the normalized non-prefixed version output.
-
----
-
-## [1.4.0-beta.3] - 2026-02-24
-
 ### Changed
 - **Linux Userns/Rootless Runtime Detection**: Added runtime-level user namespace remap detection and propagation (`CONSTRUCT_USERNS_REMAP`) across compose startup, setup, daemon, and update flows.
 - **Linux Identity Strategy for Rootless Modes**: Updated Linux startup behavior to avoid forcing host `UID:GID` mappings when userns remap/rootless mode is active, while preserving existing non-root-strict behavior where applicable.
