@@ -8,6 +8,7 @@
 #   INSTALL_DIR=/path # override install dir (default: /usr/local/bin or ~/.local/bin)
 #   SKIP_SYMLINK=1    # skip creating ct symlink
 #   FORCE=1           # skip version check, always reinstall
+#   CHANNEL=stable|beta # release channel when VERSION=latest (default: stable)
 
 set -euo pipefail
 
@@ -26,6 +27,7 @@ REPO="EstebanForge/construct-cli"
 BINARY="construct"
 ALIAS="ct"
 VERSION="latest"
+CHANNEL="${CHANNEL:-stable}"
 INSTALL_DIR="${INSTALL_DIR:-}"
 FORCE="${FORCE:-0}"
 
@@ -54,7 +56,14 @@ detect_platform() {
 }
 
 latest_version() {
-    local url="https://raw.githubusercontent.com/${REPO}/main/VERSION"
+    local version_file="VERSION"
+    case "${CHANNEL}" in
+        stable) version_file="VERSION" ;;
+        beta) version_file="VERSION-BETA" ;;
+        *) error "Invalid CHANNEL: ${CHANNEL} (expected stable or beta)" ;;
+    esac
+
+    local url="https://raw.githubusercontent.com/${REPO}/main/${version_file}"
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL "$url" | tr -d '[:space:]'
     elif command -v wget >/dev/null 2>&1; then
@@ -168,7 +177,7 @@ main() {
     dest_dir="$(pick_install_dir)"
 
     if [[ "$VERSION" == "latest" || -z "$VERSION" ]]; then
-        info "Resolving latest version..."
+        info "Resolving latest version (channel: ${CHANNEL})..."
         VERSION="$(latest_version)"
     fi
 

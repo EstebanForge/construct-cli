@@ -146,6 +146,49 @@ func TestBuildComposeCommandPodmanUsesPodmanComposeBinary(t *testing.T) {
 	}
 }
 
+func TestAppendHostIdentityEnvLinux(t *testing.T) {
+	env := []string{"A=1"}
+	got := AppendHostIdentityEnv(env)
+
+	if stdruntime.GOOS == "linux" {
+		if !containsEnvWithPrefix(got, "CONSTRUCT_HOST_UID=") {
+			t.Fatalf("expected CONSTRUCT_HOST_UID in env on linux, got %v", got)
+		}
+		if !containsEnvWithPrefix(got, "CONSTRUCT_HOST_GID=") {
+			t.Fatalf("expected CONSTRUCT_HOST_GID in env on linux, got %v", got)
+		}
+		return
+	}
+
+	if containsEnvWithPrefix(got, "CONSTRUCT_HOST_UID=") || containsEnvWithPrefix(got, "CONSTRUCT_HOST_GID=") {
+		t.Fatalf("did not expect host identity env on non-linux, got %v", got)
+	}
+}
+
+func TestBuildComposeCommandInjectsHostIdentityEnvOnLinux(t *testing.T) {
+	tmpDir := t.TempDir()
+	origPath := os.Getenv("PATH")
+	t.Cleanup(func() {
+		os.Setenv("PATH", origPath)
+	})
+	os.Setenv("PATH", tmpDir)
+
+	cmd, err := BuildComposeCommand("podman", tmpDir, "run", []string{"--rm", "construct-box", "true"})
+	if err != nil {
+		t.Fatalf("BuildComposeCommand failed: %v", err)
+	}
+
+	if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_PROJECT_PATH=") {
+		t.Fatalf("expected CONSTRUCT_PROJECT_PATH in command env, got %v", cmd.Env)
+	}
+
+	if stdruntime.GOOS == "linux" {
+		if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_HOST_UID=") || !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_HOST_GID=") {
+			t.Fatalf("expected host identity env in compose command env on linux, got %v", cmd.Env)
+		}
+	}
+}
+
 // TestGetOSInfo tests OS information retrieval
 // getOSInfo is not in runtime package anymore (it was private in main.go and I didn't export it in runtime.go because it seemed unused except for test?)
 // Wait, getOSInfo was in main.go. Did I move it?
@@ -170,6 +213,15 @@ func TestGetProjectMountPath(t *testing.T) {
 			t.Errorf("For %s, expected %s, got %s", tt.cwd, tt.expected, result)
 		}
 	}
+}
+
+func containsEnvWithPrefix(env []string, prefix string) bool {
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestGenerateDockerComposeOverride(t *testing.T) {

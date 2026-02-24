@@ -32,6 +32,7 @@ type RuntimeConfig struct {
 	Engine              string `toml:"engine"`
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
+	UpdateChannel       string `toml:"update_channel"`        // stable|beta
 }
 
 // SandboxConfig holds sandbox options.
@@ -88,6 +89,7 @@ func DefaultConfig() Config {
 			Engine:              "auto",
 			AutoUpdateCheck:     true,
 			UpdateCheckInterval: 86400,
+			UpdateChannel:       "stable",
 		},
 		Sandbox: SandboxConfig{
 			MountHome:            false,

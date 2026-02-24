@@ -6,6 +6,10 @@ export DEBIAN_FRONTEND=noninteractive
 
 RUN_AS_USER="construct"
 RUN_AS_CHOWN="construct:construct"
+if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${CONSTRUCT_HOST_GID:-}" =~ ^[0-9]+$ ]]; then
+    RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
+    RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
+fi
 
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
@@ -42,7 +46,9 @@ if [ "$(id -u)" = "0" ]; then
         }' /etc/profile 2>/dev/null || true
     fi
 
-    # Drop privileges and re-run as construct user
+    # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
+    export HOME="${HOME:-/home/construct}"
+    # Drop privileges and re-run as configured runtime user.
     exec gosu "$RUN_AS_USER" "$0" "$@"
 else
     # Non-root mode (Podman rootless) - fix permissions using sudo if available

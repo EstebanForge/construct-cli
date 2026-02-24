@@ -63,6 +63,7 @@ func UpdateAgents(cfg *config.Config) {
 	env := os.Environ()
 	env = append(env, "PWD="+cwd)
 	env = runtime.AppendProjectPathEnv(env)
+	env = runtime.AppendHostIdentityEnv(env)
 
 	var cmd *exec.Cmd
 

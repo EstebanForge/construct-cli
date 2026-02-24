@@ -630,6 +630,28 @@ func envHasKey(env []string, key string) bool {
 	return false
 }
 
+// AppendHostIdentityEnv ensures Linux compose commands include host UID/GID for container startup scripts.
+func AppendHostIdentityEnv(env []string) []string {
+	if runtime.GOOS != "linux" {
+		return env
+	}
+
+	env = setEnvVar(env, "CONSTRUCT_HOST_UID", strconv.Itoa(os.Getuid()))
+	env = setEnvVar(env, "CONSTRUCT_HOST_GID", strconv.Itoa(os.Getgid()))
+	return env
+}
+
+func setEnvVar(env []string, key, value string) []string {
+	prefix := key + "="
+	for i, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			env[i] = prefix + value
+			return env
+		}
+	}
+	return append(env, prefix+value)
+}
+
 func getProjectMountPathFromDir(dir string) string {
 	projectName := filepath.Base(dir)
 	if projectName == "." || projectName == "/" {
@@ -1643,7 +1665,7 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 	if cmd == nil {
 		return nil, fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
-	cmd.Env = AppendProjectPathEnv(os.Environ())
+	cmd.Env = AppendHostIdentityEnv(AppendProjectPathEnv(os.Environ()))
 	return cmd, nil
 }
 

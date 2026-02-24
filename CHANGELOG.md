@@ -2,6 +2,25 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.3.8] - 2026-02-24
+
+### Changed
+- **Linux Startup Identity Propagation**: Linux compose runs now propagate host `UID:GID` into startup env for setup, interactive runs, daemon startup, doctor compose actions, and package/update operations.
+- **Entrypoint Ownership Strategy (Linux)**: Entrypoint now supports host numeric `UID:GID` ownership/runtime mapping (when provided) while preserving `HOME=/home/construct` semantics.
+
+### Fixed
+- **Recurring Linux Home Ownership Drift**: Prevented repeated ownership drift on `~/.config/construct-cli/home` caused by container startup user/ownership mismatch across Docker and Podman flows.
+- **Config Permissions Doctor Coverage**: `construct sys doctor` now reports ownership mismatch (not only writability) for Linux config directories.
+- **Codex Startup Permission Loop**: Resolved repeated permission-fix prompts triggered by home mount ownership mismatch before `ct codex` startup.
+
+### Added
+- **Comprehensive Linux `doctor --fix` Remediation**: Added Linux `--fix` flow that repairs config ownership/permissions, rebuilds stale/missing image for startup fixes, recycles stale session container, and recreates daemon container.
+- **Regression Coverage for Linux Ownership Fixes**: Added unit tests for ownership-state detection, linux fix flow, host identity env injection, daemon recreation/session cleanup fix paths, and template guards for host identity propagation.
+- **Release Channels (`stable` / `beta`)**: Added `runtime.update_channel` to config, beta version marker support (`VERSION-BETA`), and installer channel selection (`CHANNEL=beta`) for selective prerelease adoption.
+- **Semver Prerelease Comparison**: Added shared semantic version comparison logic with prerelease support for update checks and migration gating.
+
+---
+
 ## [1.3.7] - 2026-02-22
 
 ### Added

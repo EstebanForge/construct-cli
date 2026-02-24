@@ -16,6 +16,12 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/ui"
+	semver "github.com/EstebanForge/construct-cli/internal/version"
+)
+
+const (
+	updateChannelStable = "stable"
+	updateChannelBeta   = "beta"
 )
 
 // ShouldCheckForUpdates reports whether the update interval has elapsed.
@@ -39,10 +45,13 @@ func ShouldCheckForUpdates(cfg *config.Config) bool {
 	return time.Since(info.ModTime()) > interval
 }
 
-// CheckForUpdates checks the VERSION file for the latest version.
+// CheckForUpdates checks the configured release channel version file for the latest version.
 // Returns the latest version string, whether an update is available, and any error.
-func CheckForUpdates() (string, bool, error) {
-	resp, err := http.Get(constants.GithubRawURL)
+func CheckForUpdates(cfg ...*config.Config) (string, bool, error) {
+	channel := resolveUpdateChannel(cfg...)
+	versionURL := versionURLForChannel(channel)
+
+	resp, err := http.Get(versionURL)
 	if err != nil {
 		return "", false, err
 	}
@@ -53,7 +62,7 @@ func CheckForUpdates() (string, bool, error) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("failed to fetch VERSION: %s", resp.Status)
+		return "", false, fmt.Errorf("failed to fetch %s version file: %s", channel, resp.Status)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -76,29 +85,29 @@ func CheckForUpdates() (string, bool, error) {
 // compareVersions compares two semver strings
 // Returns: 1 if v1 > v2, -1 if v1 < v2, 0 if equal
 func compareVersions(v1, v2 string) int {
-	v1Parts := strings.Split(v1, ".")
-	v2Parts := strings.Split(v2, ".")
+	return semver.Compare(v1, v2)
+}
 
-	for i := 0; i < 3; i++ {
-		var n1, n2 int
-		if i < len(v1Parts) {
-			if _, err := fmt.Sscanf(v1Parts[i], "%d", &n1); err != nil {
-				n1 = 0
-			}
-		}
-		if i < len(v2Parts) {
-			if _, err := fmt.Sscanf(v2Parts[i], "%d", &n2); err != nil {
-				n2 = 0
-			}
-		}
-
-		if n1 > n2 {
-			return 1
-		} else if n1 < n2 {
-			return -1
-		}
+func resolveUpdateChannel(cfg ...*config.Config) string {
+	if len(cfg) == 0 || cfg[0] == nil {
+		return updateChannelStable
 	}
-	return 0
+
+	switch strings.ToLower(strings.TrimSpace(cfg[0].Runtime.UpdateChannel)) {
+	case "", updateChannelStable:
+		return updateChannelStable
+	case updateChannelBeta:
+		return updateChannelBeta
+	default:
+		return updateChannelStable
+	}
+}
+
+func versionURLForChannel(channel string) string {
+	if channel == updateChannelBeta {
+		return constants.GithubRawBetaURL
+	}
+	return constants.GithubRawURL
 }
 
 // RecordUpdateCheck updates the update-check timestamp file.
@@ -171,7 +180,7 @@ func IsBrewInstalled() bool {
 }
 
 // SelfUpdate downloads and installs the latest version of the binary
-func SelfUpdate() error {
+func SelfUpdate(cfg ...*config.Config) error {
 	// Check if installed via Homebrew
 	if IsBrewInstalled() {
 		if ui.GumAvailable() {
@@ -193,7 +202,7 @@ func SelfUpdate() error {
 		fmt.Println("Checking for updates...")
 	}
 
-	latestVersion, updateAvailable, err := CheckForUpdates()
+	latestVersion, updateAvailable, err := CheckForUpdates(cfg...)
 	if err != nil {
 		return fmt.Errorf("failed to check for updates: %w", err)
 	}

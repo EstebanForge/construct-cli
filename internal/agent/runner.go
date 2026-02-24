@@ -315,6 +315,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
+	osEnv = runtime.AppendHostIdentityEnv(osEnv)
 
 	// Ensure comprehensive PATH for setup container runs.
 	// The container user's home is always /home/construct.
@@ -495,6 +496,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	osEnv := os.Environ()
 	osEnv = append(osEnv, "PWD="+cwd)
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
+	osEnv = runtime.AppendHostIdentityEnv(osEnv)
 
 	// Ensure comprehensive PATH for container (fixes agent subprocess PATH issues)
 	// The container user's home is always /home/construct
@@ -1220,6 +1222,7 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 	osEnv = append(osEnv, "PWD="+cwd)
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
 	osEnv = network.InjectEnv(osEnv, cfg)
+	osEnv = runtime.AppendHostIdentityEnv(osEnv)
 	applyConstructPath(&osEnv)
 
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "run", []string{"-d", "--rm", "--name", daemonName, "construct-box"})

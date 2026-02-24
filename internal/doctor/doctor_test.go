@@ -3,10 +3,14 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	stdruntime "runtime"
 	"strings"
 	"testing"
+
+	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 )
 
 func TestComposeUserMappingParsesValue(t *testing.T) {
@@ -214,6 +218,292 @@ func TestSetEnvVarAppendsWhenMissing(t *testing.T) {
 
 	if !containsEnv(got, "CONSTRUCT_PROJECT_PATH=/projects/repo") {
 		t.Fatalf("expected appended env var, got %v", got)
+	}
+}
+
+func TestInspectLinuxConfigPermissionStateDetectsWrongOwner(t *testing.T) {
+	configDir := t.TempDir()
+	homeDir := filepath.Join(configDir, "home")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(homeDir, 0755); err != nil {
+		t.Fatalf("failed to create home dir: %v", err)
+	}
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	origGetOwnerUID := getOwnerUID
+	origCurrentUID := currentUID
+	t.Cleanup(func() {
+		getOwnerUID = origGetOwnerUID
+		currentUID = origCurrentUID
+	})
+
+	currentUID = func() int { return 1000 }
+	getOwnerUID = func(path string) (int, error) {
+		if path == homeDir {
+			return 0, nil
+		}
+		return 1000, nil
+	}
+
+	state := inspectLinuxConfigPermissionState(configDir)
+	if len(state.WrongOwner) != 1 || state.WrongOwner[0] != homeDir {
+		t.Fatalf("expected wrong owner on %s, got %v", homeDir, state.WrongOwner)
+	}
+	if !state.HasProblems() {
+		t.Fatalf("expected HasProblems=true")
+	}
+}
+
+func TestFixLinuxConfigOwnershipNoopWhenHealthy(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("linux-specific fix behavior")
+	}
+
+	configDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, "home"), 0755); err != nil {
+		t.Fatalf("failed to create home dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "container"), 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	origGetOwnerUID := getOwnerUID
+	origCurrentUID := currentUID
+	t.Cleanup(func() {
+		getOwnerUID = origGetOwnerUID
+		currentUID = origCurrentUID
+	})
+	currentUID = func() int { return 1000 }
+	getOwnerUID = func(_ string) (int, error) { return 1000, nil }
+
+	fixed, details, err := fixLinuxConfigOwnership(configDir)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if fixed {
+		t.Fatalf("expected fixed=false")
+	}
+	if len(details) != 0 {
+		t.Fatalf("expected no details for noop, got %v", details)
+	}
+}
+
+func TestFixLinuxConfigOwnershipUsesSudoAndChmod(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("linux-specific fix behavior")
+	}
+
+	configDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, "home"), 0755); err != nil {
+		t.Fatalf("failed to create home dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "container"), 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	origGetOwnerUID := getOwnerUID
+	origCurrentUID := currentUID
+	origCurrentGID := currentGID
+	origRunSudoCombinedOutput := runSudoCombinedOutput
+	origRunSudoInteractive := runSudoInteractive
+	origRunChmodRecursive := runChmodRecursive
+	origTTY := stdinIsTTY
+	t.Cleanup(func() {
+		getOwnerUID = origGetOwnerUID
+		currentUID = origCurrentUID
+		currentGID = origCurrentGID
+		runSudoCombinedOutput = origRunSudoCombinedOutput
+		runSudoInteractive = origRunSudoInteractive
+		runChmodRecursive = origRunChmodRecursive
+		stdinIsTTY = origTTY
+	})
+
+	currentUID = func() int { return 1000 }
+	currentGID = func() int { return 1000 }
+	stdinIsTTY = func() bool { return false }
+
+	ownerFixed := false
+	getOwnerUID = func(_ string) (int, error) {
+		if ownerFixed {
+			return 1000, nil
+		}
+		return 0, nil
+	}
+
+	var sudoCalls []string
+	runSudoCombinedOutput = func(args ...string) ([]byte, error) {
+		sudoCalls = append(sudoCalls, strings.Join(args, " "))
+		if len(args) >= 5 && args[1] == "chown" {
+			ownerFixed = true
+			return []byte("ok"), nil
+		}
+		return []byte("ok"), nil
+	}
+	runSudoInteractive = func(_ ...string) error {
+		t.Fatal("did not expect interactive sudo path")
+		return nil
+	}
+
+	chmodCalled := false
+	runChmodRecursive = func(path string) error {
+		if path != configDir {
+			t.Fatalf("expected chmod path %s, got %s", configDir, path)
+		}
+		chmodCalled = true
+		return nil
+	}
+
+	fixed, details, err := fixLinuxConfigOwnership(configDir)
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !fixed {
+		t.Fatalf("expected fixed=true")
+	}
+	if !chmodCalled {
+		t.Fatalf("expected chmod step to run")
+	}
+	if len(sudoCalls) == 0 {
+		t.Fatalf("expected sudo chown call")
+	}
+	if len(details) == 0 {
+		t.Fatalf("expected fix details")
+	}
+}
+
+func TestCleanupAgentContainerNoopWhenMissing(t *testing.T) {
+	origGetState := getContainerStateFn
+	origStop := stopContainerFn
+	origCleanup := cleanupExitedContainerFn
+	t.Cleanup(func() {
+		getContainerStateFn = origGetState
+		stopContainerFn = origStop
+		cleanupExitedContainerFn = origCleanup
+	})
+
+	getContainerStateFn = func(_, _ string) runtimepkg.ContainerState {
+		return runtimepkg.ContainerStateMissing
+	}
+	stopContainerFn = func(_, _ string) error {
+		t.Fatal("did not expect stop call for missing container")
+		return nil
+	}
+	cleanupExitedContainerFn = func(_, _ string) error {
+		t.Fatal("did not expect cleanup call for missing container")
+		return nil
+	}
+
+	cleaned, details, err := cleanupAgentContainer("docker")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if cleaned {
+		t.Fatalf("expected cleaned=false for missing container")
+	}
+	if len(details) != 0 {
+		t.Fatalf("expected no details, got %v", details)
+	}
+}
+
+func TestRecreateDaemonContainerRunning(t *testing.T) {
+	origGetState := getContainerStateFn
+	origStop := stopContainerFn
+	origCleanup := cleanupExitedContainerFn
+	origBuild := buildComposeCommandFn
+	t.Cleanup(func() {
+		getContainerStateFn = origGetState
+		stopContainerFn = origStop
+		cleanupExitedContainerFn = origCleanup
+		buildComposeCommandFn = origBuild
+	})
+
+	stopCalled := false
+	cleanupCalled := false
+	buildCalled := false
+	getContainerStateFn = func(_, name string) runtimepkg.ContainerState {
+		if name != "construct-cli-daemon" {
+			t.Fatalf("expected daemon container name, got %s", name)
+		}
+		return runtimepkg.ContainerStateRunning
+	}
+	stopContainerFn = func(_, name string) error {
+		if name != "construct-cli-daemon" {
+			t.Fatalf("expected daemon stop for construct-cli-daemon, got %s", name)
+		}
+		stopCalled = true
+		return nil
+	}
+	cleanupExitedContainerFn = func(_, name string) error {
+		if name != "construct-cli-daemon" {
+			t.Fatalf("expected daemon cleanup for construct-cli-daemon, got %s", name)
+		}
+		cleanupCalled = true
+		return nil
+	}
+	buildComposeCommandFn = func(runtimeName, _ string, subCommand string, _ []string) (*exec.Cmd, error) {
+		if runtimeName != "docker" {
+			t.Fatalf("expected docker runtime, got %s", runtimeName)
+		}
+		if subCommand != "run" {
+			t.Fatalf("expected run subcommand, got %s", subCommand)
+		}
+		buildCalled = true
+		return exec.Command("sh", "-c", "true"), nil
+	}
+
+	recreated, details, err := recreateDaemonContainer("docker", t.TempDir())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !recreated {
+		t.Fatalf("expected recreated=true")
+	}
+	if !stopCalled || !cleanupCalled || !buildCalled {
+		t.Fatalf("expected stop/cleanup/build calls, got stop=%t cleanup=%t build=%t", stopCalled, cleanupCalled, buildCalled)
+	}
+	if len(details) == 0 {
+		t.Fatalf("expected recreate details")
+	}
+}
+
+func TestRebuildImageForEntrypointFixWhenMissing(t *testing.T) {
+	origGetCheck := getCheckImageCommandFn
+	origBuild := buildComposeCommandFn
+	t.Cleanup(func() {
+		getCheckImageCommandFn = origGetCheck
+		buildComposeCommandFn = origBuild
+	})
+
+	getCheckImageCommandFn = func(_ string) []string {
+		return []string{"sh", "-c", "exit 1"}
+	}
+
+	buildCalled := false
+	buildComposeCommandFn = func(runtimeName, _ string, subCommand string, _ []string) (*exec.Cmd, error) {
+		if runtimeName != "docker" {
+			t.Fatalf("expected docker runtime, got %s", runtimeName)
+		}
+		if subCommand != "build" {
+			t.Fatalf("expected build subcommand, got %s", subCommand)
+		}
+		buildCalled = true
+		return exec.Command("sh", "-c", "true"), nil
+	}
+
+	rebuilt, details, err := rebuildImageForEntrypointFix("docker", t.TempDir())
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !rebuilt {
+		t.Fatalf("expected rebuilt=true for missing image")
+	}
+	if !buildCalled {
+		t.Fatalf("expected rebuild command to be executed")
+	}
+	if len(details) == 0 {
+		t.Fatalf("expected rebuild details")
 	}
 }
 

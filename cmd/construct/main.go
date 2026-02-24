@@ -85,7 +85,7 @@ func main() {
 	// Passive update check (non-blocking, runs in background)
 	if cfg != nil && update.ShouldCheckForUpdates(cfg) {
 		go func() {
-			if latest, available, err := update.CheckForUpdates(); err == nil && available {
+			if latest, available, err := update.CheckForUpdates(cfg); err == nil && available {
 				update.DisplayNotification(latest)
 			}
 			update.RecordUpdateCheck()
@@ -239,19 +239,19 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			fmt.Println(msg)
 		}
 	case "self-update":
-		if err := update.SelfUpdate(); err != nil {
+		if err := update.SelfUpdate(cfg); err != nil {
 			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
 			os.Exit(1)
 		}
 	case "check-update":
-		latest, available, err := update.CheckForUpdates()
+		latest, available, err := update.CheckForUpdates(cfg)
 		if err != nil {
 			ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
 		} else if available {
 			update.DisplayNotification(latest)
 			// Offer to self-update
 			if ui.GumConfirm("Would you like to update now?") {
-				if err := update.SelfUpdate(); err != nil {
+				if err := update.SelfUpdate(cfg); err != nil {
 					ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
 					os.Exit(1)
 				}

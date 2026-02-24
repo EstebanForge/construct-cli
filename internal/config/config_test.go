@@ -15,6 +15,7 @@ func TestConfigParsing(t *testing.T) {
 [runtime]
 engine = "docker"
 auto_update_check = true
+update_channel = "beta"
 
 [sandbox]
 mount_home = false
@@ -49,6 +50,9 @@ clipboard_image_patch = false
 	}
 	if !config.Runtime.AutoUpdateCheck {
 		t.Error("Expected auto_update_check to be true")
+	}
+	if config.Runtime.UpdateChannel != "beta" {
+		t.Errorf("Expected update_channel 'beta', got '%s'", config.Runtime.UpdateChannel)
 	}
 
 	// Test sandbox
@@ -121,6 +125,7 @@ func TestConfigStructure(t *testing.T) {
 		Runtime: RuntimeConfig{
 			Engine:          "docker",
 			AutoUpdateCheck: false,
+			UpdateChannel:   "stable",
 		},
 		Sandbox: SandboxConfig{
 			MountHome:      false,
@@ -170,6 +175,9 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Sandbox.ExecAsHostUser {
 		t.Error("Expected default exec_as_host_user to be true")
+	}
+	if cfg.Runtime.UpdateChannel != "stable" {
+		t.Errorf("Expected default update_channel to be stable, got '%s'", cfg.Runtime.UpdateChannel)
 	}
 }
 
