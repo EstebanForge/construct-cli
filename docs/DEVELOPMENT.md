@@ -282,15 +282,22 @@ cat ~/.config/construct-cli/config.toml
 
 ### Linux UID/ownership behavior
 
-On Linux Docker, Construct startup now uses a stable container user model and applies host UID mapping only for exec when safe.
+On Linux, Construct propagates host identity for compose startup and exec paths to prevent ownership drift in mounted config/home paths.
 
 ```bash
 # See current mapping/doctor details
 construct sys doctor
 ```
 
-- If your host UID is not present in container `/etc/passwd`, Construct warns and falls back to the container default user for that run.
+- If your host UID is not present in container `/etc/passwd`, Construct warns, keeps numeric `UID:GID` mapping, and forces `HOME=/home/construct`.
 - If migrations or runtime prep fail due to ownership, Construct first attempts non-interactive repair with sudo.
+- For recurring Linux permission/ownership issues, use:
+
+```bash
+construct sys doctor --fix
+```
+
+- `doctor --fix` can repair config ownership/permissions, recycle stale session/daemon containers, and rebuild stale/missing images required for startup fixes.
 - If sudo is unavailable/non-interactive auth is blocked, use:
 
 ```bash
@@ -349,6 +356,27 @@ make lint
 make release
 ls -lh dist/
 ```
+
+### Release channels (stable/beta)
+
+```bash
+# Stable release example
+# 1) set Version in internal/constants/constants.go to 1.3.8
+# 2) tag and push
+git tag 1.3.8
+git push origin main --tags
+
+# Beta release example
+# 1) set Version in internal/constants/constants.go to 1.3.9-beta.1
+# 2) tag and push
+git tag 1.3.9-beta.1
+git push origin main --tags
+```
+
+- Do not manually edit `VERSION` or `VERSION-BETA`; release workflow updates them.
+- Stable tags update `VERSION`.
+- Prerelease tags (contain `-`, e.g. `1.3.9-beta.1`) update `VERSION-BETA`.
+- `internal/constants/constants.go` must match the exact tag string for `make release` to pass.
 
 ## Git Workflow
 
