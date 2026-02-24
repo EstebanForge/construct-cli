@@ -450,8 +450,10 @@ func TestFixLinuxConfigOwnershipPodmanRootlessUsesUnshare(t *testing.T) {
 	}
 
 	podmanCalls := 0
-	runPodmanUnshareChown = func(_ ...string) ([]byte, error) {
+	var podmanArgs []string
+	runPodmanUnshareChown = func(args ...string) ([]byte, error) {
 		podmanCalls++
+		podmanArgs = append([]string{}, args...)
 		ownerFixed = true
 		return []byte("ok"), nil
 	}
@@ -481,6 +483,9 @@ func TestFixLinuxConfigOwnershipPodmanRootlessUsesUnshare(t *testing.T) {
 	}
 	if podmanCalls == 0 {
 		t.Fatalf("expected podman unshare chown call")
+	}
+	if !reflect.DeepEqual(podmanArgs, []string{"-R", "0:0", configDir}) {
+		t.Fatalf("expected podman unshare args [-R 0:0 %s], got %v", configDir, podmanArgs)
 	}
 }
 
@@ -567,6 +572,93 @@ func TestFixLinuxConfigOwnershipPodmanRootlessFallsBackToSudo(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(details, "\n"), "Rootless ownership fix failed") {
 		t.Fatalf("expected rootless failure detail, got %v", details)
+	}
+}
+
+func TestFixLinuxConfigOwnershipPodmanRootlessFallsBackWhenUnshareDoesNotFixOwner(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("linux-specific fix behavior")
+	}
+
+	configDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(configDir, "home"), 0755); err != nil {
+		t.Fatalf("failed to create home dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(configDir, "container"), 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	origGetOwnerUID := getOwnerUID
+	origCurrentUID := currentUID
+	origCurrentGID := currentGID
+	origRunSudoCombinedOutput := runSudoCombinedOutput
+	origRunSudoInteractive := runSudoInteractive
+	origRunChmodRecursive := runChmodRecursive
+	origRunPodmanUnshareChown := runPodmanUnshareChown
+	origRuntimeUserns := runtimeUsesUserNamespaceRemapFn
+	origTTY := stdinIsTTY
+	t.Cleanup(func() {
+		getOwnerUID = origGetOwnerUID
+		currentUID = origCurrentUID
+		currentGID = origCurrentGID
+		runSudoCombinedOutput = origRunSudoCombinedOutput
+		runSudoInteractive = origRunSudoInteractive
+		runChmodRecursive = origRunChmodRecursive
+		runPodmanUnshareChown = origRunPodmanUnshareChown
+		runtimeUsesUserNamespaceRemapFn = origRuntimeUserns
+		stdinIsTTY = origTTY
+	})
+
+	currentUID = func() int { return 1000 }
+	currentGID = func() int { return 1000 }
+	stdinIsTTY = func() bool { return false }
+	runtimeUsesUserNamespaceRemapFn = func(string) bool { return true }
+
+	ownerFixed := false
+	getOwnerUID = func(_ string) (int, error) {
+		if ownerFixed {
+			return 1000, nil
+		}
+		return 525287, nil
+	}
+
+	runPodmanUnshareChown = func(_ ...string) ([]byte, error) {
+		// Simulate "successful" podman command that still leaves remapped ownership.
+		return []byte("ok"), nil
+	}
+
+	sudoCalls := 0
+	runSudoCombinedOutput = func(args ...string) ([]byte, error) {
+		sudoCalls++
+		if len(args) >= 5 && args[1] == "chown" {
+			ownerFixed = true
+		}
+		return []byte("ok"), nil
+	}
+	runSudoInteractive = func(_ ...string) error {
+		t.Fatal("did not expect interactive sudo path")
+		return nil
+	}
+
+	runChmodRecursive = func(path string) error {
+		if path != configDir {
+			t.Fatalf("expected chmod path %s, got %s", configDir, path)
+		}
+		return nil
+	}
+
+	fixed, details, err := fixLinuxConfigOwnership(configDir, "podman")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if !fixed {
+		t.Fatalf("expected fixed=true")
+	}
+	if sudoCalls == 0 {
+		t.Fatalf("expected sudo fallback when rootless chown leaves remapped owner")
+	}
+	if !strings.Contains(strings.Join(details, "\n"), "falling back to sudo chown") {
+		t.Fatalf("expected fallback detail, got %v", details)
 	}
 }
 

@@ -404,7 +404,7 @@ func Run(args ...string) {
 			ownershipFixCheck.Details = append(ownershipFixCheck.Details, details...)
 			ownershipFixCheck.Details = append(ownershipFixCheck.Details, err.Error())
 			if runtimeName == "podman" && runtimeUsesUserNamespaceRemapFn(runtimeName) {
-				ownershipFixCheck.Suggestion = "Run: podman unshare chown -R $(id -u):$(id -g) ~/.config/construct-cli && podman unshare chmod -R u+rwX ~/.config/construct-cli"
+				ownershipFixCheck.Suggestion = "Run: podman unshare chown -R 0:0 ~/.config/construct-cli && podman unshare chmod -R u+rwX ~/.config/construct-cli || sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli && chmod -R u+rwX ~/.config/construct-cli"
 			} else {
 				ownershipFixCheck.Suggestion = "Run: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli && chmod -R u+rwX ~/.config/construct-cli"
 			}
@@ -577,7 +577,7 @@ func Run(args ...string) {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config ownership/permissions mismatch"
 			if runtimeName == "podman" && runtimeUsesUserNamespaceRemapFn(runtimeName) {
-				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: podman unshare chown -R $(id -u):$(id -g) ~/.config/construct-cli"
+				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: podman unshare chown -R 0:0 ~/.config/construct-cli (fallback: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli)"
 			} else {
 				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
 			}
@@ -1182,6 +1182,7 @@ func fixLinuxConfigOwnership(configDir, runtimeName string) (bool, []string, err
 	uid := currentUID()
 	gid := currentGID()
 	owner := fmt.Sprintf("%d:%d", uid, gid)
+	rootlessOwner := "0:0"
 	details := append([]string{}, state.Details...)
 	useUsernsRemap := runtimeUsesUserNamespaceRemapFn(runtimeName)
 	usePodmanUnshareFix := runtimeName == "podman" && useUsernsRemap
@@ -1190,9 +1191,14 @@ func fixLinuxConfigOwnership(configDir, runtimeName string) (bool, []string, err
 		ownerFixed := false
 
 		if usePodmanUnshareFix {
-			if out, err := runPodmanUnshareChown("-R", owner, configDir); err == nil {
-				details = append(details, fmt.Sprintf("Applied rootless ownership fix: podman unshare chown -R %s %s", owner, configDir))
-				ownerFixed = true
+			if out, err := runPodmanUnshareChown("-R", rootlessOwner, configDir); err == nil {
+				details = append(details, fmt.Sprintf("Applied rootless ownership fix: podman unshare chown -R %s %s", rootlessOwner, configDir))
+				afterRootless := inspectLinuxConfigPermissionState(configDir)
+				if len(afterRootless.WrongOwner) == 0 {
+					ownerFixed = true
+				} else {
+					details = append(details, "Rootless ownership fix did not restore host ownership; falling back to sudo chown")
+				}
 			} else {
 				msg := strings.TrimSpace(string(out))
 				if msg == "" {
