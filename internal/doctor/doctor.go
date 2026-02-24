@@ -2,6 +2,7 @@
 package doctor
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -66,6 +67,7 @@ var stopContainerFn = runtimepkg.StopContainer
 var cleanupExitedContainerFn = runtimepkg.CleanupExitedContainer
 var buildComposeCommandFn = runtimepkg.BuildComposeCommand
 var getCheckImageCommandFn = runtimepkg.GetCheckImageCommand
+var runtimeUsesUserNamespaceRemapFn = runtimepkg.UsesUserNamespaceRemap
 
 var runSudoCombinedOutput = func(args ...string) ([]byte, error) {
 	return exec.Command("sudo", args...).CombinedOutput()
@@ -81,6 +83,20 @@ var runSudoInteractive = func(args ...string) error {
 
 var runChmodRecursive = func(path string) error {
 	return exec.Command("chmod", "-R", "u+rwX", path).Run()
+}
+
+var runChownRecursive = func(owner, path string) error {
+	return exec.Command("chown", "-R", owner, path).Run()
+}
+
+var runPodmanUnshareChown = func(args ...string) ([]byte, error) {
+	podmanArgs := append([]string{"unshare", "chown"}, args...)
+	return exec.Command("podman", podmanArgs...).CombinedOutput()
+}
+
+var runPodmanUnshareChmod = func(args ...string) ([]byte, error) {
+	podmanArgs := append([]string{"unshare", "chmod"}, args...)
+	return exec.Command("podman", podmanArgs...).CombinedOutput()
 }
 
 var getOwnerUID = func(path string) (int, error) {
@@ -190,6 +206,13 @@ func Run(args ...string) {
 		ui.LogWarning("Failed to load config: %v", err)
 	}
 
+	// Runtime is needed by multiple checks (env warnings, compose health/fixes, linux remap handling).
+	engine := "auto"
+	if cfg != nil {
+		engine = cfg.Runtime.Engine
+	}
+	runtimeName := runtimepkg.DetectRuntime(engine)
+
 	// 2. Environment Check
 	envCheck := CheckResult{Name: "Environment"}
 	hostUID := hostID("-u")
@@ -210,10 +233,19 @@ func Run(args ...string) {
 		envCheck.Details = append(envCheck.Details, err.Error())
 	} else if mapping != "" {
 		envCheck.Details = append(envCheck.Details, fmt.Sprintf("Container user mapping: %s", mapping))
-		if cfg != nil && !cfg.Sandbox.NonRootStrict {
-			envCheck.Status = CheckStatusWarning
-			envCheck.Message = "Manual container user mapping detected"
-			envCheck.Suggestion = "Remove 'user:' from docker-compose.override.yml for Docker, or set [sandbox].non_root_strict = true if strict non-root is required"
+		switch runtimeName {
+		case "docker":
+			if cfg != nil && !cfg.Sandbox.NonRootStrict && !cfg.Sandbox.AllowCustomOverride {
+				envCheck.Status = CheckStatusWarning
+				envCheck.Message = "Manual container user mapping detected"
+				envCheck.Suggestion = "Remove 'user:' from docker-compose.override.yml for Docker, set [sandbox].non_root_strict = true, or set [sandbox].allow_custom_compose_override = true"
+			}
+		case "podman":
+			if runtime.GOOS == "linux" && runtimeUsesUserNamespaceRemapFn(runtimeName) && (cfg == nil || !cfg.Sandbox.AllowCustomOverride) {
+				envCheck.Status = CheckStatusWarning
+				envCheck.Message = "Stale podman user mapping detected for rootless mode"
+				envCheck.Suggestion = "Run 'construct sys doctor --fix' to regenerate docker-compose.override.yml"
+			}
 		}
 	} else {
 		envCheck.Details = append(envCheck.Details, "Container user mapping: not set")
@@ -223,6 +255,11 @@ func Run(args ...string) {
 		envCheck.Details = append(envCheck.Details, "Limitation: root bootstrap permission fixes are disabled; brew/npm setup may fail")
 	} else {
 		envCheck.Details = append(envCheck.Details, "non_root_strict: disabled")
+	}
+	if cfg != nil && cfg.Sandbox.AllowCustomOverride {
+		envCheck.Details = append(envCheck.Details, "allow_custom_compose_override: enabled")
+	} else {
+		envCheck.Details = append(envCheck.Details, "allow_custom_compose_override: disabled")
 	}
 	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
 		envCheck.Details = append(envCheck.Details, "exec_as_host_user: enabled")
@@ -250,13 +287,6 @@ func Run(args ...string) {
 
 	// 4. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
-	// If config load failed, we might use default engine "auto"
-	engine := "auto"
-	if cfg != nil {
-		engine = cfg.Runtime.Engine
-	}
-
-	runtimeName := runtimepkg.DetectRuntime(engine)
 	if runtimeName != "" {
 		runtimeCheck.Status = CheckStatusOK
 		// Add (OrbStack) suffix if OrbStack is running on macOS
@@ -290,6 +320,30 @@ func Run(args ...string) {
 		}
 	}
 	checks = append(checks, runtimeCheck)
+
+	if fixRequested && runtimeName != "" {
+		overrideFixCheck := CheckResult{Name: "Compose Override Fix"}
+		fixed, details, skipped, err := fixComposeOverride(runtimeName, cfg)
+		if err != nil {
+			overrideFixCheck.Status = CheckStatusWarning
+			overrideFixCheck.Message = "Failed to reconcile compose override"
+			overrideFixCheck.Details = append(overrideFixCheck.Details, details...)
+			overrideFixCheck.Details = append(overrideFixCheck.Details, err.Error())
+			overrideFixCheck.Suggestion = "Run 'construct sys doctor --fix' again after checking ~/.config/construct-cli/container/docker-compose.override.yml"
+		} else if skipped {
+			overrideFixCheck.Status = CheckStatusSkipped
+			overrideFixCheck.Message = "Skipped (custom compose override management enabled)"
+			overrideFixCheck.Details = append(overrideFixCheck.Details, details...)
+		} else if fixed {
+			overrideFixCheck.Status = CheckStatusOK
+			overrideFixCheck.Message = "Compose override reconciled"
+			overrideFixCheck.Details = append(overrideFixCheck.Details, details...)
+		} else {
+			overrideFixCheck.Status = CheckStatusOK
+			overrideFixCheck.Message = "Compose override already up to date"
+		}
+		checks = append(checks, overrideFixCheck)
+	}
 
 	// 4.5 Compose Network State Check (Docker only)
 	composeNetworkCheck := CheckResult{Name: "Compose Network State"}
@@ -343,13 +397,17 @@ func Run(args ...string) {
 
 	if fixRequested && runtime.GOOS == "linux" {
 		ownershipFixCheck := CheckResult{Name: "Config Ownership Fix"}
-		fixed, details, err := fixLinuxConfigOwnership(config.GetConfigDir())
+		fixed, details, err := fixLinuxConfigOwnership(config.GetConfigDir(), runtimeName)
 		if err != nil {
 			ownershipFixCheck.Status = CheckStatusWarning
 			ownershipFixCheck.Message = "Failed to fix config ownership/permissions"
 			ownershipFixCheck.Details = append(ownershipFixCheck.Details, details...)
 			ownershipFixCheck.Details = append(ownershipFixCheck.Details, err.Error())
-			ownershipFixCheck.Suggestion = "Run: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli && chmod -R u+rwX ~/.config/construct-cli"
+			if runtimeName == "podman" && runtimeUsesUserNamespaceRemapFn(runtimeName) {
+				ownershipFixCheck.Suggestion = "Run: podman unshare chown -R $(id -u):$(id -g) ~/.config/construct-cli && podman unshare chmod -R u+rwX ~/.config/construct-cli"
+			} else {
+				ownershipFixCheck.Suggestion = "Run: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli && chmod -R u+rwX ~/.config/construct-cli"
+			}
 		} else if fixed {
 			ownershipFixCheck.Status = CheckStatusOK
 			ownershipFixCheck.Message = "Config ownership/permissions fixed"
@@ -507,6 +565,9 @@ func Run(args ...string) {
 		permCheck := CheckResult{Name: "Config Permissions"}
 		state := inspectLinuxConfigPermissionState(config.GetConfigDir())
 		permCheck.Details = append(permCheck.Details, state.Details...)
+		if runtimeUsesUserNamespaceRemapFn(runtimeName) {
+			permCheck.Details = append(permCheck.Details, fmt.Sprintf("Runtime mode: %s userns remap detected", runtimeName))
+		}
 
 		if len(state.Missing) > 0 {
 			permCheck.Status = CheckStatusWarning
@@ -515,7 +576,11 @@ func Run(args ...string) {
 		} else if state.HasProblems() {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config ownership/permissions mismatch"
-			permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
+			if runtimeName == "podman" && runtimeUsesUserNamespaceRemapFn(runtimeName) {
+				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: podman unshare chown -R $(id -u):$(id -g) ~/.config/construct-cli"
+			} else {
+				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
+			}
 		} else {
 			permCheck.Status = CheckStatusOK
 			permCheck.Message = "Config directories writable and owned by current user"
@@ -797,6 +862,59 @@ func composeUserMapping(overridePath string) (string, error) {
 	return "", nil
 }
 
+func fixComposeOverride(runtimeName string, cfg *config.Config) (bool, []string, bool, error) {
+	if runtimeName == "" {
+		return false, nil, false, nil
+	}
+	if cfg != nil && cfg.Sandbox.AllowCustomOverride {
+		return false, []string{"sandbox.allow_custom_compose_override=true"}, true, nil
+	}
+
+	configPath := config.GetConfigDir()
+	containerDir := config.GetContainerDir()
+	overridePath := filepath.Join(containerDir, "docker-compose.override.yml")
+
+	var before []byte
+	if data, err := os.ReadFile(overridePath); err == nil {
+		before = data
+	} else if !os.IsNotExist(err) {
+		return false, nil, false, fmt.Errorf("failed to read current override: %w", err)
+	}
+	networkMode := "permissive"
+	if cfg != nil {
+		networkMode = cfg.Network.Mode
+	}
+
+	if err := runtimepkg.GenerateDockerComposeOverride(configPath, runtimepkg.GetProjectMountPath(), networkMode, runtimeName); err != nil {
+		return false, nil, false, err
+	}
+
+	after, err := os.ReadFile(overridePath)
+	if err != nil {
+		return false, nil, false, fmt.Errorf("failed to read regenerated override: %w", err)
+	}
+
+	changed := !bytes.Equal(before, after)
+	details := []string{fmt.Sprintf("Runtime: %s", runtimeName)}
+	if changed {
+		details = append(details, "Regenerated docker-compose.override.yml from current templates/runtime settings")
+	}
+
+	mapping, err := composeUserMapping(overridePath)
+	if err != nil {
+		return changed, details, false, err
+	}
+
+	if runtimeName == "docker" && mapping != "" && (cfg == nil || !cfg.Sandbox.NonRootStrict) {
+		return changed, details, false, fmt.Errorf("override still contains docker user mapping while non_root_strict is disabled")
+	}
+	if runtimeName == "podman" && runtime.GOOS == "linux" && runtimeUsesUserNamespaceRemapFn(runtimeName) && mapping != "" {
+		return changed, details, false, fmt.Errorf("override still contains podman user mapping in rootless userns mode")
+	}
+
+	return changed, details, false, nil
+}
+
 func detectComposeNetworkRecreationIssue() (bool, []string, bool, error) {
 	output, unsupportedDryRun, err := runComposeDryRun()
 	if unsupportedDryRun {
@@ -1045,7 +1163,7 @@ func inspectLinuxConfigPermissionState(configDir string) linuxConfigPermissionSt
 	return state
 }
 
-func fixLinuxConfigOwnership(configDir string) (bool, []string, error) {
+func fixLinuxConfigOwnership(configDir, runtimeName string) (bool, []string, error) {
 	if runtime.GOOS != "linux" {
 		return false, nil, nil
 	}
@@ -1065,38 +1183,84 @@ func fixLinuxConfigOwnership(configDir string) (bool, []string, error) {
 	gid := currentGID()
 	owner := fmt.Sprintf("%d:%d", uid, gid)
 	details := append([]string{}, state.Details...)
+	useUsernsRemap := runtimeUsesUserNamespaceRemapFn(runtimeName)
+	usePodmanUnshareFix := runtimeName == "podman" && useUsernsRemap
 
 	if len(state.WrongOwner) > 0 {
-		if out, err := runSudoCombinedOutput("-n", "chown", "-R", owner, configDir); err != nil {
-			if !stdinIsTTY() {
+		ownerFixed := false
+
+		if usePodmanUnshareFix {
+			if out, err := runPodmanUnshareChown("-R", owner, configDir); err == nil {
+				details = append(details, fmt.Sprintf("Applied rootless ownership fix: podman unshare chown -R %s %s", owner, configDir))
+				ownerFixed = true
+			} else {
 				msg := strings.TrimSpace(string(out))
 				if msg == "" {
-					return false, details, fmt.Errorf("sudo non-interactive chown failed: %w", err)
+					details = append(details, fmt.Sprintf("Rootless ownership fix failed: %v", err))
+				} else {
+					details = append(details, fmt.Sprintf("Rootless ownership fix failed: %v (%s)", err, msg))
 				}
-				return false, details, fmt.Errorf("sudo non-interactive chown failed: %w (%s)", err, msg)
 			}
-			if err := runSudoInteractive("chown", "-R", owner, configDir); err != nil {
-				return false, details, fmt.Errorf("sudo chown failed: %w", err)
+		} else if useUsernsRemap {
+			// Docker/container rootless/userns-remap: first try non-elevated host chown.
+			if err := runChownRecursive(owner, configDir); err == nil {
+				details = append(details, fmt.Sprintf("Applied ownership fix: chown -R %s %s", owner, configDir))
+				ownerFixed = true
 			}
 		}
-		details = append(details, fmt.Sprintf("Applied ownership fix: sudo chown -R %s %s", owner, configDir))
+
+		if !ownerFixed {
+			if out, err := runSudoCombinedOutput("-n", "chown", "-R", owner, configDir); err != nil {
+				if !stdinIsTTY() {
+					msg := strings.TrimSpace(string(out))
+					if msg == "" {
+						return false, details, fmt.Errorf("sudo non-interactive chown failed: %w", err)
+					}
+					return false, details, fmt.Errorf("sudo non-interactive chown failed: %w (%s)", err, msg)
+				}
+				if err := runSudoInteractive("chown", "-R", owner, configDir); err != nil {
+					return false, details, fmt.Errorf("sudo chown failed: %w", err)
+				}
+			}
+			details = append(details, fmt.Sprintf("Applied ownership fix: sudo chown -R %s %s", owner, configDir))
+		}
 	}
 
 	if err := runChmodRecursive(configDir); err != nil {
-		if out, sudoErr := runSudoCombinedOutput("-n", "chmod", "-R", "u+rwX", configDir); sudoErr != nil {
-			if !stdinIsTTY() {
+		chmodFixed := false
+
+		if usePodmanUnshareFix {
+			if out, rootlessErr := runPodmanUnshareChmod("-R", "u+rwX", configDir); rootlessErr == nil {
+				details = append(details, fmt.Sprintf("Ensured user write access (rootless): podman unshare chmod -R u+rwX %s", configDir))
+				chmodFixed = true
+			} else {
 				msg := strings.TrimSpace(string(out))
 				if msg == "" {
-					return false, details, fmt.Errorf("chmod failed: %w", err)
+					details = append(details, fmt.Sprintf("Rootless chmod fix failed: %v", rootlessErr))
+				} else {
+					details = append(details, fmt.Sprintf("Rootless chmod fix failed: %v (%s)", rootlessErr, msg))
 				}
-				return false, details, fmt.Errorf("chmod failed: %w (sudo attempt failed: %s)", err, msg)
-			}
-			if sudoErr := runSudoInteractive("chmod", "-R", "u+rwX", configDir); sudoErr != nil {
-				return false, details, fmt.Errorf("chmod failed: %w (sudo fallback failed: %v)", err, sudoErr)
 			}
 		}
+
+		if !chmodFixed {
+			if out, sudoErr := runSudoCombinedOutput("-n", "chmod", "-R", "u+rwX", configDir); sudoErr != nil {
+				if !stdinIsTTY() {
+					msg := strings.TrimSpace(string(out))
+					if msg == "" {
+						return false, details, fmt.Errorf("chmod failed: %w", err)
+					}
+					return false, details, fmt.Errorf("chmod failed: %w (sudo attempt failed: %s)", err, msg)
+				}
+				if sudoErr := runSudoInteractive("chmod", "-R", "u+rwX", configDir); sudoErr != nil {
+					return false, details, fmt.Errorf("chmod failed: %w (sudo fallback failed: %v)", err, sudoErr)
+				}
+			}
+			details = append(details, fmt.Sprintf("Ensured user write access: chmod -R u+rwX %s", configDir))
+		}
+	} else {
+		details = append(details, fmt.Sprintf("Ensured user write access: chmod -R u+rwX %s", configDir))
 	}
-	details = append(details, fmt.Sprintf("Ensured user write access: chmod -R u+rwX %s", configDir))
 
 	after := inspectLinuxConfigPermissionState(configDir)
 	if after.HasProblems() {

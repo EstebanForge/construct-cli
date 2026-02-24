@@ -20,6 +20,7 @@ update_channel = "beta"
 [sandbox]
 mount_home = false
 non_root_strict = true
+allow_custom_compose_override = true
 exec_as_host_user = true
 shell = "/bin/bash"
 clipboard_host = "host.orbstack.internal"
@@ -64,6 +65,9 @@ clipboard_image_patch = false
 	}
 	if !config.Sandbox.NonRootStrict {
 		t.Error("Expected non_root_strict to be true")
+	}
+	if !config.Sandbox.AllowCustomOverride {
+		t.Error("Expected allow_custom_compose_override to be true")
 	}
 	if !config.Sandbox.ExecAsHostUser {
 		t.Error("Expected exec_as_host_user to be true")
@@ -128,11 +132,12 @@ func TestConfigStructure(t *testing.T) {
 			UpdateChannel:   "stable",
 		},
 		Sandbox: SandboxConfig{
-			MountHome:      false,
-			NonRootStrict:  false,
-			ExecAsHostUser: false,
-			Shell:          "/bin/bash",
-			ClipboardHost:  "host.docker.internal",
+			MountHome:           false,
+			NonRootStrict:       false,
+			AllowCustomOverride: false,
+			ExecAsHostUser:      false,
+			Shell:               "/bin/bash",
+			ClipboardHost:       "host.docker.internal",
 		},
 		Network: NetworkConfig{
 			Mode:           "permissive",
@@ -163,6 +168,9 @@ func TestConfigStructure(t *testing.T) {
 	if config.Sandbox.NonRootStrict {
 		t.Error("Expected non_root_strict to be false")
 	}
+	if config.Sandbox.AllowCustomOverride {
+		t.Error("Expected allow_custom_compose_override to be false")
+	}
 	if config.Sandbox.ExecAsHostUser {
 		t.Error("Expected exec_as_host_user to be false")
 	}
@@ -175,6 +183,9 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Sandbox.ExecAsHostUser {
 		t.Error("Expected default exec_as_host_user to be true")
+	}
+	if cfg.Sandbox.AllowCustomOverride {
+		t.Error("Expected default allow_custom_compose_override to be false")
 	}
 	if cfg.Runtime.UpdateChannel != "stable" {
 		t.Errorf("Expected default update_channel to be stable, got '%s'", cfg.Runtime.UpdateChannel)

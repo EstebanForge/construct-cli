@@ -2,6 +2,26 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+## [1.4.0-beta.1] - 2026-02-24
+
+### Changed
+- **Linux Userns/Rootless Runtime Detection**: Added runtime-level user namespace remap detection and propagation (`CONSTRUCT_USERNS_REMAP`) across compose startup, setup, daemon, and update flows.
+- **Linux Identity Strategy for Rootless Modes**: Updated Linux startup behavior to avoid forcing host `UID:GID` mappings when userns remap/rootless mode is active, while preserving existing non-root-strict behavior where applicable.
+- **Entrypoint User Drop Logic (Linux)**: Entrypoint now keeps namespace-root execution in remapped-userns mode to prevent bind-mount ownership drift during startup bootstrap.
+- **Exec User Mapping Guardrails**: `exec_as_host_user` Linux Docker exec mapping is now skipped automatically when userns remap is detected.
+
+### Fixed
+- **Recurring Config Home Ownership Drift**: Fixed repeated ownership drift on `~/.config/construct-cli/home` in Linux rootless/userns-remapped Docker/Podman scenarios that caused recurring permission warnings and repair loops.
+- **Doctor Runtime-Aware Remediation**: `construct sys doctor --fix` now applies Linux runtime-aware ownership repair paths, including `podman unshare` first for Podman rootless and sudo fallback (with prompt when needed).
+- **Doctor Compose Override Reconciliation**: `construct sys doctor --fix` now regenerates `docker-compose.override.yml` from current runtime/template settings and validates stale/unsafe user mappings.
+- **Doctor Guidance Accuracy**: Linux doctor permission diagnostics now report userns-remap context and show runtime-appropriate manual remediation commands.
+
+### Added
+- **Regression Coverage for Rootless Ownership Fixes**: Added/updated unit coverage for userns-aware runtime decisions, Podman rootless fix paths, and sudo fallback behavior.
+- **Custom Compose Override Opt-In Flag**: Added `[sandbox].allow_custom_compose_override` (default `false`) for advanced users who intentionally manage `docker-compose.override.yml` behavior.
+
+---
+
 ## [1.3.9] - 2026-02-24
 
 ### Fixed

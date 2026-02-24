@@ -41,6 +41,7 @@ type SandboxConfig struct {
 	ForwardSSHAgent      bool   `toml:"forward_ssh_agent"`
 	PropagateGitIdentity bool   `toml:"propagate_git_identity"`
 	NonRootStrict        bool   `toml:"non_root_strict"`
+	AllowCustomOverride  bool   `toml:"allow_custom_compose_override"`
 	ExecAsHostUser       bool   `toml:"exec_as_host_user"`
 	Shell                string `toml:"shell"`
 	ClipboardHost        string `toml:"clipboard_host"`
@@ -96,6 +97,7 @@ func DefaultConfig() Config {
 			ForwardSSHAgent:      true,
 			PropagateGitIdentity: true,
 			NonRootStrict:        false,
+			AllowCustomOverride:  false,
 			ExecAsHostUser:       true,
 			Shell:                "/bin/bash",
 			ClipboardHost:        "host.docker.internal",

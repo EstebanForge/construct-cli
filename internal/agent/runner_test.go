@@ -640,7 +640,12 @@ func TestExecUserForAgentExec(t *testing.T) {
 				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
 			},
 			runtime: "docker",
-			want:    fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
+			want: func() string {
+				if runtime.UsesUserNamespaceRemap("docker") {
+					return ""
+				}
+				return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+			}(),
 		})
 	} else {
 		tests = append(tests, struct {
@@ -710,6 +715,13 @@ func TestAppendExecUserRunFlags(t *testing.T) {
 			cfg := &config.Config{Sandbox: config.SandboxConfig{ExecAsHostUser: true}}
 			appendExecUserRunFlags(&runFlags, cfg, "docker")
 
+			if runtime.UsesUserNamespaceRemap("docker") {
+				if len(runFlags) != 0 {
+					t.Fatalf("expected no run flags in userns-remap mode, got %v", runFlags)
+				}
+				return
+			}
+
 			expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 			expected := []string{
 				"--user", expectedUser,
@@ -753,6 +765,16 @@ func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
 	}
 
 	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if runtime.UsesUserNamespaceRemap("docker") {
+		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
+			t.Fatalf("uid lookup should not be called in userns-remap mode")
+			return false, nil
+		}
+		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "" {
+			t.Fatalf("expected empty user in userns-remap mode, got %q", got)
+		}
+		return
+	}
 
 	t.Run("uses host uid when passwd entry exists", func(t *testing.T) {
 		containerHasUIDEntryFn = func(containerRuntime, containerName string, uid int) (bool, error) {

@@ -35,6 +35,11 @@ propagate_git_identity = true
 # Enable only for strict compliance environments where non-root is mandatory.
 non_root_strict = false
 
+# Allow manual customizations in docker-compose.override.yml (default: false)
+# Advanced: when enabled, Construct will not auto-heal manual 'user:' override mappings.
+# Use only if you intentionally maintain your own override behavior.
+allow_custom_compose_override = false
+
 # Run agent exec sessions as host UID:GID on Linux Docker (default: true)
 # Purpose: preserve host file ownership for files written by agents.
 # This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.

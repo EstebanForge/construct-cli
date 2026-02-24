@@ -11,6 +11,13 @@ if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [[ "${CONSTRUCT_HOST_GID:-}" =
     RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"
 fi
 
+# In rootless/userns-remapped runtimes, host user ownership may map to container root.
+# Forcing numeric host UID in that mode rewrites bind-mount ownership to subuid ranges.
+if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then
+    RUN_AS_USER="root"
+    RUN_AS_CHOWN="0:0"
+fi
+
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
     # Fix Homebrew volume ownership
@@ -48,8 +55,13 @@ if [ "$(id -u)" = "0" ]; then
 
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
-    # Drop privileges and re-run as configured runtime user.
-    exec gosu "$RUN_AS_USER" "$0" "$@"
+    # In remapped-userns mode keep namespace root to avoid host ownership drift.
+    if [ "$RUN_AS_USER" = "root" ] || [ "$RUN_AS_USER" = "0:0" ]; then
+        :
+    else
+        # Drop privileges and re-run as configured runtime user.
+        exec gosu "$RUN_AS_USER" "$0" "$@"
+    fi
 else
     # Non-root mode (Podman rootless) - fix permissions using sudo if available
     # This handles the case where files were created by root during image build

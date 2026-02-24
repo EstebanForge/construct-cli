@@ -193,6 +193,7 @@ mount_home = false # keep false unless you really need your whole home dir (dang
 forward_ssh_agent = true # forward host SSH agent into the container
 propagate_git_identity = true # sync host git name/email into container
 non_root_strict = false # force strict non-root runtime (advanced; may break brew/npm setup on Docker)
+allow_custom_compose_override = false # allow custom docker-compose.override.yml behavior (advanced; disables auto-healing)
 exec_as_host_user = true # run agent exec as host UID:GID on Linux Docker (HOME is forced to /home/construct)
 selinux_labels = "auto" # auto | enabled | disabled
 shell = "/bin/bash"
@@ -246,6 +247,7 @@ Agent and sandbox config directories on the host live inside `~/.config/construc
 
 On Docker, Construct intentionally runs as root only during bootstrap to repair permissions, then drops to a non-root user (`gosu`).  
 Avoid manually setting `user:` in `docker-compose.override.yml` unless you explicitly enable `[sandbox].non_root_strict = true`.  
+If you intentionally manage your own `docker-compose.override.yml`, set `[sandbox].allow_custom_compose_override = true` (advanced).
 If you need strict rootless behavior, prefer Podman (`[runtime].engine = "podman"`).
 
 ### User-Defined Packages
