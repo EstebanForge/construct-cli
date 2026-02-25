@@ -33,6 +33,7 @@ const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
 var containerHasUIDEntryFn = runtime.ContainerHasUIDEntry
 var startClipboardServerFn = clipboard.StartServer
 var execInteractiveAsUserFn = runtime.ExecInteractiveAsUser
+var getImageEntrypointHashFn = getImageEntrypointHash
 
 // RunWithArgs executes an agent inside the container with optional network override.
 func RunWithArgs(args []string, networkFlag string) {
@@ -181,20 +182,30 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 	hashFile := filepath.Join(homeDir, ".local", ".entrypoint_hash")
 	forceFile := filepath.Join(homeDir, ".local", ".force_entrypoint")
 
-	if reason, ok := config.GetRebuildRequired(); ok {
-		if reason != "" {
-			fmt.Printf("⚠️  Rebuild required: %s\n", reason)
-		} else {
-			fmt.Println("⚠️  Rebuild required.")
-		}
-		fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
-		return fmt.Errorf("rebuild required")
-	}
-
 	// Calculate expected hash
 	// Use embedded template as the source of truth for entrypoint
 	h := sha256.Sum256([]byte(templates.Entrypoint))
 	entrypointHash := hex.EncodeToString(h[:])
+
+	imageHash, imageHashErr := getImageEntrypointHashFn(containerRuntime, configPath)
+
+	if reason, ok := config.GetRebuildRequired(); ok {
+		if imageHashErr == nil && imageHash == entrypointHash {
+			if err := config.ClearRebuildRequired(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: Failed to clear stale rebuild marker: %v\n", err)
+			} else if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Println("Debug: Cleared stale rebuild marker; image entrypoint hash is current")
+			}
+		} else {
+			if reason != "" {
+				fmt.Printf("⚠️  Rebuild required: %s\n", reason)
+			} else {
+				fmt.Println("⚠️  Rebuild required.")
+			}
+			fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
+			return fmt.Errorf("rebuild required")
+		}
+	}
 
 	expectedHash := entrypointHash
 	if _, err := os.Stat(userScriptPath); err == nil {
@@ -204,7 +215,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		}
 	}
 
-	if imageHash, err := getImageEntrypointHash(containerRuntime, configPath); err == nil && imageHash != entrypointHash {
+	if imageHashErr == nil && imageHash != entrypointHash {
 		if err := config.SetRebuildRequired("container image entrypoint is stale"); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
 		}
