@@ -8,6 +8,7 @@
 #   INSTALL_DIR=/path # override install dir (default: /usr/local/bin or ~/.local/bin)
 #   SKIP_SYMLINK=1    # skip creating ct symlink
 #   FORCE=1           # skip version check, always reinstall
+#   VERSION=x.y.z     # install a specific release tag (default: latest)
 #   CHANNEL=stable|beta # release channel when VERSION=latest (default: stable)
 
 set -euo pipefail
@@ -26,7 +27,7 @@ error() { echo -e "${RED}✗ $*${NC}" >&2; exit 1; }
 REPO="EstebanForge/construct-cli"
 BINARY="construct"
 ALIAS="ct"
-VERSION="latest"
+VERSION="${VERSION:-latest}"
 CHANNEL="${CHANNEL:-stable}"
 INSTALL_DIR="${INSTALL_DIR:-}"
 FORCE="${FORCE:-0}"
