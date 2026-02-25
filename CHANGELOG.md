@@ -9,16 +9,23 @@ All notable changes to Construct CLI will be documented in this file.
 - **Linux Identity Strategy for Rootless Modes**: Updated Linux startup behavior to avoid forcing host `UID:GID` mappings when userns remap/rootless mode is active, while preserving existing non-root-strict behavior where applicable.
 - **Entrypoint User Drop Logic (Linux)**: Entrypoint now keeps namespace-root execution in remapped-userns mode to prevent bind-mount ownership drift during startup bootstrap.
 - **Exec User Mapping Guardrails**: `exec_as_host_user` Linux Docker exec mapping is now skipped automatically when userns remap is detected.
+- **Host Alias Targeting**: `construct sys aliases` now resolves aliases through the managed `ct` shim (with executable fallback) instead of bare `construct`, preventing PATH-driven version drift when Homebrew stable and local beta coexist.
+- **Installer Version Normalization**: `scripts/install.sh` now normalizes incoming versions (strips optional `v` prefix) and preserves prerelease identifiers in installed-version detection.
 
 ### Fixed
 - **Recurring Config Home Ownership Drift**: Fixed repeated ownership drift on `~/.config/construct-cli/home` in Linux rootless/userns-remapped Docker/Podman scenarios that caused recurring permission warnings and repair loops.
 - **Doctor Runtime-Aware Remediation**: `construct sys doctor --fix` now applies Linux runtime-aware ownership repair paths, including `podman unshare` first for Podman rootless and sudo fallback (with prompt when needed).
 - **Doctor Compose Override Reconciliation**: `construct sys doctor --fix` now regenerates `docker-compose.override.yml` from current runtime/template settings and validates stale/unsafe user mappings.
 - **Doctor Guidance Accuracy**: Linux doctor permission diagnostics now report userns-remap context and show runtime-appropriate manual remediation commands.
+- **Podman Userns Ownership Re-Drift**: Entrypoint startup now skips recursive bind-mount `chown -R` in remapped-userns mode, preventing fixed ownership from being re-corrupted after startup.
+- **Template Path Type Collisions**: Migration/init/runtime now self-heal template targets that accidentally exist as directories (for example `entrypoint-hash.sh/`, `agent-patch.sh/`) by replacing them with proper files.
+- **False Rebuild Loop on macOS**: Agent startup now auto-clears stale `.rebuild_required` markers when the container image entrypoint hash is already current, while still blocking when a rebuild is truly required.
+- **Release/Tag Consistency**: Release workflow now rejects `v`-prefixed tags and dispatches tap updates with normalized non-prefixed versions.
 
 ### Added
 - **Regression Coverage for Rootless Ownership Fixes**: Added/updated unit coverage for userns-aware runtime decisions, Podman rootless fix paths, and sudo fallback behavior.
 - **Custom Compose Override Opt-In Flag**: Added `[sandbox].allow_custom_compose_override` (default `false`) for advanced users who intentionally manage `docker-compose.override.yml` behavior.
+- **Regression Tests for Marker/Template Edge Cases**: Added tests for stale rebuild-marker auto-clear behavior and directory-collision recovery on mounted template helper paths.
 
 ---
 
