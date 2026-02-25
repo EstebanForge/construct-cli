@@ -199,7 +199,7 @@ main() {
             success "Already on latest version: ${VERSION}"
             echo -n "Do you want to reinstall? [y/N]: " >&2
             response=""
-            if ! read -r response; then
+            if ! read -r response </dev/tty; then
                 response=""
             fi
             response=$(echo "$response" | tr '[:upper:]' '[:lower:]')
