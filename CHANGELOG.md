@@ -2,7 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-## [1.4.0-beta.6] - 2026-02-25
+## [1.4.0-beta] - 2026-02-25
 
 ### Changed
 - **Linux Userns/Rootless Runtime Detection**: Added runtime-level user namespace remap detection and propagation (`CONSTRUCT_USERNS_REMAP`) across compose startup, setup, daemon, and update flows.
