@@ -15,6 +15,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 )
 
 // TestExecViaDaemonStaleContainer tests that execViaDaemon returns false when daemon is stale
@@ -320,6 +321,81 @@ func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 	appendAgentSpecificDaemonEnv(&envVars, "claude")
 	if len(envVars) != 0 {
 		t.Fatalf("expected no daemon env vars for non-codex agent, got %v", envVars)
+	}
+}
+
+func TestEnsureSetupCompleteClearsStaleRebuildMarkerWhenImageIsCurrent(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	origGetImageHash := getImageEntrypointHashFn
+	t.Cleanup(func() {
+		getImageEntrypointHashFn = origGetImageHash
+	})
+
+	configPath := config.GetConfigDir()
+	hashFile := filepath.Join(configPath, "home", ".local", ".entrypoint_hash")
+	if err := os.MkdirAll(filepath.Dir(hashFile), 0755); err != nil {
+		t.Fatalf("failed to create hash dir: %v", err)
+	}
+
+	entrypointHashBytes := sha256.Sum256([]byte(templates.Entrypoint))
+	entrypointHash := hex.EncodeToString(entrypointHashBytes[:])
+	if err := os.WriteFile(hashFile, []byte(entrypointHash+"\n"), 0644); err != nil {
+		t.Fatalf("failed to write hash file: %v", err)
+	}
+
+	if err := config.SetRebuildRequired("entrypoint template changed"); err != nil {
+		t.Fatalf("failed to set rebuild marker: %v", err)
+	}
+
+	getImageEntrypointHashFn = func(_, _ string) (string, error) {
+		return entrypointHash, nil
+	}
+
+	cfg := &config.Config{}
+	if err := ensureSetupComplete(cfg, "docker", configPath); err != nil {
+		t.Fatalf("expected ensureSetupComplete success, got %v", err)
+	}
+
+	if _, ok := config.GetRebuildRequired(); ok {
+		t.Fatal("expected stale rebuild marker to be cleared")
+	}
+}
+
+func TestEnsureSetupCompleteKeepsRebuildMarkerWhenImageIsStale(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+
+	origGetImageHash := getImageEntrypointHashFn
+	t.Cleanup(func() {
+		getImageEntrypointHashFn = origGetImageHash
+	})
+
+	configPath := config.GetConfigDir()
+	hashFile := filepath.Join(configPath, "home", ".local", ".entrypoint_hash")
+	if err := os.MkdirAll(filepath.Dir(hashFile), 0755); err != nil {
+		t.Fatalf("failed to create hash dir: %v", err)
+	}
+	if err := os.WriteFile(hashFile, []byte("irrelevant\n"), 0644); err != nil {
+		t.Fatalf("failed to write hash file: %v", err)
+	}
+
+	if err := config.SetRebuildRequired("entrypoint template changed"); err != nil {
+		t.Fatalf("failed to set rebuild marker: %v", err)
+	}
+
+	getImageEntrypointHashFn = func(_, _ string) (string, error) {
+		return "stale-image-hash", nil
+	}
+
+	cfg := &config.Config{}
+	if err := ensureSetupComplete(cfg, "docker", configPath); err == nil {
+		t.Fatal("expected rebuild-required error for stale image")
+	}
+
+	if reason, ok := config.GetRebuildRequired(); !ok || reason == "" {
+		t.Fatal("expected rebuild marker to remain set")
 	}
 }
 
