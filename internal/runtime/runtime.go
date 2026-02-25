@@ -594,6 +594,15 @@ func ensureMountedTemplateFiles(configPath string) error {
 		}
 	}
 
+	// Podman/crun requires the target parent directory to already exist on the host
+	// when bind-mounting individual files inside a directory that is itself a bind mount
+	// (e.g. /home/construct mounted from ~/.config/construct-cli/home). Docker creates
+	// missing directories silently; crun fails with "Not a directory" without this.
+	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
+	if err := os.MkdirAll(homeContainerDir, 0755); err != nil {
+		return fmt.Errorf("failed to create container dir in home volume: %w", err)
+	}
+
 	return nil
 }
 
