@@ -22,6 +22,8 @@ All notable changes to Construct CLI will be documented in this file.
 - **Doctor Guidance Accuracy**: Linux doctor permission diagnostics now report userns-remap context and show runtime-appropriate manual remediation commands.
 - **Podman Userns Ownership Re-Drift**: Entrypoint startup now skips recursive bind-mount `chown -R` in remapped-userns mode, preventing fixed ownership from being re-corrupted after startup.
 - **Template Path Type Collisions**: Migration/init/runtime now self-heal template targets that accidentally exist as directories (for example `entrypoint-hash.sh/`, `agent-patch.sh/`) by replacing them with proper files.
+- **Home Volume Helper Mount Target Collisions (Linux Docker/Podman)**: Runtime preparation now also normalizes helper mount targets under `~/.config/construct-cli/home/.config/construct-cli/container` (`install_user_packages.sh`, `entrypoint-hash.sh`, `update-all.sh`, `agent-patch.sh`) so stale directory/file-type collisions are repaired before container setup runs.
+- **Fail-Fast Runtime Prep for Mounted Helpers**: Runtime now aborts immediately when mounted-helper template preparation fails, instead of continuing into late OCI mount errors during setup.
 - **False Rebuild Loop on macOS**: Agent startup now auto-clears stale `.rebuild_required` markers when the container image entrypoint hash is already current, while still blocking when a rebuild is truly required.
 - **Release/Tag Consistency**: Release workflow now rejects `v`-prefixed tags and dispatches tap updates with normalized non-prefixed versions.
 - **Legacy Linux 1.3.x → 1.4.x Upgrade Safety**: Prevented continuation after unresolved ownership drift in config mount paths by failing early with actionable commands, avoiding partial startup/migration behavior.
@@ -31,6 +33,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Regression Coverage for Rootless Ownership Fixes**: Added/updated unit coverage for userns-aware runtime decisions, Podman rootless fix paths, and sudo fallback behavior.
 - **Custom Compose Override Opt-In Flag**: Added `[sandbox].allow_custom_compose_override` (default `false`) for advanced users who intentionally manage `docker-compose.override.yml` behavior.
 - **Regression Tests for Marker/Template Edge Cases**: Added tests for stale rebuild-marker auto-clear behavior and directory-collision recovery on mounted template helper paths.
+- **Regression Coverage for Home Helper Mount Collisions**: Added runtime tests validating repair of file-vs-directory collisions for `home/.config/construct-cli/container` helper targets.
 
 ---
 
