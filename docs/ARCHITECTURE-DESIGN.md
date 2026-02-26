@@ -85,8 +85,9 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Linux specifics**:
   - Docker compose startup and daemon runs propagate host `CONSTRUCT_HOST_UID`/`CONSTRUCT_HOST_GID` on Linux to keep mounted home/config ownership aligned.
   - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning, keeps host UID:GID mapping, and forces `HOME=/home/construct`.
-  - Config/migration ownership checks attempt non-interactive sudo repair first (`sudo -n chown -R <uid>:<gid> ~/.config/construct-cli`) and provide explicit manual remediation when elevation is unavailable.
+  - Config/migration ownership checks prompt for confirmation before repair; Linux remediation is runtime-aware (`podman unshare chown -R 0:0` in rootless/userns contexts where applicable, then sudo fallback), with explicit manual commands when repair is declined or fails.
   - `construct sys doctor --fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
+  - `construct sys doctor --fix` compose actions propagate runtime identity context (`CONSTRUCT_USERNS_REMAP`) to avoid immediate post-fix ownership drift on recreated daemon containers.
   - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
   - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.

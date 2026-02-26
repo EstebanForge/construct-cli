@@ -24,7 +24,7 @@ On first run after installation or init, this file is created with the current v
 
 ### Migration Detection
 
-On every startup, `main.go` calls `migration.NeedsMigration()` which:
+During startup for recognized commands/subcommands, `main.go` checks `migration.NeedsMigration()` (invalid/unknown commands and selected self-managed paths such as `sys self-update` and `sys rebuild` are excluded) which:
 1. Reads the installed version from `.version` file
 2. If no `.version` file exists:
    - Checks if `config.toml` exists
@@ -144,15 +144,16 @@ go test ./internal/migration -v
 ### In `main.go`
 
 ```go
-// Check for version migrations before loading config
-if migration.NeedsMigration() {
+// Check for migrations before loading config.
+// Guarded so typos/unknown subcommands do not trigger migration side effects.
+if shouldRunMigration(args) && migration.NeedsMigration() {
     if err := migration.CheckAndMigrate(); err != nil {
         fmt.Fprintf(os.Stderr, "Error during migration: %v\n", err)
         os.Exit(1)
     }
 }
 
-// Load config (now guaranteed to be up-to-date)
+// Load config (now guaranteed to be up-to-date when migration runs)
 cfg, _, _ := config.Load()
 ```
 

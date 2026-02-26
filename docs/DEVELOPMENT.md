@@ -290,7 +290,7 @@ construct sys doctor
 ```
 
 - If your host UID is not present in container `/etc/passwd`, Construct warns, keeps numeric `UID:GID` mapping, and forces `HOME=/home/construct`.
-- If migrations or runtime prep fail due to ownership, Construct first attempts non-interactive repair with sudo.
+- If migrations or runtime prep hit ownership issues, Construct prompts for confirmation and then attempts runtime-aware repair (`podman unshare chown` for rootless/userns modes when applicable, then sudo fallback).
 - For recurring Linux permission/ownership issues, use:
 
 ```bash
@@ -298,9 +298,10 @@ construct sys doctor --fix
 ```
 
 - `doctor --fix` can repair config ownership/permissions, recycle stale session/daemon containers, and rebuild stale/missing images required for startup fixes.
-- If sudo is unavailable/non-interactive auth is blocked, use:
+- If automated repair is declined or fails, use:
 
 ```bash
+podman unshare chown -R 0:0 ~/.config/construct-cli
 sudo chown -R "$(id -u)":"$(id -g)" ~/.config/construct-cli
 ```
 

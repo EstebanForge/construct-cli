@@ -108,7 +108,7 @@ The Construct container uses a fixed default password for the `construct` user:
 
 - **Default Password**: `construct`
 - **Reason**: Allows sudo access when running interactive commands inside `sys shell`
-- **Automated Operations**: All automated operations (init, build, migrate, update, rebuild) remain completely passwordless
+- **Automated Operations**: Init/build/migrate/update/rebuild are non-interactive when ownership is healthy. If Linux ownership drift is detected, Construct prompts for confirmation before attempting automated repair (runtime-aware `podman unshare` where applicable, then sudo fallback).
 
 **⚠️ Security Warning**: If you expose the container to untrusted networks (port forwarding, bridge mode), you should change the default password immediately.
 
@@ -172,7 +172,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 4. **Updates container templates** with new features
 5. **Rebuilds the Docker image** with the new Dockerfile
 
-All this happens automatically the first time you run any `construct` command after updating. Zero manual intervention required!
+All this happens automatically on the first recognized `construct` command/agent invocation after updating. Unknown/invalid subcommands (for example typos) do not trigger migrations. In normal operation, no manual action is required.
 
 **Manual Migration:**
 Need to debug or force a config refresh? Use `construct sys config --migrate` to manually trigger the migration process.
