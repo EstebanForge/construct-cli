@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -256,7 +257,11 @@ func RunCommandWithSpinner(cmd *exec.Cmd, title string, logFile *os.File) error 
 					if err != nil {
 						fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
 					}
-					fmt.Print(string(output))
+					if strings.TrimSpace(string(output)) == "" {
+						fmt.Println("(No log output yet. Command is still running.)")
+					} else {
+						fmt.Print(string(output))
+					}
 				} else {
 					fmt.Println("(No log file)")
 				}
@@ -317,7 +322,11 @@ func RunCommandWithSpinner(cmd *exec.Cmd, title string, logFile *os.File) error 
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "Warning: failed to read log tail: %v\n", err)
 				}
-				fmt.Print(string(output))
+				if strings.TrimSpace(string(output)) == "" {
+					fmt.Println("(No log output yet. Command is still running.)")
+				} else {
+					fmt.Print(string(output))
+				}
 			} else {
 				fmt.Println("(No log file)")
 			}
