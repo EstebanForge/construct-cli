@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -177,13 +179,8 @@ func GumSpinner(title string, fn func() []string) []string {
 
 // GumConfirm prompts for confirmation using Gum if available
 func GumConfirm(prompt string) bool {
-	if !GumAvailable() {
-		fmt.Printf("%s [y/N]: ", prompt)
-		var response string
-		if _, err := fmt.Scanln(&response); err != nil {
-			return false
-		}
-		return response == "y" || response == "Y"
+	if !GumAvailable() || shouldUsePlainConfirm() {
+		return plainConfirm(prompt, true)
 	}
 
 	cmd := GetGumCommand("confirm", prompt)
@@ -192,6 +189,54 @@ func GumConfirm(prompt string) bool {
 	cmd.Stderr = os.Stderr
 	err := cmd.Run()
 	return err == nil
+}
+
+func shouldUsePlainConfirm() bool {
+	if strings.TrimSpace(os.Getenv("CONSTRUCT_FORCE_GUM_CONFIRM")) == "1" {
+		return false
+	}
+	if strings.TrimSpace(os.Getenv("CONSTRUCT_PLAIN_CONFIRM")) == "1" {
+		return true
+	}
+
+	// Bubble Tea confirm widgets can render poorly over some SSH TTY combos.
+	if os.Getenv("SSH_CONNECTION") != "" || os.Getenv("SSH_CLIENT") != "" || os.Getenv("SSH_TTY") != "" {
+		return true
+	}
+
+	return false
+}
+
+func plainConfirm(prompt string, defaultYes bool) bool {
+	reader := bufio.NewReader(os.Stdin)
+	suffix := "[Y/n]"
+	if !defaultYes {
+		suffix = "[y/N]"
+	}
+
+	for {
+		fmt.Printf("%s %s: ", prompt, suffix)
+		response, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return defaultYes
+		}
+
+		normalized := strings.TrimSpace(strings.ToLower(response))
+		switch normalized {
+		case "":
+			return defaultYes
+		case "y", "yes":
+			return true
+		case "n", "no":
+			return false
+		default:
+			fmt.Println("Please answer 'y' or 'n'.")
+		}
+
+		if err == io.EOF {
+			return defaultYes
+		}
+	}
 }
 
 // RunCommandWithSpinner runs a command with a native spinner and interactive log peeking
