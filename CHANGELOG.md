@@ -11,6 +11,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Exec User Mapping Guardrails**: `exec_as_host_user` Linux Docker exec mapping is now skipped automatically when userns remap is detected.
 - **Host Alias Targeting**: `construct sys aliases` now resolves aliases through the managed `ct` shim (with executable fallback) instead of bare `construct`, preventing PATH-driven version drift when Homebrew stable and local beta coexist.
 - **Installer Version Normalization**: `scripts/install.sh` now normalizes incoming versions (strips optional `v` prefix) and preserves prerelease identifiers in installed-version detection.
+- **Linux Permission Recovery Flow (Runtime)**: Replaced the legacy best-effort auto-fix behavior with a strict, interactive repair flow that detects non-writable config paths, prompts for confirmation, and blocks agent execution until ownership is repaired.
+- **Linux Permission Recovery Flow (Migration)**: Migration permission recovery now follows the same explicit yes/no prompt model and surfaces exact manual remediation commands when the user declines or repair fails.
+- **Ownership Remediation Guidance**: Runtime and migration flows now present runtime-aware manual commands (`podman unshare chown` for rootless/userns scenarios plus `sudo chown`) instead of a single static hint.
 
 ### Fixed
 - **Recurring Config Home Ownership Drift**: Fixed repeated ownership drift on `~/.config/construct-cli/home` in Linux rootless/userns-remapped Docker/Podman scenarios that caused recurring permission warnings and repair loops.
@@ -21,6 +24,8 @@ All notable changes to Construct CLI will be documented in this file.
 - **Template Path Type Collisions**: Migration/init/runtime now self-heal template targets that accidentally exist as directories (for example `entrypoint-hash.sh/`, `agent-patch.sh/`) by replacing them with proper files.
 - **False Rebuild Loop on macOS**: Agent startup now auto-clears stale `.rebuild_required` markers when the container image entrypoint hash is already current, while still blocking when a rebuild is truly required.
 - **Release/Tag Consistency**: Release workflow now rejects `v`-prefixed tags and dispatches tap updates with normalized non-prefixed versions.
+- **Legacy Linux 1.3.x → 1.4.x Upgrade Safety**: Prevented continuation after unresolved ownership drift in config mount paths by failing early with actionable commands, avoiding partial startup/migration behavior.
+- **Setup/Spinner Log Peek UX**: Pressing Enter to peek logs now shows a clear message when no output has been flushed yet, instead of an empty snapshot.
 
 ### Added
 - **Regression Coverage for Rootless Ownership Fixes**: Added/updated unit coverage for userns-aware runtime decisions, Podman rootless fix paths, and sudo fallback behavior.

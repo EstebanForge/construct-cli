@@ -38,6 +38,9 @@ const (
 )
 
 var attemptedOwnershipFix bool
+var confirmOwnershipFixFn = ui.GumConfirm
+var runOwnershipFixInteractiveFn = runOwnershipFix
+var runOwnershipFixRootlessFn = runOwnershipFixRootless
 
 // DetectRuntime selects an available container runtime using parallel detection.
 func DetectRuntime(preferredEngine string) string {
@@ -509,7 +512,7 @@ func GetCheckImageCommand(containerRuntime string) []string {
 func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
 	// Fix config directory permissions if needed (Linux/WSL only)
 	if err := ensureConfigPermissions(configPath, containerRuntime); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to fix config permissions: %v\n", err)
+		return err
 	}
 
 	// Ensure custom network exists for strict mode
@@ -1223,14 +1226,7 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 
 	problemPaths, ownedButUnwritable := scanConfigPaths()
 
-	if len(problemPaths) == 0 {
-		if len(ownedButUnwritable) > 0 {
-			fmt.Fprintf(os.Stderr, "\n%sWarning: Config directory permissions prevent writing%s\n", ui.ColorYellow, ui.ColorReset)
-			fmt.Fprintf(os.Stderr, "The following directories are owned by you but not writable:\n")
-			for _, p := range ownedButUnwritable {
-				fmt.Fprintf(os.Stderr, "  • %s\n", p)
-			}
-		}
+	if len(problemPaths) == 0 && len(ownedButUnwritable) == 0 {
 		return nil
 	}
 
@@ -1249,14 +1245,26 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 	for _, p := range problemPaths {
 		fmt.Fprintf(os.Stderr, "  • %s\n", p)
 	}
+	for _, p := range ownedButUnwritable {
+		fmt.Fprintf(os.Stderr, "  • %s\n", p)
+	}
 	fmt.Fprintf(os.Stderr, "\nThis typically happens when the container created files as a different user.\n")
-	fmt.Fprintf(os.Stderr, "Fix: %ssudo chown -R %s:%s %s%s\n\n", ui.ColorCyan, username, username, configPath, ui.ColorReset)
+	commands := ownershipFixCommands(configPath, containerRuntime)
+	fmt.Fprintf(os.Stderr, "Run one of these commands manually to fix it:\n")
+	for _, cmd := range commands {
+		fmt.Fprintf(os.Stderr, "  %s%s%s\n", ui.ColorCyan, cmd, ui.ColorReset)
+	}
+	fmt.Fprintln(os.Stderr)
+
+	if !confirmOwnershipFixFn("Attempt to fix ownership now? This may require your sudo password.") {
+		return fmt.Errorf("ownership fix required before continuing. Run:\n%s", formatOwnershipFixCommands(commands))
+	}
 
 	// Rootless/userns-remapped runtimes can often repair ownership without sudo.
 	if UsesUserNamespaceRemap(containerRuntime) {
-		if err := runOwnershipFixRootless(configPath, containerRuntime); err == nil {
-			remainingProblems, _ := scanConfigPaths()
-			if len(remainingProblems) == 0 {
+		if err := runOwnershipFixRootlessFn(configPath, containerRuntime); err == nil {
+			remainingProblems, remainingOwnedButUnwritable := scanConfigPaths()
+			if len(remainingProblems) == 0 && len(remainingOwnedButUnwritable) == 0 {
 				if ui.GumAvailable() {
 					ui.GumSuccess("Config directory ownership fixed")
 				} else {
@@ -1265,28 +1273,20 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 				return nil
 			}
 			fmt.Fprintf(os.Stderr, "Warning: Rootless ownership fix did not fully resolve permissions; trying sudo fallback.\n")
-		}
-	}
-
-	// Try non-interactive sudo first (best effort, avoids blocking in non-interactive sessions).
-	if err := runOwnershipFixNonInteractive(configPath); err == nil {
-		if ui.GumAvailable() {
-			ui.GumSuccess("Config directory ownership fixed")
 		} else {
-			fmt.Fprintf(os.Stderr, "✓ Config directory ownership fixed\n")
+			fmt.Fprintf(os.Stderr, "Warning: Rootless ownership fix failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Falling back to sudo ownership fix.\n")
 		}
-		return nil
-	}
-
-	// Ask for confirmation before running sudo
-	if !ui.GumConfirm("Attempt to fix ownership now with sudo?") {
-		fmt.Fprintf(os.Stderr, "Skipping automatic fix. You can run the command manually.\n")
-		return nil
 	}
 
 	// Fix the entire config path to catch all files
-	if err := runOwnershipFix(configPath); err != nil {
-		return fmt.Errorf("failed to fix ownership: %w", err)
+	if err := runOwnershipFixInteractiveFn(configPath); err != nil {
+		return fmt.Errorf("failed to fix ownership: %w\nRun:\n%s", err, formatOwnershipFixCommands(commands))
+	}
+
+	remainingProblems, remainingOwnedButUnwritable := scanConfigPaths()
+	if len(remainingProblems) > 0 || len(remainingOwnedButUnwritable) > 0 {
+		return fmt.Errorf("config ownership is still invalid after automatic fix. Run:\n%s", formatOwnershipFixCommands(commands))
 	}
 
 	if ui.GumAvailable() {
@@ -1297,49 +1297,38 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 	return nil
 }
 
+func ownershipFixCommands(configPath, containerRuntime string) []string {
+	quotedPath := shellQuote(configPath)
+	commands := []string{}
+	if containerRuntime == "podman" || UsesUserNamespaceRemap(containerRuntime) {
+		commands = append(commands, fmt.Sprintf("podman unshare chown -R 0:0 %s", quotedPath))
+	}
+	commands = append(commands, fmt.Sprintf("sudo chown -R %d:%d %s", os.Getuid(), os.Getgid(), quotedPath))
+	return commands
+}
+
+func formatOwnershipFixCommands(commands []string) string {
+	lines := make([]string, 0, len(commands))
+	for _, cmd := range commands {
+		lines = append(lines, "  "+cmd)
+	}
+	return strings.Join(lines, "\n")
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
 func warnConfigPermission(err error, configPath string) {
 	if !errors.Is(err, os.ErrPermission) {
 		return
 	}
 	fmt.Fprintf(os.Stderr, "Warning: Config directory is not writable: %s\n", configPath)
-	fmt.Fprintf(os.Stderr, "%sWarning: Fix ownership with: sudo chown -R $USER:$USER %s%s\n", ui.ColorYellow, configPath, ui.ColorReset)
-	if runtime.GOOS != "linux" || attemptedOwnershipFix {
-		return
+	commands := ownershipFixCommands(configPath, "")
+	fmt.Fprintf(os.Stderr, "%sWarning: Fix ownership with one of:%s\n", ui.ColorYellow, ui.ColorReset)
+	for _, cmd := range commands {
+		fmt.Fprintf(os.Stderr, "  %s%s%s\n", ui.ColorCyan, cmd, ui.ColorReset)
 	}
-	shouldFix, ownerErr := shouldAttemptOwnershipFix(configPath)
-	if ownerErr == nil && !shouldFix {
-		return
-	}
-	attemptedOwnershipFix = true
-
-	// Try non-interactive sudo first (best effort).
-	if err := runOwnershipFixNonInteractive(configPath); err == nil {
-		if ui.GumAvailable() {
-			ui.GumSuccess("Ownership fixed")
-		} else {
-			fmt.Println("✅ Ownership fixed")
-		}
-		return
-	}
-
-	if !ui.GumConfirm(fmt.Sprintf("Attempt to fix ownership now with sudo? (%s)", configPath)) {
-		return
-	}
-	if err := runOwnershipFix(configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Ownership fix failed: %v\n", err)
-	} else if ui.GumAvailable() {
-		ui.GumSuccess("Ownership fixed")
-	} else {
-		fmt.Println("✅ Ownership fixed")
-	}
-}
-
-func shouldAttemptOwnershipFix(path string) (bool, error) {
-	ownerUID, err := getOwnerUID(path)
-	if err != nil {
-		return false, err
-	}
-	return ownerUID != os.Getuid(), nil
 }
 
 func getOwnerUID(path string) (int, error) {
@@ -1362,28 +1351,6 @@ func runOwnershipFix(configPath string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
-}
-
-func runOwnershipFixNonInteractive(configPath string) error {
-	if _, err := exec.LookPath("sudo"); err != nil {
-		return fmt.Errorf("sudo not available: %w", err)
-	}
-	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		return fmt.Errorf("sudo non-interactive check failed: %w", err)
-	}
-
-	uid := os.Getuid()
-	gid := os.Getgid()
-	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(out))
-		if msg == "" {
-			return err
-		}
-		return fmt.Errorf("%w: %s", err, msg)
-	}
-	return nil
 }
 
 func runOwnershipFixRootless(configPath, containerRuntime string) error {

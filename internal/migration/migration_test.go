@@ -69,17 +69,20 @@ func TestIsPermissionWriteError(t *testing.T) {
 }
 
 func TestAttemptMigrationPermissionRecoveryForOS(t *testing.T) {
-	original := runOwnershipFixNonInteractiveFn
+	originalFix := runOwnershipFixFn
+	originalConfirm := confirmOwnershipFixFn
 	originalAttempted := attemptedOwnershipFix
 	t.Cleanup(func() {
-		runOwnershipFixNonInteractiveFn = original
+		runOwnershipFixFn = originalFix
+		confirmOwnershipFixFn = originalConfirm
 		attemptedOwnershipFix = originalAttempted
 	})
 
 	t.Run("linux permission error recovers", func(t *testing.T) {
 		attemptedOwnershipFix = false
 		called := false
-		runOwnershipFixNonInteractiveFn = func(configPath string) error {
+		confirmOwnershipFixFn = func(_ string) bool { return true }
+		runOwnershipFixFn = func(configPath string) error {
 			called = true
 			if configPath != "/tmp/test-config" {
 				t.Fatalf("unexpected config path: %s", configPath)
@@ -101,7 +104,8 @@ func TestAttemptMigrationPermissionRecoveryForOS(t *testing.T) {
 
 	t.Run("linux permission error with failing fix", func(t *testing.T) {
 		attemptedOwnershipFix = false
-		runOwnershipFixNonInteractiveFn = func(_ string) error {
+		confirmOwnershipFixFn = func(_ string) bool { return true }
+		runOwnershipFixFn = func(_ string) error {
 			return fmt.Errorf("sudo failed")
 		}
 
@@ -114,9 +118,33 @@ func TestAttemptMigrationPermissionRecoveryForOS(t *testing.T) {
 		}
 	})
 
+	t.Run("linux permission error declined by user", func(t *testing.T) {
+		attemptedOwnershipFix = false
+		confirmOwnershipFixFn = func(_ string) bool { return false }
+		runOwnershipFixFn = func(_ string) error {
+			t.Fatal("should not call ownership fix when user declines")
+			return nil
+		}
+
+		recovered, err := attemptMigrationPermissionRecoveryForOS("linux", os.ErrPermission, "/tmp/test-config")
+		if recovered {
+			t.Fatal("expected recovered=false when user declines")
+		}
+		if err == nil {
+			t.Fatal("expected error when user declines fix")
+		}
+		if !strings.Contains(err.Error(), "Run one of:") {
+			t.Fatalf("expected manual fix instructions in decline error, got: %v", err)
+		}
+	})
+
 	t.Run("non-linux skips recovery", func(t *testing.T) {
 		attemptedOwnershipFix = false
-		runOwnershipFixNonInteractiveFn = func(_ string) error {
+		confirmOwnershipFixFn = func(_ string) bool {
+			t.Fatal("should not prompt on non-linux")
+			return false
+		}
+		runOwnershipFixFn = func(_ string) error {
 			t.Fatal("should not call ownership fix on non-linux")
 			return nil
 		}
@@ -132,7 +160,11 @@ func TestAttemptMigrationPermissionRecoveryForOS(t *testing.T) {
 
 	t.Run("non-permission error skips recovery", func(t *testing.T) {
 		attemptedOwnershipFix = false
-		runOwnershipFixNonInteractiveFn = func(_ string) error {
+		confirmOwnershipFixFn = func(_ string) bool {
+			t.Fatal("should not prompt on non-permission error")
+			return false
+		}
+		runOwnershipFixFn = func(_ string) error {
 			t.Fatal("should not call ownership fix for non-permission error")
 			return nil
 		}

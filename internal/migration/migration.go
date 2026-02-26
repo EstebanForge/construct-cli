@@ -24,7 +24,9 @@ const packagesTemplateHashFile = ".packages_template_hash"
 const entrypointTemplateHashFile = ".entrypoint_template_hash"
 
 var attemptedOwnershipFix bool
-var runOwnershipFixNonInteractiveFn = runOwnershipFixNonInteractive
+var runOwnershipFixFn = runOwnershipFix
+var confirmOwnershipFixFn = ui.GumConfirm
+var errOwnershipFixDeclined = errors.New("ownership fix declined")
 
 // GetInstalledVersion returns the currently installed version from the version file
 func GetInstalledVersion() string {
@@ -373,12 +375,23 @@ func attemptMigrationPermissionRecoveryForOS(osName string, cause error, configP
 
 	attemptedOwnershipFix = true
 	if ui.GumAvailable() {
-		fmt.Printf("%sDetected config ownership issue. Attempting automatic fix with sudo...%s\n", ui.ColorYellow, ui.ColorReset)
+		fmt.Printf("%sDetected config ownership issue.%s\n", ui.ColorYellow, ui.ColorReset)
 	} else {
-		fmt.Println("Detected config ownership issue. Attempting automatic fix with sudo...")
+		fmt.Println("Detected config ownership issue.")
 	}
 
-	if err := runOwnershipFixNonInteractiveFn(configPath); err != nil {
+	commands := ownershipFixCommands(configPath)
+	fmt.Fprintf(os.Stderr, "Run one of these commands manually to fix it:\n")
+	for _, cmd := range commands {
+		fmt.Fprintf(os.Stderr, "  %s%s%s\n", ui.ColorCyan, cmd, ui.ColorReset)
+	}
+	fmt.Fprintln(os.Stderr)
+
+	if !confirmOwnershipFixFn(fmt.Sprintf("Attempt to fix ownership now? (%s)", configPath)) {
+		return false, ownershipFixDeclinedError(commands)
+	}
+
+	if err := runOwnershipFixFn(configPath); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -400,11 +413,14 @@ func migrationPermissionError(operation string, err error, configPath string, fi
 		return errors.New(base)
 	}
 
-	fixHint := fmt.Sprintf("sudo chown -R %d:%d %s", os.Getuid(), os.Getgid(), configPath)
+	fixHint := formatOwnershipFixCommands(ownershipFixCommands(configPath))
 	if fixErr != nil {
-		return fmt.Errorf("%s (automatic ownership fix failed: %v). Fix manually: %s", base, fixErr, fixHint)
+		if errors.Is(fixErr, errOwnershipFixDeclined) {
+			return fmt.Errorf("%s. %v", base, fixErr)
+		}
+		return fmt.Errorf("%s (automatic ownership fix failed: %v). Fix manually with one of:\n%s", base, fixErr, fixHint)
 	}
-	return fmt.Errorf("%s. Fix ownership and retry: %s", base, fixHint)
+	return fmt.Errorf("%s. Fix ownership and retry with one of:\n%s", base, fixHint)
 }
 
 func clearEntrypointHash() {
@@ -469,20 +485,9 @@ func warnConfigPermission(err error) {
 	}
 	configPath := config.GetConfigDir()
 	fmt.Fprintf(os.Stderr, "Warning: Config directory is not writable: %s\n", configPath)
-	fmt.Fprintf(os.Stderr, "%sWarning: Fix ownership with: sudo chown -R $USER:$USER %s%s\n", ui.ColorYellow, configPath, ui.ColorReset)
-	if runtime.GOOS != "linux" || attemptedOwnershipFix {
-		return
-	}
-	attemptedOwnershipFix = true
-	if !ui.GumConfirm(fmt.Sprintf("Attempt to fix ownership now with sudo? (%s)", configPath)) {
-		return
-	}
-	if err := runOwnershipFix(configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Ownership fix failed: %v\n", err)
-	} else if ui.GumAvailable() {
-		ui.GumSuccess("Ownership fixed")
-	} else {
-		fmt.Println("✅ Ownership fixed")
+	fmt.Fprintf(os.Stderr, "%sWarning: Fix ownership with one of:%s\n", ui.ColorYellow, ui.ColorReset)
+	for _, cmd := range ownershipFixCommands(configPath) {
+		fmt.Fprintf(os.Stderr, "  %s%s%s\n", ui.ColorCyan, cmd, ui.ColorReset)
 	}
 }
 
@@ -496,27 +501,30 @@ func runOwnershipFix(configPath string) error {
 	return cmd.Run()
 }
 
-func runOwnershipFixNonInteractive(configPath string) error {
-	if _, err := exec.LookPath("sudo"); err != nil {
-		return fmt.Errorf("sudo not available: %w", err)
+func ownershipFixCommands(configPath string) []string {
+	quotedPath := shellQuote(configPath)
+	commands := []string{}
+	if _, err := exec.LookPath("podman"); err == nil {
+		commands = append(commands, fmt.Sprintf("podman unshare chown -R 0:0 %s", quotedPath))
 	}
+	commands = append(commands, fmt.Sprintf("sudo chown -R %d:%d %s", os.Getuid(), os.Getgid(), quotedPath))
+	return commands
+}
 
-	if err := exec.Command("sudo", "-n", "true").Run(); err != nil {
-		return fmt.Errorf("sudo non-interactive check failed: %w", err)
+func formatOwnershipFixCommands(commands []string) string {
+	lines := make([]string, 0, len(commands))
+	for _, cmd := range commands {
+		lines = append(lines, "  "+cmd)
 	}
+	return strings.Join(lines, "\n")
+}
 
-	uid := os.Getuid()
-	gid := os.Getgid()
-	cmd := exec.Command("sudo", "-n", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		msg := strings.TrimSpace(string(output))
-		if msg == "" {
-			return err
-		}
-		return fmt.Errorf("%w: %s", err, msg)
-	}
-	return nil
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func ownershipFixDeclinedError(commands []string) error {
+	return fmt.Errorf("%w. Run one of:\n%s", errOwnershipFixDeclined, formatOwnershipFixCommands(commands))
 }
 
 // mergePackagesFile replaces packages.toml with the template and reapplies user values.
