@@ -6,7 +6,7 @@ const (
 	AppName          = "construct"
 	ConfigDir        = ".config/construct-cli"
 	ImageName        = "construct-box"
-	Version          = "1.4.0-beta.8"
+	Version          = "1.4.0-beta.9"
 	GithubAPIURL     = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
 	GithubRawURL     = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
 	GithubRawBetaURL = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION-BETA"

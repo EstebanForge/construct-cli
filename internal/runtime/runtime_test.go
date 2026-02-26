@@ -269,6 +269,65 @@ func TestEnsureMountedTemplateFilesReplacesDirectoryCollision(t *testing.T) {
 	}
 }
 
+func TestEnsureMountedTemplateFilesRepairsHomeContainerPathCollision(t *testing.T) {
+	configPath := t.TempDir()
+	blockingPath := filepath.Join(configPath, "home", ".config", "construct-cli")
+	if err := os.MkdirAll(filepath.Dir(blockingPath), 0755); err != nil {
+		t.Fatalf("failed to create parent dirs: %v", err)
+	}
+	if err := os.WriteFile(blockingPath, []byte("blocking"), 0644); err != nil {
+		t.Fatalf("failed to create blocking file: %v", err)
+	}
+
+	if err := ensureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	}
+
+	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
+	info, err := os.Stat(homeContainerDir)
+	if err != nil {
+		t.Fatalf("expected home container dir to exist: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected %s to be a directory", homeContainerDir)
+	}
+}
+
+func TestEnsureMountedTemplateFilesRepairsHomeHelperTargetCollisions(t *testing.T) {
+	configPath := t.TempDir()
+	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
+	if err := os.MkdirAll(homeContainerDir, 0755); err != nil {
+		t.Fatalf("failed to create home container dir: %v", err)
+	}
+
+	collisions := []string{
+		"install_user_packages.sh",
+		"entrypoint-hash.sh",
+		"update-all.sh",
+		"agent-patch.sh",
+	}
+	for _, name := range collisions {
+		if err := os.MkdirAll(filepath.Join(homeContainerDir, name), 0755); err != nil {
+			t.Fatalf("failed to create collision directory for %s: %v", name, err)
+		}
+	}
+
+	if err := ensureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	}
+
+	for _, name := range collisions {
+		targetPath := filepath.Join(homeContainerDir, name)
+		info, err := os.Stat(targetPath)
+		if err != nil {
+			t.Fatalf("expected helper target %s to exist: %v", targetPath, err)
+		}
+		if !info.Mode().IsRegular() {
+			t.Fatalf("expected helper target %s to be a regular file, mode=%s", targetPath, info.Mode())
+		}
+	}
+}
+
 // TestGetOSInfo tests OS information retrieval
 // getOSInfo is not in runtime package anymore (it was private in main.go and I didn't export it in runtime.go because it seemed unused except for test?)
 // Wait, getOSInfo was in main.go. Did I move it?

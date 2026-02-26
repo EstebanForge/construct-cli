@@ -528,7 +528,7 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		warnConfigPermission(err, configPath)
 	}
 	if err := ensureMountedTemplateFiles(configPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to prepare mounted helper templates: %v\n", err)
+		return fmt.Errorf("failed to prepare mounted helper templates: %w", err)
 	}
 
 	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
@@ -572,6 +572,9 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 
 func ensureMountedTemplateFiles(configPath string) error {
 	containerDir := filepath.Join(configPath, "container")
+	if err := ensureDirPath(containerDir); err != nil {
+		return err
+	}
 	files := []struct {
 		name    string
 		content string
@@ -602,8 +605,77 @@ func ensureMountedTemplateFiles(configPath string) error {
 	// (e.g. /home/construct mounted from ~/.config/construct-cli/home). Docker creates
 	// missing directories silently; crun fails with "Not a directory" without this.
 	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
-	if err := os.MkdirAll(homeContainerDir, 0755); err != nil {
+	if err := ensureDirPath(homeContainerDir); err != nil {
 		return fmt.Errorf("failed to create container dir in home volume: %w", err)
+	}
+	homeHelperTargets := []string{
+		"install_user_packages.sh",
+		"entrypoint-hash.sh",
+		"update-all.sh",
+		"agent-patch.sh",
+	}
+	for _, name := range homeHelperTargets {
+		targetPath := filepath.Join(homeContainerDir, name)
+		if err := ensureRegularFilePath(targetPath); err != nil {
+			return fmt.Errorf("failed to prepare helper mount target %s: %w", targetPath, err)
+		}
+	}
+
+	return nil
+}
+
+func ensureDirPath(path string) error {
+	path = filepath.Clean(path)
+	parent := filepath.Dir(path)
+	if parent != path {
+		if err := ensureDirPath(parent); err != nil {
+			return err
+		}
+	}
+
+	info, err := os.Stat(path)
+	if err == nil {
+		if info.IsDir() {
+			return nil
+		}
+		if removeErr := os.RemoveAll(path); removeErr != nil {
+			return fmt.Errorf("failed to replace non-directory path %s: %w", path, removeErr)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	if mkErr := os.Mkdir(path, 0755); mkErr != nil && !os.IsExist(mkErr) {
+		return mkErr
+	}
+
+	return nil
+}
+
+func ensureRegularFilePath(path string) error {
+	path = filepath.Clean(path)
+	if err := ensureDirPath(filepath.Dir(path)); err != nil {
+		return err
+	}
+
+	info, err := os.Lstat(path)
+	if err == nil {
+		if info.Mode().IsRegular() {
+			return nil
+		}
+		if removeErr := os.RemoveAll(path); removeErr != nil {
+			return fmt.Errorf("failed to replace non-file path %s: %w", path, removeErr)
+		}
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	file, openErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
+	if openErr != nil {
+		return openErr
+	}
+	if closeErr := file.Close(); closeErr != nil {
+		return closeErr
 	}
 
 	return nil
