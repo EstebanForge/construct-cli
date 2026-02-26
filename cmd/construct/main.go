@@ -62,13 +62,10 @@ func main() {
 		}
 	}
 
-	// Check for version migrations before loading config
-	// This ensures config files are updated before we try to parse them
-	// Skip migration check for self-update and rebuild to avoid duplicate migrations.
-	// Rebuild runs ForceRefresh which already handles templates/config sync.
-	isSelfUpdate := len(args) >= 2 && args[0] == "sys" && args[1] == "self-update"
-	isRebuild := len(args) >= 2 && args[0] == "sys" && args[1] == "rebuild"
-	if !isSelfUpdate && !isRebuild && migration.NeedsMigration() {
+	// Check for version migrations before loading config.
+	// Run migrations only for recognized commands to avoid side effects on typos
+	// (e.g. `construct sys rebuilt`).
+	if shouldRunMigration(args) && migration.NeedsMigration() {
 		if err := migration.CheckAndMigrate(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error during migration: %v\n", err)
 			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
@@ -517,5 +514,52 @@ func handleDaemonCommand(args []string) {
 		ui.GumError(fmt.Sprintf("Unknown daemon command: %s", command))
 		ui.PrintSysDaemonHelp()
 		os.Exit(1)
+	}
+}
+
+func shouldRunMigration(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+
+	switch args[0] {
+	case "sys":
+		if len(args) < 2 {
+			return false
+		}
+		if !isKnownSysCommand(args[1]) {
+			return false
+		}
+		// Skip migration check for self-update and rebuild to avoid duplicate runs.
+		return args[1] != "self-update" && args[1] != "rebuild"
+	case "network":
+		if len(args) < 2 {
+			return false
+		}
+		return isKnownNetworkCommand(args[1])
+	case "cc", "claude":
+		return true
+	default:
+		return agent.IsSupported(args[0])
+	}
+}
+
+func isKnownSysCommand(cmd string) bool {
+	switch cmd {
+	case "init", "rebuild", "update", "reset", "shell", "aliases", "version", "help",
+		"config", "packages", "agents", "agents-md", "doctor", "ct-fix", "self-update",
+		"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
+		return true
+	default:
+		return false
+	}
+}
+
+func isKnownNetworkCommand(cmd string) bool {
+	switch cmd {
+	case "allow", "block", "remove", "list", "status", "clear":
+		return true
+	default:
+		return false
 	}
 }

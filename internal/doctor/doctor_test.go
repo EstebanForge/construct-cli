@@ -863,3 +863,29 @@ func containsEnv(env []string, item string) bool {
 	}
 	return false
 }
+
+func containsEnvPrefix(env []string, prefix string) bool {
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDoctorComposeEnvIncludesRuntimeIdentityOnLinux(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific runtime identity env")
+	}
+
+	env := doctorComposeEnv("podman")
+	if !containsEnvPrefix(env, "CONSTRUCT_HOST_UID=") {
+		t.Fatalf("expected CONSTRUCT_HOST_UID in env, got: %v", env)
+	}
+	if !containsEnvPrefix(env, "CONSTRUCT_HOST_GID=") {
+		t.Fatalf("expected CONSTRUCT_HOST_GID in env, got: %v", env)
+	}
+	if !containsEnvPrefix(env, "CONSTRUCT_USERNS_REMAP=") {
+		t.Fatalf("expected CONSTRUCT_USERNS_REMAP in env, got: %v", env)
+	}
+}

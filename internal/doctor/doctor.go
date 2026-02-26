@@ -57,7 +57,7 @@ var execCombinedOutput = func(name string, args ...string) ([]byte, error) {
 
 var runDockerComposeCommand = func(args ...string) ([]byte, error) {
 	cmd := exec.Command("docker", args...)
-	cmd.Env = doctorComposeEnv()
+	cmd.Env = doctorComposeEnv("docker")
 	cmd.Dir = config.GetContainerDir()
 	return cmd.CombinedOutput()
 }
@@ -998,9 +998,9 @@ func composeBaseArgs() []string {
 	return args
 }
 
-func doctorComposeEnv() []string {
+func doctorComposeEnv(runtimeName string) []string {
 	env := runtimepkg.AppendProjectPathEnv(os.Environ())
-	env = runtimepkg.AppendHostIdentityEnv(env)
+	env = runtimepkg.AppendRuntimeIdentityEnv(env, runtimeName)
 
 	cwd, err := os.Getwd()
 	if err == nil && cwd != "" {
@@ -1331,7 +1331,7 @@ func recreateDaemonContainer(runtimeName, configPath string) (bool, []string, er
 		return false, details, fmt.Errorf("failed to build daemon recreate command: %w", err)
 	}
 	cmd.Dir = configPath
-	cmd.Env = doctorComposeEnv()
+	cmd.Env = doctorComposeEnv(runtimeName)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1385,7 +1385,7 @@ func rebuildImageForEntrypointFix(runtimeName, configPath string) (bool, []strin
 		return false, details, fmt.Errorf("failed to build image rebuild command: %w", err)
 	}
 	cmd.Dir = configPath
-	cmd.Env = doctorComposeEnv()
+	cmd.Env = doctorComposeEnv(runtimeName)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {

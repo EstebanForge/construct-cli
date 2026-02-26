@@ -14,6 +14,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Linux Permission Recovery Flow (Runtime)**: Replaced the legacy best-effort auto-fix behavior with a strict, interactive repair flow that detects non-writable config paths, prompts for confirmation, and blocks agent execution until ownership is repaired.
 - **Linux Permission Recovery Flow (Migration)**: Migration permission recovery now follows the same explicit yes/no prompt model and surfaces exact manual remediation commands when the user declines or repair fails.
 - **Ownership Remediation Guidance**: Runtime and migration flows now present runtime-aware manual commands (`podman unshare chown` for rootless/userns scenarios plus `sudo chown`) instead of a single static hint.
+- **SSH Confirmation UX Fallback**: Interactive confirmations now automatically fall back to a plain `[Y/n]` prompt in SSH sessions to avoid unreadable remote TUI selection rendering.
 
 ### Fixed
 - **Recurring Config Home Ownership Drift**: Fixed repeated ownership drift on `~/.config/construct-cli/home` in Linux rootless/userns-remapped Docker/Podman scenarios that caused recurring permission warnings and repair loops.
@@ -28,12 +29,15 @@ All notable changes to Construct CLI will be documented in this file.
 - **Release/Tag Consistency**: Release workflow now rejects `v`-prefixed tags and dispatches tap updates with normalized non-prefixed versions.
 - **Legacy Linux 1.3.x → 1.4.x Upgrade Safety**: Prevented continuation after unresolved ownership drift in config mount paths by failing early with actionable commands, avoiding partial startup/migration behavior.
 - **Setup/Spinner Log Peek UX**: Pressing Enter to peek logs now shows a clear message when no output has been flushed yet, instead of an empty snapshot.
+- **Doctor Daemon Recreate Identity Drift (Linux Rootless/Podman)**: `construct sys doctor --fix` daemon recreation now propagates runtime userns identity context (`CONSTRUCT_USERNS_REMAP`) so recreated daemon runs don’t trigger immediate post-fix ownership drift warnings.
+- **Migration Side Effects on Invalid Commands**: Startup migration checks now run only for recognized commands/subcommands, preventing typos like `construct sys rebuilt` from triggering migrations before returning an unknown-command error.
 
 ### Added
 - **Regression Coverage for Rootless Ownership Fixes**: Added/updated unit coverage for userns-aware runtime decisions, Podman rootless fix paths, and sudo fallback behavior.
 - **Custom Compose Override Opt-In Flag**: Added `[sandbox].allow_custom_compose_override` (default `false`) for advanced users who intentionally manage `docker-compose.override.yml` behavior.
 - **Regression Tests for Marker/Template Edge Cases**: Added tests for stale rebuild-marker auto-clear behavior and directory-collision recovery on mounted template helper paths.
 - **Regression Coverage for Home Helper Mount Collisions**: Added runtime tests validating repair of file-vs-directory collisions for `home/.config/construct-cli/container` helper targets.
+- **Regression Coverage for Command Gating and Doctor Runtime Env**: Added tests for migration gating on unknown subcommands and doctor compose env runtime identity propagation.
 
 ---
 
