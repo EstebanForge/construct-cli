@@ -146,6 +146,78 @@ func TestGumSpinnerFallsBackInNonTTY(t *testing.T) {
 	}
 }
 
+func TestShouldUsePlainConfirmForSSHSession(t *testing.T) {
+	t.Setenv("CONSTRUCT_FORCE_GUM_CONFIRM", "")
+	t.Setenv("CONSTRUCT_PLAIN_CONFIRM", "")
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 12345 10.0.0.2 22")
+	t.Setenv("SSH_CLIENT", "")
+	t.Setenv("SSH_TTY", "")
+
+	if !shouldUsePlainConfirm() {
+		t.Fatal("expected plain confirm in SSH session")
+	}
+}
+
+func TestShouldUsePlainConfirmForceGumOverridesSSH(t *testing.T) {
+	t.Setenv("CONSTRUCT_FORCE_GUM_CONFIRM", "1")
+	t.Setenv("CONSTRUCT_PLAIN_CONFIRM", "")
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 12345 10.0.0.2 22")
+
+	if shouldUsePlainConfirm() {
+		t.Fatal("expected gum confirm when CONSTRUCT_FORCE_GUM_CONFIRM=1")
+	}
+}
+
+func TestPlainConfirmDefaultsToYesOnEmptyInput(t *testing.T) {
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdin pipe: %v", err)
+	}
+	stdoutFile := mustTempFile(t)
+	stderrFile := mustTempFile(t)
+	defer closeQuietly(stdinReader)
+	defer closeQuietly(stdoutFile)
+	defer closeQuietly(stderrFile)
+
+	if _, err := stdinWriter.WriteString("\n"); err != nil {
+		t.Fatalf("failed writing confirmation input: %v", err)
+	}
+	closeQuietly(stdinWriter)
+
+	var confirmed bool
+	withStdio(t, stdinReader, stdoutFile, stderrFile, func() {
+		confirmed = plainConfirm("Proceed?", true)
+	})
+	if !confirmed {
+		t.Fatal("expected empty input to accept default yes")
+	}
+}
+
+func TestPlainConfirmParsesNoInput(t *testing.T) {
+	stdinReader, stdinWriter, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create stdin pipe: %v", err)
+	}
+	stdoutFile := mustTempFile(t)
+	stderrFile := mustTempFile(t)
+	defer closeQuietly(stdinReader)
+	defer closeQuietly(stdoutFile)
+	defer closeQuietly(stderrFile)
+
+	if _, err := stdinWriter.WriteString("n\n"); err != nil {
+		t.Fatalf("failed writing confirmation input: %v", err)
+	}
+	closeQuietly(stdinWriter)
+
+	var confirmed bool
+	withStdio(t, stdinReader, stdoutFile, stderrFile, func() {
+		confirmed = plainConfirm("Proceed?", true)
+	})
+	if confirmed {
+		t.Fatal("expected 'n' input to reject confirmation")
+	}
+}
+
 func captureEmbeddedRun(t *testing.T, stdinFile, stderrFile *os.File, args []string) (string, int) {
 	t.Helper()
 
