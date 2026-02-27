@@ -117,7 +117,9 @@ construct sys doctor
 ./scripts/uninstall-local.sh --list-backups
 
 # Restore previous working version
-sudo ./scripts/uninstall-local.sh --restore
+./scripts/uninstall-local.sh --restore
+# If you installed to /usr/local/bin:
+sudo INSTALL_DIR=/usr/local/bin ./scripts/uninstall-local.sh --restore
 ```
 
 ### Testing workflow:
@@ -125,7 +127,7 @@ sudo ./scripts/uninstall-local.sh --restore
 ```bash
 # Full testing before committing
 make clean                # Clean old builds
-make lint                 # Format and vet
+make lint                 # Format + vet + golangci-lint
 make test-unit            # Unit tests
 make install-local        # Install with backup
 construct sys doctor      # Smoke test
@@ -244,7 +246,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 ```bash
 # If installing to /usr/local/bin
-sudo make install-local
+sudo INSTALL_DIR=/usr/local/bin make install-local
 
 # Or use user directory
 INSTALL_DIR=~/.local/bin make install-dev
@@ -327,8 +329,11 @@ construct sys doctor
 # Build logs
 cat ~/.config/construct-cli/logs/build_*.log
 
-# Agent install logs
-cat ~/.config/construct-cli/logs/agent_install_*.log
+# Package install logs
+cat ~/.config/construct-cli/logs/install_packages_*.log
+
+# Update logs
+cat ~/.config/construct-cli/logs/update_*.log
 ```
 
 ## Common Tasks
