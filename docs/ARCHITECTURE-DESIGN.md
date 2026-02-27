@@ -180,7 +180,7 @@ make test            # unit + integration
 # includes a final combined summary (unit + integration + overall status)
 make test-unit       # unit only
 make test-integration# integration only
-make lint            # format + go vet
+make lint            # gofmt + go vet + golangci-lint
 make cross-compile   # all platforms
 ```
 
@@ -1005,11 +1005,11 @@ The dual verification is a safety mechanism. The hash calculation is fast (sha25
 4. ✅ **Entrypoint caching** - Moved expensive clipboard/agent patching inside hash-check block (200-800ms savings)
 
 **Not applicable (architectural mismatch):**
-- ❌ **Combined image inspect** - Current design uses container run to retrieve entrypoint hash, not image inspect. Would require major architectural changes for minimal gain. Documented in PERFORMANCE.md.
+- ❌ **Combined image inspect** - Current design uses container run to retrieve entrypoint hash, not image inspect. Would require major architectural changes for minimal gain (see Section 11.2.6).
 
 **Not recommended (regression risk):**
-- ❌ **Config caching** - Current lazy caching pattern is optimal; sync.Once would introduce stale config issues when network rules are modified. Savings are minimal since config is already loaded once and reused. Documented in PERFORMANCE.md.
-- ❌ **Skip hash recheck** - Dual verification (host + container) is a safety mechanism. Skipping container hash check would allow undetected container filesystem inconsistencies. Savings (10-20ms) are negligible compared to risk. Documented in PERFORMANCE.md.
+- ❌ **Config caching** - Current lazy caching pattern is optimal; sync.Once would introduce stale config issues when network rules are modified. Savings are minimal since config is already loaded once and reused (see Section 11.2.7).
+- ❌ **Skip hash recheck** - Dual verification (host + container) is a safety mechanism. Skipping container hash check would allow undetected container filesystem inconsistencies. Savings (10-20ms) are negligible compared to risk (see Section 11.2.8).
 
 **Current improvement:** 3.5-8s → **~0.8-1.2s** (with warm daemon + all implemented optimizations)
 
