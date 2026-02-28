@@ -147,14 +147,14 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Entrypoint, "export HOME=\"${HOME:-/home/construct}\"") {
 		t.Error("entrypoint.sh should preserve HOME before privilege drop")
 	}
-	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID}") {
-		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_UID")
+	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID:-}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_UID with empty default")
 	}
-	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID}") {
-		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_GID")
+	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID:-}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_GID with empty default")
 	}
-	if !strings.Contains(DockerCompose, "CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP}") {
-		t.Error("docker-compose.yml should pass through CONSTRUCT_USERNS_REMAP")
+	if !strings.Contains(DockerCompose, "CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP:-0}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_USERNS_REMAP with default 0")
 	}
 
 	// Verify update-all uses shared hash helper
