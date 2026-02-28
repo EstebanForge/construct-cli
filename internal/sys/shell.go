@@ -6,10 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
+	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	"github.com/EstebanForge/construct-cli/internal/update"
 )
@@ -319,8 +321,21 @@ func InstallAliases() {
 		agents = append(agents, a.Slug)
 	}
 
-	// CC providers (prefixed with cc-)
-	ccProviders := []string{"zai", "minimax", "kimi", "qwen", "mimo"}
+	// CC providers (prefixed with cc-): start with built-in providers, then
+	// add any custom [claude.cc.*] sections found in the user's config.
+	ccProviderSet := map[string]struct{}{
+		"zai": {}, "minimax": {}, "kimi": {}, "qwen": {}, "mimo": {},
+	}
+	if cfg, _, cfgErr := config.Load(); cfgErr == nil {
+		for name := range cfg.Claude.Providers {
+			ccProviderSet[name] = struct{}{}
+		}
+	}
+	ccProviders := make([]string, 0, len(ccProviderSet))
+	for name := range ccProviderSet {
+		ccProviders = append(ccProviders, name)
+	}
+	sort.Strings(ccProviders)
 
 	shellInfo, err := getShellInfo()
 	if err != nil {

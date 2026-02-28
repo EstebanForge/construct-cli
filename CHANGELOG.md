@@ -17,6 +17,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **SSH Confirmation UX Fallback**: Interactive confirmations now automatically fall back to a plain `[Y/n]` prompt in SSH sessions to avoid unreadable remote TUI selection rendering.
 
 ### Fixed
+- **Docker Compose Variable Warnings on Non-Linux Hosts**: Fixed spurious `WARN: "CONSTRUCT_HOST_UID/GID/USERNS_REMAP" variable is not set` warnings from Docker Compose when running outside the daemon on macOS. These variables are Linux-only; the compose file now uses `${VAR:-}` default-value syntax to silently substitute empty/zero defaults instead of warning.
 - **Recurring Config Home Ownership Drift**: Fixed repeated ownership drift on `~/.config/construct-cli/home` in Linux rootless/userns-remapped Docker/Podman scenarios that caused recurring permission warnings and repair loops.
 - **Doctor Runtime-Aware Remediation**: `construct sys doctor --fix` now applies Linux runtime-aware ownership repair paths, including `podman unshare` first for Podman rootless and sudo fallback (with prompt when needed).
 - **Doctor Compose Override Reconciliation**: `construct sys doctor --fix` now regenerates `docker-compose.override.yml` from current runtime/template settings and validates stale/unsafe user mappings.
@@ -38,6 +39,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Regression Tests for Marker/Template Edge Cases**: Added tests for stale rebuild-marker auto-clear behavior and directory-collision recovery on mounted template helper paths.
 - **Regression Coverage for Home Helper Mount Collisions**: Added runtime tests validating repair of file-vs-directory collisions for `home/.config/construct-cli/container` helper targets.
 - **Regression Coverage for Command Gating and Doctor Runtime Env**: Added tests for migration gating on unknown subcommands and doctor compose env runtime identity propagation.
+- **Dynamic Custom Provider Aliases**: `construct sys aliases --install` now discovers all custom `[claude.cc.*]` sections from the user's `config.toml` and automatically installs the corresponding `cc-*` shell aliases alongside the built-in providers (e.g. `[claude.cc.lmstudio]` → `cc-lmstudio`).
 
 ---
 
