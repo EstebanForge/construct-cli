@@ -1,24 +1,25 @@
---- 
 name: Release
 
 on:
   push:
     tags:
-      - '*.*.*'
+      - "*.*.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (example: 1.2.3 or 1.2.3-rc.1)"
+        required: true
+        type: string
 
 permissions:
   contents: write
-  packages: write
-
-env:
-  GO_VERSION: '1.25.5'
 
 jobs:
   release:
-    outputs:
-      version: ${{ steps.get_version.outputs.version }}
-      is_prerelease: ${{ steps.get_version.outputs.is_prerelease }}
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve_version.outputs.version }}
+      is_prerelease: ${{ steps.resolve_version.outputs.is_prerelease }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -28,33 +29,46 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version-file: go.mod
           cache: true
           cache-dependency-path: go.sum
 
-      - name: Get version from tag
-        id: get_version
+      - name: Resolve release version
+        id: resolve_version
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          if [[ "$VERSION" == v* ]]; then
-            echo "Error: tags must not use 'v' prefix (got: $VERSION)"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            VERSION="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION="${{ github.event.inputs.tag }}"
+          fi
+
+          if [ -z "${VERSION}" ]; then
+            echo "Error: VERSION is empty"
             exit 1
           fi
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          if [[ "$VERSION" == *-* ]]; then
+          if [[ "${VERSION}" == v* ]]; then
+            echo "Error: tags must not use 'v' prefix (got: ${VERSION})"
+            exit 1
+          fi
+
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "Error: VERSION must be SemVer-like (got: ${VERSION})"
+            exit 1
+          fi
+
+          BASE_VERSION="${VERSION%%+*}"
+          if [[ "${BASE_VERSION}" == *-* ]]; then
             IS_PRERELEASE=true
           else
             IS_PRERELEASE=false
           fi
-          echo "IS_PRERELEASE=$IS_PRERELEASE" >> "$GITHUB_ENV"
-          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
-          
-          if [ -z "$VERSION" ]; then
-            echo "Error: VERSION is empty"
-            exit 1
-          fi
+
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "VERSION_SEMVER=${VERSION}" >> "${GITHUB_ENV}"
+          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "${GITHUB_ENV}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
 
       - name: Download dependencies
         run: go mod download
@@ -63,17 +77,16 @@ jobs:
         run: go mod verify
 
       - name: Sync VERSION file with tag
-        run: echo "${{ env.VERSION }}" > VERSION
+        run: echo "${{ env.VERSION_SEMVER }}" > VERSION
 
       - name: Run tests
         run: make test-ci
 
       - name: Run linter
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          version: v2.9.0
           args: --timeout=5m
-        continue-on-error: true
 
       - name: Build release artifacts
         env:
@@ -91,44 +104,27 @@ jobs:
           make release-sign
           make notarize-release
 
-      # ----------------------------------------------------------------
-      # NEW: Create Universal Binary for Homebrew Tap
-      # ----------------------------------------------------------------
       - name: Create macOS Universal Binary
         run: |
-          # Install llvm to get llvm-lipo
           sudo apt-get update && sudo apt-get install -y llvm
 
-          # Ensure llvm-lipo is available
           if ! command -v llvm-lipo &> /dev/null; then
-              # Try to find versioned llvm-lipo and symlink it
-              LIPO_PATH=$(find /usr/bin -name "llvm-lipo-*" | head -n 1)
-              if [ -n "$LIPO_PATH" ]; then
-                  sudo ln -s "$LIPO_PATH" /usr/bin/llvm-lipo
-              else
-                  echo "Error: llvm-lipo not found"
-                  exit 1
-              fi
+            LIPO_PATH=$(find /usr/bin -name "llvm-lipo-*" | head -n 1)
+            if [ -n "$LIPO_PATH" ]; then
+              sudo ln -s "$LIPO_PATH" /usr/bin/llvm-lipo
+            else
+              echo "Error: llvm-lipo not found"
+              exit 1
+            fi
           fi
 
-          # Create universal binary using llvm-lipo
           llvm-lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
-          
-          # Verify it is universal
           file dist/construct
-          
-          # Create the specific tarball expected by the tap
           tar -czf dist/construct-cli-macos-universal.tar.gz -C dist construct
-          
-          # Cleanup temporary binary
           rm dist/construct
 
-      # ----------------------------------------------------------------
-      # NEW: Prepare Linux Artifacts for Homebrew Tap
-      # ----------------------------------------------------------------
       - name: Prepare Linux Artifacts
         run: |
-          # Package Linux binaries as "construct" for the tap
           mkdir -p dist/linux-amd64 dist/linux-arm64
           cp dist/construct-linux-amd64 dist/linux-amd64/construct
           cp dist/construct-linux-arm64 dist/linux-arm64/construct
@@ -136,16 +132,31 @@ jobs:
           tar -czf dist/construct-cli-linux-arm64.tar.gz -C dist/linux-arm64 construct
           rm -rf dist/linux-amd64 dist/linux-arm64
 
+      - name: Generate checksums
+        env:
+          VERSION: ${{ env.VERSION }}
+        run: |
+          cd dist
+          sha256sum \
+            "construct-darwin-arm64-${VERSION}.tar.gz" \
+            "construct-darwin-amd64-${VERSION}.tar.gz" \
+            "construct-linux-amd64-${VERSION}.tar.gz" \
+            "construct-linux-arm64-${VERSION}.tar.gz" \
+            "construct-cli-macos-universal.tar.gz" \
+            "construct-cli-linux-amd64.tar.gz" \
+            "construct-cli-linux-arm64.tar.gz" \
+            > checksums.txt
+
       - name: Verify release outputs
         env:
           VERSION: ${{ env.VERSION }}
         run: |
           set -e
           expected_files=(
-            "dist/construct-darwin-arm64"
-            "dist/construct-darwin-amd64"
-            "dist/construct-linux-amd64"
-            "dist/construct-linux-arm64"
+            "dist/construct-darwin-arm64-${VERSION}.tar.gz"
+            "dist/construct-darwin-amd64-${VERSION}.tar.gz"
+            "dist/construct-linux-amd64-${VERSION}.tar.gz"
+            "dist/construct-linux-arm64-${VERSION}.tar.gz"
             "dist/construct-cli-macos-universal.tar.gz"
             "dist/construct-cli-linux-amd64.tar.gz"
             "dist/construct-cli-linux-arm64.tar.gz"
@@ -155,59 +166,51 @@ jobs:
           for file in "${expected_files[@]}"; do
             if [ -f "${file}" ]; then
               size=$(stat -c%s "${file}")
-              echo "✅ ${file} (size: ${size} bytes)"
+              echo "OK ${file} (size: ${size} bytes)"
             else
-              echo "❌ Missing expected artifact: ${file}"
-              missing="yes"
+              echo "Missing expected artifact: ${file}"
+              exit 1
             fi
           done
 
-          if [ "${missing:-no}" = "yes" ]; then
-            exit 1
-          fi
-
-      - name: Create Release Notes
+      - name: Extract release notes from CHANGELOG.md
         env:
-          VERSION: ${{ env.VERSION }}
+          VERSION_SEMVER: ${{ env.VERSION_SEMVER }}
         run: |
-          release_date=""
-          if [ -f CHANGELOG.md ]; then
-            # Use portable awk (works with mawk)
-            release_date=$(awk -v ver="$VERSION" '
-              $0 ~ "^## \\["ver"\\] - " {
-                sub(/^## \[[^]]+\] - /, "");
-                print $0;
-                exit;
-              }' CHANGELOG.md)
+          set -euo pipefail
+
+          changelog_file="CHANGELOG.md"
+          notes_file="release_notes.md"
+          start_marker="<!-- RELEASE:START ${VERSION_SEMVER} -->"
+          end_marker="<!-- RELEASE:END ${VERSION_SEMVER} -->"
+
+          if [ -f "${changelog_file}" ]; then
+            awk -v start="${start_marker}" -v end="${end_marker}" '
+              $0 == start { in_section = 1; next }
+              $0 == end { in_section = 0; exit }
+              in_section { print }
+            ' "${changelog_file}" > "${notes_file}"
+          else
+            : > "${notes_file}"
           fi
 
-          if [ -n "$release_date" ]; then
-            release_title="The Construct CLI $VERSION - $release_date"
-          else
-            release_title="The Construct CLI $VERSION"
-          fi
-
-          echo "RELEASE_TITLE=$release_title" >> "$GITHUB_ENV"
-
-          printf "## Release Notes\n\n" > release_notes.md
-          if [ -f CHANGELOG.md ]; then
-            awk -v ver="$VERSION" ' 
-              $0 ~ "^## \\["ver"\\] - " {found=1; next}
-              found && $0 ~ "^---" {exit}
-              found {print}
-            ' CHANGELOG.md | sed '1{/^$/d;}' >> release_notes.md
-          else
-            echo "- See commit history for details." >> release_notes.md
+          if ! grep -q '[^[:space:]]' "${notes_file}"; then
+            prev_tag=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)
+            if [ -n "${prev_tag}" ]; then
+              echo "**Full changelog:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/${prev_tag}...${VERSION_SEMVER}" > "${notes_file}"
+            else
+              echo "**Full changelog:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${VERSION_SEMVER}" > "${notes_file}"
+            fi
           fi
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ env.VERSION }}
-          name: ${{ env.RELEASE_TITLE }}
+          name: The Construct CLI ${{ env.VERSION }}
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ steps.get_version.outputs.is_prerelease == 'true' }}
+          prerelease: ${{ steps.resolve_version.outputs.is_prerelease == 'true' }}
           files: |
             dist/construct-darwin-arm64-${{ env.VERSION }}.tar.gz
             dist/construct-darwin-amd64-${{ env.VERSION }}.tar.gz
