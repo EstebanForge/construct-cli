@@ -1,4 +1,4 @@
-.PHONY: help build sign build-signed release-sign notarize-release test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile check lint fmt vet
+.PHONY: help build sign build-signed release-sign notarize-release test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile check ci lint fmt vet
 
 # Variables
 BINARY_NAME := construct
