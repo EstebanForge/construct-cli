@@ -2,8 +2,8 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-<!-- RELEASE:START 1.4.0-beta -->
-## [1.4.0-beta] - 2026-02-25
+<!-- RELEASE:START 1.4.0 -->
+## [1.4.0] - 2026-02-25
 
 ### Changed
 - **Linux Userns/Rootless Runtime Detection**: Added runtime-level user namespace remap detection and propagation (`CONSTRUCT_USERNS_REMAP`) across compose startup, setup, daemon, and update flows.
@@ -42,7 +42,7 @@ All notable changes to Construct CLI will be documented in this file.
 - **Regression Coverage for Command Gating and Doctor Runtime Env**: Added tests for migration gating on unknown subcommands and doctor compose env runtime identity propagation.
 - **Dynamic Custom Provider Aliases**: `construct sys aliases --install` now discovers all custom `[claude.cc.*]` sections from the user's `config.toml` and automatically installs the corresponding `cc-*` shell aliases alongside the built-in providers (e.g. `[claude.cc.lmstudio]` → `cc-lmstudio`).
 
-<!-- RELEASE:END 1.4.0-beta -->
+<!-- RELEASE:END 1.4.0 -->
 ---
 
 
