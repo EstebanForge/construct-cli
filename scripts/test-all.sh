@@ -57,11 +57,12 @@ else
 fi
 
 echo "Building construct..."
-go build -ldflags "-s -w" -o construct ./cmd/construct
-echo "✓ Built: construct"
+mkdir -p bin
+go build -ldflags "-s -w" -o bin/construct ./cmd/construct
+echo "✓ Built: bin/construct"
 
 echo "Running integration tests..."
-./scripts/integration.sh ./construct | tee "$INTEGRATION_LOG"
+./scripts/integration.sh ./bin/construct | tee "$INTEGRATION_LOG"
 integration_exit=${PIPESTATUS[0]}
 
 integration_clean_log="$(mktemp)"

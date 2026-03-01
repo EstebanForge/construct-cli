@@ -1,11 +1,12 @@
-.PHONY: help build test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile lint fmt vet
+.PHONY: help build sign build-signed release-sign notarize-release test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile check lint fmt vet
 
 # Variables
 BINARY_NAME := construct
 ALIAS_NAME := ct
 VERSION := $(shell grep 'Version.*=' internal/constants/constants.go | sed 's/.*"\(.*\)".*/\1/')
 VERSION_FILE := $(shell cat VERSION)
-BUILD_DIR := build
+BUILD_DIR := bin
+BINARY_PATH := $(BUILD_DIR)/$(BINARY_NAME)
 DIST_DIR := dist
 
 # Go parameters
@@ -21,6 +22,7 @@ GOLANGCI_LINT := golangci-lint
 
 # Build flags
 LDFLAGS := -ldflags "-s -w"
+SIGN_IDENTITY ?= -
 
 # Default target
 .DEFAULT_GOAL := help
@@ -43,23 +45,70 @@ check-version: ## Ensure VERSION file matches constants.Version
 
 build: ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
-	$(GOBUILD) $(LDFLAGS) -o $(BINARY_NAME) ./cmd/construct
-	@# Ad-hoc code sign on macOS (required for Gatekeeper)
-	@if [ "$$(uname)" = "Darwin" ]; then \
-		codesign -s - -f $(BINARY_NAME) 2>/dev/null || true; \
-	fi
-	@echo "✓ Built: $(BINARY_NAME)"
+	@mkdir -p $(BUILD_DIR)
+	$(GOBUILD) $(LDFLAGS) -o $(BINARY_PATH) ./cmd/construct
+	@echo "✓ Built: $(BINARY_PATH)"
 
-test: ## Run all tests
-	@./scripts/test-all.sh
+sign: build ## Ad-hoc sign binary on macOS
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		codesign -s "$(SIGN_IDENTITY)" -f $(BINARY_PATH) 2>/dev/null || true; \
+		echo "✓ Signed: $(BINARY_PATH)"; \
+	else \
+		echo "ℹ️  Skipping sign (non-macOS)"; \
+	fi
+
+build-signed: build sign ## Build and sign (macOS)
+
+release-sign: ## Sign macOS release binaries in dist/ (optional; set RELEASE_SIGN=1)
+	@if [ "$${RELEASE_SIGN:-0}" != "1" ]; then \
+		echo "ℹ️  RELEASE_SIGN!=1; skipping release signing"; \
+	elif [ "$$(uname)" != "Darwin" ]; then \
+		echo "ℹ️  Release signing requires a macOS runner; skipping"; \
+	else \
+		for bin in "$(DIST_DIR)/$(BINARY_NAME)-darwin-amd64" "$(DIST_DIR)/$(BINARY_NAME)-darwin-arm64"; do \
+			if [ -f "$$bin" ]; then \
+				codesign -s "$(SIGN_IDENTITY)" -f "$$bin"; \
+				echo "✓ Signed $$bin"; \
+			else \
+				echo "ℹ️  Missing $$bin (skip)"; \
+			fi; \
+		done; \
+	fi
+
+notarize-release: ## Notarize release artifacts (optional; set RELEASE_NOTARIZE=1)
+	@if [ "$${RELEASE_NOTARIZE:-0}" != "1" ]; then \
+		echo "ℹ️  RELEASE_NOTARIZE!=1; skipping notarization"; \
+	elif [ "$$(uname)" != "Darwin" ]; then \
+		echo "✗ Notarization requires macOS runner"; \
+		exit 1; \
+	elif [ -x "./scripts/notarize-release.sh" ]; then \
+		./scripts/notarize-release.sh; \
+	else \
+		echo "✗ scripts/notarize-release.sh not found/executable"; \
+		exit 1; \
+	fi
+
+test: ## Run tests (deps + verify + go test)
+	@echo "Downloading dependencies..."
+	$(GOMOD) download
+	@echo "Verifying dependencies..."
+	$(GOMOD) verify
+	@echo "Running tests..."
+	@if [ "$$($(GOCMD) env CGO_ENABLED)" = "1" ]; then \
+		$(GOTEST) -v -race ./...; \
+	else \
+		echo "CGO disabled; running tests without -race"; \
+		$(GOTEST) -v ./...; \
+	fi
+	@echo "✓ Tests passed"
 
 test-unit: ## Run Go unit tests
 	@echo "Running unit tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
 	@echo "✓ Unit tests passed"
 
-test-ci: ## Run CI tests (fast unit + integration)
-	@./scripts/test-all.sh --ci
+test-ci: ## Run CI tests
+	@$(MAKE) --no-print-directory test
 
 test-unit-ci: ## Run Go unit tests (CI fast)
 	@echo "Running unit tests (CI fast)..."
@@ -68,7 +117,7 @@ test-unit-ci: ## Run Go unit tests (CI fast)
 
 test-integration: build ## Run integration tests
 	@echo "Running integration tests..."
-	@./scripts/integration.sh ./$(BINARY_NAME)
+	@./scripts/integration.sh ./$(BINARY_PATH)
 	@echo "✓ Integration tests passed"
 
 test-coverage: ## Run tests with coverage report
@@ -85,6 +134,7 @@ clean: ## Clean build artifacts
 	@echo "Cleaning..."
 	$(GOCLEAN)
 	rm -f $(BINARY_NAME)
+	rm -f $(BINARY_PATH)
 	rm -rf $(BUILD_DIR) $(DIST_DIR)
 	rm -f coverage.out coverage.html
 	@echo "✓ Cleaned"
@@ -101,7 +151,7 @@ clean-all: clean clean-docker ## Clean everything (build artifacts + Docker + co
 
 install: build ## Install binary and ct alias to /usr/local/bin
 	@echo "Installing $(BINARY_NAME) to /usr/local/bin..."
-	@sudo cp $(BINARY_NAME) /usr/local/bin/$(BINARY_NAME)
+	@sudo cp $(BINARY_PATH) /usr/local/bin/$(BINARY_NAME)
 	@sudo ln -sf /usr/local/bin/$(BINARY_NAME) /usr/local/bin/$(ALIAS_NAME)
 	@echo "✓ Installed: /usr/local/bin/$(BINARY_NAME)"
 	@echo "✓ Alias: /usr/local/bin/$(ALIAS_NAME)"
@@ -139,10 +189,24 @@ vet: ## Run go vet
 	$(GOVET) ./...
 	@echo "✓ Vet passed"
 
-lint: fmt vet ## Run linters
+lint: ## Run linters
 	@echo "Running golangci-lint..."
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "golangci-lint not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
 	$(GOLANGCI_LINT) run --timeout=5m
 	@echo "✓ Linting complete"
+
+check: ## Run full checks (fmt, vet, lint, test, build)
+	@echo "==> make fmt"
+	@$(MAKE) --no-print-directory fmt
+	@echo "==> make vet"
+	@$(MAKE) --no-print-directory vet
+	@echo "==> make lint"
+	@$(MAKE) --no-print-directory lint
+	@echo "==> make test"
+	@$(MAKE) --no-print-directory test
+	@echo "==> make build"
+	@$(MAKE) --no-print-directory build
+	@echo "✓ Full checks complete"
 
 cross-compile: ## Build for all platforms
 	@echo "Cross-compiling for all platforms..."
@@ -187,12 +251,12 @@ version: ## Show version
 	@echo "$(BINARY_NAME) version $(VERSION)"
 
 run: build ## Build and run
-	./$(BINARY_NAME)
+	./$(BINARY_PATH)
 
 dev: ## Development mode - build and init
 	@$(MAKE) build
-	@./$(BINARY_NAME) sys init
+	@./$(BINARY_PATH) sys init
 	@echo "✓ Development environment ready"
 
-ci: lint test ## Run CI checks (lint + test)
+ci: check ## Run CI checks (full pipeline)
 	@echo "✓ CI checks passed"

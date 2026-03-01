@@ -82,6 +82,15 @@ jobs:
           make VERSION="${VERSION}" release
           ls -la dist/
 
+      - name: Optional release signing and notarization
+        env:
+          RELEASE_SIGN: ${{ vars.RELEASE_SIGN }}
+          RELEASE_NOTARIZE: ${{ vars.RELEASE_NOTARIZE }}
+          SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+        run: |
+          make release-sign
+          make notarize-release
+
       # ----------------------------------------------------------------
       # NEW: Create Universal Binary for Homebrew Tap
       # ----------------------------------------------------------------
