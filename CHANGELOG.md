@@ -2,6 +2,7 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.0-beta -->
 ## [1.4.0-beta] - 2026-02-25
 
 ### Changed
@@ -41,8 +42,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Regression Coverage for Command Gating and Doctor Runtime Env**: Added tests for migration gating on unknown subcommands and doctor compose env runtime identity propagation.
 - **Dynamic Custom Provider Aliases**: `construct sys aliases --install` now discovers all custom `[claude.cc.*]` sections from the user's `config.toml` and automatically installs the corresponding `cc-*` shell aliases alongside the built-in providers (e.g. `[claude.cc.lmstudio]` → `cc-lmstudio`).
 
+<!-- RELEASE:END 1.4.0-beta -->
 ---
 
+
+<!-- RELEASE:START 1.3.9 -->
 ## [1.3.9] - 2026-02-24
 
 ### Fixed
@@ -68,8 +72,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Release Channels (`stable` / `beta`)**: Added `runtime.update_channel` to config, beta version marker support (`VERSION-BETA`), and installer channel selection (`CHANNEL=beta`) for selective prerelease adoption.
 - **Semver Prerelease Comparison**: Added shared semantic version comparison logic with prerelease support for update checks and migration gating.
 
+<!-- RELEASE:END 1.3.9 -->
 ---
 
+
+<!-- RELEASE:START 1.3.7 -->
 ## [1.3.7] - 2026-02-22
 
 ### Added
@@ -99,8 +106,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Podman Runtime/Compose Mismatch**: Fixed runtime detection success followed by compose invocation failure on hosts without `podman-compose`.
 - **Linux Exec Documentation Drift**: Updated docs/comments to match current behavior when host UID is missing in container `/etc/passwd` (keep host mapping and force `HOME=/home/construct`).
 
+<!-- RELEASE:END 1.3.7 -->
 ---
 
+
+<!-- RELEASE:START 1.3.2 -->
 ## [1.3.2] - 2026-02-20
 
 ### Added
@@ -110,8 +120,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **One-Step Compose Network Recovery**: `construct sys doctor --fix` now automatically applies targeted compose network recovery by bringing down the compose stack with orphan cleanup and removing the stale compose network(s) when needed.
 - **Doctor Fix Regression Safety**: Added unit coverage for compose-network fix flow (success, no-op, and failure cases) to prevent regressions.
 
+<!-- RELEASE:END 1.3.2 -->
 ---
 
+
+<!-- RELEASE:START 1.3.1 -->
 ## [1.3.1] - 2026-02-19
 
 ### Added
@@ -133,8 +146,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Exec User Fallback Safety**: When `exec_as_host_user=true`, Construct now verifies host UID exists in container `/etc/passwd`; if not, it warns and falls back to the container default user.
 - **Stable `ns-*` Alias Paths**: `sys aliases --install` now preserves stable shim paths (for example `/opt/homebrew/bin/...`) instead of resolving to versioned `Cellar`/`Caskroom` paths.
 
+<!-- RELEASE:END 1.3.1 -->
 ---
 
+
+<!-- RELEASE:START 1.2.10 -->
 ## [1.2.10] - 2026-02-06
 
 ### Changed
@@ -146,8 +162,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Codex WSL Fallback Request Timeout**: Added `curl` connection and overall time limits in `powershell.exe` to avoid indefinite waits when fetching clipboard images.
 - **Codex Daemon Workspace Path Mapping**: Added `/mnt/c/workspaces -> /workspaces` aliasing and expanded shim path handling so WSL-style fallback paths resolve correctly in daemon sessions.
 
+<!-- RELEASE:END 1.2.10 -->
 ---
 
+
+<!-- RELEASE:START 1.2.8 -->
 ## [1.2.8] - 2026-02-05
 
 ### Added
@@ -166,8 +185,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Agent PATH Parity**: Hardcoded PATH across env, entrypoint, compose, and Dockerfile to keep agent binaries available everywhere.
 - **Setup + Daemon PATH Injection**: Ensure full Construct PATH is injected for setup runs and daemon exec sessions so tools are available everywhere.
 
+<!-- RELEASE:END 1.2.8 -->
 ---
 
+
+<!-- RELEASE:START 1.2.3 -->
 ## [1.2.3] - 2026-02-03
 
 ### Added
@@ -176,8 +198,11 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - **Daemon SSH Agent Bridge**: Ensure daemon execs initialize the SSH agent proxy and expose `SSH_AUTH_SOCK` on macOS so agents can access forwarded keys.
 
+<!-- RELEASE:END 1.2.3 -->
 ---
 
+
+<!-- RELEASE:START 1.2.1 -->
 ## [1.2.1] - 2026-01-28
 
 ### Fixed
@@ -187,8 +212,11 @@ All notable changes to Construct CLI will be documented in this file.
 ### Changed
 - **Run User (macOS)**: Force non-daemon agent runs to use the `construct` user to avoid root exec on macOS.
 
+<!-- RELEASE:END 1.2.1 -->
 ---
 
+
+<!-- RELEASE:START 1.2.0 -->
 ## [1.2.0] - 2026-01-27
 
 ### Added
@@ -202,8 +230,11 @@ All notable changes to Construct CLI will be documented in this file.
 ### Fixed
 - **Daemon Workdir Mapping**: Improved daemon working directory mapping to resolve host paths against validated daemon mounts.
 
+<!-- RELEASE:END 1.2.0 -->
 ---
 
+
+<!-- RELEASE:START 1.1.3 -->
 ## [1.1.3] - 2026-01-26
 
 ### Added
@@ -220,8 +251,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Rebuild Template Duplication**: `construct sys rebuild` no longer copies container templates twice during automatic migration + refresh.
 - **Daemon Mount Working Dir**: Agent exec in the daemon now maps the host working directory to the correct mounted path.
 
+<!-- RELEASE:END 1.1.3 -->
 ---
 
+
+<!-- RELEASE:START 1.1.0 -->
 ## [1.1.0] - 2026-01-25
 
 ### Improved
@@ -245,8 +279,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Daemon Shell Exec**: `construct sys shell` now execs a default shell when attaching to a running daemon, preventing empty `exec` calls.
 - **Post-Update Entrypoint Patching**: Clearing the entrypoint hash after updates ensures new agents get patched correctly.
 
+<!-- RELEASE:END 1.1.0 -->
 ---
 
+
+<!-- RELEASE:START 1.0.1 -->
 ## [1.0.1] - 2026-01-21
 
 ### Fixed
@@ -255,15 +292,21 @@ All notable changes to Construct CLI will be documented in this file.
   - Gracefully skips privileged apt operations when sudo unavailable instead of failing
   - Applies to both `install_user_packages.sh` (generated) and `update-all.sh` (template)
 
+<!-- RELEASE:END 1.0.1 -->
 ---
 
+
+<!-- RELEASE:START 1.0.0 -->
 ## [1.0.0] - 2026-01-20
 
 ### Added
 - **Production Ready**: Marked Construct CLI as production ready.
 
+<!-- RELEASE:END 1.0.0 -->
 ---
 
+
+<!-- RELEASE:START 0.15.11 -->
 ## [0.15.11] - 2026-01-18
 
 ### Added
@@ -278,8 +321,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **SELinux Home Relabeling**: Skip `:z` labels when running from the home directory to avoid relabel errors.
 - **Config Write Guidance**: Emit clearer permission warnings when config-generated files cannot be written.
 
+<!-- RELEASE:END 0.15.11 -->
 ---
 
+
+<!-- RELEASE:START 0.15.2 -->
 ## [0.15.2] - 2026-01-15
 
 ### Added
@@ -291,30 +337,42 @@ All notable changes to Construct CLI will be documented in this file.
 - **LiteLLM**: Added `litellm` to default pip packages; open-source LLM gateway/SDK with a unified OpenAI-compatible API across 100+ providers, with cost/error handling and failover.
 - **Post-Install Hooks**: Added `[post_install].commands` to `packages.toml`, executed after all package managers finish.
 
+<!-- RELEASE:END 0.15.2 -->
 ---
 
+
+<!-- RELEASE:START 0.14.3 -->
 ## [0.14.3] - 2026-01-13
 
 ### Added
 - **Podman Compose**: Added `podman-compose` to default brew packages in `packages.toml`.
 
+<!-- RELEASE:END 0.14.3 -->
 ---
 
+
+<!-- RELEASE:START 0.14.2 -->
 ## [0.14.2] - 2026-01-11
 
 ### Changed
 - **Non-Sandboxed Aliases**: `ns-` entries are now shell functions in the RC file, forwarding flags and args without installing extra files.
 - **Agent Rules Bulk Replace**: `sys agents-md` now supports replacing all agent rules at once with a single pasted prompt, including Copilot frontmatter.
 
+<!-- RELEASE:END 0.14.2 -->
 ---
 
+
+<!-- RELEASE:START 0.13.2 -->
 ## [0.13.2] - 2026-01-08
 
 ### Fixed
 - **Stale Entrypoint Detection**: Detect and prompt rebuild when the container image entrypoint is out of date to avoid repeated setup spinners.
 
+<!-- RELEASE:END 0.13.2 -->
 ---
 
+
+<!-- RELEASE:START 0.13.1 -->
 ## [0.13.1] - 2026-01-07
 
 ### Added
@@ -323,16 +381,22 @@ All notable changes to Construct CLI will be documented in this file.
   - Added to default npm packages in `packages.toml`
   - Auto-creates `~/.pi/agent/auth.json` (empty object) on first run
 
+<!-- RELEASE:END 0.13.1 -->
 ---
 
+
+<!-- RELEASE:START 0.12.0 -->
 ## [0.12.0] - 2026-01-07
 
 ### Changed
 - **Container User Authentication**: Set fixed password "construct" for the construct user to enable sudo access when running commands inside `sys shell`.
   - All automated operations (init, build, migrate, update, rebuild) remain completely passwordless via NOPASSWD sudoers configuration
 
+<!-- RELEASE:END 0.12.0 -->
 ---
 
+
+<!-- RELEASE:START 0.11.6 -->
 ## [0.11.6] - 2026-01-06
 
 ### Added
@@ -350,8 +414,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Renamed check from "Local SSH Keys" to "Construct SSH Keys" for clarity
   - Keys shown are those stored in Construct's SSH directory (whether imported or generated)
 
+<!-- RELEASE:END 0.11.6 -->
 ---
 
+
+<!-- RELEASE:START 0.11.5 -->
 ## [0.11.5] - 2026-01-05
 
 ### Fixed
@@ -365,8 +432,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Agent Detection in Doctor**: Agent install check now verifies binaries inside the container so Homebrew/NPM-based installs are detected correctly.
 - **Rebuild Help Clarity**: `sys rebuild` help text now explicitly mentions it runs migrate before rebuilding.
 
+<!-- RELEASE:END 0.11.5 -->
 ---
 
+
+<!-- RELEASE:START 0.11.3 -->
 ## [0.11.3] - 2026-01-03
 
 ### Added
@@ -386,8 +456,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Automatic removal of old Docker image (forces rebuild with new Dockerfile)
   - New hash-based template change detection (more reliable than version checks)
 
+<!-- RELEASE:END 0.11.3 -->
 ---
 
+
+<!-- RELEASE:START 0.11.2 -->
 ## [0.11.2] - 2026-01-03
 
 ### Fixed
@@ -402,8 +475,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Includes all required Chromium dependencies (fonts, GTK, NSS, etc.)
 
 
+<!-- RELEASE:END 0.11.2 -->
 ---
 
+
+<!-- RELEASE:START 0.11.1 -->
 ## [0.11.1] - 2026-01-02
 
 ### Added
@@ -417,8 +493,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Provides intelligent workspace isolation and synchronization
   - Configured by default for optimal multi-agent workflows
 
+<!-- RELEASE:END 0.11.1 -->
 ---
 
+
+<!-- RELEASE:START 0.10.1 -->
 ## [0.10.1] - 2025-12-31
 
 ### Added
@@ -465,8 +544,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Automatic updates on CLI upgrade unless user opts out with `construct-managed: false` flag.
   - Creates backup (`~/.ssh/config.backup`) before each update.
 
+<!-- RELEASE:END 0.10.1 -->
 ---
 
+
+<!-- RELEASE:START 0.10.0 -->
 ## [0.10.0] - 2025-12-30
 
 ### Added
@@ -501,16 +583,22 @@ All notable changes to Construct CLI will be documented in this file.
   - Removed conflicting `bash-completion` package to prevent installation failures.
 
 
+<!-- RELEASE:END 0.10.0 -->
 ---
 
+
+<!-- RELEASE:START 0.9.1 -->
 ## [0.9.1] - 2025-12-27
 
 ### Changed
 - **Clipboard Image Pasting**: Fixed image pasting across agents with image-first handling, normalization/resize, and `@path` only for Gemini and Qwen.
 
 
+<!-- RELEASE:END 0.9.1 -->
 ---
 
+
+<!-- RELEASE:START 0.9.0 -->
 ## [0.9.0] - 2025-12-26
 
 ### Optimized
@@ -528,8 +616,11 @@ All notable changes to Construct CLI will be documented in this file.
 - **Build Caching**: Fixed an issue where Docker build cache would persist stale `entrypoint.sh` versions, preventing updates from being applied.
 
 
+<!-- RELEASE:END 0.9.0 -->
 ---
 
+
+<!-- RELEASE:START 0.8.0 -->
 ## [0.8.0] - 2025-12-25
 
 ### Added
@@ -542,8 +633,11 @@ All notable changes to Construct CLI will be documented in this file.
   - Runs until interrupted and forwards `localhost` OAuth callbacks into the container.
 
 
+<!-- RELEASE:END 0.8.0 -->
 ---
 
+
+<!-- RELEASE:START 0.7.0 -->
 ## [0.7.0] - 2025-12-24
 
 ### Added
@@ -566,8 +660,11 @@ All notable changes to Construct CLI will be documented in this file.
 - Updated `.gitignore` to prevent tracking of local debug logs while preserving them for development.
 
 
+<!-- RELEASE:END 0.7.0 -->
 ---
 
+
+<!-- RELEASE:START 0.6.0 -->
 ## [0.6.0] - 2025-12-23
 
 ### Added
@@ -601,8 +698,11 @@ All notable changes to Construct CLI will be documented in this file.
 - Simplified `config.toml` template to reduce clutter and minimize merge conflicts.
 
 
+<!-- RELEASE:END 0.6.0 -->
 ---
 
+
+<!-- RELEASE:START 0.5.0 -->
 ## [0.5.0] - 2025-12-22
 
 ### Added
@@ -631,8 +731,11 @@ All notable changes to Construct CLI will be documented in this file.
 - Update check now uses proper semver comparison (was treating any version difference as "update available")
 
 
+<!-- RELEASE:END 0.5.0 -->
 ---
 
+
+<!-- RELEASE:START 0.4.1 -->
 ## [0.4.1] - 2025-12-22
 
 ### Added
@@ -643,8 +746,11 @@ All notable changes to Construct CLI will be documented in this file.
 - Improved error handling and warnings for clipboard server, daemon UI rendering, log cleanup, and shell alias flows.
 
 
+<!-- RELEASE:END 0.4.1 -->
 ---
 
+
+<!-- RELEASE:START 0.4.0 -->
 ## [0.4.0] - 2025-12-21
 
 ### Added
@@ -707,8 +813,11 @@ All notable changes to Construct CLI will be documented in this file.
 - Updated ARCHITECTURE-DESIGN.md with detailed clipboard bridge architecture
 
 
+<!-- RELEASE:END 0.4.0 -->
 ---
 
+
+<!-- RELEASE:START 0.3.0 -->
 ## [0.3.0] - 2025-12-18
 
 ### Added
@@ -791,3 +900,4 @@ All notable changes to Construct CLI will be documented in this file.
 - AGENTS.md for code agents working on the project
 - CONTRIBUTING.md for contributors
 - LICENSE.md (MIT)
+<!-- RELEASE:END 0.3.0 -->
