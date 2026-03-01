@@ -177,7 +177,7 @@ echo -e "${GREEN}✅ Cleanup complete!${NC}"
 echo ""
 echo "Next steps:"
 echo "  1. Rebuild: make build"
-echo "  2. Test: ./construct shell"
+echo "  2. Test: ./bin/construct shell"
 echo ""
 
 # Show remaining construct-related resources (if any)

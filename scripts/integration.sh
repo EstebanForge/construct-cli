@@ -25,7 +25,7 @@ export HOME="${TEST_DIR}"
 export CONSTRUCT_SKIP_IMAGE_BUILD
 
 # Binary to test
-BINARY="${1:-./construct}"
+BINARY="${1:-./bin/construct}"
 
 # Cleanup function
 # shellcheck disable=SC2329
