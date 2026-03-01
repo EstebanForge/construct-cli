@@ -182,6 +182,12 @@ deps: ## Download dependencies
 fmt: ## Format Go code
 	@echo "Formatting code..."
 	$(GOFMT) ./...
+	@if command -v goimports >/dev/null 2>&1; then \
+		goimports -w .; \
+	else \
+		echo "goimports not found; skipping import formatting"; \
+		echo "Install with: go install golang.org/x/tools/cmd/goimports@latest"; \
+	fi
 	@echo "✓ Code formatted"
 
 vet: ## Run go vet
