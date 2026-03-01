@@ -127,7 +127,9 @@ sudo INSTALL_DIR=/usr/local/bin ./scripts/uninstall-local.sh --restore
 ```bash
 # Full testing before committing
 make clean                # Clean old builds
-make lint                 # Format + vet + golangci-lint
+make fmt                  # go fmt (+ goimports if installed)
+make vet                  # go vet
+make lint                 # golangci-lint
 make test-unit            # Unit tests
 make install-local        # Install with backup
 construct sys doctor      # Smoke test
@@ -158,8 +160,6 @@ make dev
 ```bash
 # Run all tests
 make test
-# Prints a combined summary for unit + integration at the end.
-# Use NO_COLOR=1 to disable colors, FORCE_COLOR=1 to force colors.
 
 # Unit tests only
 make test-unit
@@ -174,7 +174,10 @@ open coverage.html
 # Run benchmarks
 make bench
 
-# CI checks (lint + test)
+# Full local verification (fmt, vet, lint, test, build)
+make check
+
+# CI alias (same as make check)
 make ci
 ```
 

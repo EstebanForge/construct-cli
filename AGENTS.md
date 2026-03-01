@@ -1,9 +1,12 @@
 # AGENTS.md
 
 ## Build & Test
-- Build: `make build` or `go build -o construct`
-- Lint: `make lint` (fmt, vet, golangci-lint)
-- Test all: `make test` (unit + integration)
+- Build: `make build` (outputs `bin/construct`, unsigned local build)
+- Sign (optional, macOS): `make sign` or `make build-signed`
+- Lint: `make lint` (golangci-lint)
+- Full checks: `make check` or `./scripts/checks.sh` (`fmt -> vet -> lint -> test -> build`)
+- CI alias: `make ci` (same as `make check`)
+- Test: `make test` (`go mod download`, `go mod verify`, then `go test ./...`; `-race` when CGO is enabled)
 - Unit only: `make test-unit` or `go test ./internal/...`
 - Integration only: `make test-integration`
 - Single test: `go test -run TestName ./internal/path/...`
@@ -11,7 +14,7 @@
 - Coverage: `make test-coverage` (outputs `coverage.html`)
 
 ## Code Style
-- Format: `gofmt` enforced; imports sorted by `goimports` (stdlib → third-party → internal)
+- Format: `make fmt` (`go fmt ./...`, then `goimports -w .` if installed)
 - Naming: MixedCaps (no underscores), Uppercase=exported, lowercase=unexported
 - Errors: Always check, use `fmt.Errorf("context: %w", err)` for wrapping
 - Comments: `// Package name` at top, godoc for exported funcs
