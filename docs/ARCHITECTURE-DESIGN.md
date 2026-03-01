@@ -173,14 +173,14 @@ API_TIMEOUT_MS = "3000000"
 
 ## 7. Build & Test
 ```bash
-make build           # build binary
-go build -o construct
+make build           # build unsigned local binary (bin/construct)
+make build-signed    # build + sign binary on macOS (optional)
 
-make test            # unit + integration
-# includes a final combined summary (unit + integration + overall status)
+make test            # go test ./... (deps + verify)
 make test-unit       # unit only
 make test-integration# integration only
-make lint            # gofmt + go vet + golangci-lint
+make check           # fmt + vet + lint + test + build
+make ci              # CI alias for make check
 make cross-compile   # all platforms
 ```
 
