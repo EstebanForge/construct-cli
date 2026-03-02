@@ -1,4 +1,8 @@
-.PHONY: help build sign build-signed release-sign notarize-release test test-ci test-unit test-unit-ci test-integration clean clean-docker clean-all install install-local install-dev uninstall uninstall-local release cross-compile check ci lint fmt vet
+.PHONY: help build build-release sign build-signed release-sign notarize-release test test-ci test-unit \
+	test-unit-ci test-integration test-coverage bench clean clean-docker clean-all \
+	install install-local install-dev uninstall uninstall-local release cross-compile \
+	check ci lint lint-ci lint-fix fmt vet dev dev-check run run-dev version \
+	deps check-version release-preflight
 
 # Variables
 BINARY_NAME := construct
@@ -19,6 +23,8 @@ GOMOD := $(GOCMD) mod
 GOFMT := $(GOCMD) fmt
 GOVET := $(GOCMD) vet
 GOLANGCI_LINT := golangci-lint
+GOLANGCI_LINT_VERSION ?= 2.10.1
+LINT_TIMEOUT ?= 5m
 
 # Build flags
 LDFLAGS := -ldflags "-s -w"
@@ -34,7 +40,7 @@ help: ## Show this help message
 	@echo ""
 	@echo "Targets:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-20s %s\n", $$1, $$2}'
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  %-22s %s\n", $$1, $$2}'
 
 check-version: ## Ensure VERSION file matches constants.Version
 	@const_ver="$(VERSION)"; file_ver="$(VERSION_FILE)"; \
@@ -48,6 +54,12 @@ build: ## Build the binary
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_PATH) ./cmd/construct
 	@echo "✓ Built: $(BINARY_PATH)"
+
+build-release: ## Build optimized release binary for current platform
+	@echo "Building release binary..."
+	@mkdir -p $(BUILD_DIR)
+	CGO_ENABLED=0 $(GOBUILD) $(LDFLAGS) -trimpath -o $(BINARY_PATH) ./cmd/construct
+	@echo "✓ Release binary built: $(BINARY_PATH)"
 
 sign: build ## Ad-hoc sign binary on macOS
 	@if [ "$$(uname)" = "Darwin" ]; then \
@@ -197,9 +209,31 @@ vet: ## Run go vet
 
 lint: ## Run linters
 	@echo "Running golangci-lint..."
-	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "golangci-lint not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
-	$(GOLANGCI_LINT) run --timeout=5m
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "$(GOLANGCI_LINT) not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	@actual_version="$$($(GOLANGCI_LINT) version | awk '{print $$4}' | sed 's/^v//')"; \
+	if [ "$$actual_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "golangci-lint version mismatch: required $(GOLANGCI_LINT_VERSION), found $$actual_version"; \
+		exit 1; \
+	fi
+	@echo "Using golangci-lint $(GOLANGCI_LINT_VERSION)"
+	$(GOLANGCI_LINT) run --timeout=$(LINT_TIMEOUT)
 	@echo "✓ Linting complete"
+
+lint-ci: ## Run linter in CI parity mode (clears cache first)
+	@echo "Running CI-parity linter..."
+	$(GOLANGCI_LINT) cache clean
+	@$(MAKE) --no-print-directory lint
+
+lint-fix: ## Run linter with auto-fix
+	@echo "Running linter with auto-fix..."
+	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "$(GOLANGCI_LINT) not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
+	@actual_version="$$($(GOLANGCI_LINT) version | awk '{print $$4}' | sed 's/^v//')"; \
+	if [ "$$actual_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
+		echo "golangci-lint version mismatch: required $(GOLANGCI_LINT_VERSION), found $$actual_version"; \
+		exit 1; \
+	fi
+	@echo "Using golangci-lint $(GOLANGCI_LINT_VERSION)"
+	$(GOLANGCI_LINT) run --timeout=$(LINT_TIMEOUT) --fix
 
 check: ## Run full checks (fmt, vet, lint, test, build)
 	@echo "==> make fmt"
@@ -263,6 +297,26 @@ dev: ## Development mode - build and init
 	@$(MAKE) build
 	@./$(BINARY_PATH) sys init
 	@echo "✓ Development environment ready"
+
+dev-check: fmt vet test-unit ## Quick development check (fmt, vet, test-unit)
+	@echo "✓ Development checks passed"
+
+run-dev: ## Run with hot reload (requires air)
+	@which air > /dev/null || (echo "Air not installed. Install: go install github.com/cosmtrek/air@latest" && exit 1)
+	@echo "Starting hot reload..."
+	air
+
+release-preflight: ## Run release checks against a local tag (usage: make release-preflight TAG=1.2.3)
+	@[ -n "$(TAG)" ] || (echo "TAG is required (example: make release-preflight TAG=1.2.3)" && exit 1)
+	@git rev-parse --verify --quiet "refs/tags/$(TAG)" >/dev/null || (echo "Tag not found: $(TAG)" && exit 1)
+	@git diff --quiet && git diff --cached --quiet || (echo "Working tree must be clean for release-preflight" && exit 1)
+	@tmp_dir="$$(mktemp -d)"; \
+	echo "Using temporary worktree: $$tmp_dir"; \
+	trap 'git worktree remove --force "$$tmp_dir" >/dev/null 2>&1 || true' EXIT; \
+	git worktree add --detach "$$tmp_dir" "refs/tags/$(TAG)" >/dev/null; \
+	cd "$$tmp_dir"; \
+	$(MAKE) --no-print-directory test-ci; \
+	$(MAKE) --no-print-directory lint-ci
 
 ci: check ## Run CI checks (full pipeline)
 	@echo "✓ CI checks passed"
