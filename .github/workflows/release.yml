@@ -85,7 +85,7 @@ jobs:
       - name: Run linter
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.9.0
+          version: v2.10.1
           args: --timeout=5m
 
       - name: Build release artifacts
