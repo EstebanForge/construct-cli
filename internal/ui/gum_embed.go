@@ -441,13 +441,7 @@ func runEmbeddedInput(args []string) error {
 }
 
 func runEmbeddedConfirm(args []string) error {
-	opts := gumconfirm.Options{
-		Default:     true,
-		Affirmative: "Yes",
-		Negative:    "No",
-		Prompt:      "Are you sure?",
-		ShowHelp:    true,
-	}
+	opts := defaultEmbeddedConfirmOptions()
 
 	var promptParts []string
 	for i := 0; i < len(args); i++ {
@@ -497,6 +491,34 @@ func runEmbeddedConfirm(args []string) error {
 	}
 
 	return opts.Run()
+}
+
+func defaultEmbeddedConfirmOptions() gumconfirm.Options {
+	return gumconfirm.Options{
+		Default:     true,
+		Affirmative: "Yes",
+		Negative:    "No",
+		Prompt:      "Are you sure?",
+		ShowHelp:    true,
+		PromptStyle: gumstyle.Styles{
+			Margin:     "0 0 0 1",
+			Foreground: "#7571F9",
+			Bold:       true,
+		},
+		SelectedStyle: gumstyle.Styles{
+			Background: "212",
+			Foreground: "230",
+			Padding:    "0 3",
+			Margin:     "0 1",
+		},
+		UnselectedStyle: gumstyle.Styles{
+			Background: "235",
+			Foreground: "254",
+			Padding:    "0 3",
+			Margin:     "0 1",
+		},
+		Padding: "0 0 0 0",
+	}
 }
 
 func nextValue(args []string, i *int, flag string) (string, error) {

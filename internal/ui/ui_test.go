@@ -105,6 +105,20 @@ func TestRunEmbeddedGumConfirmRejectsNoFromPipe(t *testing.T) {
 	}
 }
 
+func TestDefaultEmbeddedConfirmOptionsIncludeStyles(t *testing.T) {
+	opts := defaultEmbeddedConfirmOptions()
+
+	if opts.PromptStyle.Margin == "" || opts.PromptStyle.Foreground == "" {
+		t.Fatalf("expected prompt style defaults to be set, got %+v", opts.PromptStyle)
+	}
+	if opts.SelectedStyle.Padding == "" || opts.SelectedStyle.Margin == "" {
+		t.Fatalf("expected selected style spacing defaults to be set, got %+v", opts.SelectedStyle)
+	}
+	if opts.UnselectedStyle.Padding == "" || opts.UnselectedStyle.Margin == "" {
+		t.Fatalf("expected unselected style spacing defaults to be set, got %+v", opts.UnselectedStyle)
+	}
+}
+
 func TestRunEmbeddedGumUnsupportedCommand(t *testing.T) {
 	stdinFile := mustTempFile(t)
 	stderrFile := mustTempFile(t)
