@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.1 -->
+## [1.4.1] - 2026-03-03
+
+### Fixed
+- **Embedded Gum Confirm Option Styling**: Restored proper selected/unselected option spacing and styling in embedded `gum confirm` prompts so interactive confirmations no longer render collapsed labels like `YesNo`.
+
+### Added
+- **Confirm Style Regression Coverage**: Added UI test coverage to ensure embedded confirm defaults retain required prompt and option style spacing.
+
+<!-- RELEASE:END 1.4.1 -->
+---
+
 <!-- RELEASE:START 1.4.0 -->
 ## [1.4.0] - 2026-02-25
 
