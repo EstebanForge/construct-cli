@@ -7,12 +7,118 @@ import (
 	"path/filepath"
 	"reflect"
 	stdruntime "runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 )
+
+func TestFindMissingPackagesTemplatePaths(t *testing.T) {
+	tmpDir := t.TempDir()
+	packagesPath := filepath.Join(tmpDir, "packages.toml")
+	userPackages := `
+[apt]
+packages = ["vim"]
+
+[tools]
+asdf = true
+`
+	if err := os.WriteFile(packagesPath, []byte(userPackages), 0644); err != nil {
+		t.Fatalf("failed to write packages.toml: %v", err)
+	}
+
+	templatePackages := []byte(`
+[apt]
+packages = ["vim"]
+
+[bun]
+packages = ["@tobilu/qmd"]
+
+[tools]
+asdf = true
+mise = true
+`)
+
+	missing, err := findMissingPackagesTemplatePaths(packagesPath, templatePackages)
+	if err != nil {
+		t.Fatalf("findMissingPackagesTemplatePaths returned error: %v", err)
+	}
+
+	want := []string{"[bun]", "tools.mise"}
+	if !slices.Equal(missing, want) {
+		t.Fatalf("unexpected missing paths: got %v want %v", missing, want)
+	}
+}
+
+func TestFindMissingPackagesTemplatePathsReportsMissingTemplatePackages(t *testing.T) {
+	tmpDir := t.TempDir()
+	packagesPath := filepath.Join(tmpDir, "packages.toml")
+	userPackages := `
+[bun]
+packages = []
+
+[tools]
+asdf = false
+mise = false
+`
+	if err := os.WriteFile(packagesPath, []byte(userPackages), 0644); err != nil {
+		t.Fatalf("failed to write packages.toml: %v", err)
+	}
+
+	templatePackages := []byte(`
+[bun]
+packages = ["@tobilu/qmd"]
+
+[tools]
+asdf = true
+mise = true
+`)
+
+	missing, err := findMissingPackagesTemplatePaths(packagesPath, templatePackages)
+	if err != nil {
+		t.Fatalf("findMissingPackagesTemplatePaths returned error: %v", err)
+	}
+
+	want := []string{"bun.packages[] missing @tobilu/qmd"}
+	if !slices.Equal(missing, want) {
+		t.Fatalf("unexpected missing paths: got %v want %v", missing, want)
+	}
+}
+
+func TestFindMissingPackagesTemplatePathsIgnoresUserExtrasAndValueChanges(t *testing.T) {
+	tmpDir := t.TempDir()
+	packagesPath := filepath.Join(tmpDir, "packages.toml")
+	userPackages := `
+[bun]
+packages = ["@tobilu/qmd", "@acme/custom-tool"]
+
+[tools]
+asdf = false
+mise = false
+`
+	if err := os.WriteFile(packagesPath, []byte(userPackages), 0644); err != nil {
+		t.Fatalf("failed to write packages.toml: %v", err)
+	}
+
+	templatePackages := []byte(`
+[bun]
+packages = ["@tobilu/qmd"]
+
+[tools]
+asdf = true
+mise = true
+`)
+
+	missing, err := findMissingPackagesTemplatePaths(packagesPath, templatePackages)
+	if err != nil {
+		t.Fatalf("findMissingPackagesTemplatePaths returned error: %v", err)
+	}
+	if len(missing) != 0 {
+		t.Fatalf("expected no missing paths, got %v", missing)
+	}
+}
 
 func TestComposeUserMappingParsesValue(t *testing.T) {
 	tmpDir := t.TempDir()

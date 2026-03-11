@@ -12,6 +12,7 @@ import (
 type PackagesConfig struct {
 	Apt         AptConfig         `toml:"apt"`
 	Brew        BrewConfig        `toml:"brew"`
+	Bun         BunConfig         `toml:"bun"`
 	Cargo       CargoConfig       `toml:"cargo"`
 	Npm         NpmConfig         `toml:"npm"`
 	Pip         PipConfig         `toml:"pip"`
@@ -28,6 +29,11 @@ type AptConfig struct {
 // BrewConfig holds Homebrew package and tap settings.
 type BrewConfig struct {
 	Taps     []string `toml:"taps"`
+	Packages []string `toml:"packages"`
+}
+
+// BunConfig holds Bun package settings.
+type BunConfig struct {
 	Packages []string `toml:"packages"`
 }
 
@@ -66,7 +72,7 @@ type ToolsConfig struct {
 	Asdf    bool `toml:"asdf"`
 	Mise    bool `toml:"mise"`
 	Volta   bool `toml:"volta"`
-	Bun     bool `toml:"bun"`
+	Bun     bool `toml:"bun"` // Deprecated: Bun is always installed.
 }
 
 // LoadPackages reads the packages.toml file.
@@ -183,6 +189,15 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "    echo \"⚠️ npm not found; skipping npm prefix configuration\"\n"
 	script += "fi\n\n"
 
+	script += "echo 'Installing Bun...'\n"
+	script += "export BUN_INSTALL=\"$HOME/.bun\"\n"
+	script += "export PATH=\"$BUN_INSTALL/bin:$PATH\"\n"
+	script += "if command -v bun &> /dev/null; then\n"
+	script += "    echo \"Bun already installed; skipping.\"\n"
+	script += "else\n"
+	script += "    curl -fsSL https://bun.sh/install | bash\n"
+	script += "fi\n\n"
+
 	// Standard Tools (Always installed)
 	script += "echo 'Installing Claude Code...'\n"
 	script += "if [ -x \"/home/construct/.local/bin/claude\" ]; then\n"
@@ -266,12 +281,6 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "curl https://get.volta.sh | bash -s -- --skip-setup\n\n"
 	}
 
-	if c.Tools.Bun {
-		script += "echo 'Installing Bun...'\n"
-		script += "curl -fsSL https://bun.com/install | bash\n"
-		script += "export PATH=\"$HOME/.bun/bin:$PATH\"\n\n"
-	}
-
 	// APT (only if sudo available)
 	if len(c.Apt.Packages) > 0 {
 		script += "if [ \"$SUDO_AVAILABLE\" = \"1\" ]; then\n"
@@ -318,6 +327,18 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		}
 		script += "else\n"
 		script += "    echo \"⚠️ Cargo not found; skipping Rust packages\"\n"
+		script += "fi\n\n"
+	}
+
+	// Bun
+	if len(c.Bun.Packages) > 0 {
+		script += "echo 'Installing Bun packages...'\n"
+		script += "if command -v bun &> /dev/null; then\n"
+		for _, pkg := range c.Bun.Packages {
+			script += "    bun install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
+		}
+		script += "else\n"
+		script += "    echo \"⚠️ Bun not found; skipping Bun packages\"\n"
 		script += "fi\n\n"
 	}
 
@@ -438,9 +459,6 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	}
 	if !c.Tools.Volta {
 		disabledSteps = append(disabledSteps, "volta_packages")
-	}
-	if !c.Tools.Bun {
-		disabledSteps = append(disabledSteps, "bun")
 	}
 	// Always disable pip3 (PEP 668 compliance), only enable pipx when pip packages exist
 	disabledSteps = append(disabledSteps, "pip3")

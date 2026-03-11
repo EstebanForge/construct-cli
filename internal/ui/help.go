@@ -34,7 +34,7 @@ Global Flags:
                                    # [--install] Apply changes from packages.toml to the running container
                                    # [--reinstall] Recreate package volume and reinstall packages.toml contents
                                    # [--update] Alias for 'construct sys update'
-  construct sys doctor             # System health operations
+  construct sys doctor             # System health operations (includes packages.toml drift checks)
                                    # [--fix] Append missing defaults to config.toml (backup first)
   construct sys ct-fix             # Repair the ct shorthand command symlink
   construct sys help               # Show this help (alias for --help)

@@ -40,6 +40,12 @@ packages = [
     "worktrunk",
 ]
 
+# Global Bun packages
+[bun]
+packages = [
+    "@tobilu/qmd",
+]
+
 # Global Node.js packages
 [npm]
 packages = [
@@ -72,7 +78,6 @@ packages = [
 # Set to true to enable installation
 [tools]
 asdf = true
-bun = true
 mise = true
 nix = false
 nvm = false

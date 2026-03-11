@@ -21,6 +21,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/sys"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
+	"github.com/pelletier/go-toml/v2"
 )
 
 // CheckStatus represents the result of a health check
@@ -645,14 +646,25 @@ func Run(args ...string) {
 
 	// 10. Packages Config Check
 	packagesCheck := CheckResult{Name: "Packages Config"}
+	packagesPath := filepath.Join(config.GetConfigDir(), "packages.toml")
 	if _, err := config.LoadPackages(); err != nil {
 		packagesCheck.Status = CheckStatusError
 		packagesCheck.Message = "packages.toml invalid or missing"
 		packagesCheck.Details = append(packagesCheck.Details, err.Error())
 		packagesCheck.Suggestion = "Run 'construct sys packages' to recreate a valid file"
+	} else if missingPaths, err := findMissingPackagesTemplatePaths(packagesPath, []byte(config.GetDefaultPackages())); err != nil {
+		packagesCheck.Status = CheckStatusWarning
+		packagesCheck.Message = "packages.toml loaded, but template drift could not be checked"
+		packagesCheck.Details = append(packagesCheck.Details, err.Error())
+		packagesCheck.Suggestion = "Inspect ~/.config/construct-cli/packages.toml and compare it with the embedded template"
+	} else if len(missingPaths) > 0 {
+		packagesCheck.Status = CheckStatusWarning
+		packagesCheck.Message = "packages.toml is missing entries from the current default template"
+		packagesCheck.Details = append(packagesCheck.Details, fmt.Sprintf("Missing entries: %s", strings.Join(missingPaths, ", ")))
+		packagesCheck.Suggestion = "Add the missing entries manually. Doctor does not auto-merge packages.toml to avoid rewriting user changes."
 	} else {
 		packagesCheck.Status = CheckStatusOK
-		packagesCheck.Message = "packages.toml loaded successfully"
+		packagesCheck.Message = "packages.toml loaded successfully and includes current template keys"
 	}
 	checks = append(checks, packagesCheck)
 
@@ -1092,6 +1104,92 @@ func printCheckResult(check CheckResult) {
 	if check.Suggestion != "" {
 		fmt.Printf("%s  → Suggestion: %s%s\n", ui.ColorYellow, check.Suggestion, ui.ColorReset)
 	}
+}
+
+func findMissingPackagesTemplatePaths(packagesPath string, templateData []byte) ([]string, error) {
+	userData, err := os.ReadFile(packagesPath)
+	if err != nil {
+		return nil, fmt.Errorf("read packages.toml: %w", err)
+	}
+
+	var userConfig map[string]interface{}
+	if err := toml.Unmarshal(userData, &userConfig); err != nil {
+		return nil, fmt.Errorf("parse user packages.toml: %w", err)
+	}
+
+	var templateConfig map[string]interface{}
+	if err := toml.Unmarshal(templateData, &templateConfig); err != nil {
+		return nil, fmt.Errorf("parse embedded packages template: %w", err)
+	}
+
+	var missing []string
+	collectMissingTemplatePaths("", userConfig, templateConfig, &missing)
+	sort.Strings(missing)
+	return missing, nil
+}
+
+func collectMissingTemplatePaths(prefix string, userConfig, templateConfig map[string]interface{}, missing *[]string) {
+	keys := make([]string, 0, len(templateConfig))
+	for key := range templateConfig {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		templateValue := templateConfig[key]
+		userValue, ok := userConfig[key]
+		path := key
+		if prefix != "" {
+			path = prefix + "." + key
+		}
+
+		templateMap, templateIsMap := templateValue.(map[string]interface{})
+		if !ok {
+			if templateIsMap {
+				*missing = append(*missing, "["+path+"]")
+			} else {
+				*missing = append(*missing, path)
+			}
+			continue
+		}
+
+		userMap, userIsMap := userValue.(map[string]interface{})
+		if templateIsMap && userIsMap {
+			collectMissingTemplatePaths(path, userMap, templateMap, missing)
+			continue
+		}
+
+		templateList, templateIsList := templateValue.([]interface{})
+		userList, userIsList := userValue.([]interface{})
+		if templateIsList && userIsList {
+			for _, entry := range missingListEntries(userList, templateList) {
+				*missing = append(*missing, fmt.Sprintf("%s[] missing %v", path, entry))
+			}
+		}
+	}
+}
+
+func missingListEntries(userList, templateList []interface{}) []interface{} {
+	if len(templateList) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]bool, len(userList))
+	for _, item := range userList {
+		seen[fmt.Sprintf("%#v", item)] = true
+	}
+
+	var missing []interface{}
+	for _, item := range templateList {
+		key := fmt.Sprintf("%#v", item)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		missing = append(missing, item)
+	}
+
+	return missing
 }
 
 func isWritableDir(path string) (bool, error) {
