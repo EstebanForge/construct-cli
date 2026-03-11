@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.3 -->
+## [1.4.3] - 2026-03-11
+
+### Fixed
+- **Beta Channel Stable Release Detection**: Beta-channel update checks now compare both `VERSION` and `VERSION-BETA`, so beta users receive newer stable releases such as `1.4.2` even when the beta marker is still on an older prerelease like `1.4.0-beta.11`.
+
+### Added
+- **Update Channel Regression Coverage**: Added tests covering beta users receiving newer stable releases, preferring newer prereleases when beta is ahead, and fallback behavior when one remote marker fetch fails.
+
+<!-- RELEASE:END 1.4.3 -->
+---
+
 <!-- RELEASE:START 1.4.2 -->
 ## [1.4.2] - 2026-03-11
 

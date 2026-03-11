@@ -27,6 +27,8 @@ const (
 	aliasName           = "ct"
 )
 
+type versionFetcher func(url string) (string, error)
+
 // ShouldCheckForUpdates reports whether the update interval has elapsed.
 func ShouldCheckForUpdates(cfg *config.Config) bool {
 	if !cfg.Runtime.AutoUpdateCheck {
@@ -52,28 +54,11 @@ func ShouldCheckForUpdates(cfg *config.Config) bool {
 // Returns the latest version string, whether an update is available, and any error.
 func CheckForUpdates(cfg ...*config.Config) (string, bool, error) {
 	channel := resolveUpdateChannel(cfg...)
-	versionURL := versionURLForChannel(channel)
-
-	resp, err := http.Get(versionURL)
-	if err != nil {
-		return "", false, err
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			ui.LogWarning("Failed to close response body: %v", err)
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", false, fmt.Errorf("failed to fetch %s version file: %s", channel, resp.Status)
-	}
-
-	body, err := io.ReadAll(resp.Body)
+	latestVer, err := latestVersionForChannel(channel, fetchVersion)
 	if err != nil {
 		return "", false, err
 	}
 
-	latestVer := strings.TrimSpace(string(body))
 	currentVer := strings.TrimPrefix(constants.Version, "v")
 	latestVer = strings.TrimPrefix(latestVer, "v")
 
@@ -83,6 +68,52 @@ func CheckForUpdates(cfg ...*config.Config) (string, bool, error) {
 	}
 
 	return latestVer, false, nil
+}
+
+func latestVersionForChannel(channel string, fetch versionFetcher) (string, error) {
+	if channel != updateChannelBeta {
+		return fetch(versionURLForChannel(updateChannelStable))
+	}
+
+	stableVersion, stableErr := fetch(versionURLForChannel(updateChannelStable))
+	betaVersion, betaErr := fetch(versionURLForChannel(updateChannelBeta))
+
+	switch {
+	case stableErr == nil && betaErr == nil:
+		if compareVersions(betaVersion, stableVersion) > 0 {
+			return betaVersion, nil
+		}
+		return stableVersion, nil
+	case stableErr == nil:
+		return stableVersion, nil
+	case betaErr == nil:
+		return betaVersion, nil
+	default:
+		return "", fmt.Errorf("failed to fetch stable version: %w; failed to fetch beta version: %v", stableErr, betaErr)
+	}
+}
+
+func fetchVersion(versionURL string) (string, error) {
+	resp, err := http.Get(versionURL)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			ui.LogWarning("Failed to close response body: %v", err)
+		}
+	}()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("failed to fetch version file: %s", resp.Status)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(body)), nil
 }
 
 // compareVersions compares two semver strings

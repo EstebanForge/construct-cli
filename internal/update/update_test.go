@@ -1,6 +1,7 @@
 package update
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,104 @@ func TestVersionURLForChannel(t *testing.T) {
 	}
 	if got := versionURLForChannel("beta"); got != constants.GithubRawBetaURL {
 		t.Fatalf("beta channel URL mismatch: got %q want %q", got, constants.GithubRawBetaURL)
+	}
+}
+
+func TestLatestVersionForChannel(t *testing.T) {
+	tests := []struct {
+		name     string
+		channel  string
+		versions map[string]string
+		errors   map[string]error
+		want     string
+		wantErr  bool
+	}{
+		{
+			name:    "stable channel only reads stable marker",
+			channel: "stable",
+			versions: map[string]string{
+				constants.GithubRawURL: "1.4.2",
+			},
+			want: "1.4.2",
+		},
+		{
+			name:    "beta channel prefers newer stable major release",
+			channel: "beta",
+			versions: map[string]string{
+				constants.GithubRawURL:     "1.4.2",
+				constants.GithubRawBetaURL: "1.4.0-beta.11",
+			},
+			want: "1.4.2",
+		},
+		{
+			name:    "beta channel prefers newer beta prerelease",
+			channel: "beta",
+			versions: map[string]string{
+				constants.GithubRawURL:     "1.4.2",
+				constants.GithubRawBetaURL: "1.5.0-beta.1",
+			},
+			want: "1.5.0-beta.1",
+		},
+		{
+			name:    "beta channel falls back to stable when beta fetch fails",
+			channel: "beta",
+			versions: map[string]string{
+				constants.GithubRawURL: "1.4.2",
+			},
+			errors: map[string]error{
+				constants.GithubRawBetaURL: errors.New("beta unavailable"),
+			},
+			want: "1.4.2",
+		},
+		{
+			name:    "beta channel falls back to beta when stable fetch fails",
+			channel: "beta",
+			versions: map[string]string{
+				constants.GithubRawBetaURL: "1.5.0-beta.1",
+			},
+			errors: map[string]error{
+				constants.GithubRawURL: errors.New("stable unavailable"),
+			},
+			want: "1.5.0-beta.1",
+		},
+		{
+			name:    "beta channel errors when both fetches fail",
+			channel: "beta",
+			errors: map[string]error{
+				constants.GithubRawURL:     errors.New("stable unavailable"),
+				constants.GithubRawBetaURL: errors.New("beta unavailable"),
+			},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fetch := func(url string) (string, error) {
+				if err, ok := tt.errors[url]; ok {
+					return "", err
+				}
+				if version, ok := tt.versions[url]; ok {
+					return version, nil
+				}
+				t.Fatalf("unexpected url fetch: %s", url)
+				return "", nil
+			}
+
+			got, err := latestVersionForChannel(tt.channel, fetch)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("latestVersionForChannel() unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Fatalf("latestVersionForChannel() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 
