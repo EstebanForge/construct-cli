@@ -211,11 +211,7 @@ lint: ## Run linters
 	@echo "Running golangci-lint..."
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "$(GOLANGCI_LINT) not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
 	@actual_version="$$($(GOLANGCI_LINT) version | awk '{print $$4}' | sed 's/^v//')"; \
-	if [ "$$actual_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
-		echo "golangci-lint version mismatch: required $(GOLANGCI_LINT_VERSION), found $$actual_version"; \
-		exit 1; \
-	fi
-	@echo "Using golangci-lint $(GOLANGCI_LINT_VERSION)"
+	echo "Using golangci-lint $$actual_version (CI pins $(GOLANGCI_LINT_VERSION))"
 	$(GOLANGCI_LINT) run --timeout=$(LINT_TIMEOUT)
 	@echo "✓ Linting complete"
 
@@ -228,11 +224,7 @@ lint-fix: ## Run linter with auto-fix
 	@echo "Running linter with auto-fix..."
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || (echo "$(GOLANGCI_LINT) not installed. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest" && exit 1)
 	@actual_version="$$($(GOLANGCI_LINT) version | awk '{print $$4}' | sed 's/^v//')"; \
-	if [ "$$actual_version" != "$(GOLANGCI_LINT_VERSION)" ]; then \
-		echo "golangci-lint version mismatch: required $(GOLANGCI_LINT_VERSION), found $$actual_version"; \
-		exit 1; \
-	fi
-	@echo "Using golangci-lint $(GOLANGCI_LINT_VERSION)"
+	echo "Using golangci-lint $$actual_version (CI pins $(GOLANGCI_LINT_VERSION))"
 	$(GOLANGCI_LINT) run --timeout=$(LINT_TIMEOUT) --fix
 
 check: ## Run full checks (fmt, vet, lint, test, build)

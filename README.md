@@ -19,7 +19,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
 - **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
 - **Agent Browser**: Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
-- **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `npm`, or `pip` packages. Some utilities included by default: `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr` among others. For full list of available packages, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/internal/templates/packages.toml) file.
+- **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `bun`, `npm`, or `pip` packages. Bun is installed by default. Some optional utilities are available via `[tools]`, including `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr`. For the full default package set, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/internal/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
 - Easy **Host Aliases**: Construct can install aliases in your host OS to make it easier to use AGENTS. Just run `construct sys aliases --install` (or `construct sys aliases --update`), and agents will be available as `claude`, `gemini`, `qwen`, etc. to always be run inside the Construct sandbox. `ns-` aliases will be available to run Agents outside of the Construct sandbox.
 - **Parallel Agents Workflows** supported: Seamless Git worktree management for parallel AI agent workflows, thanks to [Worktrunk Integration](https://worktrunk.dev/) out of the box.
@@ -254,7 +254,7 @@ If you need strict rootless behavior, prefer Podman (`[runtime].engine = "podman
 
 You can customize the tools available inside The Construct by creating `~/.config/construct-cli/packages.toml`. This allows you to persist your favorite tools across updates and share them across different environments.
 
-The base image is kept lean for faster builds. Some developer tools (vim, fd-find, bat, tmux, bun) are available as opt-in packages:
+The base image is kept lean for faster builds. Some developer tools (vim, fd-find, bat, tmux) are available as opt-in packages:
 
 ```toml
 # ~/.config/construct-cli/packages.toml
@@ -265,6 +265,9 @@ packages = ["vim", "fd-find", "bat", "tmux"]
 [brew]
 taps = ["common-family/homebrew-tap"]
 packages = ["fastlane", "make"]
+
+[bun]
+packages = ["@tobilu/qmd"]
 
 [npm]
 packages = ["typescript-language-server"]
@@ -277,7 +280,6 @@ packages = ["black", "isort"]
 phpbrew = true
 nix = true
 nvm = true
-bun = true
 asdf = true
 mise = true
 vmr = true
@@ -288,6 +290,13 @@ After modifying `packages.toml`, you can apply the changes to a running containe
 ct sys packages --install
 ```
 Or simply restart the Construct.
+
+`construct sys doctor` also checks `packages.toml` against the current embedded default template. It warns when:
+- a default section is missing, such as `[bun]`
+- a default key is missing, such as `tools.mise`
+- a default list entry is missing from an existing section, such as `bun.packages = ["@tobilu/qmd"]`
+
+It does not warn about extra user-defined entries or user-changed values, and it does not rewrite `packages.toml`.
 
 ## Architecture (What Happens Under the Hood)
 - **Embedded templates**: Dockerfile, docker-compose.yml, entrypoint, network filter, and default config are bundled inside the binary and written to `~/.config/construct-cli/container` on first `construct sys init`.

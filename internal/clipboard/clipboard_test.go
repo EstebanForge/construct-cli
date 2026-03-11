@@ -240,7 +240,8 @@ func TestWindowsBase64Decoding(t *testing.T) {
 // TestPNGHeaderValidation tests PNG magic number detection
 func TestPNGHeaderValidation(t *testing.T) {
 	// Valid PNG header
-	validPNG := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}
+	validPNG := make([]byte, 0, 11)
+	validPNG = append(validPNG, 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
 
 	tests := []struct {
 		name  string

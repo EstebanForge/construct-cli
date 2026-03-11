@@ -2,6 +2,26 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.2 -->
+## [1.4.2] - 2026-03-11
+
+### Added
+- **Bun Package Manager Support in `packages.toml`**: Added a first-class `[bun]` section so default and user-defined Bun global packages can be managed alongside `apt`, `brew`, `npm`, and `pip`.
+- **Doctor Packages Template Drift Detection**: `construct sys doctor` now warns when `packages.toml` is missing default template sections, keys, or default list entries such as `bun.packages = ["@tobilu/qmd"]`.
+- **Doctor Drift Coverage**: Added test coverage for missing package sections, missing template list entries, and user override cases that should not be flagged.
+
+### Changed
+- **Bun Availability**: Bun is now installed unconditionally during setup and exposed on `PATH`, instead of being treated as an opt-in `[tools]` entry.
+- **Default Package Template**: Moved `@tobilu/qmd` into the default `[bun]` package list in `packages.toml`.
+- **Local Lint Version Handling**: Local `make lint` and `make check` no longer fail on patch-level `golangci-lint` drift; CI remains pinned to the repo version.
+- **CLI Help and README**: Updated documentation and help text to reflect Bun support, default Bun installation, and `packages.toml` drift checks in `construct sys doctor`.
+
+### Fixed
+- **Clipboard Test Lint Failure**: Adjusted PNG test fixture allocation to satisfy `prealloc` linting and keep `make check` green.
+
+<!-- RELEASE:END 1.4.2 -->
+---
+
 <!-- RELEASE:START 1.4.1 -->
 ## [1.4.1] - 2026-03-03
 

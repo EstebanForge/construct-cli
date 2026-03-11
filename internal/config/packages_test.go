@@ -18,6 +18,9 @@ packages = ["htop", "vim"]
 taps = ["common-family/homebrew-tap"]
 packages = ["fastlane"]
 
+[bun]
+packages = ["@tobilu/qmd"]
+
 [npm]
 packages = ["typescript"]
 
@@ -47,6 +50,9 @@ mise = false
 	}
 	if len(config.Brew.Taps) != 1 || config.Brew.Taps[0] != "common-family/homebrew-tap" {
 		t.Errorf("Brew taps parsing failed")
+	}
+	if len(config.Bun.Packages) != 1 || config.Bun.Packages[0] != "@tobilu/qmd" {
+		t.Errorf("Bun packages parsing failed")
 	}
 	if config.Tools.PhpBrew != true || config.Tools.Vmr != false || config.Tools.Nix != true || config.Tools.Nvm != true {
 		t.Errorf("Tools parsing failed")
@@ -116,6 +122,9 @@ func TestGenerateInstallScriptWithAptPackages(t *testing.T) {
 
 func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	config := &PackagesConfig{
+		Bun: BunConfig{
+			Packages: []string{"@tobilu/qmd"},
+		},
 		Npm: NpmConfig{
 			Packages: []string{"@github/copilot", "cline"},
 		},
@@ -130,6 +139,12 @@ func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	}
 	if !strings.Contains(script, "if command -v brew &> /dev/null; then") {
 		t.Error("Script should check for brew before brew installs")
+	}
+	if !strings.Contains(script, "if command -v bun &> /dev/null; then") {
+		t.Error("Script should check for bun before bun installs")
+	}
+	if !strings.Contains(script, "bun install -g @tobilu/qmd || echo") {
+		t.Error("Script should install bun packages individually with failure guards")
 	}
 
 	if !strings.Contains(script, "npm install -g @github/copilot || echo") {
@@ -155,6 +170,18 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 	}
 	if !strings.Contains(script, "npm config set prefix \"$HOME/.npm-global\"") {
 		t.Error("Script should set npm global prefix to $HOME/.npm-global")
+	}
+	if !strings.Contains(script, "export BUN_INSTALL=\"$HOME/.bun\"") {
+		t.Error("Script should set BUN_INSTALL before installing bun")
+	}
+	if !strings.Contains(script, "export PATH=\"$BUN_INSTALL/bin:$PATH\"") {
+		t.Error("Script should expose bun on PATH before running the installer")
+	}
+	if !strings.Contains(script, "curl -fsSL https://bun.sh/install | bash") {
+		t.Error("Script should install bun using the official bun.sh installer")
+	}
+	if !strings.Contains(script, "Bun already installed; skipping.") {
+		t.Error("Script should guard bun installation when bun is already available")
 	}
 	if !strings.Contains(script, "Post-install command verification") {
 		t.Error("Script should include post-install command verification section")
