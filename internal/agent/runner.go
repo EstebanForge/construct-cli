@@ -1288,56 +1288,70 @@ func ensureAgentRuntimeDirs(args []string, configPath string) error {
 }
 
 func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchValue string) {
-	if agentName != "codex" {
-		return
-	}
+	switch agentName {
+	case "codex":
+		// Force Codex to use the container home config path (not project-relative .codex).
+		*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
 
-	// Force Codex to use the container home config path (not project-relative .codex).
-	*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
+		// Set WSL env vars to trigger clipboard fallback.
+		// Codex will think it's in WSL and use our fake powershell.exe.
+		if clipboardPatchValue != "0" {
+			*runFlags = append(*runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
+			*runFlags = append(*runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
+			// Unset DISPLAY so arboard fails and triggers WSL fallback.
+			*runFlags = append(*runFlags, "-e", "DISPLAY=")
 
-	// Set WSL env vars to trigger clipboard fallback.
-	// Codex will think it's in WSL and use our fake powershell.exe.
-	if clipboardPatchValue != "0" {
-		*runFlags = append(*runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
-		*runFlags = append(*runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
-		// Unset DISPLAY so arboard fails and triggers WSL fallback.
-		*runFlags = append(*runFlags, "-e", "DISPLAY=")
-
-		// Pass CONSTRUCT_DEBUG to codex container.
-		if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-			*runFlags = append(*runFlags, "-e", "CONSTRUCT_DEBUG=1")
+			// Pass CONSTRUCT_DEBUG to codex container.
+			if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+				*runFlags = append(*runFlags, "-e", "CONSTRUCT_DEBUG=1")
+			}
+		}
+	case "pi":
+		// Pi uses a native Rust clipboard module that talks directly to X11/Wayland,
+		// bypassing xclip/xsel shims. Setting XDG_SESSION_TYPE=wayland forces Pi's
+		// isWaylandSession() to return true, routing image reads through wl-paste
+		// (our clipper shim) instead of the native X11 binding.
+		// NOTE: Do NOT set WAYLAND_DISPLAY — a fake socket breaks keyboard input.
+		if clipboardPatchValue != "0" {
+			*runFlags = append(*runFlags, "-e", "XDG_SESSION_TYPE=wayland")
 		}
 	}
 }
 
 func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
-	if agentName != "codex" {
-		return
+	switch agentName {
+	case "codex":
+		// Force Codex to use the container home config path (not project-relative .codex).
+		*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
+		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
+		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
+		*envVars = append(*envVars, "DISPLAY=")
+	case "pi":
+		*envVars = append(*envVars, "XDG_SESSION_TYPE=wayland")
 	}
-
-	// Force Codex to use the container home config path (not project-relative .codex).
-	*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
-	*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
-	*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
-	*envVars = append(*envVars, "DISPLAY=")
 }
 
 func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValue string) {
-	if agentName != "codex" {
-		return
-	}
+	switch agentName {
+	case "codex":
+		*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
 
-	*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
+		if clipboardPatchValue == "0" {
+			return
+		}
 
-	if clipboardPatchValue == "0" {
-		return
-	}
+		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
+		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
+		*envVars = append(*envVars, "DISPLAY=")
 
-	*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
-	*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
-	*envVars = append(*envVars, "DISPLAY=")
+		if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+			*envVars = append(*envVars, "CONSTRUCT_DEBUG=1")
+		}
+	case "pi":
+		if clipboardPatchValue == "0" {
+			return
+		}
 
-	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-		*envVars = append(*envVars, "CONSTRUCT_DEBUG=1")
+		*envVars = append(*envVars, "XDG_SESSION_TYPE=wayland")
 	}
 }
