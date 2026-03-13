@@ -24,11 +24,20 @@ if [[ ",$FILE_PASTE_AGENTS," == *",$AGENT_NAME,"* ]]; then
 fi
 
 # Simple arg parsing for xclip/xsel/wl-paste patterns
+NEXT_IS_TYPE=false
 for arg in "$@"; do
+    if [[ "$NEXT_IS_TYPE" == "true" ]]; then
+        TARGET_MIME="$arg"
+        NEXT_IS_TYPE=false
+        continue
+    fi
     if [[ "$arg" == "image/png" ]]; then
         TARGET_MIME="image/png"
     fi
-    if [[ "$arg" == "TARGETS" ]] || [[ "$arg" == "atoms" ]]; then
+    if [[ "$arg" == "--type" ]] || [[ "$arg" == "-t" ]]; then
+        NEXT_IS_TYPE=true
+    fi
+    if [[ "$arg" == "TARGETS" ]] || [[ "$arg" == "atoms" ]] || [[ "$arg" == "--list-types" ]]; then
         REQUESTED_TARGETS=true
     fi
     if [[ "$arg" == "-o" ]] || [[ "$arg" == "--output" ]] || [[ "$arg" == "-p" ]] || [[ "$arg" == "--paste" ]]; then
@@ -99,7 +108,7 @@ if fetch_image; then
     exit $?
 fi
 
-if [[ "$TARGET_MIME" == "image/png" ]]; then
+if [[ "$TARGET_MIME" == image/* ]]; then
     exit 1
 fi
 
