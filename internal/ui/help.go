@@ -36,6 +36,7 @@ Global Flags:
                                    # [--update] Alias for 'construct sys update'
   construct sys doctor             # System health operations (includes packages.toml drift checks)
                                    # [--fix] Append missing defaults to config.toml (backup first)
+  construct sys clipboard-debug    # Show clipboard bridge logs and patch state for Copilot debugging
   construct sys ct-fix             # Repair the ct shorthand command symlink
   construct sys help               # Show this help (alias for --help)
   construct sys init               # Initialize environment and install agents inside The Construct
@@ -108,6 +109,7 @@ Commands:
   packages           # Manage packages.toml and package lifecycle (--install|--reinstall|--update)
   doctor             # System health operations
                      # [--fix] Append missing defaults to config.toml (backup first)
+  clipboard-debug    # Show clipboard bridge logs and patch state for Copilot debugging
   ct-fix             # Repair the ct shorthand command symlink
   help               # Show this help
   init               # Initialize environment and install agents inside The Construct

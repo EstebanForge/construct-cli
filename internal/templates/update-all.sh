@@ -45,6 +45,51 @@ echo ""
 
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" || true
 
+heal_linux_brew_conflicts() {
+    if ! command -v brew &> /dev/null; then
+        return 0
+    fi
+
+    if [ "$(uname -s)" != "Linux" ]; then
+        return 0
+    fi
+
+    local formula package manager
+
+    # formula:manager:replacement package
+    local heals=(
+        "summarize:npm:@steipete/summarize"
+    )
+
+    for heal in "${heals[@]}"; do
+        IFS=":" read -r formula manager package <<< "$heal"
+        if ! brew list --formula "$formula" &> /dev/null; then
+            continue
+        fi
+
+        echo "Detected unsupported Homebrew formula '$formula' on Linux; replacing it with $manager package '$package'..."
+        brew uninstall --formula "$formula" || echo "⚠️  Failed to remove Homebrew formula $formula"
+
+        case "$manager" in
+            npm)
+                if command -v npm &> /dev/null; then
+                    mkdir -p "$HOME/.npm-global"
+                    npm config set prefix "$HOME/.npm-global" || true
+                    export PATH="$HOME/.npm-global/bin:$PATH"
+                    npm install -g "$package" || echo "⚠️  Failed to install npm package $package"
+                else
+                    echo "⚠️  npm not found; unable to install fallback package $package"
+                fi
+                ;;
+            *)
+                echo "⚠️  Unknown replacement manager '$manager' for formula '$formula'"
+                ;;
+        esac
+    done
+}
+
+heal_linux_brew_conflicts
+
 # Sudo detection: use empty string if root, test if sudo works, otherwise skip
 if [ "$(id -u)" = "0" ]; then
     SUDO=""

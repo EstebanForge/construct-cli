@@ -10,6 +10,7 @@ func TestShouldRunMigration(t *testing.T) {
 	}{
 		{name: "empty args", args: []string{}, want: false},
 		{name: "sys doctor", args: []string{"sys", "doctor"}, want: true},
+		{name: "sys clipboard-debug", args: []string{"sys", "clipboard-debug"}, want: true},
 		{name: "sys rebuild", args: []string{"sys", "rebuild"}, want: false},
 		{name: "sys self-update", args: []string{"sys", "self-update"}, want: false},
 		{name: "sys typo", args: []string{"sys", "rebuilt"}, want: false},

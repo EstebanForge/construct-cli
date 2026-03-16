@@ -2,6 +2,28 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.4 -->
+## [1.4.4] - 2026-03-16
+
+### Fixed
+- **Pi Image Paste Routing**: Pi agent sessions now force the clipboard path through the `clipper` shim instead of native X11 bindings, avoiding Linux image-paste failures in the container.
+- **Copilot Clipboard Bridge Reliability**: Added a direct patch for `@teddyzhu/clipboard` so Copilot can fetch clipboard images from the host bridge even when native clipboard access is unavailable in the container.
+- **Headless Clipboard Sync Timing**: Tightened the X11 clipboard sync loop and improved argument handling/debug logging in the clipboard bridge scripts to reduce races when agents read pasted images.
+- **Linux Brew Update Self-Healing**: `construct sys update` now maintains a Linux self-heal list for unsupported Homebrew formulas, currently replacing `summarize` with the supported npm package `@steipete/summarize` before brew upgrades run.
+
+### Added
+- **Clipboard Debug Command**: Added `construct sys clipboard-debug` to show clipboard bridge logs, patch state, temporary files, and running sync processes for Copilot debugging.
+- **Clipboard Debug Documentation**: Added `docs/CLIPBOARD.md` with patching details, debug workflow, and expected log locations for clipboard bridge issues.
+- **Updater Regression Guards**: Added template coverage for Linux brew self-heal entries and to ensure unsupported fallback packages like `summarize` are not shipped as default `packages.toml` installs.
+
+### Changed
+- **Debug Environment Propagation**: `CONSTRUCT_DEBUG=1` is now forwarded consistently into run, exec, and daemon flows so clipboard diagnostics work across agent entry paths.
+- **Default Package Template**: Added `lftp`, `tmux`, and `btop` to the default Homebrew package template.
+- **CLI Help**: Updated help output to expose the new `construct sys clipboard-debug` command.
+
+<!-- RELEASE:END 1.4.4 -->
+---
+
 <!-- RELEASE:START 1.4.3 -->
 ## [1.4.3] - 2026-03-11
 

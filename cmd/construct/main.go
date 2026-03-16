@@ -224,6 +224,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		sys.ListAgentMemories()
 	case "doctor":
 		doctor.Run(args[1:]...)
+	case "clipboard-debug":
+		sys.ClipboardDebug(cfg)
 	case "ct-fix":
 		changed, msg, err := sys.FixCtSymlink()
 		if err != nil {
@@ -547,7 +549,7 @@ func shouldRunMigration(args []string) bool {
 func isKnownSysCommand(cmd string) bool {
 	switch cmd {
 	case "init", "rebuild", "update", "reset", "shell", "aliases", "version", "help",
-		"config", "packages", "agents", "agents-md", "doctor", "ct-fix", "self-update",
+		"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
 		"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
 		return true
 	default:

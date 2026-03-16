@@ -336,19 +336,28 @@ EOF
 }
 setup_shell_environment
 
-# Start a headless X11 clipboard bridge when no DISPLAY is available.
+# Start a headless X11 clipboard bridge for agents using native X11 clipboard access.
 # Skip for Codex WSL fallback path to avoid forcing X11 and breaking paste.
-if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ] && [ -z "$WSL_DISTRO_NAME" ] && [ -z "$WSL_INTEROP" ]; then
-    if command -v Xvfb >/dev/null; then
-        DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
-        export DISPLAY
-        if ! pgrep -x Xvfb >/dev/null 2>&1; then
-            Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ] && [ -z "$WSL_DISTRO_NAME" ] && [ -z "$WSL_INTEROP" ]; then
+    if [ -z "$DISPLAY" ]; then
+        if command -v Xvfb >/dev/null; then
+            DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
+            export DISPLAY
+            if ! pgrep -x Xvfb >/dev/null 2>&1; then
+                Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+                if [ "$CONSTRUCT_DEBUG" = "1" ]; then
+                    echo "✓ Started Xvfb for headless clipboard"
+                fi
+            fi
+        else
             if [ "$CONSTRUCT_DEBUG" = "1" ]; then
-                echo "✓ Started Xvfb for headless clipboard"
+                echo "⚠️  Xvfb not found; headless clipboard bridge disabled"
             fi
         fi
-        # Wait briefly for the X11 socket to appear.
+    fi
+
+    if [ -n "$DISPLAY" ]; then
+        # Wait briefly for the X11 socket to appear when we started or reused a display.
         XSOCK="/tmp/.X11-unix/X${DISPLAY#:}"
         for _ in $(seq 1 20); do
             if [ -S "$XSOCK" ]; then
@@ -357,10 +366,6 @@ if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ -z "$DISPLAY" ] && [ "$CONSTRUCT_AGENT
             sleep 0.1
         done
         /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
-    else
-        if [ "$CONSTRUCT_DEBUG" = "1" ]; then
-            echo "⚠️  Xvfb not found; headless clipboard bridge disabled"
-        fi
     fi
 fi
 
