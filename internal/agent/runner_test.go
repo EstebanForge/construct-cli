@@ -204,16 +204,6 @@ func TestCodexWSLEnvironment(t *testing.T) {
 }
 
 func TestAppendAgentSpecificRunFlagsCodex(t *testing.T) {
-	origDebug := os.Getenv("CONSTRUCT_DEBUG")
-	t.Cleanup(func() {
-		if origDebug == "" {
-			os.Unsetenv("CONSTRUCT_DEBUG")
-			return
-		}
-		os.Setenv("CONSTRUCT_DEBUG", origDebug)
-	})
-	os.Setenv("CONSTRUCT_DEBUG", "1")
-
 	runFlags := []string{}
 	appendAgentSpecificRunFlags(&runFlags, "codex", "1")
 
@@ -222,7 +212,6 @@ func TestAppendAgentSpecificRunFlagsCodex(t *testing.T) {
 		"WSL_DISTRO_NAME=Ubuntu",
 		"WSL_INTEROP=/run/WSL/8_interop",
 		"DISPLAY=",
-		"CONSTRUCT_DEBUG=1",
 	}
 	for _, envVar := range expected {
 		if !hasRunFlagEnv(runFlags, envVar) {
@@ -259,16 +248,6 @@ func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
 }
 
 func TestAppendAgentSpecificExecEnvCodex(t *testing.T) {
-	origDebug := os.Getenv("CONSTRUCT_DEBUG")
-	t.Cleanup(func() {
-		if origDebug == "" {
-			os.Unsetenv("CONSTRUCT_DEBUG")
-			return
-		}
-		os.Setenv("CONSTRUCT_DEBUG", origDebug)
-	})
-	os.Setenv("CONSTRUCT_DEBUG", "1")
-
 	envVars := []string{}
 	appendAgentSpecificExecEnv(&envVars, "codex", "1")
 
@@ -277,7 +256,6 @@ func TestAppendAgentSpecificExecEnvCodex(t *testing.T) {
 		"WSL_DISTRO_NAME=Ubuntu",
 		"WSL_INTEROP=/run/WSL/8_interop",
 		"DISPLAY=",
-		"CONSTRUCT_DEBUG=1",
 	}
 
 	for _, expectedVar := range expected {
@@ -299,7 +277,6 @@ func TestAppendAgentSpecificExecEnvCodexNoClipboardPatch(t *testing.T) {
 		"WSL_DISTRO_NAME=Ubuntu",
 		"WSL_INTEROP=/run/WSL/8_interop",
 		"DISPLAY=",
-		"CONSTRUCT_DEBUG=1",
 	}
 	for _, unexpectedVar := range unexpected {
 		if containsEnv(envVars, unexpectedVar) {

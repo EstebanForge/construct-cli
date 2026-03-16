@@ -6,6 +6,13 @@
 HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
 AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
 AGENT_NAME="${CONSTRUCT_AGENT_NAME}"
+DEBUG="${CONSTRUCT_DEBUG:-0}"
+
+dbg() {
+    if [ "$DEBUG" = "1" ]; then
+        echo "[clipper] $*" >&2
+    fi
+}
 
 if [ -z "$HOST_URL" ]; then
     echo "Error: CONSTRUCT_CLIPBOARD_URL not set" >&2
@@ -13,6 +20,7 @@ if [ -z "$HOST_URL" ]; then
 fi
 
 CALL_NAME=$(basename $0)
+dbg "Invoked as=$CALL_NAME agent=$AGENT_NAME args=$*"
 TARGET_MIME=""
 IS_OUTPUT_MODE=false
 REQUESTED_TARGETS=false
@@ -45,8 +53,11 @@ for arg in "$@"; do
     fi
 done
 
+dbg "Parsed: target_mime=$TARGET_MIME requested_targets=$REQUESTED_TARGETS path_agent=$PATH_AGENT"
+
 # If agent is asking for available targets, we MUST include image/png
 if [[ "$REQUESTED_TARGETS" == "true" ]]; then
+    dbg "Returning target list"
     # Always report supported types for the bridge
     echo "TIMESTAMP"
     echo "TARGETS"
@@ -100,25 +111,34 @@ emit_image_path() {
 
 # Always try image first; fall back to text if no image and no explicit image request.
 if fetch_image; then
+    IMG_SIZE=$(wc -c < "$TMP_RAW" 2>/dev/null || echo 0)
+    dbg "Image fetched: ${IMG_SIZE} bytes"
     if [[ "$PATH_AGENT" == "true" ]]; then
+        dbg "Emitting image path"
         emit_image_path
         exit $?
     fi
+    dbg "Emitting image bytes"
     emit_image_bytes
     exit $?
 fi
 
+dbg "No image from host"
+
 if [[ "$TARGET_MIME" == image/* ]]; then
+    dbg "Image requested but none available, exit 1"
     exit 1
 fi
 
 # Fetch text from host
+dbg "Fetching text"
 OUTPUT=$(curl -s -f \
     -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
     "${HOST_URL}/paste?type=text/plain")
 
 EXIT_CODE=$?
 
+dbg "Text fetch: exit=$EXIT_CODE len=${#OUTPUT}"
 echo -n "$OUTPUT"
 
 if [ $EXIT_CODE -eq 22 ]; then

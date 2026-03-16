@@ -609,6 +609,11 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	}
 	runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
 
+	// Pass debug flag to container for verbose clipboard/sync logging.
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_DEBUG=1")
+	}
+
 	// Forward COLORTERM for proper color rendering in container
 	// If host has COLORTERM set, respect it; otherwise default to truecolor
 	// Fixes washed-out colors when SSH doesn't forward terminal capabilities
@@ -1032,6 +1037,11 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		appendAgentSpecificDaemonEnv(&envVars, args[0])
 	}
 
+	// Pass debug flag for verbose clipboard/sync logging.
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		envVars = append(envVars, "CONSTRUCT_DEBUG=1")
+	}
+
 	// Add COLORTERM for proper color rendering
 	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
 		envVars = append(envVars, "COLORTERM="+colorterm)
@@ -1112,6 +1122,10 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime 
 	if len(args) > 0 {
 		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
 		appendAgentSpecificExecEnv(&envVars, args[0], clipboardPatchValue)
+	}
+
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		envVars = append(envVars, "CONSTRUCT_DEBUG=1")
 	}
 
 	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
@@ -1300,11 +1314,6 @@ func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchVa
 			*runFlags = append(*runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
 			// Unset DISPLAY so arboard fails and triggers WSL fallback.
 			*runFlags = append(*runFlags, "-e", "DISPLAY=")
-
-			// Pass CONSTRUCT_DEBUG to codex container.
-			if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-				*runFlags = append(*runFlags, "-e", "CONSTRUCT_DEBUG=1")
-			}
 		}
 	case "pi":
 		// Pi uses a native Rust clipboard module that talks directly to X11/Wayland,
@@ -1343,10 +1352,6 @@ func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValu
 		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
 		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
 		*envVars = append(*envVars, "DISPLAY=")
-
-		if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-			*envVars = append(*envVars, "CONSTRUCT_DEBUG=1")
-		}
 	case "pi":
 		if clipboardPatchValue == "0" {
 			return
