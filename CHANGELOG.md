@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.5 -->
+## [1.4.5] - 2026-03-17
+
+### Removed
+- **Linux Brew Self-Heal**: Removed `heal_linux_brew_conflicts()` from `update-all.sh` and its associated tests. The `summarize` formula conflict has been resolved at the image level and this code path was dead.
+
+<!-- RELEASE:END 1.4.5 -->
+---
+
 <!-- RELEASE:START 1.4.4 -->
 ## [1.4.4] - 2026-03-16
 
