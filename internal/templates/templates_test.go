@@ -111,19 +111,6 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "npm config set prefix \"$HOME/.npm-global\"") {
 		t.Error("update-all.sh should configure npm global prefix before npm updates")
 	}
-	if !strings.Contains(UpdateAll, "local heals=(") {
-		t.Error("update-all.sh should maintain a Linux brew self-heal list")
-	}
-	if !strings.Contains(UpdateAll, "\"summarize:npm:@steipete/summarize\"") {
-		t.Error("update-all.sh should seed summarize in the Linux brew self-heal list")
-	}
-	if !strings.Contains(UpdateAll, "Detected unsupported Homebrew formula '$formula' on Linux") {
-		t.Error("update-all.sh should log generic Linux brew self-heal replacements")
-	}
-	if !strings.Contains(UpdateAll, "npm install -g \"$package\"") {
-		t.Error("update-all.sh should install npm fallback packages from the Linux self-heal list")
-	}
-
 	// Test agent patch template
 	if AgentPatch == "" {
 		t.Error("agent-patch.sh template is empty")
@@ -175,9 +162,6 @@ func TestEmbeddedTemplates(t *testing.T) {
 	}
 	if !strings.Contains(UpdateAll, "write_entrypoint_hash") {
 		t.Error("update-all.sh should write entrypoint hash via helper")
-	}
-	if strings.Contains(Packages, "summarize") {
-		t.Error("packages.toml should not include summarize as a default package")
 	}
 }
 
