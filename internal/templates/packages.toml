@@ -44,6 +44,7 @@ packages = [
 [bun]
 packages = [
     "@tobilu/qmd",
+    "@oh-my-pi/pi-coding-agent",
 ]
 
 # Global Node.js packages

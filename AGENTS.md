@@ -40,17 +40,31 @@
 - Keep `internal/constants/constants.go` version exactly aligned with the tag being released (stable or prerelease), or `make release` fails `check-version`
 - Stable users track `VERSION`; beta users track `VERSION-BETA` when `runtime.update_channel = "beta"`
 
-## Adding CLI Agents
-- Add npm package in `internal/templates/packages.toml` under `[npm].packages`.
-- Register agent mount in `internal/agent/agent.go` (Name, Slug, ConfigPath).
-- Register AGENTS.md rules path in `internal/sys/memories.go` and update `internal/sys/memories_test.go`.
-- Update help list in `internal/ui/help.go`.
-- Update docs in `README.md` under "Available AGENTS".
-- If the agent needs setup commands, add them in `[post_install].commands` in `internal/templates/packages.toml`.
-- If the agent requires first-run setup that should not be automated, gate the run in `internal/agent/runner.go` and use a marker file under Construct home (e.g., `~/.config/<agent>/.construct_configured`) to prompt once and record completion.
+## Adding/Removing CLI Agents
+
+### Adding an Agent
+1. Add package to `internal/templates/packages.toml` under the correct section (`[npm]`, `[bun]`, or `[brew]`).
+2. Register agent mount in `internal/agent/agent.go` (Name, Slug, ConfigPath).
+3. Register AGENTS.md rules path in `internal/sys/memories.go` and update `internal/sys/memories_test.go` (bump count + add assertion).
+4. Add slug to the available agents list in `internal/ui/help.go`.
+5. Add slug to post-update verification loop in `internal/templates/update-all.sh`.
+6. Add slug to post-install verification loop in `internal/config/packages.go` (`GenerateInstallScript`).
+7. Update docs:
+   - `README.md` — "Available AGENTS" list + yolo_agents comment.
+   - `docs/ARCHITECTURE-DESIGN.md` — Section 5 agent list.
+   - `AGENTS.md` — Agent Additions Log (below).
+8. If the agent needs setup commands, add them in `[post_install].commands` in `internal/templates/packages.toml`.
+9. If the agent requires first-run setup that should not be automated, gate the run in `internal/agent/runner.go` and use a marker file under Construct home (e.g., `~/.config/<agent>/.construct_configured`) to prompt once and record completion.
+
+### Removing an Agent
+Reverse the steps above: remove the package from `packages.toml`, unregister from `agent.go`, remove from `memories.go` + test, remove from `help.go`, remove from both verification loops (`update-all.sh` and `packages.go`), and remove from docs (`README.md`, `ARCHITECTURE-DESIGN.md`). Add a removal note to the Agent Additions Log.
 
 ## Agent Additions Log
 - Kilo Code CLI
   - Command: `npm install -g @kilocode/cli` (run as `kilocode`)
   - Rules path: `~/.kilocode/rules/AGENTS.md`
   - Files updated: `internal/templates/packages.toml`, `internal/agent/agent.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `README.md`
+- Oh My Pi
+  - Command: `bun install -g @oh-my-pi/pi-coding-agent` (run as `omp`)
+  - Rules path: `~/.omp/agent/AGENTS.md`
+  - Files updated: `internal/templates/packages.toml`, `internal/agent/agent.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `README.md`, `docs/ARCHITECTURE-DESIGN.md`

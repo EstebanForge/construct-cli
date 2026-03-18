@@ -22,6 +22,7 @@ var SupportedAgents = []Agent{
 	{Name: "Goose CLI", Slug: "goose", ConfigPath: "/home/construct/.config/goose"},
 	{Name: "Kilo Code CLI", Slug: "kilocode", ConfigPath: "/home/construct/.kilocode"},
 	{Name: "Pi Coding Agent", Slug: "pi", ConfigPath: "/home/construct/.pi"},
+	{Name: "Oh My Pi", Slug: "omp", ConfigPath: "/home/construct/.omp"},
 }
 
 // IsSupported checks if an agent slug is supported.

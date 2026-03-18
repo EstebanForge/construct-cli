@@ -42,6 +42,7 @@ disable = [
     "tldr",          # tldr pages update - low priority
     "tmux",          # tmux plugin updates - manual
     "toolbx",        # Fedora toolbox - not used
+    "npm",             # npm update -g doesn't cross semver boundaries; handled in update-all.sh
     "custom_commands", # We handle custom commands in update-all.sh
 ]
 

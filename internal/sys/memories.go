@@ -37,6 +37,7 @@ func GetSupportedAgents() []AgentMemory {
 			"~/Documents/Cline/Rules/AGENTS.md",
 			"~/Cline/Rules/AGENTS.md",
 		}},
+		{Name: "omp", FriendlyName: "Oh My Pi", Paths: []string{"~/.omp/agent/AGENTS.md"}},
 	}
 }
 
