@@ -32,7 +32,7 @@ disable = [
     "gem",           # Ruby gems - managed separately if needed
     "git_repos",     # Don't auto-pull git repositories
     "gnome_shell_extensions", # No GNOME in container
-    "node",          # We manage node via brew, not nvm by default
+    "node",          # npm update -g doesn't cross semver boundaries; handled in update-all.sh
     "rcm",           # Dotfile manager - not used
     "remotes",       # Remote topgrade - not applicable
     "restarts",      # Service restarts - not applicable in container
@@ -42,7 +42,6 @@ disable = [
     "tldr",          # tldr pages update - low priority
     "tmux",          # tmux plugin updates - manual
     "toolbx",        # Fedora toolbox - not used
-    "npm",             # npm update -g doesn't cross semver boundaries; handled in update-all.sh
     "custom_commands", # We handle custom commands in update-all.sh
 ]
 
