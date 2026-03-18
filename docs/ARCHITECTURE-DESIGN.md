@@ -117,6 +117,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - goose (Block Goose CLI)
 - kilocode (Kilo Code CLI)
 - pi (Pi Coding Agent)
+- omp (Oh My Pi)
 
 ### 5.1 Claude Provider Aliases (CC System)
 Construct supports configurable provider aliases for Claude Code, enabling seamless switching between different API endpoints:

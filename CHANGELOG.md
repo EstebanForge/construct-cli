@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.4.6 -->
+## [1.4.6] - 2026-03-18
+
+### Fixed
+- **NPM Global Package Updates**: `sys update` now upgrades npm global packages to their latest versions. Previously, topgrade's `npm update -g` respected caret semver ranges and would not cross minor/major version boundaries (e.g., `0.58.4` would never reach `0.60.0`). Disabled topgrade's npm step and replaced it with explicit `npm install -g <pkg>@latest` for each globally installed package.
+
+### Added
+- **Oh My Pi Agent**: Added Oh My Pi (`omp`) as a supported agent — a fork of Pi Coding Agent with Python/IPython integration, LSP support, and extended tooling. Installed via Bun (`@oh-my-pi/pi-coding-agent`).
+
+### Changed
+- **Agent Addition/Removal Docs**: Updated AGENTS.md with complete checklist for adding or removing agents, covering all files that need changes.
+
+<!-- RELEASE:END 1.4.6 -->
+---
+
 <!-- RELEASE:START 1.4.5 -->
 ## [1.4.5] - 2026-03-17
 

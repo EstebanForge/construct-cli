@@ -45,6 +45,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Goose CLI** (`goose`) – Block Goose agent CLI.
 - **Kilo Code CLI** (`kilocode`) – Agentic coding CLI with modes and workspace targeting.
 - **Pi Coding Agent** (`pi`) – General-purpose coding assistant with extensible tooling.
+- **Oh My Pi** (`omp`) – Fork of Pi with Python/IPython integration, LSP support, and extended tooling.
 - **Claude Code** with several other 3rd party providers with Anthropic compatible API: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo.
 
 ### Installation
@@ -204,7 +205,7 @@ clipboard_host = "host.docker.internal"
 yolo_all = false
 
 # Enable yolo mode for specific agent slugs
-# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
+# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode, omp
 yolo_agents = ["claude", "gemini"]
 
 [daemon]

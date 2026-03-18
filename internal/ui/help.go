@@ -69,7 +69,7 @@ Agent Examples:
   construct shell "run bash script"        # No collision with sys shell
   ct qwen "Fix bugs"                       # Use ct alias
 
-  Available agents: claude, qwen, gemini, opencode, copilot, cline, codex, droid, goose, kilocode, pi, amp
+  Available agents: claude, qwen, gemini, opencode, copilot, cline, codex, droid, goose, kilocode, pi, omp, amp
 
 Network Isolation:
   Set in config.toml [network] section or use --ct-network flag:

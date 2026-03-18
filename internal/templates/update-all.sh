@@ -76,14 +76,23 @@ else
 
     echo "Updating Homebrew packages..."
     brew update && brew upgrade --greedy && brew cleanup && brew autoremove || true
+fi
 
-    echo "Updating npm global packages..."
-    if command -v npm &> /dev/null; then
-        mkdir -p "$HOME/.npm-global"
-        npm config set prefix "$HOME/.npm-global" || true
-        export PATH="$HOME/.npm-global/bin:$PATH"
-        echo "npm global prefix: $(npm config get prefix 2>/dev/null || echo unknown)"
-        npm update -g || true
+# Upgrade npm global packages to latest (npm update -g doesn't cross semver boundaries)
+if command -v npm &> /dev/null; then
+    mkdir -p "$HOME/.npm-global"
+    npm config set prefix "$HOME/.npm-global" || true
+    export PATH="$HOME/.npm-global/bin:$PATH"
+    echo ""
+    echo "Upgrading npm global packages to latest..."
+    # Get list of globally installed packages (excluding npm itself), then reinstall each
+    npm_pkgs=$(npm ls -g --depth=0 --json 2>/dev/null | jq -r '.dependencies // {} | keys[] | select(. != "npm")' 2>/dev/null || true)
+    if [ -n "$npm_pkgs" ]; then
+        for pkg in $npm_pkgs; do
+            npm install -g "$pkg@latest" || echo "⚠️  Failed to upgrade $pkg"
+        done
+    else
+        echo "  No npm global packages found to upgrade"
     fi
 fi
 
@@ -124,7 +133,7 @@ fi
 echo ""
 echo "Post-update command verification..."
 missing_cmds=""
-for cmd in claude amp copilot opencode qwen cline codex goose gemini kilocode pi; do
+for cmd in claude amp copilot opencode qwen cline codex goose gemini kilocode pi omp; do
     if command -v "$cmd" &> /dev/null; then
         cmd_path=$(command -v "$cmd")
         echo "  ✓ $cmd -> $cmd_path"
