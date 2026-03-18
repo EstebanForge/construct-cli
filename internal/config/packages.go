@@ -442,16 +442,15 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 		"sparkle",
 		"tmux",
 		"toolbx",
-		"npm", // npm update -g doesn't cross semver boundaries; handled in update-all.sh
 	}
 	disabledSteps = append(disabledSteps, baseDisabled...)
 
 	if !c.Tools.Nix {
 		disabledSteps = append(disabledSteps, "nix")
 	}
-	if !c.Tools.Nvm {
-		disabledSteps = append(disabledSteps, "node")
-	}
+	// Always disable topgrade's node step: npm update -g doesn't cross semver
+	// boundaries, so we handle npm global upgrades in update-all.sh instead.
+	disabledSteps = append(disabledSteps, "node")
 	if !c.Tools.Asdf {
 		disabledSteps = append(disabledSteps, "asdf")
 	}
