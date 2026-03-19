@@ -13,7 +13,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Flexible runtime support**: User-configurable engine with auto-detection and auto-start capabilities.
 - **Fast subsequent runs**: Agents and tools live in a persistent named volume (`construct-packages`); optional daemon mode enables instant agent startup (~100ms) via container reuse.
 - **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
-- **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`.
+- **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, including first-class env passthrough controls in `[sandbox]`.
 - **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home volume.
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives tool installs (apt, brew, npm, pip, cargo, gems), post-install hooks, and topgrade config generation.
@@ -21,6 +21,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Agent rules + aliases**: Global AGENTS.md management, plus host alias installation (sandboxed and ns- for direct host use).
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
+- **Configurable Env Passthrough**: Users can forward exact env vars and prefix-mapped env vars into Construct without editing compose overrides.
 - **Safe upgrades**: Versioned migrations refresh templates and merge config with backups; daemon container is properly handled during upgrades.
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
@@ -54,6 +55,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `internal/templates/Dockerfile`
   - Runtime injects `PATH` and `CONSTRUCT_PATH` defensively for non-daemon runs, daemon exec sessions, and daemon startup.
   - entrypoint exports `CONSTRUCT_PATH` and writes `~/.construct-path.sh`, which is sourced by `~/.profile` for login shells.
+  - Runtime also forwards configured generic env vars from `[sandbox].env_passthrough` plus prefix-derived env vars from `[sandbox].env_passthrough_prefixes`.
 - **Scripts**: `scripts/`
   - install.sh (curl-able installer to system bins), reset helpers, integration tests.
 - **Agent Documentation**: `AGENTS.md`
@@ -126,6 +128,7 @@ Construct supports configurable provider aliases for Claude Code, enabling seaml
 - **Fallback Usage**: `construct claude <provider> [args...]`
 - **Configuration**: `[claude.cc.<provider>]` sections in config.toml
 - **Environment Variables**: All use `CNSTR_<PROVIDER>_API_KEY` naming convention
+- **Generic Env Passthrough**: `sandbox.env_passthrough` forwards exact host env vars, and `sandbox.env_passthrough_prefixes = ["CNSTR_"]` maps host `CNSTR_FOO` to `FOO` inside Construct.
 
 **Supported Providers:**
 - **Z.AI** (`zai`) - `CNSTR_ZAI_API_KEY`
@@ -136,6 +139,7 @@ Construct supports configurable provider aliases for Claude Code, enabling seaml
 
 **Key Features:**
 - **Environment Variable Expansion**: Supports `${VAR_NAME}` syntax referencing host environment
+- **Generic Passthrough Compatibility**: Provider-specific env injection coexists with generic passthrough; explicit configured passthrough wins over prefix-derived `CNSTR_` values, and provider-specific injection still has final override priority
 - **Auto-Reset**: Automatically cleans existing Claude environment variables before injection
 - **Security**: Sensitive values masked in debug output
 - **Isolation**: Provider-specific environment injection prevents conflicts
@@ -157,6 +161,7 @@ API_TIMEOUT_MS = "3000000"
   - Generates `container/install_user_packages.sh` from `packages.toml` and installs tools on first container start (including post-install hooks).
   - Attempts to create `ct` symlink/alias (also triggered by `construct`, `construct sys`, and `construct sys help`).
   - Sets up Claude provider configuration template with `CNSTR_` prefixed environment variables.
+  - Writes default sandbox env passthroughs for `GITHUB_TOKEN` and `CONTEXT7_API_KEY`, plus `CNSTR_` prefix auto-pass support.
 - **Updates** (`sys update` → `templates/update-all.sh`):
   - apt update/upgrade (via topgrade or fallback).
   - `claude update` (fallback path when topgrade is missing).
@@ -213,6 +218,7 @@ make cross-compile   # all platforms
 - Long operations use gum spinners; logs go to `~/.config/construct-cli/logs/` (timestamped).
 - Containers are ephemeral; volumes persist `/home/construct` installs/state.
 - Environment management: Claude providers automatically reset environment variables to prevent conflicts.
+- Environment passthrough: generic env forwarding is configured in `[sandbox]` and supports both exact env names and prefix-based mappings.
 
 ---
 
@@ -239,6 +245,13 @@ Self-update checks the configured channel marker file (`VERSION` or `VERSION-BET
   - `maskSensitiveValue()` protects sensitive data in debug output
 - **Container Execution**: `runWithProviderEnv()` unified function with optional provider environment injection
 - **Test Coverage**: Comprehensive unit tests for config parsing, variable expansion, and environment reset
+
+### 9.2.1 Generic Env Passthrough
+- **Config Schema**: `SandboxConfig` includes `EnvPassthrough []string` and `EnvPassthroughPrefixes []string`
+- **Defaults**: Fresh configs default to `["GITHUB_TOKEN", "CONTEXT7_API_KEY"]` plus `["CNSTR_"]`
+- **Transformation Rule**: Host `CNSTR_FOO=value` becomes `FOO=value` inside Construct
+- **Precedence**: exact configured passthrough wins over prefix-derived values targeting the same inside env name; provider-specific injected env still overrides generic passthrough
+- **Execution Paths**: Forwarded env is applied consistently to cold `compose run`, daemon exec, and attach exec flows
 
 ### 9.3 Daemon Mode Implementation
 Construct supports an optional daemon mode that keeps a background container running for instant agent execution (~100ms startup vs 2-5s for cold start).

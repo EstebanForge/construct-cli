@@ -61,6 +61,12 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "exec_as_host_user = true") {
 		t.Error("config.toml template should include exec_as_host_user with default true")
 	}
+	if !strings.Contains(Config, `env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"]`) {
+		t.Error("config.toml template should include default env_passthrough entries for GITHUB_TOKEN and CONTEXT7_API_KEY")
+	}
+	if !strings.Contains(Config, `env_passthrough_prefixes = ["CNSTR_"]`) {
+		t.Error("config.toml template should include default env_passthrough_prefixes for CNSTR_")
+	}
 	if !strings.Contains(Config, "update_channel = \"stable\"") {
 		t.Error("config.toml template should include update_channel with default stable")
 	}

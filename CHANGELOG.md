@@ -2,6 +2,22 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.5.0 -->
+## [1.5.0] - 2026-03-19
+
+### Added
+- **Generic Environment Variable Passthrough**: Added first-class `[sandbox].env_passthrough` support so users can forward arbitrary host environment variables into Construct without editing compose overrides.
+- **Prefix-Based Env Auto-Pass**: Added `[sandbox].env_passthrough_prefixes` with default `["CNSTR_"]`, allowing host vars like `CNSTR_CONTEXT7_API_KEY` to appear inside Construct as `CONTEXT7_API_KEY`.
+- **Default Auth Passthroughs**: Fresh configs now include `GITHUB_TOKEN` and `CONTEXT7_API_KEY` in `sandbox.env_passthrough` by default.
+- **Regression Coverage for Env Forwarding**: Added tests covering explicit env passthrough, `CNSTR_` prefix stripping, precedence rules, fresh-run flag injection, daemon exec env assembly, and template/default-config drift.
+
+### Changed
+- **Env Precedence Rules**: Explicit `sandbox.env_passthrough` keys now win over prefix-derived `CNSTR_` passthrough when both target the same inside variable name.
+- **Documentation**: Updated README and architecture docs to document generic env passthrough, default forwarded keys, and the new `CNSTR_` auto-pass behavior.
+
+<!-- RELEASE:END 1.5.0 -->
+---
+
 <!-- RELEASE:START 1.4.6 -->
 ## [1.4.6] - 2026-03-18
 

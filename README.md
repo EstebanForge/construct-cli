@@ -196,6 +196,8 @@ propagate_git_identity = true # sync host git name/email into container
 non_root_strict = false # force strict non-root runtime (advanced; may break brew/npm setup on Docker)
 allow_custom_compose_override = false # allow custom docker-compose.override.yml behavior (advanced; disables auto-healing)
 exec_as_host_user = true # run agent exec as host UID:GID on Linux Docker (HOME is forced to /home/construct)
+env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"] # exact host env vars to pass through unchanged
+env_passthrough_prefixes = ["CNSTR_"] # auto-pass CNSTR_FOO as FOO inside Construct
 selinux_labels = "auto" # auto | enabled | disabled
 shell = "/bin/bash"
 clipboard_host = "host.docker.internal"
@@ -245,6 +247,23 @@ log_retention_days = 15
 ```
 
 Agent and sandbox config directories on the host live inside `~/.config/construct-cli/home`.
+
+### Environment Variable Passthrough
+
+Construct supports two simple ways to make host env vars available inside the sandbox:
+
+```toml
+[sandbox]
+env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"]
+env_passthrough_prefixes = ["CNSTR_"]
+```
+
+- `env_passthrough`: forwards exact host env vars unchanged.
+- `env_passthrough_prefixes`: auto-forwards any matching host env var after stripping the prefix.
+- Fresh configs default to `GITHUB_TOKEN` and `CONTEXT7_API_KEY` in `env_passthrough`.
+- Example: host `CNSTR_CONTEXT7_API_KEY=...` becomes `CONTEXT7_API_KEY` inside Construct.
+- If both `CONTEXT7_API_KEY` and `CNSTR_CONTEXT7_API_KEY` exist, the explicit `CONTEXT7_API_KEY` value wins.
+- Claude provider passthrough still works as before for built-in provider keys.
 
 On Docker, Construct intentionally runs as root only during bootstrap to repair permissions, then drops to a non-root user (`gosu`).  
 Avoid manually setting `user:` in `docker-compose.override.yml` unless you explicitly enable `[sandbox].non_root_strict = true`.  

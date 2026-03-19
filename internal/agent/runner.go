@@ -348,8 +348,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) {
 	baseArgs := args
-	commonProviderEnv := env.CollectProviderEnv()
-	mergedProviderEnv := env.MergeEnvVars(commonProviderEnv, providerEnv)
+	mergedProviderEnv := collectForwardedEnv(cfg, providerEnv)
 
 	if err := ensureAgentRuntimeDirs(baseArgs, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -583,85 +582,7 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	var cmd *exec.Cmd
 	loginForward, loginPorts := shouldEnableLoginForward(args)
 
-	// Construct common arguments for 'run' command
-	runFlags := []string{"--rm"}
-	if stdruntime.GOOS == "darwin" {
-		runFlags = append(runFlags, "--user", "construct")
-	}
-	appendExecUserRunFlags(&runFlags, cfg, containerRuntime)
-
-	if loginForward {
-		for _, port := range loginPorts {
-			listenPort := port + loginForwardListenOffset
-			runFlags = append(runFlags, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
-		}
-	}
-
-	// Inject clipboard env vars
-	if cbServer != nil {
-		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-		runFlags = append(runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
-	}
-	clipboardPatchValue := "1"
-	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
-		clipboardPatchValue = "0"
-	}
-	runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
-
-	// Pass debug flag to container for verbose clipboard/sync logging.
-	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-		runFlags = append(runFlags, "-e", "CONSTRUCT_DEBUG=1")
-	}
-
-	// Forward COLORTERM for proper color rendering in container
-	// If host has COLORTERM set, respect it; otherwise default to truecolor
-	// Fixes washed-out colors when SSH doesn't forward terminal capabilities
-	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
-		runFlags = append(runFlags, "-e", "COLORTERM="+colorterm)
-	} else {
-		runFlags = append(runFlags, "-e", "COLORTERM=truecolor")
-	}
-
-	// Inject agent name for clipboard behavior tuning.
-	if len(args) > 0 {
-		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
-		appendAgentSpecificRunFlags(&runFlags, args[0], clipboardPatchValue)
-	}
-
-	// Inject SSH bridge port
-	for _, e := range osEnv {
-		if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-			runFlags = append(runFlags, "-e", e)
-			break
-		}
-	}
-
-	if loginForward {
-		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
-		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
-		runFlags = append(runFlags, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
-	}
-
-	// Inject provider env vars
-	for _, envVar := range mergedProviderEnv {
-		runFlags = append(runFlags, "-e", envVar)
-	}
-
-	// Inject PATH explicitly to ensure it's available in container and all subprocesses
-	for _, e := range osEnv {
-		if strings.HasPrefix(e, "PATH=") {
-			runFlags = append(runFlags, "-e", e)
-			if ui.CurrentLogLevel >= ui.LogLevelDebug {
-				fmt.Printf("Debug: Injecting PATH to container: %s\n", e[:100]+"...")
-			}
-			break
-		}
-	}
-
-	// Add image/service name and arguments
-	runFlags = append(runFlags, "construct-box")
-	runFlags = append(runFlags, args...)
+	runFlags := buildRunFlags(args, cfg, containerRuntime, osEnv, cbServer, mergedProviderEnv, loginForward, loginPorts)
 
 	// Build the command using runtime abstraction
 	cmd, err = runtime.BuildComposeCommand(containerRuntime, configPath, "run", runFlags)
@@ -696,6 +617,95 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		})
 		os.Exit(1)
 	}
+}
+
+func collectForwardedEnv(cfg *config.Config, providerEnv []string) []string {
+	commonProviderEnv := env.CollectProviderEnv()
+	mergedProviderEnv := env.MergeEnvVars(commonProviderEnv, providerEnv)
+
+	if cfg == nil {
+		return mergedProviderEnv
+	}
+
+	genericPassthroughEnv := env.CollectPassthroughEnv(
+		cfg.Sandbox.EnvPassthrough,
+		cfg.Sandbox.EnvPassthroughPrefixes,
+	)
+
+	return env.MergeEnvVars(genericPassthroughEnv, mergedProviderEnv)
+}
+
+func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, osEnv []string, cbServer *clipboard.Server, mergedProviderEnv []string, loginForward bool, loginPorts []int) []string {
+	runFlags := []string{"--rm"}
+	if stdruntime.GOOS == "darwin" {
+		runFlags = append(runFlags, "--user", "construct")
+	}
+	appendExecUserRunFlags(&runFlags, cfg, containerRuntime)
+
+	if loginForward {
+		for _, port := range loginPorts {
+			listenPort := port + loginForwardListenOffset
+			runFlags = append(runFlags, "-p", fmt.Sprintf("127.0.0.1:%d:%d", port, listenPort))
+		}
+	}
+
+	if cbServer != nil {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		runFlags = append(runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
+	}
+
+	clipboardPatchValue := "1"
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	runFlags = append(runFlags, "-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
+
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_DEBUG=1")
+	}
+
+	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
+		runFlags = append(runFlags, "-e", "COLORTERM="+colorterm)
+	} else {
+		runFlags = append(runFlags, "-e", "COLORTERM=truecolor")
+	}
+
+	if len(args) > 0 {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_AGENT_NAME="+args[0])
+		appendAgentSpecificRunFlags(&runFlags, args[0], clipboardPatchValue)
+	}
+
+	for _, e := range osEnv {
+		if strings.HasPrefix(e, "CONSTRUCT_SSH_BRIDGE_PORT=") {
+			runFlags = append(runFlags, "-e", e)
+			break
+		}
+	}
+
+	if loginForward {
+		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
+		runFlags = append(runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(loginPorts))
+		runFlags = append(runFlags, "-e", fmt.Sprintf("CONSTRUCT_LOGIN_FORWARD_LISTEN_OFFSET=%d", loginForwardListenOffset))
+	}
+
+	for _, envVar := range mergedProviderEnv {
+		runFlags = append(runFlags, "-e", envVar)
+	}
+
+	for _, e := range osEnv {
+		if strings.HasPrefix(e, "PATH=") {
+			runFlags = append(runFlags, "-e", e)
+			if ui.CurrentLogLevel >= ui.LogLevelDebug {
+				fmt.Printf("Debug: Injecting PATH to container: %s\n", e[:100]+"...")
+			}
+			break
+		}
+	}
+
+	runFlags = append(runFlags, "construct-box")
+	runFlags = append(runFlags, args...)
+	return runFlags
 }
 
 func shouldEnableLoginForward(args []string) (bool, []int) {
@@ -1003,19 +1013,6 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		}
 	}
 
-	// Build environment variables to pass
-	envVars := make([]string, 0, len(providerEnv)+12)
-
-	// Add provider environment variables
-	envVars = append(envVars, providerEnv...)
-
-	// Ensure PATH is complete for daemon exec sessions.
-	// The container user's home is always /home/construct.
-	env.EnsureConstructPath(&envVars, "/home/construct")
-	applyConstructPath(&envVars)
-	env.SetEnvVar(&envVars, "HOME", "/home/construct")
-
-	// Add clipboard environment (start clipboard server for this session)
 	clipboardHost := ""
 	if cfg != nil {
 		clipboardHost = cfg.Sandbox.ClipboardHost
@@ -1025,29 +1022,8 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
 		}
-	} else {
-		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
-		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
-		envVars = append(envVars, "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
 	}
-
-	// Add agent name for clipboard behavior tuning
-	if len(args) > 0 {
-		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
-		appendAgentSpecificDaemonEnv(&envVars, args[0])
-	}
-
-	// Pass debug flag for verbose clipboard/sync logging.
-	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
-		envVars = append(envVars, "CONSTRUCT_DEBUG=1")
-	}
-
-	// Add COLORTERM for proper color rendering
-	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
-		envVars = append(envVars, "COLORTERM="+colorterm)
-	} else {
-		envVars = append(envVars, "COLORTERM=truecolor")
-	}
+	envVars := buildDaemonExecEnv(args, providerEnv, cbServer)
 
 	execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, daemonName)
 	if stdruntime.GOOS == "darwin" {
@@ -1087,6 +1063,38 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		fmt.Println("If needed, run 'construct sys packages --install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
+}
+
+func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server) []string {
+	envVars := make([]string, 0, len(providerEnv)+12)
+	envVars = append(envVars, providerEnv...)
+
+	env.EnsureConstructPath(&envVars, "/home/construct")
+	applyConstructPath(&envVars)
+	env.SetEnvVar(&envVars, "HOME", "/home/construct")
+
+	if cbServer != nil {
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)
+		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_TOKEN="+cbServer.Token)
+		envVars = append(envVars, "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
+	}
+
+	if len(args) > 0 {
+		envVars = append(envVars, "CONSTRUCT_AGENT_NAME="+args[0])
+		appendAgentSpecificDaemonEnv(&envVars, args[0])
+	}
+
+	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
+		envVars = append(envVars, "CONSTRUCT_DEBUG=1")
+	}
+
+	if colorterm := os.Getenv("COLORTERM"); colorterm != "" {
+		envVars = append(envVars, "COLORTERM="+colorterm)
+	} else {
+		envVars = append(envVars, "COLORTERM=truecolor")
+	}
+
+	return envVars
 }
 
 func execInRunningContainer(args []string, cfg *config.Config, containerRuntime string, providerEnv []string) (int, error) {

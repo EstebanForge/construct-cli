@@ -46,6 +46,15 @@ allow_custom_compose_override = false
 # If host UID is not present in container /etc/passwd, Construct keeps host UID:GID mapping and forces HOME=/home/construct.
 exec_as_host_user = true
 
+# Explicit host env vars to pass through into Construct unchanged.
+# Default passthroughs cover common CLI/tool auth use cases.
+env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"]
+
+# Host env prefixes to auto-pass into Construct after stripping the prefix.
+# Example: host CNSTR_CONTEXT7_API_KEY=... becomes CONTEXT7_API_KEY inside Construct.
+# Explicit env_passthrough values win if both sources target the same inside key.
+env_passthrough_prefixes = ["CNSTR_"]
+
 # SELinux mount labels on Linux: "auto" | "enabled" | "disabled"
 selinux_labels = "auto"
 
