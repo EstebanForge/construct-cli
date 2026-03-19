@@ -37,15 +37,17 @@ type RuntimeConfig struct {
 
 // SandboxConfig holds sandbox options.
 type SandboxConfig struct {
-	MountHome            bool   `toml:"mount_home"`
-	ForwardSSHAgent      bool   `toml:"forward_ssh_agent"`
-	PropagateGitIdentity bool   `toml:"propagate_git_identity"`
-	NonRootStrict        bool   `toml:"non_root_strict"`
-	AllowCustomOverride  bool   `toml:"allow_custom_compose_override"`
-	ExecAsHostUser       bool   `toml:"exec_as_host_user"`
-	Shell                string `toml:"shell"`
-	ClipboardHost        string `toml:"clipboard_host"`
-	SelinuxLabels        string `toml:"selinux_labels"`
+	MountHome              bool     `toml:"mount_home"`
+	ForwardSSHAgent        bool     `toml:"forward_ssh_agent"`
+	PropagateGitIdentity   bool     `toml:"propagate_git_identity"`
+	NonRootStrict          bool     `toml:"non_root_strict"`
+	AllowCustomOverride    bool     `toml:"allow_custom_compose_override"`
+	ExecAsHostUser         bool     `toml:"exec_as_host_user"`
+	EnvPassthrough         []string `toml:"env_passthrough"`
+	EnvPassthroughPrefixes []string `toml:"env_passthrough_prefixes"`
+	Shell                  string   `toml:"shell"`
+	ClipboardHost          string   `toml:"clipboard_host"`
+	SelinuxLabels          string   `toml:"selinux_labels"`
 }
 
 // NetworkConfig holds network allow/block settings.
@@ -93,15 +95,17 @@ func DefaultConfig() Config {
 			UpdateChannel:       "stable",
 		},
 		Sandbox: SandboxConfig{
-			MountHome:            false,
-			ForwardSSHAgent:      true,
-			PropagateGitIdentity: true,
-			NonRootStrict:        false,
-			AllowCustomOverride:  false,
-			ExecAsHostUser:       true,
-			Shell:                "/bin/bash",
-			ClipboardHost:        "host.docker.internal",
-			SelinuxLabels:        "auto",
+			MountHome:              false,
+			ForwardSSHAgent:        true,
+			PropagateGitIdentity:   true,
+			NonRootStrict:          false,
+			AllowCustomOverride:    false,
+			ExecAsHostUser:         true,
+			EnvPassthrough:         []string{"GITHUB_TOKEN", "CONTEXT7_API_KEY"},
+			EnvPassthroughPrefixes: []string{"CNSTR_"},
+			Shell:                  "/bin/bash",
+			ClipboardHost:          "host.docker.internal",
+			SelinuxLabels:          "auto",
 		},
 		Network: NetworkConfig{
 			Mode: "permissive",

@@ -139,6 +139,50 @@ func CollectProviderEnv() []string {
 	return envs
 }
 
+// CollectPassthroughEnv builds generic passthrough env vars from explicit keys and prefixed host vars.
+// Explicit keys win over prefix-derived values when they target the same env name.
+func CollectPassthroughEnv(explicitKeys, prefixes []string) []string {
+	envs := make([]string, 0, len(explicitKeys))
+	added := make(map[string]struct{})
+
+	add := func(key, value string) {
+		if key == "" || value == "" {
+			return
+		}
+		if _, exists := added[key]; exists {
+			return
+		}
+		envs = append(envs, fmt.Sprintf("%s=%s", key, value))
+		added[key] = struct{}{}
+	}
+
+	for _, key := range explicitKeys {
+		if value, exists := os.LookupEnv(key); exists && value != "" {
+			add(key, value)
+		}
+	}
+
+	for _, rawEnv := range os.Environ() {
+		key, value := splitEnvEntry(rawEnv)
+		if key == "" || value == "" {
+			continue
+		}
+		for _, prefix := range prefixes {
+			if prefix == "" || !strings.HasPrefix(key, prefix) {
+				continue
+			}
+			targetKey := strings.TrimPrefix(key, prefix)
+			if targetKey == "" {
+				continue
+			}
+			add(targetKey, value)
+			break
+		}
+	}
+
+	return envs
+}
+
 // MergeEnvVars merges base and override env vars, keeping override values on key conflicts.
 func MergeEnvVars(base []string, override []string) []string {
 	if len(base) == 0 && len(override) == 0 {

@@ -650,6 +650,117 @@ func TestApplyConstructPath(t *testing.T) {
 	}
 }
 
+func TestCollectForwardedEnvPrefersExplicitConfigOverCNSTRPrefix(t *testing.T) {
+	t.Setenv("CONTEXT7_API_KEY", "explicit-context7")
+	t.Setenv("CNSTR_CONTEXT7_API_KEY", "prefixed-context7")
+	t.Setenv("CNSTR_EXTRA_TOKEN", "prefixed-extra")
+	t.Setenv("OPENAI_API_KEY", "provider-openai")
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			EnvPassthrough:         []string{"CONTEXT7_API_KEY"},
+			EnvPassthroughPrefixes: []string{"CNSTR_"},
+		},
+	}
+
+	forwarded := collectForwardedEnv(cfg, nil)
+
+	if envValue(forwarded, "CONTEXT7_API_KEY") != "explicit-context7" {
+		t.Fatalf("Expected explicit CONTEXT7_API_KEY to win, got %q", envValue(forwarded, "CONTEXT7_API_KEY"))
+	}
+	if envValue(forwarded, "EXTRA_TOKEN") != "prefixed-extra" {
+		t.Fatalf("Expected CNSTR_ passthrough for EXTRA_TOKEN, got %q", envValue(forwarded, "EXTRA_TOKEN"))
+	}
+	if envValue(forwarded, "OPENAI_API_KEY") != "provider-openai" {
+		t.Fatalf("Expected provider allowlist passthrough for OPENAI_API_KEY, got %q", envValue(forwarded, "OPENAI_API_KEY"))
+	}
+}
+
+func TestCollectForwardedEnvProviderEnvOverridesGenericPassthrough(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "host-openai")
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			EnvPassthrough:         []string{"OPENAI_API_KEY"},
+			EnvPassthroughPrefixes: []string{"CNSTR_"},
+		},
+	}
+
+	forwarded := collectForwardedEnv(cfg, []string{"OPENAI_API_KEY=provider-openai"})
+	if envValue(forwarded, "OPENAI_API_KEY") != "provider-openai" {
+		t.Fatalf("Expected provider env override to win, got %q", envValue(forwarded, "OPENAI_API_KEY"))
+	}
+}
+
+func TestBuildRunFlagsIncludesGenericPassthroughEnv(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{
+			ExecAsHostUser: false,
+		},
+		Agents: config.AgentsConfig{
+			ClipboardImagePatch: true,
+		},
+	}
+
+	osEnv := []string{
+		"PATH=" + env.BuildConstructPath("/home/construct"),
+	}
+	mergedForwardedEnv := []string{
+		"CONTEXT7_API_KEY=ctx-value",
+		"GITHUB_TOKEN=gh-value",
+	}
+
+	runFlags := buildRunFlags(
+		[]string{"claude"},
+		cfg,
+		"docker",
+		osEnv,
+		nil,
+		mergedForwardedEnv,
+		false,
+		nil,
+	)
+
+	requiredEnv := []string{
+		"CONTEXT7_API_KEY=ctx-value",
+		"GITHUB_TOKEN=gh-value",
+		"CONSTRUCT_CLIPBOARD_IMAGE_PATCH=1",
+		"CONSTRUCT_AGENT_NAME=claude",
+		"COLORTERM=truecolor",
+		"PATH=" + env.BuildConstructPath("/home/construct"),
+	}
+	for _, envVar := range requiredEnv {
+		if !hasRunFlagEnv(runFlags, envVar) {
+			t.Fatalf("expected run flags to include %q, got %v", envVar, runFlags)
+		}
+	}
+}
+
+func TestBuildDaemonExecEnvPassesGenericPassthroughEnv(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+
+	envVars := buildDaemonExecEnv(
+		[]string{"claude"},
+		[]string{"CONTEXT7_API_KEY=ctx-value", "GITHUB_TOKEN=gh-value"},
+		nil,
+	)
+
+	if !containsEnv(envVars, "CONTEXT7_API_KEY=ctx-value") {
+		t.Fatalf("expected CONTEXT7_API_KEY in daemon env, got %v", envVars)
+	}
+	if !containsEnv(envVars, "GITHUB_TOKEN=gh-value") {
+		t.Fatalf("expected GITHUB_TOKEN in daemon env, got %v", envVars)
+	}
+	if !containsEnv(envVars, "CONSTRUCT_AGENT_NAME=claude") {
+		t.Fatalf("expected agent name in daemon env, got %v", envVars)
+	}
+	if !containsEnv(envVars, "COLORTERM=truecolor") {
+		t.Fatalf("expected COLORTERM in daemon env, got %v", envVars)
+	}
+}
+
 func TestExecUserForAgentExec(t *testing.T) {
 	tests := []struct {
 		name    string

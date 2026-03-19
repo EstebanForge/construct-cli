@@ -208,6 +208,44 @@ func TestMergeEnvVarsOverride(t *testing.T) {
 	}
 }
 
+func TestCollectPassthroughEnv(t *testing.T) {
+	t.Setenv("CONTEXT7_API_KEY", "ctx-explicit")
+	t.Setenv("GITHUB_TOKEN", "gh-explicit")
+	t.Setenv("CNSTR_CONTEXT7_API_KEY", "ctx-prefixed")
+	t.Setenv("CNSTR_EXTRA_TOKEN", "extra-prefixed")
+	t.Setenv("CNSTR_EMPTY_VALUE", "")
+
+	envs := CollectPassthroughEnv(
+		[]string{"CONTEXT7_API_KEY", "GITHUB_TOKEN", "MISSING_KEY"},
+		[]string{"CNSTR_"},
+	)
+
+	values := make(map[string]string, len(envs))
+	for _, e := range envs {
+		parts := splitEnvString(e)
+		if len(parts) != 2 {
+			t.Fatalf("Invalid env format: %s", e)
+		}
+		values[parts[0]] = parts[1]
+	}
+
+	if values["CONTEXT7_API_KEY"] != "ctx-explicit" {
+		t.Fatalf("Expected explicit CONTEXT7_API_KEY to win, got %q", values["CONTEXT7_API_KEY"])
+	}
+	if values["GITHUB_TOKEN"] != "gh-explicit" {
+		t.Fatalf("Expected GITHUB_TOKEN passthrough, got %q", values["GITHUB_TOKEN"])
+	}
+	if values["EXTRA_TOKEN"] != "extra-prefixed" {
+		t.Fatalf("Expected CNSTR_ prefix passthrough to strip prefix, got %q", values["EXTRA_TOKEN"])
+	}
+	if _, exists := values["EMPTY_VALUE"]; exists {
+		t.Fatal("Expected empty prefixed env var to be skipped")
+	}
+	if _, exists := values["MISSING_KEY"]; exists {
+		t.Fatal("Expected missing explicit env var to be skipped")
+	}
+}
+
 // TestMaskSensitiveValue tests sensitive value masking
 func TestMaskSensitiveValue(t *testing.T) {
 	tests := []struct {

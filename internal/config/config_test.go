@@ -22,6 +22,8 @@ mount_home = false
 non_root_strict = true
 allow_custom_compose_override = true
 exec_as_host_user = true
+env_passthrough = ["CONTEXT7_API_KEY"]
+env_passthrough_prefixes = ["CNSTR_"]
 shell = "/bin/bash"
 clipboard_host = "host.orbstack.internal"
 
@@ -71,6 +73,12 @@ clipboard_image_patch = false
 	}
 	if !config.Sandbox.ExecAsHostUser {
 		t.Error("Expected exec_as_host_user to be true")
+	}
+	if len(config.Sandbox.EnvPassthrough) != 1 || config.Sandbox.EnvPassthrough[0] != "CONTEXT7_API_KEY" {
+		t.Errorf("Expected env_passthrough to contain CONTEXT7_API_KEY, got %v", config.Sandbox.EnvPassthrough)
+	}
+	if len(config.Sandbox.EnvPassthroughPrefixes) != 1 || config.Sandbox.EnvPassthroughPrefixes[0] != "CNSTR_" {
+		t.Errorf("Expected env_passthrough_prefixes to contain CNSTR_, got %v", config.Sandbox.EnvPassthroughPrefixes)
 	}
 
 	// Test network
@@ -132,12 +140,14 @@ func TestConfigStructure(t *testing.T) {
 			UpdateChannel:   "stable",
 		},
 		Sandbox: SandboxConfig{
-			MountHome:           false,
-			NonRootStrict:       false,
-			AllowCustomOverride: false,
-			ExecAsHostUser:      false,
-			Shell:               "/bin/bash",
-			ClipboardHost:       "host.docker.internal",
+			MountHome:              false,
+			NonRootStrict:          false,
+			AllowCustomOverride:    false,
+			ExecAsHostUser:         false,
+			EnvPassthrough:         []string{"CONTEXT7_API_KEY"},
+			EnvPassthroughPrefixes: []string{"CNSTR_"},
+			Shell:                  "/bin/bash",
+			ClipboardHost:          "host.docker.internal",
 		},
 		Network: NetworkConfig{
 			Mode:           "permissive",
@@ -174,6 +184,12 @@ func TestConfigStructure(t *testing.T) {
 	if config.Sandbox.ExecAsHostUser {
 		t.Error("Expected exec_as_host_user to be false")
 	}
+	if len(config.Sandbox.EnvPassthrough) != 1 || config.Sandbox.EnvPassthrough[0] != "CONTEXT7_API_KEY" {
+		t.Error("Expected env_passthrough to be initialized")
+	}
+	if len(config.Sandbox.EnvPassthroughPrefixes) != 1 || config.Sandbox.EnvPassthroughPrefixes[0] != "CNSTR_" {
+		t.Error("Expected env_passthrough_prefixes to be initialized")
+	}
 	if config.Agents.YoloAll {
 		t.Error("Agents config initialization failed")
 	}
@@ -183,6 +199,12 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Sandbox.ExecAsHostUser {
 		t.Error("Expected default exec_as_host_user to be true")
+	}
+	if len(cfg.Sandbox.EnvPassthrough) != 2 || cfg.Sandbox.EnvPassthrough[0] != "GITHUB_TOKEN" || cfg.Sandbox.EnvPassthrough[1] != "CONTEXT7_API_KEY" {
+		t.Errorf("Expected default env_passthrough to include GITHUB_TOKEN and CONTEXT7_API_KEY, got %v", cfg.Sandbox.EnvPassthrough)
+	}
+	if len(cfg.Sandbox.EnvPassthroughPrefixes) != 1 || cfg.Sandbox.EnvPassthroughPrefixes[0] != "CNSTR_" {
+		t.Errorf("Expected default env_passthrough_prefixes to contain CNSTR_, got %v", cfg.Sandbox.EnvPassthroughPrefixes)
 	}
 	if cfg.Sandbox.AllowCustomOverride {
 		t.Error("Expected default allow_custom_compose_override to be false")
