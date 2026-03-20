@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.5.1 -->
+## [1.5.1] - 2026-03-20
+
+### Fixed
+- **SSH Agent Access in Daemon Sessions (Linux)**: Fixed a regression where agents running via `exec` into a warm daemon container on Linux could not see the forwarded SSH agent. Injected `SSH_AUTH_SOCK=/ssh-agent` into the environment for all daemon and attachment `exec` flows.
+- **Claude & Copilot Image Pasting (Headless/Linux)**: Enabled reliable image pasting for Claude Code and GitHub Copilot in headless environments by forcing `XDG_SESSION_TYPE=wayland`, routing clipboard requests through the `clipper` bridge.
+- **Multimodal Paste Routing**: Added `claude` and `copilot` to the file-based paste agent list so they correctly receive `@path` references for pasted images instead of raw binary data.
+
+### Added
+- **Regression Coverage for Headless Clipboard**: Added unit tests ensuring `claude`, `pi`, and `copilot` receive required environment variables for headless clipboard routing.
+- **Regression Coverage for Daemon SSH Agent**: Added verification for `SSH_AUTH_SOCK` injection in daemon execution environments on Linux.
+
+<!-- RELEASE:END 1.5.1 -->
+---
+
 <!-- RELEASE:START 1.5.0 -->
 ## [1.5.0] - 2026-03-19
 
