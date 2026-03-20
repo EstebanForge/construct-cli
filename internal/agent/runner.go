@@ -1094,6 +1094,13 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 		envVars = append(envVars, "COLORTERM=truecolor")
 	}
 
+	// On Linux, the daemon is started via docker-compose which mounts
+	// the host SSH socket to /ssh-agent inside the container.
+	// We inject this variable so agents can find it.
+	if stdruntime.GOOS == "linux" {
+		envVars = append(envVars, "SSH_AUTH_SOCK=/ssh-agent")
+	}
+
 	return envVars
 }
 
@@ -1140,6 +1147,12 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime 
 		envVars = append(envVars, "COLORTERM="+colorterm)
 	} else {
 		envVars = append(envVars, "COLORTERM=truecolor")
+	}
+
+	// On Linux, we set SSH_AUTH_SOCK to the container mount point /ssh-agent
+	// for exec sessions into running containers (like daemon execs).
+	if stdruntime.GOOS == "linux" {
+		envVars = append(envVars, "SSH_AUTH_SOCK=/ssh-agent")
 	}
 
 	execArgs := args
@@ -1323,11 +1336,11 @@ func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchVa
 			// Unset DISPLAY so arboard fails and triggers WSL fallback.
 			*runFlags = append(*runFlags, "-e", "DISPLAY=")
 		}
-	case "pi":
-		// Pi uses a native Rust clipboard module that talks directly to X11/Wayland,
-		// bypassing xclip/xsel shims. Setting XDG_SESSION_TYPE=wayland forces Pi's
-		// isWaylandSession() to return true, routing image reads through wl-paste
-		// (our clipper shim) instead of the native X11 binding.
+	case "pi", "claude", "copilot":
+		// Pi, Claude and Copilot use native clipboard modules that talk directly to X11/Wayland,
+		// bypassing xclip/xsel shims. Setting XDG_SESSION_TYPE=wayland forces these
+		// modules to route image reads through wl-paste (our clipper shim)
+		// instead of native X11 bindings which fail in headless environments.
 		// NOTE: Do NOT set WAYLAND_DISPLAY — a fake socket breaks keyboard input.
 		if clipboardPatchValue != "0" {
 			*runFlags = append(*runFlags, "-e", "XDG_SESSION_TYPE=wayland")
@@ -1343,7 +1356,7 @@ func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
 		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
 		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
 		*envVars = append(*envVars, "DISPLAY=")
-	case "pi":
+	case "pi", "claude", "copilot":
 		*envVars = append(*envVars, "XDG_SESSION_TYPE=wayland")
 	}
 }
@@ -1360,7 +1373,7 @@ func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValu
 		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
 		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
 		*envVars = append(*envVars, "DISPLAY=")
-	case "pi":
+	case "pi", "claude", "copilot":
 		if clipboardPatchValue == "0" {
 			return
 		}

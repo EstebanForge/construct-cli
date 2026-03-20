@@ -20,7 +20,7 @@ func TestConstants(t *testing.T) {
 
 // TestFileBasedPasteAgents ensures that required agents are listed for file-based paste
 func TestFileBasedPasteAgents(t *testing.T) {
-	required := []string{"gemini", "qwen", "codex"}
+	required := []string{"gemini", "qwen", "codex", "claude", "copilot"}
 	for _, agent := range required {
 		if !contains(FileBasedPasteAgents, agent) {
 			t.Errorf("FileBasedPasteAgents should contain '%s', got '%s'", agent, FileBasedPasteAgents)

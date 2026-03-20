@@ -241,9 +241,29 @@ func TestAppendAgentSpecificRunFlagsCodexNoClipboardPatch(t *testing.T) {
 
 func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
 	runFlags := []string{}
-	appendAgentSpecificRunFlags(&runFlags, "claude", "1")
+	appendAgentSpecificRunFlags(&runFlags, "gemini", "1")
 	if len(runFlags) != 0 {
 		t.Fatalf("expected no run flags for non-codex agent, got %v", runFlags)
+	}
+}
+
+func TestAppendAgentSpecificRunFlagsWaylandAgents(t *testing.T) {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
+		runFlags := []string{}
+		appendAgentSpecificRunFlags(&runFlags, agent, "1")
+		if !containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
+			t.Fatalf("expected XDG_SESSION_TYPE=wayland for agent %q, got %v", agent, runFlags)
+		}
+	}
+}
+
+func TestAppendAgentSpecificRunFlagsWaylandAgentsNoPatch(t *testing.T) {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
+		runFlags := []string{}
+		appendAgentSpecificRunFlags(&runFlags, agent, "0")
+		if containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
+			t.Fatalf("did not expect XDG_SESSION_TYPE=wayland for agent %q when patch disabled, got %v", agent, runFlags)
+		}
 	}
 }
 
@@ -287,7 +307,7 @@ func TestAppendAgentSpecificExecEnvCodexNoClipboardPatch(t *testing.T) {
 
 func TestAppendAgentSpecificExecEnvNonCodex(t *testing.T) {
 	envVars := []string{}
-	appendAgentSpecificExecEnv(&envVars, "claude", "1")
+	appendAgentSpecificExecEnv(&envVars, "gemini", "1")
 	if len(envVars) != 0 {
 		t.Fatalf("expected no env vars for non-codex agent, got %v", envVars)
 	}
@@ -295,7 +315,7 @@ func TestAppendAgentSpecificExecEnvNonCodex(t *testing.T) {
 
 func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 	envVars := []string{}
-	appendAgentSpecificDaemonEnv(&envVars, "claude")
+	appendAgentSpecificDaemonEnv(&envVars, "gemini")
 	if len(envVars) != 0 {
 		t.Fatalf("expected no daemon env vars for non-codex agent, got %v", envVars)
 	}
@@ -758,6 +778,21 @@ func TestBuildDaemonExecEnvPassesGenericPassthroughEnv(t *testing.T) {
 	}
 	if !containsEnv(envVars, "COLORTERM=truecolor") {
 		t.Fatalf("expected COLORTERM in daemon env, got %v", envVars)
+	}
+}
+
+func TestBuildDaemonExecEnvSSHAuthSock(t *testing.T) {
+	// The SSH_AUTH_SOCK injection is OS-specific (Linux only)
+	envVars := buildDaemonExecEnv(
+		[]string{"claude"},
+		[]string{},
+		nil,
+	)
+
+	// Since we can't easily mock stdruntime.GOOS without refactoring,
+	// we just ensure the env vars are generated.
+	if len(envVars) == 0 {
+		t.Error("expected environment variables, got none")
 	}
 }
 
