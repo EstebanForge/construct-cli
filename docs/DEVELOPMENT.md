@@ -41,6 +41,7 @@ construct --version
 **Cons:**
 - No backup of existing binary
 - Requires `~/.local/bin` in your PATH
+- On macOS, use `make build-signed && cp bin/construct ~/.local/bin/construct` if the binary is killed on launch (Gatekeeper / Code Signing subsystem error). If already copied, re-sign in place: `codesign -s - -f ~/.local/bin/construct && construct sys version`
 
 ### Method 2: Local Install with Backup (Recommended for Testing)
 
@@ -141,6 +142,9 @@ make test-integration     # Integration tests
 ```bash
 # Basic build
 make build
+
+# macOS: build + ad-hoc sign (required to avoid "killed" on Apple Silicon / Gatekeeper)
+make build-signed
 
 # Build with all tests
 make clean test
