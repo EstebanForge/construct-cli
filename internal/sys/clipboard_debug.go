@@ -79,6 +79,21 @@ else
 fi
 
 echo
+echo "--- Copilot clipboard ---"
+copilot_wrapper="$HOME/.local/bin/copilot"
+if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v1" "$copilot_wrapper" 2>/dev/null; then
+  echo "PTY wrapper: installed at $copilot_wrapper"
+else
+  echo "PTY wrapper: NOT installed (run 'construct sys rebuild' then restart agent)"
+fi
+wrapper_log="/tmp/construct-copilot-wrapper.log"
+echo "Wrapper log: $wrapper_log"
+if [[ -f "$wrapper_log" ]]; then
+  tail -n 40 "$wrapper_log"
+else
+  echo "(missing — paste an image during a Copilot session to populate)"
+fi
+echo
 echo "--- Copilot JS bridge ---"
 log_file="${CONSTRUCT_COPILOT_CLIPBOARD_LOG:-/tmp/construct-copilot-clipboard.log}"
 matches=$(find -L "$HOME/.npm-global" -type f -path "*/@teddyzhu/clipboard/index.js" 2>/dev/null || true)
@@ -88,14 +103,14 @@ else
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
     echo "- $file"
-    if grep -q "construct-copilot-clipboard-bridge-v2" "$file"; then
+    if grep -q "construct-copilot-clipboard-bridge-v3" "$file"; then
       echo "  patched: yes"
     else
-      echo "  patched: NO (run 'construct sys refresh' then restart agent)"
+      echo "  patched: NO (run 'construct sys rebuild' then restart agent)"
     fi
   done <<< "$matches"
 fi
-echo "Copilot bridge log: $log_file"
+echo "JS bridge log: $log_file"
 if [[ -f "$log_file" ]]; then
   tail -n 40 "$log_file"
 else
