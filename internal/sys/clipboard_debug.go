@@ -21,18 +21,19 @@ func ClipboardDebug(cfg *config.Config) {
 		}
 	}
 
-	hostLogPath := filepath.Join(config.GetLogsDir(), "debug_clipboard_server.log")
-	fmt.Printf("Host clipboard server log: %s\n", hostLogPath)
+	// Host-side server log (always-on since this release).
+	hostLogPath := filepath.Join(config.GetLogsDir(), "clipboard_server.log")
+	fmt.Printf("=== Host clipboard server log: %s ===\n", hostLogPath)
 	if _, err := os.Stat(hostLogPath); err == nil {
-		if err := printTail(hostLogPath, 40); err != nil {
+		if err := printTail(hostLogPath, 50); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to read host clipboard log: %v\n", err)
 		}
 	} else {
-		fmt.Println("(missing)")
+		fmt.Println("(missing — start an agent session to populate)")
 	}
 
 	fmt.Println()
-	fmt.Println("Container clipboard bridge status:")
+	fmt.Println("=== Container clipboard diagnostics ===")
 
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -42,8 +43,44 @@ func ClipboardDebug(cfg *config.Config) {
 		"bash",
 		"-lc",
 		`set -u
+
+echo "--- Clipboard environment ---"
+for var in CONSTRUCT_AGENT_NAME CONSTRUCT_CLIPBOARD_URL CONSTRUCT_CLIPBOARD_TOKEN \
+           CONSTRUCT_FILE_PASTE_AGENTS CONSTRUCT_CLIPBOARD_IMAGE_PATCH \
+           XDG_SESSION_TYPE WAYLAND_DISPLAY DISPLAY; do
+  val="${!var:-<unset>}"
+  # Truncate token for safety
+  if [[ "$var" == "CONSTRUCT_CLIPBOARD_TOKEN" ]] && [[ "$val" != "<unset>" ]]; then
+    val="${val:0:8}..."
+  fi
+  echo "  $var=$val"
+done
+
+echo
+echo "--- Clipper shim ---"
+for bin in /usr/bin/wl-paste /usr/bin/xclip /usr/bin/xsel /usr/local/bin/clipper; do
+  if [[ -e "$bin" ]]; then
+    if [[ -L "$bin" ]]; then
+      echo "  $bin -> $(readlink "$bin")"
+    else
+      echo "  $bin (regular file)"
+    fi
+  else
+    echo "  $bin (missing)"
+  fi
+done
+
+echo
+echo "--- Clipper log (last 40 lines): /tmp/construct-clipper.log ---"
+if [[ -f /tmp/construct-clipper.log ]]; then
+  tail -n 40 /tmp/construct-clipper.log
+else
+  echo "(missing — paste an image during an agent session to populate)"
+fi
+
+echo
+echo "--- Copilot JS bridge ---"
 log_file="${CONSTRUCT_COPILOT_CLIPBOARD_LOG:-/tmp/construct-copilot-clipboard.log}"
-echo "Patch targets:"
 matches=$(find -L "$HOME/.npm-global" -type f -path "*/@teddyzhu/clipboard/index.js" 2>/dev/null || true)
 if [[ -z "$matches" ]]; then
   echo "(no @teddyzhu/clipboard install found)"
@@ -54,22 +91,23 @@ else
     if grep -q "construct-copilot-clipboard-bridge-v2" "$file"; then
       echo "  patched: yes"
     else
-      echo "  patched: no"
+      echo "  patched: NO (run 'construct sys refresh' then restart agent)"
     fi
   done <<< "$matches"
 fi
-echo
-echo "Clipboard bridge log: $log_file"
+echo "Copilot bridge log: $log_file"
 if [[ -f "$log_file" ]]; then
-  tail -n 80 "$log_file"
+  tail -n 40 "$log_file"
 else
   echo "(missing)"
 fi
+
 echo
-echo "Clipboard temp files:"
-ls -l /tmp/construct-copilot-*.png /tmp/construct-clipboard.png 2>/dev/null || echo "(none)"
+echo "--- Clipboard temp files ---"
+ls -l /tmp/construct-copilot-*.png /tmp/construct-clipboard*.png 2>/dev/null || echo "(none)"
+
 echo
-echo "Clipboard sync process:"
+echo "--- Clipboard sync process ---"
 ps -ef | grep -E "clipboard-x11-sync|Xvfb" | grep -v grep || echo "(not running)"
 `,
 	})

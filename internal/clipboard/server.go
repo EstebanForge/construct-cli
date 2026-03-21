@@ -56,6 +56,8 @@ func StartServer(host string) (*Server, error) {
 		listener: listener,
 	}
 
+	logf("[server] started on port %d (url=%s)\n", port, url)
+
 	// Start serving in background
 	go server.serve()
 
@@ -80,11 +82,11 @@ func (s *Server) serve() {
 }
 
 func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
-	logf("[Clipboard Server] Received paste request from %s\n", r.RemoteAddr)
+	dbgf("[server] request from %s\n", r.RemoteAddr)
 
 	// Verify token
 	if r.Header.Get("X-Construct-Clip-Token") != s.Token {
-		logf("[Clipboard Server] Unauthorized request (invalid token)\n")
+		logf("[server] unauthorized request from %s (invalid token)\n", r.RemoteAddr)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -94,7 +96,7 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	if contentType == "text/plain" || contentType == "" {
 		data, err := GetText()
 		if err != nil {
-			logf("[Clipboard Server] GetText error: %v\n", err)
+			logf("[server] GetText error: %v\n", err)
 			if err == ErrNoText {
 				http.Error(w, "No text in clipboard", http.StatusNotFound)
 			} else {
@@ -102,10 +104,10 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-		logf("[Clipboard Server] Serving %d bytes of text data\n", len(data))
+		dbgf("[server] serving %d bytes of text\n", len(data))
 		w.Header().Set("Content-Type", "text/plain")
 		if _, err := w.Write(data); err != nil {
-			logf("[Clipboard Server] write text error: %v\n", err)
+			logf("[server] write text error: %v\n", err)
 		}
 		return
 	}
@@ -113,7 +115,7 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 	// Get image from host clipboard
 	data, err := GetImage()
 	if err != nil {
-		logf("[Clipboard Server] GetImage error: %v\n", err)
+		logf("[server] GetImage error: %v\n", err)
 		if err == ErrNoImage {
 			http.Error(w, "No image in clipboard", http.StatusNotFound)
 		} else {
@@ -122,23 +124,20 @@ func (s *Server) handlePaste(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logf("[Clipboard Server] Serving %d bytes of image data\n", len(data))
+	logf("[server] serving image: %d bytes to %s\n", len(data), r.RemoteAddr)
 	w.Header().Set("Content-Type", "image/png")
 	if _, err := w.Write(data); err != nil {
-		logf("[Clipboard Server] write image error: %v\n", err)
+		logf("[server] write image error: %v\n", err)
 	}
 }
 
+// logf writes to the clipboard server log.
+// Errors and request summaries are always written; verbose detail requires CONSTRUCT_DEBUG=1.
 func logf(format string, args ...any) {
-	if os.Getenv("CONSTRUCT_DEBUG") != "1" {
-		return
-	}
-
-	// Log to file in ~/.config/construct-cli/logs/
 	logDir := os.Getenv("HOME") + "/.config/construct-cli/logs"
 	_ = os.MkdirAll(logDir, 0755) //nolint:errcheck
 
-	logFile := logDir + "/debug_clipboard_server.log"
+	logFile := logDir + "/clipboard_server.log"
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return
@@ -148,4 +147,12 @@ func logf(format string, args ...any) {
 	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	_, _ = fmt.Fprintf(f, "[%s] ", timestamp) //nolint:errcheck
 	_, _ = fmt.Fprintf(f, format, args...)    //nolint:errcheck
+}
+
+// dbgf writes verbose detail only when CONSTRUCT_DEBUG=1.
+func dbgf(format string, args ...any) {
+	if os.Getenv("CONSTRUCT_DEBUG") != "1" {
+		return
+	}
+	logf(format, args...)
 }

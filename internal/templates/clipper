@@ -7,11 +7,17 @@ HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
 AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
 AGENT_NAME="${CONSTRUCT_AGENT_NAME}"
 DEBUG="${CONSTRUCT_DEBUG:-0}"
+CLIPPER_LOG="${CONSTRUCT_CLIPBOARD_LOG:-/tmp/construct-clipper.log}"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [clipper] $*" >> "$CLIPPER_LOG" 2>/dev/null || true
+}
 
 dbg() {
     if [ "$DEBUG" = "1" ]; then
         echo "[clipper] $*" >&2
     fi
+    log "$*"
 }
 
 if [ -z "$HOST_URL" ]; then
@@ -20,13 +26,14 @@ if [ -z "$HOST_URL" ]; then
 fi
 
 CALL_NAME=$(basename $0)
+log "invoked as=$CALL_NAME agent=$AGENT_NAME url=${HOST_URL:+set} token=${AUTH_TOKEN:+set} args=$*"
 dbg "Invoked as=$CALL_NAME agent=$AGENT_NAME args=$*"
 TARGET_MIME=""
 IS_OUTPUT_MODE=false
 REQUESTED_TARGETS=false
 PATH_AGENT=false
 
-FILE_PASTE_AGENTS="${CONSTRUCT_FILE_PASTE_AGENTS:-gemini,qwen,codex}"
+FILE_PASTE_AGENTS="${CONSTRUCT_FILE_PASTE_AGENTS:-gemini,qwen,codex,claude,copilot}"
 if [[ ",$FILE_PASTE_AGENTS," == *",$AGENT_NAME,"* ]]; then
     PATH_AGENT=true
 fi
@@ -45,7 +52,7 @@ for arg in "$@"; do
     if [[ "$arg" == "--type" ]] || [[ "$arg" == "-t" ]]; then
         NEXT_IS_TYPE=true
     fi
-    if [[ "$arg" == "TARGETS" ]] || [[ "$arg" == "atoms" ]] || [[ "$arg" == "--list-types" ]]; then
+    if [[ "$arg" == "TARGETS" ]] || [[ "$arg" == "atoms" ]] || [[ "$arg" == "--list-types" ]] || [[ "$arg" == "-l" ]]; then
         REQUESTED_TARGETS=true
     fi
     if [[ "$arg" == "-o" ]] || [[ "$arg" == "--output" ]] || [[ "$arg" == "-p" ]] || [[ "$arg" == "--paste" ]]; then
@@ -53,6 +60,12 @@ for arg in "$@"; do
     fi
 done
 
+# If TARGETS/atoms was consumed as a -t type value, treat it as a target listing request.
+if [[ "$TARGET_MIME" == "TARGETS" ]] || [[ "$TARGET_MIME" == "atoms" ]]; then
+    REQUESTED_TARGETS=true
+fi
+
+log "parsed: target_mime=${TARGET_MIME:-none} requested_targets=$REQUESTED_TARGETS path_agent=$PATH_AGENT"
 dbg "Parsed: target_mime=$TARGET_MIME requested_targets=$REQUESTED_TARGETS path_agent=$PATH_AGENT"
 
 # If agent is asking for available targets, we MUST include image/png
@@ -112,17 +125,21 @@ emit_image_path() {
 # Always try image first; fall back to text if no image and no explicit image request.
 if fetch_image; then
     IMG_SIZE=$(wc -c < "$TMP_RAW" 2>/dev/null || echo 0)
+    log "image fetched: ${IMG_SIZE} bytes"
     dbg "Image fetched: ${IMG_SIZE} bytes"
     if [[ "$PATH_AGENT" == "true" ]]; then
+        log "mode=file-path agent=$AGENT_NAME"
         dbg "Emitting image path"
         emit_image_path
         exit $?
     fi
+    log "mode=raw-bytes agent=$AGENT_NAME"
     dbg "Emitting image bytes"
     emit_image_bytes
     exit $?
 fi
 
+log "no image from host (fetch failed)"
 dbg "No image from host"
 
 if [[ "$TARGET_MIME" == image/* ]]; then
