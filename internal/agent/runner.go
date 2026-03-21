@@ -1023,7 +1023,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
 		}
 	}
-	envVars := buildDaemonExecEnv(args, providerEnv, cbServer)
+	envVars := buildDaemonExecEnv(args, providerEnv, cbServer, cfg)
 
 	execUser := resolveExecUserForRunningContainer(cfg, containerRuntime, daemonName)
 	if stdruntime.GOOS == "darwin" {
@@ -1055,6 +1055,12 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		execArgs = []string{execShell}
 	}
 
+	// For agents with JS clipboard bridges, re-verify the patch is still in place before exec.
+	// This guards against the bridge being wiped by a manual in-container package update.
+	if len(args) > 0 {
+		runAgentPatchInDaemon(containerRuntime, daemonName, args[0], envVars, execUser)
+	}
+
 	// Execute interactively in daemon container
 	exitCode, err := execInteractiveAsUserFn(containerRuntime, daemonName, execArgs, envVars, workdir, execUser)
 	if err == nil && len(execArgs) > 0 && (exitCode == 126 || exitCode == 127) {
@@ -1065,13 +1071,43 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 	return true, exitCode, err
 }
 
-func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server) []string {
+// runAgentPatchInDaemon re-runs the clipboard patch script for agents whose JS bridges can be
+// wiped by in-container package updates between daemon starts. It runs non-interactively and
+// its failure is non-fatal — if the patch script is missing we just skip silently.
+func runAgentPatchInDaemon(containerRuntime, daemonName, agentName string, envVars []string, execUser string) {
+	// Only agents with patchable JS bridges need this.
+	switch agentName {
+	case "copilot":
+		// continue
+	default:
+		return
+	}
+
+	patchScript := "/home/construct/.config/construct-cli/container/agent-patch.sh"
+	cmdArgs := []string{"bash", "-lc", fmt.Sprintf(
+		`if [[ -f "%s" ]]; then bash "%s" >/dev/null 2>&1; fi`,
+		patchScript, patchScript,
+	)}
+	if _, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser); err != nil {
+		if ui.CurrentLogLevel >= ui.LogLevelDebug {
+			fmt.Printf("Debug: agent pre-exec patch failed (non-fatal): %v\n", err)
+		}
+	}
+}
+
+func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server, cfg *config.Config) []string {
 	envVars := make([]string, 0, len(providerEnv)+12)
 	envVars = append(envVars, providerEnv...)
 
 	env.EnsureConstructPath(&envVars, "/home/construct")
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
+
+	clipboardPatchValue := "1"
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	envVars = append(envVars, "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
 
 	if cbServer != nil {
 		envVars = append(envVars, "CONSTRUCT_CLIPBOARD_URL="+cbServer.URL)

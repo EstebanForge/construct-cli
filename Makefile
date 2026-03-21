@@ -63,13 +63,20 @@ build-release: ## Build optimized release binary for current platform
 
 sign: build ## Ad-hoc sign binary on macOS
 	@if [ "$$(uname)" = "Darwin" ]; then \
-		codesign -s "$(SIGN_IDENTITY)" -f $(BINARY_PATH) 2>/dev/null || true; \
+		codesign --force -s "$(SIGN_IDENTITY)" $(BINARY_PATH); \
+		xattr -d com.apple.quarantine $(BINARY_PATH) 2>/dev/null || true; \
 		echo "✓ Signed: $(BINARY_PATH)"; \
 	else \
 		echo "ℹ️  Skipping sign (non-macOS)"; \
 	fi
 
-build-signed: build sign ## Build and sign (macOS)
+build-signed: build sign ## Build, sign, and install to ~/.local/bin (local debug)
+	@cp $(BINARY_PATH) ~/.local/bin/$(BINARY_NAME)
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		codesign --force -s "$(SIGN_IDENTITY)" ~/.local/bin/$(BINARY_NAME); \
+		xattr -d com.apple.quarantine ~/.local/bin/$(BINARY_NAME) 2>/dev/null || true; \
+	fi
+	@echo "✓ Installed: ~/.local/bin/$(BINARY_NAME)"
 
 release-sign: ## Sign macOS release binaries in dist/ (optional; set RELEASE_SIGN=1)
 	@if [ "$${RELEASE_SIGN:-0}" != "1" ]; then \

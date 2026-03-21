@@ -16,4 +16,6 @@ const (
 
 // FileBasedPasteAgents lists agents that use file-based image paste (path reference)
 // instead of raw bytes. These agents receive "@path/to/image.png" instead of binary data.
-const FileBasedPasteAgents = "gemini,qwen,codex,claude,copilot"
+// Claude and Copilot use raw-bytes mode: their clipboard modules expect actual PNG data,
+// not a file path reference.
+const FileBasedPasteAgents = "gemini,qwen,codex"

@@ -765,6 +765,7 @@ func TestBuildDaemonExecEnvPassesGenericPassthroughEnv(t *testing.T) {
 		[]string{"claude"},
 		[]string{"CONTEXT7_API_KEY=ctx-value", "GITHUB_TOKEN=gh-value"},
 		nil,
+		nil,
 	)
 
 	if !containsEnv(envVars, "CONTEXT7_API_KEY=ctx-value") {
@@ -786,6 +787,7 @@ func TestBuildDaemonExecEnvSSHAuthSock(t *testing.T) {
 	envVars := buildDaemonExecEnv(
 		[]string{"claude"},
 		[]string{},
+		nil,
 		nil,
 	)
 

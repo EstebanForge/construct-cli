@@ -36,17 +36,24 @@ Run the following to see if the library was found and patched:
 It will report:
 - Whether `@teddyzhu/clipboard/index.js` was found in any of the search paths.
 - Whether the `construct-copilot-clipboard-bridge-v2` marker is present.
-- Recent logs from the bridge if `CONSTRUCT_DEBUG=1` was used.
+- Clipboard environment variables seen by the agent session.
+- Recent log tail from `clipper` and the Copilot JS bridge.
 
-### 2. Enable Debug Logging
+### 2. Review Logs (No Debug Mode Required)
 
-Run Copilot with debug mode enabled to capture detailed logs in the container and host:
+After any agent session where image paste was attempted, review these logs:
+
+- **Host server log:** `~/.config/construct-cli/logs/clipboard_server.log`
+  Always-on. Shows server start, each image/text request, and errors.
+- **Clipper shim log:** `/tmp/construct-clipper.log` (inside container)
+  Always-on. Shows every clipper invocation, agent name, fetch result, and emit mode (file-path vs raw-bytes).
+- **Copilot JS bridge log:** `/tmp/construct-copilot-clipboard.log` (inside container)
+  Active only for Copilot. Shows bridge load, fetch attempts, and file writes.
+
+For verbose output, set `CONSTRUCT_DEBUG=1`:
 ```bash
-CONSTRUCT_DEBUG=1 ./bin/construct copilot
+CONSTRUCT_DEBUG=1 construct copilot
 ```
-
-- **Container Logs:** `/tmp/construct-copilot-clipboard.log` (Shows bridge activity, fetch attempts, and curl output).
-- **Host Logs:** `~/.config/construct-cli/logs/debug_clipboard_server.log` (Shows host-side clipboard server requests).
 
 ### 3. Verify Host Tools
 
