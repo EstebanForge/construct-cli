@@ -80,18 +80,20 @@ fi
 
 echo
 echo "--- Copilot clipboard ---"
-copilot_wrapper="$HOME/.local/bin/copilot"
-if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v4" "$copilot_wrapper" 2>/dev/null; then
-  echo "PTY wrapper: installed at $copilot_wrapper"
-  if [[ -x "$copilot_wrapper" ]]; then
+copilot_bin=$(command -v copilot 2>/dev/null || true)
+echo "  which copilot resolves to: ${copilot_bin:-(not found)}"
+if [[ -n "$copilot_bin" ]] && grep -q "construct-copilot-wrapper-v8" "$copilot_bin" 2>/dev/null; then
+  echo "PTY wrapper v8: installed at $copilot_bin"
+  if [[ -x "$copilot_bin" ]]; then
     echo "  executable: YES"
   else
-    echo "  executable: NO (chmod failed?) — wrapper will be bypassed by PATH lookup"
+    echo "  executable: NO (chmod failed?)"
   fi
-  echo "  shebang: $(head -1 "$copilot_wrapper")"
-  echo "  which copilot resolves to: $(command -v copilot 2>/dev/null || echo '(not found)')"
+  echo "  shebang: $(head -1 "$copilot_bin")"
+  real_line=$(grep "_REAL" "$copilot_bin" 2>/dev/null | head -1)
+  echo "  _REAL: $real_line"
 else
-  echo "PTY wrapper: NOT installed (run 'construct sys rebuild' then restart agent)"
+  echo "PTY wrapper: NOT installed at active copilot path (run 'construct sys rebuild' then restart agent)"
 fi
 wrapper_log="$HOME/.config/construct-cli/logs/construct-copilot-wrapper.log"
 echo "Wrapper log: $wrapper_log"
