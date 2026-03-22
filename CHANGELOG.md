@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.5.2 -->
+## [1.5.2] - 2026-03-22
+
+### Fixed
+- **Copilot Image Paste via PTY Wrapper**: Replaced the non-functional JS clipboard bridge approach with a Python PTY wrapper that intercepts paste keystrokes at the outer Docker PTY layer, fetches the image from the host clipboard bridge, saves it to `.construct-clipboard/`, and injects `@path` as typed text into Copilot's input. The JS bridge never fired in headless environments because Copilot's internal clipboard module had no display to read from.
+- **Kitty Keyboard Protocol (KKP) Support**: Modern terminals (Ghostty and others using KKP) send Ctrl+V and Cmd+V as CSI-u escape sequences (`\x1b[118;5u` and `\x1b[118;9u`) rather than the legacy `\x16` control byte. The wrapper now intercepts all three variants via `_handle_paste()`.
+- **PTY Wrapper PATH Shadowing**: The wrapper is installed at `/home/linuxbrew/.linuxbrew/bin/copilot` (the Homebrew bin, which takes PATH priority) rather than `~/.local/bin/copilot` which was silently bypassed. The real copilot binary path (`~/.npm-global/bin/copilot`) is resolved via npm-global candidates and injected at install time so Node's relative module imports resolve correctly.
+- **Clipboard Diagnostic Improvements**: `sys clipboard-debug` now shows the resolved `which copilot` path, the wrapper version, the `_REAL` binary path, and the full wrapper log tail for Copilot sessions.
+
+<!-- RELEASE:END 1.5.2 -->
+---
+
 <!-- RELEASE:START 1.5.1 -->
 ## [1.5.1] - 2026-03-20
 
