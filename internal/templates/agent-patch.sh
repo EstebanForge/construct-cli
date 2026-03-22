@@ -226,21 +226,19 @@ patch_copilot_paste_wrapper() {
     dbg "Installing Copilot clipboard PTY wrapper at $wrapper"
     cat > "$wrapper" << 'PYEOF'
 #!/usr/bin/env python3
-# construct-copilot-wrapper-v1
+# construct-copilot-wrapper-v2
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
 
 _URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
 _TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
-_DEBUG = os.environ.get('CONSTRUCT_DEBUG', '0') == '1'
 _DIR   = '.construct-clipboard'
 _LOG   = '/tmp/construct-copilot-wrapper.log'
 _REAL  = os.path.expanduser('~/.npm-global/bin/copilot')
 
-def _dbg(msg):
-    if not _DEBUG:
-        return
+def _log(msg):
+    # Always-on logging — not gated on CONSTRUCT_DEBUG.
     try:
         with open(_LOG, 'a') as f:
             f.write(f'[{time.strftime("%H:%M:%S")}] {msg}\n')
@@ -248,8 +246,9 @@ def _dbg(msg):
         pass
 
 def _save_image():
+    _log(f'ctrl+v detected: url_set={bool(_URL)} token_set={bool(_TOKEN)}')
     if not _URL or not _TOKEN:
-        _dbg('save_image: bridge env not set')
+        _log('save_image: bridge env not set — cannot fetch')
         return None
     try:
         os.makedirs(_DIR, exist_ok=True)
@@ -257,6 +256,7 @@ def _save_image():
         return None
     ts  = int(time.time() * 1000)
     img = f'{_DIR}/clipboard-{ts}.png'
+    _log(f'save_image: fetching from {_URL}')
     r = subprocess.run(
         ['curl', '-sSf', '-H', f'X-Construct-Clip-Token: {_TOKEN}',
          f'{_URL}/paste?type=image/png', '-o', img],
@@ -267,7 +267,7 @@ def _save_image():
             os.remove(img)
         except Exception:
             pass
-        _dbg(f'save_image: fetch failed rc={r.returncode}')
+        _log(f'save_image: fetch failed rc={r.returncode} stderr={r.stderr[:200]}')
         return None
     latest = f'{_DIR}/clipboard-latest.png'
     try:
@@ -276,7 +276,7 @@ def _save_image():
         os.symlink(os.path.abspath(img), latest)
     except Exception:
         pass
-    _dbg(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
+    _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
     return img
 
 def _winsz(fd):
@@ -304,13 +304,14 @@ def main():
                 real = c
                 break
     args = [real] + sys.argv[1:]
-    _dbg(f'starting: {args}')
+    _log(f'starting: real={real} url_set={bool(_URL)} token_set={bool(_TOKEN)} args={sys.argv[1:]}')
 
     fd_in = sys.stdin.fileno()
     try:
         old = termios.tcgetattr(fd_in)
     except termios.error:
         # Not a TTY; exec directly without wrapping.
+        _log('not a tty — exec direct (no interception)')
         os.execv(real, args)
         return
 
@@ -322,6 +323,7 @@ def main():
                             close_fds=True, start_new_session=True)
     os.close(sfd)
     tty.setraw(fd_in)
+    _log(f'pty ready: pid={proc.pid} — waiting for ctrl+v (0x16)')
 
     def _resize(sig, frame):
         r, c = _winsz(sys.stdout.fileno())
@@ -352,8 +354,9 @@ def main():
                         img = _save_image()
                         if img:
                             out += f'@{img} '.encode()
-                            _dbg(f'injected @{img}')
+                            _log(f'injected @{img}')
                         else:
+                            _log('no image — forwarding raw ctrl+v')
                             out += b'\x16'
                         out += part
                     data = out
