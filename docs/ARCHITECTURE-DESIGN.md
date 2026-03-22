@@ -338,7 +338,15 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
 - **Dynamic Content Bridging**:
   - **Image-First Behavior**: The bridge always attempts to fetch image data first; if present, it returns resized/normalized image bytes for most agents.
   - **Agent-Specific Paths**: Gemini, Qwen, and Codex receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
-  - **Runtime Patching**: `entrypoint.sh` automatically patches agent source code at launch to bypass `process.platform !== 'darwin'` checks that would otherwise disable image support on Linux.
+  - **Runtime Patching**: `agent-patch.sh` patches agent source code at session start to bypass `process.platform !== 'darwin'` checks that would otherwise disable clipboard support on Linux. It also replaces `@teddyzhu/clipboard`'s native NAPI-RS addon with a pure-JS HTTP bridge for agents that use that library.
+- **Copilot PTY Wrapper** (primary Copilot image paste path):
+  - Copilot's native clipboard addon fails in headless containers; its Ink TUI paste handler never fires reliably over a Docker PTY. The JS bridge and keybinding patches are applied as a fallback layer but are not the primary mechanism.
+  - `agent-patch.sh` installs a Python 3 PTY wrapper at the Homebrew bin path (`/home/linuxbrew/.linuxbrew/bin/copilot`, which takes PATH priority). The real copilot binary path is resolved via npm-global candidates and injected at install time via `sed`.
+  - The wrapper spawns the real copilot process on an inner PTY and bridges the outer Docker stdin, intercepting paste keystrokes before Copilot ever sees them.
+  - Intercepted sequences: legacy `\x16` (Ctrl+V) plus Kitty Keyboard Protocol variants `\x1b[118;5u` (Ctrl+V in KKP) and `\x1b[118;9u` (Cmd+V in KKP). Modern terminals such as Ghostty send KKP sequences exclusively — `\x16` is never sent.
+  - On detection: fetches PNG from the host bridge, saves to `.construct-clipboard/clipboard-{timestamp}.png`, and injects `@{path} ` as typed text into Copilot's inner PTY. Copilot recognises the `@file` syntax and attaches the image.
+  - Wrapper log: `~/.config/construct-cli/logs/construct-copilot-wrapper.log` (always-on, persists to host via bind-mount).
+  - Full details: see `docs/CLIPBOARD.md`.
 
 ---
 
