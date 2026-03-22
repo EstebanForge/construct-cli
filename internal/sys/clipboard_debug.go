@@ -81,17 +81,17 @@ fi
 echo
 echo "--- Copilot clipboard ---"
 copilot_wrapper="$HOME/.local/bin/copilot"
-if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v2" "$copilot_wrapper" 2>/dev/null; then
+if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v3" "$copilot_wrapper" 2>/dev/null; then
   echo "PTY wrapper: installed at $copilot_wrapper"
 else
   echo "PTY wrapper: NOT installed (run 'construct sys rebuild' then restart agent)"
 fi
-wrapper_log="/tmp/construct-copilot-wrapper.log"
+wrapper_log="$HOME/.construct-copilot-wrapper.log"
 echo "Wrapper log: $wrapper_log"
 if [[ -f "$wrapper_log" ]]; then
   tail -n 40 "$wrapper_log"
 else
-  echo "(missing — start a Copilot session to populate; log is always-on now)"
+  echo "(missing — start a Copilot session; log is always-on and persists to host)"
 fi
 echo
 echo "--- Copilot JS bridge ---"
