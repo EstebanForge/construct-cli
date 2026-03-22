@@ -321,6 +321,26 @@ func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 	}
 }
 
+func TestAppendAgentSpecificExecEnvWaylandAgents(t *testing.T) {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
+		envVars := []string{}
+		appendAgentSpecificExecEnv(&envVars, agent, "1")
+		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {
+			t.Fatalf("expected XDG_SESSION_TYPE=wayland in exec env for agent %q, got %v", agent, envVars)
+		}
+	}
+}
+
+func TestAppendAgentSpecificDaemonEnvWaylandAgents(t *testing.T) {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
+		envVars := []string{}
+		appendAgentSpecificDaemonEnv(&envVars, agent)
+		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {
+			t.Fatalf("expected XDG_SESSION_TYPE=wayland in daemon env for agent %q, got %v", agent, envVars)
+		}
+	}
+}
+
 func TestEnsureSetupCompleteClearsStaleRebuildMarkerWhenImageIsCurrent(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)

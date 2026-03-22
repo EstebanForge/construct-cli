@@ -218,6 +218,129 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 	}
 }
 
+// TestAgentPatchCopilotPTYWrapper guards the critical properties of the Python PTY wrapper
+// installed by patch_copilot_paste_wrapper(). If any of these break, Copilot image paste
+// will silently stop working with no obvious error.
+func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
+	// Version string — idempotency guard uses this to skip reinstall.
+	// Bump this when the wrapper logic changes so containers reinstall.
+	if !strings.Contains(AgentPatch, "construct-copilot-wrapper-v8") {
+		t.Error("agent-patch.sh: missing PTY wrapper version string 'construct-copilot-wrapper-v8'; bump version when wrapper logic changes")
+	}
+
+	// Kitty Keyboard Protocol sequences — Ghostty and other modern terminals send
+	// these instead of \x16 for Ctrl+V and Cmd+V respectively.
+	// Without these, paste never fires in modern terminals.
+	if !strings.Contains(AgentPatch, `\x1b[118;5u`) {
+		t.Error("agent-patch.sh: missing KKP Ctrl+V sequence '\\x1b[118;5u' in _PASTE_TRIGGERS; Ghostty paste will not work")
+	}
+	if !strings.Contains(AgentPatch, `\x1b[118;9u`) {
+		t.Error("agent-patch.sh: missing KKP Cmd+V sequence '\\x1b[118;9u' in _PASTE_TRIGGERS; Ghostty paste will not work")
+	}
+
+	// Legacy Ctrl+V for non-KKP terminals.
+	if !strings.Contains(AgentPatch, `\x16`) {
+		t.Error("agent-patch.sh: missing legacy Ctrl+V byte '\\x16' in _PASTE_TRIGGERS")
+	}
+
+	// _handle_paste function — replaces the old inline split(b'\x16') approach.
+	if !strings.Contains(AgentPatch, "_handle_paste") {
+		t.Error("agent-patch.sh: missing '_handle_paste' function; paste trigger loop is broken")
+	}
+
+	// sed placeholder — injected at install time with the real copilot binary path.
+	// If missing, _REAL will be the literal string and copilot will not launch.
+	if !strings.Contains(AgentPatch, "__CONSTRUCT_REAL_COPILOT__") {
+		t.Error("agent-patch.sh: missing sed placeholder '__CONSTRUCT_REAL_COPILOT__'; _REAL path injection broken")
+	}
+
+	// npm-global candidate — the real copilot binary found here avoids Node relative-import
+	// issues that break when using readlink -f through the Homebrew symlink.
+	if !strings.Contains(AgentPatch, ".npm-global/bin/copilot") {
+		t.Error("agent-patch.sh: missing '~/.npm-global/bin/copilot' candidate; _REAL resolution broken")
+	}
+
+	// rm -f before install — must remove symlink/file before cat > to avoid writing
+	// through a Homebrew symlink and corrupting the npm package binary.
+	if !strings.Contains(AgentPatch, `rm -f "$real_copilot"`) {
+		t.Error("agent-patch.sh: missing 'rm -f $real_copilot' before wrapper install; symlink overwrite will corrupt npm package")
+	}
+
+	// Stale copilot-real cleanup — removes broken copies left by previous wrapper versions
+	// that used cp-through-symlink approach.
+	if !strings.Contains(AgentPatch, `rm -f "${real_copilot}-real"`) {
+		t.Error("agent-patch.sh: missing stale 'copilot-real' cleanup; old broken copies will persist in named volume")
+	}
+
+	// PATH-priority install location — wrapper must be at the path command -v copilot resolves
+	// to (Homebrew bin), not at ~/.local/bin which is shadowed by Homebrew.
+	if !strings.Contains(AgentPatch, "command -v copilot") {
+		t.Error("agent-patch.sh: missing 'command -v copilot' for PATH-priority install location detection")
+	}
+
+	// Python shebang — must use absolute path; /usr/bin/env python3 may not find the
+	// Homebrew python3 in the restricted entrypoint environment.
+	if !strings.Contains(AgentPatch, "#!/home/linuxbrew/.linuxbrew/bin/python3") {
+		t.Error("agent-patch.sh: PTY wrapper shebang must use absolute Homebrew python3 path")
+	}
+
+	// Always-on log path — must write to home dir bind-mount, not /tmp.
+	// /tmp is ephemeral (--rm containers); home dir persists to host.
+	if !strings.Contains(AgentPatch, "construct-cli/logs") {
+		t.Error("agent-patch.sh: wrapper log must use ~/.config/construct-cli/logs (host bind-mount), not /tmp")
+	}
+}
+
+// TestAgentPatchCopilotJSBridge guards the JS bridge version string and key exports.
+// The bridge replaces @teddyzhu/clipboard's NAPI-RS native addon with a pure-JS HTTP client.
+func TestAgentPatchCopilotJSBridge(t *testing.T) {
+	if !strings.Contains(AgentPatch, "construct-copilot-clipboard-bridge-v3") {
+		t.Error("agent-patch.sh: missing JS bridge version string 'construct-copilot-clipboard-bridge-v3'")
+	}
+
+	// Core API surface that Copilot and Qwen depend on.
+	for _, export := range []string{"getClipboardImageData", "getClipboardFiles", "ClipboardManager"} {
+		if !strings.Contains(AgentPatch, export) {
+			t.Errorf("agent-patch.sh: JS bridge missing export %q", export)
+		}
+	}
+}
+
+// TestAgentPatchCopilotKeybinding guards the Ink TUI keybinding patch.
+func TestAgentPatchCopilotKeybinding(t *testing.T) {
+	if !strings.Contains(AgentPatch, "construct-copilot-keybinding-v1") {
+		t.Error("agent-patch.sh: missing keybinding patch version string 'construct-copilot-keybinding-v1'")
+	}
+	// Must accept ctrl on Linux (fe.ctrl||fe.meta), not only fe.meta.
+	if !strings.Contains(AgentPatch, "fe.ctrl||fe.meta") {
+		t.Error("agent-patch.sh: keybinding patch must allow Ctrl+V (fe.ctrl||fe.meta) on Linux")
+	}
+}
+
+// TestClipperShimFilePathMode guards that the clipper shim emits @path for file-paste agents
+// and raw bytes otherwise. This is the routing decision point for all non-Copilot agents.
+func TestClipperShimFilePathMode(t *testing.T) {
+	// File-path agents receive @path reference.
+	if !strings.Contains(Clipper, "CONSTRUCT_FILE_PASTE_AGENTS") {
+		t.Error("clipper: missing CONSTRUCT_FILE_PASTE_AGENTS check for mode routing")
+	}
+	if !strings.Contains(Clipper, "PATH_AGENT") {
+		t.Error("clipper: missing PATH_AGENT variable for file-path vs raw-bytes decision")
+	}
+	// Must save to .construct-clipboard/ directory.
+	if !strings.Contains(Clipper, ".construct-clipboard") {
+		t.Error("clipper: missing '.construct-clipboard' save directory")
+	}
+	// Auth header must match server expectation.
+	if !strings.Contains(Clipper, "X-Construct-Clip-Token") {
+		t.Error("clipper: missing 'X-Construct-Clip-Token' auth header in curl call")
+	}
+	// Image resize guard — prevents OOM on huge screenshots.
+	if !strings.Contains(Clipper, "8000") {
+		t.Error("clipper: missing image size limit (8000px) before raw-bytes emit")
+	}
+}
+
 func TestEntrypointUsernsRemapSkipsRecursiveChown(t *testing.T) {
 	guard := `if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then`
 	chownHome := `chown -R "$RUN_AS_CHOWN" /home/construct`
