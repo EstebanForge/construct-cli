@@ -219,14 +219,51 @@ patch_copilot_keybinding() {
 }
 
 patch_copilot_paste_wrapper() {
-    local wrapper="$HOME/.local/bin/copilot"
-    mkdir -p "$HOME/.local/bin" 2>/dev/null
+    # Detect where copilot actually lives in PATH so we install at the right spot.
+    local real_copilot
+    real_copilot=$(command -v copilot 2>/dev/null || true)
 
-    # Always overwrite so updates take effect when agent-patch.sh changes.
-    dbg "Installing Copilot clipboard PTY wrapper at $wrapper"
-    cat > "$wrapper" << 'PYEOF'
+    if [[ -z "$real_copilot" ]]; then
+        dbg "copilot not found in PATH — skipping wrapper install"
+        return
+    fi
+
+    # Skip if our wrapper is already in place (idempotent guard on version string).
+    if grep -q "construct-copilot-wrapper-v8" "$real_copilot" 2>/dev/null; then
+        dbg "Copilot PTY wrapper v8 already at $real_copilot"
+        return
+    fi
+
+    # Find the real copilot binary via npm-global — do NOT use readlink on the Homebrew bin.
+    # The Homebrew bin script uses relative imports (import('./index.js')); running it from any
+    # other directory (e.g. after cp) breaks Node module resolution. The npm-global symlink
+    # is the authoritative binary: Node resolves imports from the symlink's package directory.
+    local real_target=""
+    local npm_bin
+    npm_bin=$(npm bin -g 2>/dev/null || true)
+    for candidate in \
+        "$HOME/.npm-global/bin/copilot" \
+        "${npm_bin}/copilot"; do
+        if [[ -f "$candidate" ]] && ! grep -q "construct-copilot-wrapper" "$candidate" 2>/dev/null; then
+            real_target="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$real_target" ]]; then
+        dbg "Cannot find real copilot binary in npm-global — skipping wrapper install"
+        return
+    fi
+    dbg "Real copilot target: $real_target"
+
+    # Remove any stale copilot-real created by previous wrapper versions.
+    rm -f "${real_copilot}-real"
+    # Remove the Homebrew bin script/file and install our wrapper in its place.
+    rm -f "$real_copilot"
+
+    dbg "Installing Copilot clipboard PTY wrapper at $real_copilot (real: $real_target)"
+    cat > "$real_copilot" << 'PYEOF'
 #!/home/linuxbrew/.linuxbrew/bin/python3
-# construct-copilot-wrapper-v4
+# construct-copilot-wrapper-v8
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
@@ -237,7 +274,8 @@ _DIR   = '.construct-clipboard'
 # ~/.config/construct-cli/logs is mounted from the host — log persists across containers.
 _LOGDIR = os.path.expanduser('~/.config/construct-cli/logs')
 _LOG    = os.path.join(_LOGDIR, 'construct-copilot-wrapper.log')
-_REAL   = os.path.expanduser('~/.npm-global/bin/copilot')
+# Absolute path to the real copilot binary — injected by agent-patch.sh at install time.
+_REAL   = '__CONSTRUCT_REAL_COPILOT__'
 
 def _log(msg):
     # Always-on logging — not gated on CONSTRUCT_DEBUG.
@@ -282,6 +320,42 @@ def _save_image():
     _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
     return img
 
+# Paste trigger sequences — traditional \x16 plus Kitty Keyboard Protocol variants
+# that Ghostty (and other modern terminals) send instead of the legacy control byte.
+#   \x16           — traditional Ctrl+V (legacy terminals)
+#   \x1b[118;5u   — Ctrl+V  in KKP (key=118='v', modifier=5=ctrl)
+#   \x1b[118;9u   — Cmd+V   in KKP (modifier=9=super)
+_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
+
+def _handle_paste(data):
+    """Replace every paste trigger in data with @file path (or raw trigger if no image)."""
+    # Quick bail if no trigger present.
+    if not any(t in data for t in _PASTE_TRIGGERS):
+        return data
+    # Split on all triggers in one pass via recursive find-first approach.
+    out = b''
+    while data:
+        earliest_idx = None
+        earliest_seq = None
+        for seq in _PASTE_TRIGGERS:
+            idx = data.find(seq)
+            if idx >= 0 and (earliest_idx is None or idx < earliest_idx):
+                earliest_idx = idx
+                earliest_seq = seq
+        if earliest_idx is None:
+            out += data
+            break
+        out += data[:earliest_idx]
+        data = data[earliest_idx + len(earliest_seq):]
+        img = _save_image()
+        if img:
+            out += f'@{img} '.encode()
+            _log(f'injected @{img}')
+        else:
+            _log('no image — forwarding raw trigger')
+            out += earliest_seq
+    return out
+
 def _winsz(fd):
     try:
         buf = fcntl.ioctl(fd, termios.TIOCGWINSZ, b'\x00' * 8)
@@ -296,16 +370,12 @@ def _setwinsz(fd, rows, cols):
         pass
 
 def main():
+    # _REAL is injected at install time by agent-patch.sh — the npm-global copilot path.
+    # Node resolves relative imports (import('./index.js')) from the symlink's target dir.
     real = _REAL
-    if not os.path.isfile(real):
-        own = os.path.dirname(os.path.realpath(__file__))
-        for d in os.environ.get('PATH', '').split(':'):
-            if d == own:
-                continue
-            c = os.path.join(d, 'copilot')
-            if os.path.isfile(c) and os.access(c, os.X_OK):
-                real = c
-                break
+    if not os.path.isfile(real) or not os.access(real, os.X_OK):
+        _log(f'ERROR: real binary not found or not executable: {real}')
+        sys.exit(1)
     args = [real] + sys.argv[1:]
     _log(f'starting: real={real} url_set={bool(_URL)} token_set={bool(_TOKEN)} args={sys.argv[1:]}')
 
@@ -326,7 +396,7 @@ def main():
                             close_fds=True, start_new_session=True)
     os.close(sfd)
     tty.setraw(fd_in)
-    _log(f'pty ready: pid={proc.pid} — waiting for ctrl+v (0x16)')
+    _log(f'pty ready: pid={proc.pid}')
 
     def _resize(sig, frame):
         r, c = _winsz(sys.stdout.fileno())
@@ -350,19 +420,7 @@ def main():
                     break
                 if not data:
                     break
-                if b'\x16' in data:
-                    parts = data.split(b'\x16')
-                    out = parts[0]
-                    for part in parts[1:]:
-                        img = _save_image()
-                        if img:
-                            out += f'@{img} '.encode()
-                            _log(f'injected @{img}')
-                        else:
-                            _log('no image — forwarding raw ctrl+v')
-                            out += b'\x16'
-                        out += part
-                    data = out
+                data = _handle_paste(data)
                 try:
                     os.write(mfd, data)
                 except OSError:
@@ -376,6 +434,7 @@ def main():
                 except OSError:
                     break
     finally:
+        _log(f'select loop exited: copilot poll={proc.poll()}')
         try:
             termios.tcsetattr(fd_in, termios.TCSADRAIN, old)
         except Exception:
@@ -390,8 +449,10 @@ def main():
 if __name__ == '__main__':
     main()
 PYEOF
-    chmod +x "$wrapper"
-    dbg "Copilot PTY wrapper installed"
+    # Inject the resolved real binary path (sed is safe here; path is from readlink -f).
+    sed -i "s|__CONSTRUCT_REAL_COPILOT__|${real_target}|" "$real_copilot"
+    chmod +x "$real_copilot"
+    dbg "Copilot PTY wrapper v8 installed at $real_copilot (real: $real_target)"
 }
 
 echo "🔧 Patching clipboard support for agents..."
