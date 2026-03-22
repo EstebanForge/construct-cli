@@ -28,6 +28,31 @@ func TestFileBasedPasteAgents(t *testing.T) {
 	}
 }
 
+// TestFileBasedPasteAgentsExcludesPTYWrapperAgents guards against accidentally re-adding agents
+// that use alternative paste mechanisms, breaking those mechanisms.
+//
+// Copilot: uses the Python PTY wrapper (construct-copilot-wrapper-v8) which intercepts
+// Ctrl+V / Cmd+V keystrokes and injects @path directly. Adding copilot here would make
+// the clipper shim emit @path ALSO, causing double injection or confusing Copilot's @file parser.
+//
+// Claude: uses raw-bytes mode via the clipper shim. Adding claude here would switch it to
+// file-path mode, breaking image display in Claude Code which expects binary PNG data.
+func TestFileBasedPasteAgentsExcludesPTYWrapperAgents(t *testing.T) {
+	excluded := []struct {
+		slug   string
+		reason string
+	}{
+		{"copilot", "uses Python PTY wrapper for @path injection; clipper shim must emit raw bytes"},
+		{"claude", "uses raw-bytes mode via clipper shim; expects binary PNG, not @path reference"},
+	}
+	for _, tc := range excluded {
+		if contains(FileBasedPasteAgents, tc.slug) {
+			t.Errorf("FileBasedPasteAgents must NOT contain %q — %s; got %q",
+				tc.slug, tc.reason, FileBasedPasteAgents)
+		}
+	}
+}
+
 func contains(s, substr string) bool {
 	parts := split(s, ",")
 	for _, p := range parts {
