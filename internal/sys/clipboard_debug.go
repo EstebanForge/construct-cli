@@ -81,12 +81,19 @@ fi
 echo
 echo "--- Copilot clipboard ---"
 copilot_wrapper="$HOME/.local/bin/copilot"
-if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v3" "$copilot_wrapper" 2>/dev/null; then
+if [[ -f "$copilot_wrapper" ]] && grep -q "construct-copilot-wrapper-v4" "$copilot_wrapper" 2>/dev/null; then
   echo "PTY wrapper: installed at $copilot_wrapper"
+  if [[ -x "$copilot_wrapper" ]]; then
+    echo "  executable: YES"
+  else
+    echo "  executable: NO (chmod failed?) — wrapper will be bypassed by PATH lookup"
+  fi
+  echo "  shebang: $(head -1 "$copilot_wrapper")"
+  echo "  which copilot resolves to: $(command -v copilot 2>/dev/null || echo '(not found)')"
 else
   echo "PTY wrapper: NOT installed (run 'construct sys rebuild' then restart agent)"
 fi
-wrapper_log="$HOME/.construct-copilot-wrapper.log"
+wrapper_log="$HOME/.config/construct-cli/logs/construct-copilot-wrapper.log"
 echo "Wrapper log: $wrapper_log"
 if [[ -f "$wrapper_log" ]]; then
   tail -n 40 "$wrapper_log"

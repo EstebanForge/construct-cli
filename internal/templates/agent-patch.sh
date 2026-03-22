@@ -225,8 +225,8 @@ patch_copilot_paste_wrapper() {
     # Always overwrite so updates take effect when agent-patch.sh changes.
     dbg "Installing Copilot clipboard PTY wrapper at $wrapper"
     cat > "$wrapper" << 'PYEOF'
-#!/usr/bin/env python3
-# construct-copilot-wrapper-v3
+#!/home/linuxbrew/.linuxbrew/bin/python3
+# construct-copilot-wrapper-v4
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
@@ -234,14 +234,15 @@ import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, t
 _URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
 _TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
 _DIR   = '.construct-clipboard'
-# Write to home dir so the log persists across ephemeral --rm containers
-# (~/.config/construct-cli/home is mounted from the host).
-_LOG   = os.path.expanduser('~/.construct-copilot-wrapper.log')
-_REAL  = os.path.expanduser('~/.npm-global/bin/copilot')
+# ~/.config/construct-cli/logs is mounted from the host — log persists across containers.
+_LOGDIR = os.path.expanduser('~/.config/construct-cli/logs')
+_LOG    = os.path.join(_LOGDIR, 'construct-copilot-wrapper.log')
+_REAL   = os.path.expanduser('~/.npm-global/bin/copilot')
 
 def _log(msg):
     # Always-on logging — not gated on CONSTRUCT_DEBUG.
     try:
+        os.makedirs(_LOGDIR, exist_ok=True)
         with open(_LOG, 'a') as f:
             f.write(f'[{time.strftime("%H:%M:%S")}] {msg}\n')
     except Exception:
