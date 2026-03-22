@@ -226,7 +226,7 @@ patch_copilot_paste_wrapper() {
     dbg "Installing Copilot clipboard PTY wrapper at $wrapper"
     cat > "$wrapper" << 'PYEOF'
 #!/usr/bin/env python3
-# construct-copilot-wrapper-v2
+# construct-copilot-wrapper-v3
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
@@ -234,7 +234,9 @@ import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, t
 _URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
 _TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
 _DIR   = '.construct-clipboard'
-_LOG   = '/tmp/construct-copilot-wrapper.log'
+# Write to home dir so the log persists across ephemeral --rm containers
+# (~/.config/construct-cli/home is mounted from the host).
+_LOG   = os.path.expanduser('~/.construct-copilot-wrapper.log')
 _REAL  = os.path.expanduser('~/.npm-global/bin/copilot')
 
 def _log(msg):
