@@ -70,7 +70,7 @@ clipboard_host = "host.docker.internal"
 yolo_all = false
 
 # Enable yolo mode for specific agents (slugs), e.g. ["claude", "gemini"]
-# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode
+# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode, crush
 yolo_agents = []
 
 # Patch clipboard integrations for JS/NPM agents (gemini, qwen, cline, copilot, kilocode)

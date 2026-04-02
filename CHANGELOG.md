@@ -2,6 +2,24 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.6.0 -->
+## [1.6.0] - 2026-04-02
+
+### Added
+- **Crush CLI Agent Support**: Added Charmbracelet Crush (`crush`) as a first-class agent, installed via npm (`@charmland/crush`), with agent mount registration, AGENTS.md global rules path wiring, help/docs updates, and post-install/post-update verification checks.
+
+### Changed
+- **Yolo Agent Coverage**: Added `crush` to yolo flag handling (`--yolo`) and updated supported-agent documentation comments.
+- **Agent Install Detection**: Included `crush` in initial agent-installed detection checks used after image build/setup.
+- **Alias UX Messaging**: Updated shell alias onboarding copy to include `crush` among example sandboxed commands.
+
+### Fixed
+- **Yolo Supported List Accuracy**: Corrected README yolo-supported slug list to match runtime behavior.
+- **Agent Additions Log Completeness**: Updated AGENTS.md entry for Crush to include all touched integration files.
+
+<!-- RELEASE:END 1.6.0 -->
+---
+
 <!-- RELEASE:START 1.5.2 -->
 ## [1.5.2] - 2026-03-22
 

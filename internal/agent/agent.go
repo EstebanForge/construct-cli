@@ -17,6 +17,7 @@ var SupportedAgents = []Agent{
 	{Name: "GitHub Copilot", Slug: "copilot", ConfigPath: "/home/construct/.copilot"},
 	{Name: "OpenCode", Slug: "opencode", ConfigPath: "/home/construct/.config/opencode"},
 	{Name: "Cline", Slug: "cline", ConfigPath: "/home/construct/.cline"},
+	{Name: "Crush CLI", Slug: "crush", ConfigPath: "/home/construct/.config/crush"},
 	{Name: "OpenAI Codex", Slug: "codex", ConfigPath: "/home/construct/.codex"},
 	{Name: "Droid CLI", Slug: "droid", ConfigPath: "/home/construct/.factory"},
 	{Name: "Goose CLI", Slug: "goose", ConfigPath: "/home/construct/.config/goose"},
