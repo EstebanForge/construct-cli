@@ -28,6 +28,7 @@ func GetSupportedAgents() []AgentMemory {
 		{Name: "opencode", FriendlyName: "OpenCode CLI", Paths: []string{"~/.config/opencode/AGENTS.md"}},
 		{Name: "claude", FriendlyName: "Claude CLI", Paths: []string{"~/.claude/CLAUDE.md"}},
 		{Name: "amp", FriendlyName: "Amp CLI", Paths: []string{"~/.config/amp/AGENTS.md"}},
+		{Name: "crush", FriendlyName: "Crush CLI", Paths: []string{"~/.config/crush/AGENTS.md"}},
 		{Name: "codex", FriendlyName: "Codex CLI", Paths: []string{"~/.codex/AGENTS.md"}},
 		{Name: "copilot", FriendlyName: "Copilot CLI", Paths: []string{"~/.copilot/AGENTS.md"}},
 		{Name: "droid", FriendlyName: "Droid CLI", Paths: []string{"~/.factory/AGENTS.md"}},

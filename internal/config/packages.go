@@ -398,7 +398,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	script += "echo 'Post-install command verification...'\n"
 	script += "missing_cmds=\"\"\n"
-	script += "for cmd in claude amp copilot opencode qwen cline codex goose gemini kilocode pi omp; do\n"
+	script += "for cmd in claude amp copilot opencode qwen cline crush codex goose gemini kilocode pi omp; do\n"
 	script += "    if command -v \"$cmd\" &> /dev/null; then\n"
 	script += "        cmd_path=$(command -v \"$cmd\")\n"
 	script += "        echo \"  ✓ $cmd -> $cmd_path\"\n"

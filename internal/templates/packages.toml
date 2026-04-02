@@ -52,6 +52,7 @@ packages = [
 packages = [
     "@qwen-code/qwen-code@latest",
     "@github/copilot",
+    "@charmland/crush",
     "cline",
     "@openai/codex",
     "@kilocode/cli",

@@ -354,6 +354,7 @@ func InstallAliases() {
 			"  • claude",
 			"  • gemini",
 			"  • qwen",
+			"  • crush",
 			"",
 			"...they will automatically run inside The Construct.",
 			"Your agents will be sandboxed, and will only have access to the current directory where you call them.")
@@ -363,7 +364,7 @@ func InstallAliases() {
 		}
 	} else {
 		fmt.Println("\nThis command will install shell aliases for all supported AI agents.")
-		fmt.Println("From now on, commands like 'claude', 'gemini', 'qwen' will run inside The Construct.")
+		fmt.Println("From now on, commands like 'claude', 'gemini', 'qwen', 'crush' will run inside The Construct.")
 		fmt.Println("Your agents will be sandboxed, and will only have access to the current directory where you call them.")
 	}
 

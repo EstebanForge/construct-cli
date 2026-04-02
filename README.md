@@ -40,6 +40,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot with terminal helpers.
 - **OpenCode** (`opencode`) – General code assistant.
 - **Cline** (`cline`) – Agentic workflow helper.
+- **Crush CLI** (`crush`) – Charmbracelet Crush coding agent.
 - **OpenAI Codex** (`codex`) – Codex-style code generation.
 - **Droid CLI** (`droid`) – Factory Droid agent CLI.
 - **Goose CLI** (`goose`) – Block Goose agent CLI.
@@ -207,7 +208,7 @@ clipboard_host = "host.docker.internal"
 yolo_all = false
 
 # Enable yolo mode for specific agent slugs
-# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode, omp
+# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode, crush
 yolo_agents = ["claude", "gemini"]
 
 [daemon]

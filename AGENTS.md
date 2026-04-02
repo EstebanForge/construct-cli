@@ -68,3 +68,7 @@ Reverse the steps above: remove the package from `packages.toml`, unregister fro
   - Command: `bun install -g @oh-my-pi/pi-coding-agent` (run as `omp`)
   - Rules path: `~/.omp/agent/AGENTS.md`
   - Files updated: `internal/templates/packages.toml`, `internal/agent/agent.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `README.md`, `docs/ARCHITECTURE-DESIGN.md`
+- Crush CLI
+  - Command: `npm install -g @charmland/crush` (run as `crush`)
+  - Rules path: `~/.config/crush/AGENTS.md`
+  - Files updated: `internal/templates/packages.toml`, `internal/agent/agent.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `internal/templates/update-all.sh`, `internal/config/packages.go`, `internal/agent/runner.go`, `internal/templates/config.toml`, `README.md`, `docs/ARCHITECTURE-DESIGN.md`
