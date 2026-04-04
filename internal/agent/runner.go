@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	stdruntime "runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -43,22 +44,7 @@ func RunWithArgs(args []string, networkFlag string) {
 		os.Exit(1)
 	}
 
-	// Override network mode if flag is provided
-	if networkFlag != "" {
-		if err := network.ValidateMode(networkFlag); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s': %v\n\n", networkFlag, err)
-			os.Exit(1)
-		}
-
-		// Show current network mode in verbose output
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Network mode: %s (CLI flag override)\n", networkFlag)
-		}
-
-		cfg.Network.Mode = networkFlag
-	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		fmt.Printf("Network mode: %s (from config)\n", cfg.Network.Mode)
-	}
+	applyNetworkFlag(cfg, networkFlag)
 
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -77,7 +63,6 @@ func RunWithArgs(args []string, networkFlag string) {
 
 	// Ensure setup is complete before running interactive shell
 	if err := ensureSetupComplete(cfg, containerRuntime, configPath); err != nil {
-		// Error already logged by ensureSetupComplete/runSetup
 		os.Exit(1)
 	}
 
@@ -94,6 +79,21 @@ func RunWithArgs(args []string, networkFlag string) {
 		if err := markGooseConfigured(configPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save Goose configure state: %v\n", err)
 		}
+	}
+}
+
+func applyNetworkFlag(cfg *config.Config, networkFlag string) {
+	if networkFlag != "" {
+		if err := network.ValidateMode(networkFlag); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s': %v\n\n", networkFlag, err)
+			os.Exit(1)
+		}
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			fmt.Printf("Network mode: %s (CLI flag override)\n", networkFlag)
+		}
+		cfg.Network.Mode = networkFlag
+	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
+		fmt.Printf("Network mode: %s (from config)\n", cfg.Network.Mode)
 	}
 }
 
@@ -133,21 +133,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 		fmt.Printf("Using Claude provider: %s\n", providerName)
 	}
 
-	// Override network mode if flag is provided
-	if networkFlag != "" {
-		if err := network.ValidateMode(networkFlag); err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s': %v\n\n", networkFlag, err)
-			os.Exit(1)
-		}
-
-		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Network mode: %s (CLI flag override)\n", networkFlag)
-		}
-
-		cfg.Network.Mode = networkFlag
-	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		fmt.Printf("Network mode: %s (from config)\n", cfg.Network.Mode)
-	}
+	applyNetworkFlag(cfg, networkFlag)
 
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
@@ -166,7 +152,6 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 
 	// Ensure setup is complete before running interactive shell
 	if err := ensureSetupComplete(cfg, containerRuntime, configPath); err != nil {
-		// Error already logged
 		os.Exit(1)
 	}
 
@@ -224,7 +209,6 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		return fmt.Errorf("rebuild required")
 	}
 
-	// Check for force flag
 	if _, err := os.Stat(forceFile); err == nil {
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
 			fmt.Println("Debug: Force setup flag detected")
@@ -232,7 +216,6 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		return runSetup(cfg, containerRuntime, configPath)
 	}
 
-	// Check existing hash
 	if currentHash, err := os.ReadFile(hashFile); err == nil {
 		actualHash := strings.TrimSpace(string(currentHash))
 		if actualHash == expectedHash {
@@ -289,7 +272,6 @@ func getImageEntrypointHash(containerRuntime, configPath string) (string, error)
 }
 
 func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
-	// Create log file for setup output
 	logFile, err := config.CreateLogFile("setup")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)
@@ -355,7 +337,6 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		os.Exit(1)
 	}
 
-	// Check if daemon container is running - use it for faster startup
 	daemonName := "construct-cli-daemon"
 	daemonState := runtime.GetContainerState(containerRuntime, daemonName)
 
@@ -399,7 +380,6 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 
 	args = applyYoloArgs(baseArgs, cfg)
 
-	// Check for container collision
 	containerName := "construct-cli"
 	state := runtime.GetContainerState(containerRuntime, containerName)
 
@@ -485,7 +465,6 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 		}
 	}
 
-	// Check if image exists
 	checkCmdArgs := runtime.GetCheckImageCommand(containerRuntime)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
 	checkCmd.Dir = config.GetContainerDir()
@@ -737,7 +716,7 @@ func applyYoloArgs(args []string, cfg *config.Config) []string {
 	if !shouldEnableYolo(agent, cfg) {
 		return args
 	}
-	if argsContain(args, flag) {
+	if slices.Contains(args, flag) {
 		return args
 	}
 
@@ -818,15 +797,6 @@ func yoloFlagForAgent(agent string) (string, bool) {
 	default:
 		return "", false
 	}
-}
-
-func argsContain(args []string, value string) bool {
-	for _, arg := range args {
-		if arg == value {
-			return true
-		}
-	}
-	return false
 }
 
 func shouldPromptGooseConfigure(args []string, configPath string) bool {
