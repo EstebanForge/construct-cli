@@ -38,8 +38,7 @@ During startup for recognized commands/subcommands, `main.go` checks `migration.
 When migration is needed, `migration.CheckAndMigrate()`:
 
 1. **Updates Container Templates** (`updateContainerTemplates`)
-   - Replaces all files in `~/.config/construct-cli/container/` with new versions
-   - Updates clipboard sync scripts in `~/.config/construct-cli/scripts/`
+   - Replaces all files in `~/.config/construct-cli/container/` with new versions (Dockerfile, docker-compose.yml, entrypoint.sh, agent-patch.sh, clipper, clipboard-x11-sync.sh, osascript, powershell.exe, etc.)
    - Safe to replace - no user modifications expected here
 
 2. **Merges Packages File** (`mergePackagesFile`)
@@ -237,11 +236,16 @@ func RunMigrations() error {
 - `~/.config/construct-cli/container/Dockerfile`
 - `~/.config/construct-cli/container/docker-compose.yml`
 - `~/.config/construct-cli/container/entrypoint.sh`
+- `~/.config/construct-cli/container/entrypoint-hash.sh`
 - `~/.config/construct-cli/container/update-all.sh`
 - `~/.config/construct-cli/container/network-filter.sh`
-- `~/.config/construct-cli/container/clipboard-bridge.sh`
-- `~/.config/construct-cli/scripts/clipboard-sync-macos.sh`
-- `~/.config/construct-cli/scripts/clipboard-sync-linux.sh`
+- `~/.config/construct-cli/container/agent-patch.sh`
+- `~/.config/construct-cli/container/clipper`
+- `~/.config/construct-cli/container/clipboard-x11-sync.sh`
+- `~/.config/construct-cli/container/osascript`
+- `~/.config/construct-cli/container/powershell.exe`
+- `~/.config/construct-cli/packages.toml`
+- `~/.config/construct-cli/topgrade.toml`
 
 **Merged (User Settings Preserved):**
 - `~/.config/construct-cli/config.toml` (backup created)

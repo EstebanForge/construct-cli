@@ -17,7 +17,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - Your agents' configuration lives outside of the containers, so you never lose them.
 - Optional network isolation (`permissive`, `strict`, `offline`) with allow/block lists. Configurable list of domains and IPs to blacklist and/or whitelist. Live application of network rules while the AGENT is running.
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of the local SSH agent into the container. Optional fallback to importing host keys with `construct sys ssh-import` for users who do not use an SSH agent.
-- **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Gemini, and Qwen.
+- **Full Clipboard Bridge**: unified host-container clipboard supporting both text and **image pasting** for Claude, Copilot, Gemini, Qwen, Pi, and OMP.
 - **Agent Browser**: Headless browser automation CLI for AI agents. Fast Rust CLI with Node.js fallback. No MCP required.
 - **Pro Toolchain** included and **User-Defined Packages**: Customize your sandbox with `packages.toml` to install additional `apt`, `brew`, `bun`, `npm`, or `pip` packages. Bun is installed by default. Some optional utilities are available via `[tools]`, including `phpbrew`, `nix`, `nvm`, `asdf`, `mise`, and `vmr`. For the full default package set, check the [packages.toml](https://github.com/EstebanForge/construct-cli/blob/main/internal/templates/packages.toml) file.
 - Global **AGENTS.md rules management**: `construct sys agents-md` to manage rules for all supported agents in one place.
