@@ -118,15 +118,7 @@ func main() {
 		handleNetworkCommand(args[1:])
 	case "cc":
 		if len(args) < 2 || args[1] == "--help" || args[1] == "-h" {
-			// Ensure config is loaded for PrintCCHelp
-			if cfg == nil {
-				var err error
-				cfg, _, err = config.Load()
-				if err != nil {
-					ui.LogError(err)
-					os.Exit(1)
-				}
-			}
+			cfg = ensureConfigLoaded(cfg)
 			agent.PrintCCHelp(cfg)
 			os.Exit(0)
 		}
@@ -134,17 +126,7 @@ func main() {
 		agentArgs := append([]string{"claude"}, args[2:]...)
 		agent.RunWithProvider(agentArgs, networkFlag, providerName)
 	case "claude":
-		// Check if first arg is a provider alias (fallback wrapper)
-		if len(args) > 1 {
-			// Ensure config is loaded
-			if cfg == nil {
-				var err error
-				cfg, _, err = config.Load()
-				if err != nil {
-					ui.LogError(err)
-					os.Exit(1)
-				}
-			}
+		if len(args) > 1 && cfg != nil {
 			if _, exists := cfg.Claude.Providers[args[1]]; exists {
 				providerName := args[1]
 				agentArgs := append([]string{"claude"}, args[2:]...)
@@ -152,7 +134,6 @@ func main() {
 				return
 			}
 		}
-		// Normal claude invocation
 		agent.RunWithArgs(args, networkFlag)
 	default:
 		// Check if it's a supported agent
