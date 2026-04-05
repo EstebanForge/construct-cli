@@ -40,7 +40,7 @@ func LoginBridge(args []string) {
 	}
 
 	flagPath := filepath.Join(config.GetConfigDir(), loginBridgeFlagFile)
-	if err := os.WriteFile(flagPath, []byte(fmt.Sprintf("%s\n", normalized)), 0644); err != nil {
+	if err := os.WriteFile(flagPath, []byte(normalized+"\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to enable login bridge: %v\n", err)
 		return
 	}
