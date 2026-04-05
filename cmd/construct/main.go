@@ -153,9 +153,6 @@ func handleSysCommand(args []string, cfg *config.Config) {
 
 	switch args[0] {
 	case "init", "rebuild":
-		// For rebuild, we also want to refresh configuration and templates from binary first.
-		// This ensures that any template or config changes are applied before building.
-		// For init, we rely on config.Load()'s idempotent Init() and the automatic migration check at startup.
 		if args[0] == "rebuild" {
 			if err := migration.ForceRefresh(); err != nil {
 				ui.GumError(fmt.Sprintf("Migration failed: %v", err))
@@ -163,28 +160,12 @@ func handleSysCommand(args []string, cfg *config.Config) {
 			}
 		}
 
-		// Init/rebuild logic is handled by runtime.BuildImage which calls config loading if needed
-		// If cfg is nil, we load it
-		if cfg == nil {
-			var err error
-			cfg, _, err = config.Load()
-			if err != nil {
-				ui.LogError(err)
-				os.Exit(1)
-			}
-		}
+		cfg = ensureConfigLoaded(cfg)
 		runtime.BuildImage(cfg)
 	case "update":
 		runUpdate(cfg)
 	case "reset":
-		if cfg == nil {
-			var err error
-			cfg, _, err = config.Load()
-			if err != nil {
-				ui.LogError(err)
-				os.Exit(1)
-			}
-		}
+		cfg = ensureConfigLoaded(cfg)
 		sys.ResetVolumes(cfg)
 	case "shell":
 		// Shell is just running with empty args (entrypoint defaults to shell)
@@ -253,14 +234,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "login-bridge":
 		sys.LoginBridge(args[1:])
 	case "set-password":
-		if cfg == nil {
-			var err error
-			cfg, _, err = config.Load()
-			if err != nil {
-				ui.LogError(err)
-				os.Exit(1)
-			}
-		}
+		cfg = ensureConfigLoaded(cfg)
 		sys.SetPassword(cfg)
 	case "daemon":
 		if len(args) < 2 {
@@ -510,39 +484,27 @@ func shouldRunMigration(args []string) bool {
 		if len(args) < 2 {
 			return false
 		}
-		if !isKnownSysCommand(args[1]) {
+		switch args[1] {
+		case "init", "rebuild", "update", "reset", "shell", "aliases", "version", "help",
+			"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
+			"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
+			return args[1] != "self-update" && args[1] != "rebuild"
+		default:
 			return false
 		}
-		// Skip migration check for self-update and rebuild to avoid duplicate runs.
-		return args[1] != "self-update" && args[1] != "rebuild"
 	case "network":
 		if len(args) < 2 {
 			return false
 		}
-		return isKnownNetworkCommand(args[1])
+		switch args[1] {
+		case "allow", "block", "remove", "list", "status", "clear":
+			return true
+		default:
+			return false
+		}
 	case "cc", "claude":
 		return true
 	default:
 		return agent.IsSupported(args[0])
-	}
-}
-
-func isKnownSysCommand(cmd string) bool {
-	switch cmd {
-	case "init", "rebuild", "update", "reset", "shell", "aliases", "version", "help",
-		"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
-		"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
-		return true
-	default:
-		return false
-	}
-}
-
-func isKnownNetworkCommand(cmd string) bool {
-	switch cmd {
-	case "allow", "block", "remove", "list", "status", "clear":
-		return true
-	default:
-		return false
 	}
 }
