@@ -154,8 +154,6 @@ func IsRuntimeRunning(runtimeName string) bool {
 	case "docker":
 		// Check if docker daemon is responding
 		cmd = exec.Command("docker", "info")
-	default:
-		return false
 	}
 
 	if cmd == nil {
