@@ -783,14 +783,8 @@ func UsesUserNamespaceRemap(containerRuntime string) bool {
 		return false
 	}
 
-	switch containerRuntime {
-	case "podman":
-		return podmanIsRootless()
-	case "docker", "container":
-		return dockerUsesUserNamespaceRemap()
-	default:
-		return false
-	}
+	return (containerRuntime == "podman" && podmanIsRootless()) ||
+		((containerRuntime == "docker" || containerRuntime == "container") && dockerUsesUserNamespaceRemap())
 }
 
 func podmanIsRootless() bool {
