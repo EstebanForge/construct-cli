@@ -93,7 +93,7 @@ func GumInfo(msg string) {
 // GetGumCommand returns an exec.Cmd for embedded gum-compatible commands.
 func GetGumCommand(args ...string) *exec.Cmd {
 	exePath, err := os.Executable()
-	if err != nil || exePath == "" {
+	if err != nil {
 		exePath = os.Args[0]
 	}
 

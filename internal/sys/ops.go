@@ -162,8 +162,6 @@ func ResetVolumes(cfg *config.Config) {
 	}
 
 	var cmd *exec.Cmd
-
-	// Delete named volumes
 	switch containerRuntime {
 	case "docker":
 		cmd = exec.Command("docker", "volume", "rm", "construct-agents", "construct-packages")
