@@ -341,6 +341,57 @@ TRUSTED:     Host-only trusted transport values (provider keys, internal runtime
 PASSTHROUGH: PATH, HOME, TERM, LANG, LC_*, and items in 'hide_secrets_passthrough_vars'
 ```
 
+## Borrowed Implementation Patterns (From `psst`)
+
+This proposal borrows selected operational patterns from `psst` and related agent integrations, while keeping Construct's stronger boundary model (overlay + run-only authz + policy proxy).
+
+### Adopt in V1
+
+1. **Stream-time output masking for subprocess output**
+   - Capture stdout/stderr for agent-invoked subprocesses where Construct controls the execution path.
+   - Replace known secret values with a deterministic marker (e.g. `[REDACTED]` or `CONSTRUCT_REDACTED_<H8>` based on mode).
+   - Apply longest-value-first replacement order to reduce partial-overlap leaks.
+   - Keep this as defense-in-depth, not the primary boundary.
+
+2. **Safe argument expansion policy**
+   - Keep command execution as non-shell (`shell=false` equivalent behavior).
+   - If variable expansion is needed in wrapper paths, implement explicit `$VAR`/`${VAR}` expansion against approved env map only.
+   - Unknown vars remain literal (no implicit shell interpolation).
+
+3. **Value-based leak scanner (post-action / pre-commit assistant)**
+   - Add optional scanner that searches for actual known secret values in changed/tracked files.
+   - Report file + line + secret identifier only (never print raw values).
+   - Include staged-only mode and path-scoped mode.
+   - Keep scanner independent from `.gitignore` for hide-secrets sessions where applicable.
+
+4. **Agent guidance by secret names only**
+   - Generate optional guidance snippet listing available secret names (never values) for supported agents in hide-secrets mode.
+   - Guidance should explicitly instruct: "use env var names, never request raw values."
+
+### Adopt with Construct-specific constraints
+
+1. **Mask bypass control**
+   - `psst` supports `--no-mask`; Construct must not allow unrestricted mask bypass in hide-secrets mode.
+   - Any debug bypass must be host-only, gated, audited, and unavailable to agent-controlled commands.
+
+2. **Fallback-to-host-env behavior**
+   - `psst` can fall back to `process.env[NAME]` for missing vault entries.
+   - Construct hide-secrets mode must fail closed instead; no implicit host-env fallback for secret material.
+
+3. **Runtime credential hygiene**
+   - Continue stripping bootstrap credentials from child env (same spirit as removing `PSST_PASSWORD`), but extend to all Construct runtime auth artifacts.
+   - Ensure these credentials are excluded from logs, manifests, and diagnostics.
+
+### Explicitly not adopted
+
+1. **Agent-readable raw secret access path**
+   - `psst` tooling can decrypt and read raw secrets in-process by design.
+   - Construct hide-secrets mode must keep raw secret reads outside agent-reachable interfaces.
+
+2. **Secrets-in-env as primary security boundary**
+   - Env injection and output masking are useful, but not sufficient against deliberate exfiltration paths.
+   - Construct primary boundary remains: redacted workspace + policy proxy + run-only session authz.
+
 ---
 
 ## Runtime Integration Points in Construct
@@ -553,12 +604,14 @@ Hard requirements:
 - Redaction pass (path-first + content scan)
 - Agent run path integration (overlay mount)
 - Masked env injection with provider proxy
+- Stream-time stdout/stderr masking in Construct-controlled execution paths (longest-value-first replacement)
 - Run-only session token mint/validate/revoke
 - Provider pinning + host/method/path policy enforcement in proxy
 - Auth-class header sanitization and redirect block behavior
 - Read-only session persistence policy implementation (no project write-back)
 - Session persistence and report
 - `deny_paths` enforcement
+- Optional agent guidance snippet generation with secret names only (no values)
 - Tamper-evident security audit chain + verify command
 
 ### Phase 2: Hardening
@@ -567,6 +620,7 @@ Hard requirements:
 - Optional daemon boundary for proxy/decryption path (unix socket)
 - Advanced proxy policy controls (rate limits, request/response size, response blocklist)
 - macOS fallback (no OverlayFS — use copy-on-write with APFS clones)
+- Value-based leak scanner workflows (`tracked`, `staged`, `path`) with non-secret reporting only
 
 ### Phase 3: Advanced features
 - Organization-level policy presets
@@ -579,6 +633,7 @@ Hard requirements:
 
 ### Unit tests
 - Value masking formatter
+- Output masking overlap handling (longest-match-first, repeated and nested occurrences)
 - Detector rules for known token families
 - Parser-specific redaction (dotenv, json, yaml, toml, ini)
 - Entropy detector false-positive guardrails
@@ -601,6 +656,7 @@ Hard requirements:
 - Unsupported provider in hide mode fails closed with actionable error
 - Redirect exfiltration attempts are blocked (or strictly revalidated by policy mode)
 - Audit verify command passes on untouched log and fails on tampered log
+- Value-based leak scanner finds known secret values in tracked and staged modes without printing raw values
 
 ### Security tests
 - Verify no raw secrets in:
@@ -618,6 +674,8 @@ Hard requirements:
 - Verify caller cannot override provider host with arbitrary URL
 - Verify run-only session token cannot access secret-read/mutation operations
 - Verify security-critical proxy allow events are chained in audit log
+- Verify hide mode rejects implicit secret fallback from host env when mapped secret material is missing
+- Verify debug/diagnostic flows cannot disable masking from agent-controlled commands
 
 ---
 
@@ -703,3 +761,195 @@ Proceed with V1 as:
 - Daemon boundary intentionally deferred to hardening phase (keeps V1 tractable while preserving path to stronger isolation)
 
 This gives a clean user experience and meaningful protection without pretending perfect detection or breaking existing default behavior.
+
+---
+
+## Implementation TODO (Dependency-Ordered, Repo-Mapped)
+
+Legend:
+- `[ ]` pending
+- `[x]` done
+- `[-]` obsolete
+
+### 0) Foundation and Feature Gate
+
+- [ ] Add `security` config model in `internal/config/config.go`:
+  - fields: `hide_secrets`, `hide_secrets_mask_style`, `hide_secrets_deny_paths`, `hide_secrets_passthrough_vars`, `hide_secrets_report`, `hide_git_dir`
+  - defaults per this proposal
+- [ ] Add defaults + migration coverage for missing keys:
+  - `internal/config/config.go` (`DefaultConfig`)
+  - `internal/config/defaults.go` (ensure doctor/fix path can append new keys safely)
+  - `internal/config/config_test.go` and `internal/config/defaults` tests
+- [ ] Add config template/docs comments:
+  - `internal/templates/config.toml`
+  - `README.md` (new security section)
+- [ ] Implement enablement resolver (single source of truth):
+  - env gate: `CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1`
+  - config gate: `security.hide_secrets=true`
+  - emit startup status log line with reason/source
+  - likely location: `internal/runtime/runtime.go` or new `internal/security/mode.go`
+- [ ] Add zero-load assertions when feature is disabled:
+  - no detector init, no overlay init, no session writes
+  - tests in `internal/runtime/runtime_test.go` (+ new security package tests)
+
+### 1) Security Package Skeleton (New)
+
+- [ ] Create `internal/security/` package set:
+  - `mode.go` (gate resolution)
+  - `mask.go` (mask formatting: hash/fixed)
+  - `detect.go` (path/content candidate detection contract)
+  - `redact_*` (dotenv/json/yaml/toml/ini/properties redactors)
+  - `session.go` (session dir lifecycle)
+  - `audit.go` (HMAC chain append/verify)
+  - `authz.go` (run-only token mint/validate/revoke)
+  - `policy.go` (provider registry + host/method/path policy)
+- [ ] Add package-level unit tests for each module before runtime wiring.
+
+### 2) Session Storage and Lifecycle
+
+- [ ] Add session root layout under `~/.config/construct-cli/security/`:
+  - `sessions/<id>/manifest.json`
+  - `sessions/<id>/redaction-index.json`
+  - `sessions/<id>/authz.json`
+  - `sessions/<id>/upper/`, `sessions/<id>/work/`
+  - optional `sessions/<id>/errors.json`
+  - `audit/security-audit.log`, `audit/security-audit.state`
+  - `cache/rules-version.json`
+- [ ] Add process PID tracking + orphan sweep command plumbing:
+  - likely `internal/sys/ops.go` (new `construct sys security clean` hooks)
+  - cleanup rules per proposal
+- [ ] Ensure raw secrets/tokens are never persisted in session files.
+
+### 3) Overlay/Clone Workspace Isolation
+
+- [ ] Linux path: implement per-session overlay mount pipeline:
+  - lower=`project (ro)`, upper/work per session, merged workdir for agent
+  - wire into run + daemon exec paths
+  - files: `internal/runtime/runtime.go`, `internal/runtime/daemon_mounts.go`, `internal/agent/runner.go`
+- [ ] macOS path: APFS clone strategy fallback:
+  - `cp -c` clone behavior + graceful fallback
+  - likely in new `internal/security/workspace_darwin.go`
+- [ ] Enforce no project write-back in hide mode:
+  - all writes remain session-local
+  - end-of-session changed-files summary to user
+  - runner integration: `internal/agent/runner.go`
+- [ ] `.git` hide policy:
+  - default hide via upper-layer masking/whiteout equivalent
+  - config override warning path
+
+### 4) Detection + Redaction Engine
+
+- [ ] Implement path-first candidate filter with hard exclusions:
+  - independent from `.gitignore`
+  - include `hide_secrets_deny_paths` overrides
+- [ ] Implement content pass with `rg` integration:
+  - fast candidate narrowing
+  - lockfile exclusions and false-positive mitigations
+- [ ] Implement parser-aware redaction writers (structure-preserving):
+  - dotenv/json/yaml/toml/ini/properties
+  - multiline key/cert handling
+- [ ] Implement symlink policy:
+  - resolve-in-root only
+  - blocked symlink handling in manifest + warnings
+
+### 5) Environment and Runtime Credential Boundary
+
+- [ ] Build masked env map for agent execution:
+  - mask all user env by default
+  - passthrough only `PATH/HOME/TERM/LANG/LC_*` + configured passthrough vars
+  - validate passthrough var names
+  - files: `internal/env/env.go`, `internal/agent/runner.go`
+- [ ] Force `sandbox.mount_home=false` when hide mode is effectively on:
+  - enforce at runtime, not just docs
+  - file: `internal/runtime/runtime.go` (+ config validation if needed)
+- [ ] Add stream-time stdout/stderr masking for Construct-controlled subprocess paths:
+  - longest-match-first replacement
+  - likely `internal/agent/runner.go` and/or shared exec wrappers
+
+### 6) Proxy + Provider Pinning + AuthZ
+
+- [ ] Add run-only session token flow:
+  - mint with TTL + session scope
+  - validate constant-time
+  - revoke on session end
+  - never log raw token
+- [ ] Add provider registry with versioned policy:
+  - `provider_id -> allowed_hosts/methods/auth strategy/managed headers`
+  - record registry version in manifest + audit
+- [ ] Add trusted proxy enforcement:
+  - inject `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`
+  - clear `NO_PROXY/no_proxy` except explicit internal allowlist
+  - deny direct provider egress in hide mode
+- [ ] Implement proxy contract checks:
+  - reject caller auth headers/query auth params
+  - policy check before auth injection
+  - redirect policy block/revalidate mode
+  - sanitize response/auth headers + error output
+
+### 7) Audit Chain and Operator Tooling
+
+- [ ] Implement HMAC-chained JSONL security audit:
+  - event classes from proposal
+  - `prev_hmac` + `chain_hmac`
+  - fail closed for critical append failures (`token.mint`, `proxy.invoke.allow`)
+- [ ] Add verify command:
+  - `construct sys security audit verify`
+  - command plumbing in `cmd/construct/main.go` and relevant `internal/sys/*`
+- [ ] Add security clean command:
+  - `construct sys security clean` for manual artifact cleanup
+
+### 8) Runtime Integration and UX
+
+- [ ] Wire hide-secrets mode into standard run and daemon flows end-to-end:
+  - `internal/agent/runner.go`
+  - `internal/runtime/runtime.go`
+  - `internal/daemon/service.go`, `internal/daemon/daemon.go` as needed
+- [ ] Emit concise session report:
+  - scanned/redacted counts
+  - policy denials count
+  - token id (non-secret)
+  - persistence summary + review path
+- [ ] Add clear user-facing failure messages for fail-closed cases:
+  - overlay init fail
+  - redaction prep fail
+  - invalid/expired token
+  - unsupported provider/pinning mismatch
+
+### 9) Tests (Must-Pass Gate Before Merge)
+
+- [ ] Unit tests:
+  - masking format + overlap replacement
+  - parser redaction correctness
+  - detector false-positive guardrails
+  - token TTL/revocation/constant-time validation
+  - provider pinning mismatch fail-closed
+  - proxy request sanitization
+  - audit append/verify and tamper detection
+- [ ] Integration tests:
+  - agent sees masked values only
+  - real project unchanged after hide session
+  - changed session upper retained with warning
+  - zero-load when env gate is absent
+  - direct provider egress blocked in hide mode
+  - unsupported provider fails closed
+- [ ] Security tests:
+  - no raw secrets in env/proc/logs/session files
+  - `.git` hidden by default
+  - `mount_home` forced off
+  - no raw provider keys in agent env
+
+### 10) Validation and Release Readiness
+
+- [ ] Run full checks locally:
+  - `make fmt`
+  - `make lint`
+  - `make test`
+  - `make build`
+- [ ] Add/update docs:
+  - `docs/ARCHITECTURE-DESIGN.md` (security mode architecture)
+  - `README.md` (operator enablement + caveats)
+  - changelog entry in `CHANGELOG.md`
+- [ ] Pre-release rollout checklist:
+  - confirm default-off behavior on machine without env gate
+  - confirm explicit enablement behavior with both gates
+  - confirm migration path for existing user configs

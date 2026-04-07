@@ -419,12 +419,14 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 // GenerateTopgradeConfig generates a topgrade.toml configuration based on enabled tools.
 func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	var disabledSteps []string
+	var ignoreFailures []string
 
 	baseDisabled := []string{
 		"firmware",
 		"flatpak",
 		"snap",
 		"containers",
+		"claude_code",
 		"sdkman",
 		"vagrant",
 		"wsl",
@@ -456,6 +458,9 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	}
 	if !c.Tools.Mise {
 		disabledSteps = append(disabledSteps, "mise")
+	} else {
+		// mise may fail on transient GitHub API 403/rate-limit errors; don't fail the whole update run.
+		ignoreFailures = append(ignoreFailures, "mise")
 	}
 	if !c.Tools.Volta {
 		disabledSteps = append(disabledSteps, "volta_packages")
@@ -476,6 +481,13 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	config += "pre_sudo = true\n"
 	config += "show_skipped = false\n"
 	config += "display_time = true\n"
+	if len(ignoreFailures) > 0 {
+		config += "ignore_failures = [\n"
+		for _, step := range ignoreFailures {
+			config += fmt.Sprintf("    %q,\n", step)
+		}
+		config += "]\n"
+	}
 	config += "disable = [\n"
 	for _, step := range disabledSteps {
 		config += fmt.Sprintf("    %q,\n", step)

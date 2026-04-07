@@ -195,13 +195,39 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 }
 
 func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
-	config := &PackagesConfig{}
+	config := &PackagesConfig{
+		Tools: ToolsConfig{
+			Mise: true,
+		},
+	}
 	result := config.GenerateTopgradeConfig()
 
 	// claude update exits non-zero when already up-to-date; topgrade would mark
 	// it FAILED without || true even though no update was needed.
 	if !strings.Contains(result, `"Claude Code" = "claude update || true"`) {
 		t.Error("topgrade config must use 'claude update || true' to avoid false FAILED status when already up-to-date")
+	}
+	if !strings.Contains(result, `"claude_code",`) {
+		t.Error("topgrade config must disable built-in claude_code step to avoid duplicate/conflicting Claude update runs")
+	}
+	if !strings.Contains(result, `"mise",`) || !strings.Contains(result, "ignore_failures = [") {
+		t.Error("topgrade config should ignore mise failures to prevent transient API errors from failing whole update")
+	}
+}
+
+func TestGenerateTopgradeConfigNoMiseWhenToolDisabled(t *testing.T) {
+	config := &PackagesConfig{
+		Tools: ToolsConfig{
+			Mise: false,
+		},
+	}
+	result := config.GenerateTopgradeConfig()
+
+	if !strings.Contains(result, `"mise",`) {
+		t.Error("topgrade config must disable mise step when tool is disabled")
+	}
+	if strings.Contains(result, "ignore_failures = [") {
+		t.Error("topgrade config should not include ignore_failures when mise is disabled")
 	}
 }
 
