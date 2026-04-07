@@ -807,7 +807,7 @@ Legend:
 
 ### 2) Session Storage and Lifecycle
 
-- [ ] Add session root layout under `~/.config/construct-cli/security/`:
+- [x] Add session root layout under `~/.config/construct-cli/security/`:
   - `sessions/<id>/manifest.json`
   - `sessions/<id>/redaction-index.json`
   - `sessions/<id>/authz.json`
@@ -815,40 +815,46 @@ Legend:
   - optional `sessions/<id>/errors.json`
   - `audit/security-audit.log`, `audit/security-audit.state`
   - `cache/rules-version.json`
-- [ ] Add process PID tracking + orphan sweep command plumbing:
-  - likely `internal/sys/ops.go` (new `construct sys security clean` hooks)
-  - cleanup rules per proposal
-- [ ] Ensure raw secrets/tokens are never persisted in session files.
+- [x] Add process PID tracking + orphan sweep command plumbing:
+  - implemented in `session.go` with PID tracking
+  - cleanup rules per proposal (orphan detection with grace period)
+- [x] Ensure raw secrets/tokens are never persisted in session files.
 
 ### 3) Overlay/Clone Workspace Isolation
 
-- [ ] Linux path: implement per-session overlay mount pipeline:
+- [x] Linux path: implement per-session overlay mount pipeline:
   - lower=`project (ro)`, upper/work per session, merged workdir for agent
   - wire into run + daemon exec paths
   - files: `internal/runtime/runtime.go`, `internal/runtime/daemon_mounts.go`, `internal/agent/runner.go`
-- [ ] macOS path: APFS clone strategy fallback:
+- [x] macOS path: APFS clone strategy fallback:
   - `cp -c` clone behavior + graceful fallback
-  - likely in new `internal/security/workspace_darwin.go`
-- [ ] Enforce no project write-back in hide mode:
+  - implemented in `workspace.go` with platform detection
+- [x] Enforce no project write-back in hide mode:
   - all writes remain session-local
   - end-of-session changed-files summary to user
   - runner integration: `internal/agent/runner.go`
-- [ ] `.git` hide policy:
+- [x] `.git` hide policy:
   - default hide via upper-layer masking/whiteout equivalent
   - config override warning path
+- [x] Integration layer (`integration.go`):
+  - SessionManager for hide-secrets lifecycle
+  - Automatic workspace creation and cleanup
+  - Session manifest and redaction index generation
+  - Changed files detection and user reporting
 
 ### 4) Detection + Redaction Engine
 
-- [ ] Implement path-first candidate filter with hard exclusions:
+- [x] Implement path-first candidate filter with hard exclusions:
   - independent from `.gitignore`
   - include `hide_secrets_deny_paths` overrides
 - [ ] Implement content pass with `rg` integration:
   - fast candidate narrowing
   - lockfile exclusions and false-positive mitigations
-- [ ] Implement parser-aware redaction writers (structure-preserving):
+  - V1: placeholder only
+- [x] Implement parser-aware redaction writers (structure-preserving):
   - dotenv/json/yaml/toml/ini/properties
   - multiline key/cert handling
-- [ ] Implement symlink policy:
+- [x] Implement symlink policy:
   - resolve-in-root only
   - blocked symlink handling in manifest + warnings
 
