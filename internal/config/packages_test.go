@@ -194,6 +194,17 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 	}
 }
 
+func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
+	config := &PackagesConfig{}
+	result := config.GenerateTopgradeConfig()
+
+	// claude update exits non-zero when already up-to-date; topgrade would mark
+	// it FAILED without || true even though no update was needed.
+	if !strings.Contains(result, `"Claude Code" = "claude update || true"`) {
+		t.Error("topgrade config must use 'claude update || true' to avoid false FAILED status when already up-to-date")
+	}
+}
+
 func TestLoadPackages(t *testing.T) {
 	// Setup temporary home for config
 	tmpDir, err := os.MkdirTemp("", "construct-test-*")

@@ -499,7 +499,7 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	config += "self_update = false\n\n"
 
 	config += "[commands]\n"
-	config += "\"Claude Code\" = \"claude update\"\n"
+	config += "\"Claude Code\" = \"claude update || true\"\n"
 
 	return config
 }
