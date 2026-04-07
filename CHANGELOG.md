@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.6.1 -->
+## [1.6.1] - 2026-04-07
+
+### Fixed
+- **Claude Code Update False Failure**: `claude update` exits non-zero when already up-to-date, causing topgrade to report `Claude Code: FAILED` in the summary even though no update was needed. Fixed by appending `|| true` to the command in both the embedded `topgrade.toml` template and the dynamically generated topgrade config (`GenerateTopgradeConfig`).
+
+<!-- RELEASE:END 1.6.1 -->
+---
+
 <!-- RELEASE:START 1.6.0 -->
 ## [1.6.0] - 2026-04-02
 
