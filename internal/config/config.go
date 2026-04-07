@@ -25,6 +25,7 @@ type Config struct {
 	Agents      AgentsConfig      `toml:"agents"`
 	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
+	Security    SecurityConfig    `toml:"security"`
 }
 
 // RuntimeConfig holds container runtime settings.
@@ -85,6 +86,16 @@ type ClaudeConfig struct {
 	Providers map[string]map[string]string `toml:"cc"`
 }
 
+// SecurityConfig holds secret redaction and security settings.
+type SecurityConfig struct {
+	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets mode (opt-in, requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1)
+	HideSecretsMaskStyle       string   `toml:"hide_secrets_mask_style"`       // Mask style: "hash" (default) or "fixed"
+	HideSecretsDenyPaths       []string `toml:"hide_secrets_deny_paths"`       // Globs always scanned regardless of heuristics
+	HideSecretsPassthroughVars []string `toml:"hide_secrets_passthrough_vars"` // Env vars to never mask (e.g. ["PUBLIC_API_URL"])
+	HideSecretsReport          bool     `toml:"hide_secrets_report"`           // Emit session report
+	HideGitDir                 bool     `toml:"hide_git_dir"`                  // Hide .git directory in merged view (default true)
+}
+
 // DefaultConfig returns the default configuration values.
 func DefaultConfig() Config {
 	return Config{
@@ -142,6 +153,14 @@ func DefaultConfig() Config {
 			AutoStart:         true,
 			MultiPathsEnabled: false,
 			MountPaths:        []string{},
+		},
+		Security: SecurityConfig{
+			HideSecrets:                false,
+			HideSecretsMaskStyle:       "hash",
+			HideSecretsDenyPaths:       []string{},
+			HideSecretsPassthroughVars: []string{},
+			HideSecretsReport:          true,
+			HideGitDir:                 true,
 		},
 	}
 }

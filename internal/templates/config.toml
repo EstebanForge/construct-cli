@@ -133,6 +133,33 @@ cleanup_interval_seconds = 86400
 # Delete logs older than this many days (default: 15)
 log_retention_days = 15
 
+# Secret Redaction Mode (Experimental, Opt-In)
+[security]
+# WARNING: This is an experimental feature. Requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1 env var to function.
+# When enabled, prevents LLM agents from seeing raw secrets in mounted project files and environment variables.
+# Default: false (disabled)
+hide_secrets = false
+
+# Mask style for redacted secrets: "hash" (default) or "fixed"
+# - "hash": Shows unique placeholder per secret (CONSTRUCT_REDACTED_<H8>) - better for debugging
+# - "fixed": Shows static placeholder (CONSTRUCT_REDACTED) - maximum secrecy
+hide_secrets_mask_style = "hash"
+
+# Glob patterns for files that are always scanned for secrets, regardless of heuristics
+# Example: ["**/secrets.yml", "**/.env.local"]
+hide_secrets_deny_paths = []
+
+# Environment variable names to pass through unmasked (advanced, use sparingly)
+# These vars will be visible to agents in raw form. Example: ["PUBLIC_API_URL", "APP_ENV"]
+hide_secrets_passthrough_vars = []
+
+# Emit a session report after each agent run showing scan/redaction statistics
+hide_secrets_report = true
+
+# Hide .git directory in merged view (default: true)
+# WARNING: Setting to false exposes git history, reflogs, and past commits which may contain secrets
+hide_git_dir = true
+
 # Claude Code Provider Aliases
 # Configure custom API endpoints and authentication for Claude Code.
 # Reference host environment variables using ${VAR_NAME} syntax

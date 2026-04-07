@@ -773,28 +773,28 @@ Legend:
 
 ### 0) Foundation and Feature Gate
 
-- [ ] Add `security` config model in `internal/config/config.go`:
+- [x] Add `security` config model in `internal/config/config.go`:
   - fields: `hide_secrets`, `hide_secrets_mask_style`, `hide_secrets_deny_paths`, `hide_secrets_passthrough_vars`, `hide_secrets_report`, `hide_git_dir`
   - defaults per this proposal
-- [ ] Add defaults + migration coverage for missing keys:
+- [x] Add defaults + migration coverage for missing keys:
   - `internal/config/config.go` (`DefaultConfig`)
   - `internal/config/defaults.go` (ensure doctor/fix path can append new keys safely)
   - `internal/config/config_test.go` and `internal/config/defaults` tests
-- [ ] Add config template/docs comments:
+- [x] Add config template/docs comments:
   - `internal/templates/config.toml`
   - `README.md` (new security section)
-- [ ] Implement enablement resolver (single source of truth):
+- [x] Implement enablement resolver (single source of truth):
   - env gate: `CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1`
   - config gate: `security.hide_secrets=true`
   - emit startup status log line with reason/source
   - likely location: `internal/runtime/runtime.go` or new `internal/security/mode.go`
-- [ ] Add zero-load assertions when feature is disabled:
+- [x] Add zero-load assertions when feature is disabled:
   - no detector init, no overlay init, no session writes
   - tests in `internal/runtime/runtime_test.go` (+ new security package tests)
 
 ### 1) Security Package Skeleton (New)
 
-- [ ] Create `internal/security/` package set:
+- [x] Create `internal/security/` package set:
   - `mode.go` (gate resolution)
   - `mask.go` (mask formatting: hash/fixed)
   - `detect.go` (path/content candidate detection contract)
@@ -803,7 +803,7 @@ Legend:
   - `audit.go` (HMAC chain append/verify)
   - `authz.go` (run-only token mint/validate/revoke)
   - `policy.go` (provider registry + host/method/path policy)
-- [ ] Add package-level unit tests for each module before runtime wiring.
+- [x] Add package-level unit tests for each module before runtime wiring.
 
 ### 2) Session Storage and Lifecycle
 
