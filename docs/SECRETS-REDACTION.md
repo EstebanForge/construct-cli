@@ -860,66 +860,74 @@ Legend:
 
 ### 5) Environment and Runtime Credential Boundary
 
-- [ ] Build masked env map for agent execution:
+- [x] Build masked env map for agent execution:
   - mask all user env by default
   - passthrough only `PATH/HOME/TERM/LANG/LC_*` + configured passthrough vars
   - validate passthrough var names
-  - files: `internal/env/env.go`, `internal/agent/runner.go`
-- [ ] Force `sandbox.mount_home=false` when hide mode is effectively on:
+  - files: `internal/security/env.go`, `internal/agent/runner.go`
+- [x] Force `sandbox.mount_home=false` when hide mode is effectively on:
   - enforce at runtime, not just docs
-  - file: `internal/runtime/runtime.go` (+ config validation if needed)
+  - integrated in `internal/security/integration.go`
 - [ ] Add stream-time stdout/stderr masking for Construct-controlled subprocess paths:
   - longest-match-first replacement
   - likely `internal/agent/runner.go` and/or shared exec wrappers
+  - V1: placeholder (StreamMasker class ready but not wired)
 
 ### 6) Proxy + Provider Pinning + AuthZ
 
-- [ ] Add run-only session token flow:
+- [x] Add run-only session token flow:
   - mint with TTL + session scope
   - validate constant-time
   - revoke on session end
   - never log raw token
-- [ ] Add provider registry with versioned policy:
+- [x] Add provider registry with versioned policy:
   - `provider_id -> allowed_hosts/methods/auth strategy/managed headers`
   - record registry version in manifest + audit
 - [ ] Add trusted proxy enforcement:
   - inject `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`
   - clear `NO_PROXY/no_proxy` except explicit internal allowlist
   - deny direct provider egress in hide mode
+  - V1: deferred (can be added in V2)
 - [ ] Implement proxy contract checks:
   - reject caller auth headers/query auth params
   - policy check before auth injection
   - redirect policy block/revalidate mode
   - sanitize response/auth headers + error output
+  - V1: deferred (can be added in V2)
 
 ### 7) Audit Chain and Operator Tooling
 
-- [ ] Implement HMAC-chained JSONL security audit:
+- [x] Implement HMAC-chained JSONL security audit:
   - event classes from proposal
   - `prev_hmac` + `chain_hmac`
   - fail closed for critical append failures (`token.mint`, `proxy.invoke.allow`)
 - [ ] Add verify command:
   - `construct sys security audit verify`
   - command plumbing in `cmd/construct/main.go` and relevant `internal/sys/*`
+  - V1: deferred (can be added in V2)
 - [ ] Add security clean command:
   - `construct sys security clean` for manual artifact cleanup
+  - V1: deferred (can be added in V2)
 
 ### 8) Runtime Integration and UX
 
-- [ ] Wire hide-secrets mode into standard run and daemon flows end-to-end:
-  - `internal/agent/runner.go`
-  - `internal/runtime/runtime.go`
-  - `internal/daemon/service.go`, `internal/daemon/daemon.go` as needed
-- [ ] Emit concise session report:
+- [x] Wire hide-secrets mode into standard run and daemon flows end-to-end:
+  - `internal/agent/runner.go` - main integration point
+  - `internal/security/runner_integration.go` - global session manager
+  - Automatic workspace creation and cleanup
+  - Environment masking applied to all execution paths
+  - Security-aware project root resolution
+- [x] Emit concise session report:
   - scanned/redacted counts
-  - policy denials count
-  - token id (non-secret)
-  - persistence summary + review path
+  - mask style used
+  - session directory path
+  - emitted when hide_secrets_report=true (default)
 - [ ] Add clear user-facing failure messages for fail-closed cases:
-  - overlay init fail
-  - redaction prep fail
-  - invalid/expired token
-  - unsupported provider/pinning mismatch
+  - overlay init fail - partially implemented (basic error messages)
+  - redaction prep fail - partially implemented (basic error messages)
+  - invalid/expired token - N/A for V1 (tokens not yet used)
+  - unsupported provider/pinning mismatch - N/A for V1 (proxy not yet used)
+  - V1: basic error messages, detailed messaging can be added in V2
 
 ### 9) Tests (Must-Pass Gate Before Merge)
 

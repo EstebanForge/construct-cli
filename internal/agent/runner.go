@@ -22,6 +22,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
+	"github.com/EstebanForge/construct-cli/internal/security"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -332,6 +333,20 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	baseArgs := args
 	mergedProviderEnv := collectForwardedEnv(cfg, providerEnv)
 
+	// Initialize hide-secrets security session if enabled
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to get working directory: %v\n", err)
+		os.Exit(1)
+	}
+
+	if _, serr := security.InitializeSessionForRun(cfg, configPath, projectRoot); serr != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to initialize security session: %v\n", serr)
+		os.Exit(1)
+	}
+	// Defer cleanup
+	defer security.HandleExit()
+
 	if err := ensureAgentRuntimeDirs(baseArgs, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -551,6 +566,9 @@ func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, con
 	}
 
 	// composeArgs := runtime.GetComposeFileArgs(configPath) // Removed as unused
+
+	// Apply hide-secrets environment masking if active
+	osEnv = security.GetMaskedEnvSlice(osEnv)
 
 	if len(args) == 0 {
 		fmt.Println("Entering Construct interactive shell...")
@@ -920,6 +938,15 @@ func warnDaemonMountFallback() {
 	fmt.Println("Tip: Enable multi-root daemon mounts in config for always-fast starts.")
 }
 
+// getEffectiveCwd returns the effective current working directory, accounting for hide-secrets mode.
+func getEffectiveCwd() string {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	return security.GetProjectRoot(cwd)
+}
+
 // execViaDaemon attempts to execute the agent via a running daemon container.
 // Returns true if execution completed (success or failure), false if should fall back to normal path.
 func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonName string, providerEnv []string) (bool, int, error) {
@@ -932,13 +959,7 @@ func execViaDaemon(args []string, cfg *config.Config, containerRuntime, daemonNa
 		return false, 0, nil // Fall back to normal path
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Printf("Debug: Failed to get working directory: %v\n", err)
-		}
-		return false, 0, nil
-	}
+	cwd := getEffectiveCwd()
 
 	daemonMounts := runtime.ResolveDaemonMounts(cfg)
 	workdir := ""
@@ -1100,6 +1121,9 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 		envVars = append(envVars, "COLORTERM=truecolor")
 	}
 
+	// Apply hide-secrets environment masking if active
+	envVars = security.GetMaskedEnvSlice(envVars)
+
 	// On Linux, the daemon is started via docker-compose which mounts
 	// the host SSH socket to /ssh-agent inside the container.
 	// We inject this variable so agents can find it.
@@ -1160,6 +1184,9 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime 
 	if stdruntime.GOOS == "linux" {
 		envVars = append(envVars, "SSH_AUTH_SOCK=/ssh-agent")
 	}
+
+	// Apply hide-secrets environment masking if active
+	envVars = security.GetMaskedEnvSlice(envVars)
 
 	execArgs := args
 	if len(execArgs) == 0 {
@@ -1263,14 +1290,8 @@ func startDaemonBackground(cfg *config.Config, containerRuntime, configPath stri
 
 	fmt.Println("🚀 Starting daemon for faster subsequent runs...")
 
-	// Get current working directory
-	cwd, err := os.Getwd()
-	if err != nil {
-		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Printf("Debug: Failed to get working directory: %v\n", err)
-		}
-		return false
-	}
+	// Get current working directory (security-aware)
+	cwd := getEffectiveCwd()
 
 	// Prepare environment
 	osEnv := os.Environ()
