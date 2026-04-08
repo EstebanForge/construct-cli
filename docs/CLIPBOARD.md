@@ -35,12 +35,12 @@ Whether an agent receives the image as **raw PNG bytes** or as a **file path ref
 |-------|-----------|-----------|
 | Gemini | File path (`@path`) | Clipper shim |
 | Qwen | File path (`@path`) | Clipper shim |
-| Codex | File path (`@path`) | Clipper shim (WSL fallback path) |
+| Codex | File path | Python PTY wrapper |
 | Claude | Raw bytes | Clipper shim → raw PNG stream |
 | Pi | Raw bytes | Clipper shim → raw PNG stream |
 | **Copilot** | File path (`@path`) | Python PTY wrapper (see below) |
 
-Copilot is special: it uses neither the shim nor the JS bridge in the end. See [Copilot: The Full Story](#copilot-the-full-story).
+Copilot and Codex use PTY wrappers as their primary paste path. Copilot details are in [Copilot: The Full Story](#copilot-the-full-story).
 
 ---
 
@@ -91,9 +91,6 @@ All variables below are injected into the container at session start by `interna
 | `CONSTRUCT_CLIPBOARD_IMAGE_PATCH` | `1` or `0` | Gates `agent-patch.sh` execution in the entrypoint. |
 | `CONSTRUCT_AGENT_NAME` | `copilot`, `claude`, `gemini`… | Agent identity, used by clipper to decide paste mode. |
 | `XDG_SESSION_TYPE` | `wayland` | Forces native clipboard modules (Claude, Copilot, Pi) through `wl-paste` → clipper shim. |
-| `WSL_DISTRO_NAME` | `Ubuntu` | Codex-only: tricks the agent into the WSL clipboard path. |
-| `WSL_INTEROP` | `/run/WSL/8_interop` | Codex-only: part of the WSL environment spoof. |
-| `DISPLAY` | `""` (empty) | Codex-only: suppresses X11 lookup so WSL path takes over. |
 | `CONSTRUCT_DEBUG` | `1` | Optional. Enables verbose logging in clipper, JS bridge, entrypoint. |
 
 `CONSTRUCT_FILE_PASTE_AGENTS` is sourced from `internal/constants/constants.go`:
@@ -126,7 +123,7 @@ On first container start (or after entrypoint hash changes), the entrypoint:
    ```
    This is where JS patches and the PTY wrapper are installed.
 
-3. **Optionally starts X11 bridge** (not for Codex/WSL):
+3. **Optionally starts X11 bridge** (not for Codex):
    - Spawns `Xvfb :0` (virtual framebuffer) in the background.
    - Starts `clipboard-x11-sync.sh` which mirrors the host clipboard into the virtual X11 session, for agents that use X11 clipboard APIs directly.
 
@@ -203,7 +200,7 @@ Patches Copilot's TUI input handler so Ctrl+V works on Linux (in addition to Met
 
 ### `patch_copilot_paste_wrapper()`
 
-**Version string:** `construct-copilot-wrapper-v8`
+**Version string:** `construct-copilot-wrapper-v9`
 
 This is the main Copilot image paste mechanism. Installs a Python 3 PTY wrapper in place of the Homebrew `copilot` binary that intercepts paste keystrokes before Copilot's process ever sees them.
 
@@ -229,11 +226,11 @@ else
 fi
 ```
 
-### File-path mode (`PATH_AGENT=true` — Gemini, Qwen, Codex)
+### File-path mode (`PATH_AGENT=true` — Gemini, Qwen, Codex legacy)
 
 1. Fetch image from host: `curl -sS -H "X-Construct-Clip-Token: TOKEN" URL/paste?type=image/png`
 2. Save to `.construct-clipboard/clipboard-{timestamp}.png` in the current working directory.
-3. Emit `@{IMG_PATH}` to stdout (plain path for Codex, `@path` for others).
+3. Emit `@{IMG_PATH}` to stdout (plain path for Codex in legacy clipper mode, `@path` for others).
 
 ### Raw-bytes mode (`PATH_AGENT=false` — Claude, Pi)
 
@@ -263,7 +260,7 @@ Always logs to `$CONSTRUCT_CLIPBOARD_LOG` (default: `/tmp/construct-clipper.log`
 
 ## Per-Agent Behaviour
 
-### Gemini, Qwen, Codex
+### Gemini, Qwen
 
 - **Paste mode:** File path (`@path`).
 - **Mechanism:** Clipper shim (xsel/xclip/wl-paste replacement).
@@ -284,10 +281,9 @@ Always logs to `$CONSTRUCT_CLIPBOARD_LOG` (default: `/tmp/construct-clipper.log`
 
 ### Codex
 
-- **Paste mode:** File path (`@path`).
-- **Mechanism:** Clipper shim + WSL environment spoof.
-- **Extra env:** `WSL_DISTRO_NAME=Ubuntu`, `WSL_INTEROP=/run/WSL/8_interop`, `DISPLAY=""`.
-- **Why WSL spoof:** Codex detects the WSL environment and uses a clipboard path that shells out to `clip.exe` (which we've replaced). Setting `DISPLAY=""` prevents it from trying X11 first.
+- **Paste mode:** File path.
+- **Mechanism:** Python PTY wrapper (`construct-codex-wrapper-v1`) installed by `agent-patch.sh`.
+- **Behavior:** Intercepts paste keystrokes, fetches image from the host clipboard bridge, saves into `.construct-clipboard/`, and injects the file path as typed text.
 
 ### GitHub Copilot
 
@@ -348,12 +344,12 @@ KKP modifier encoding: `modifier = (bitmask + 1)` where Shift=1, Alt=2, Ctrl=4, 
 _PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
 ```
 
-### How the PTY wrapper works (v8)
+### How the PTY wrapper works (v9)
 
 **Installation:**
 
 1. `command -v copilot` finds the active copilot binary (e.g., `/home/linuxbrew/.linuxbrew/bin/copilot`).
-2. Idempotency check: skip if `construct-copilot-wrapper-v8` already in the file.
+2. Idempotency check: skip if `construct-copilot-wrapper-v9` already in the file.
 3. Find real copilot binary via npm-global: `~/.npm-global/bin/copilot` (a symlink into the npm package dir — Node resolves relative imports from the symlink's target directory, which is why we cannot use `readlink -f` here).
 4. `rm -f <homebrew-bin>` — removes symlink or file.
 5. Write Python wrapper to that path.
@@ -396,7 +392,8 @@ Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash
 2. **Container env** — `CONSTRUCT_CLIPBOARD_URL`, `CONSTRUCT_CLIPBOARD_TOKEN` (truncated), `CONSTRUCT_FILE_PASTE_AGENTS`, `CONSTRUCT_CLIPBOARD_IMAGE_PATCH`, `XDG_SESSION_TYPE`, etc.
 3. **Clipper shim state** — Are `/usr/bin/wl-paste`, `xclip`, `xsel` symlinked to `/usr/local/bin/clipper`?
 4. **Clipper log** — `/tmp/construct-clipper.log` (last 40 lines). Created on first paste.
-5. **Copilot wrapper** — `which copilot` resolved path, version string check (`construct-copilot-wrapper-v8`), executable bit, shebang, `_REAL` path.
+5. **Copilot wrapper** — `which copilot` resolved path, version string check (`construct-copilot-wrapper-v9`), executable bit, shebang, `_REAL` path.
+6. **Codex wrapper** — `which codex` resolved path, version string check (`construct-codex-wrapper-v1`), executable bit, shebang, `_REAL` path.
 6. **Copilot wrapper log** — `~/.config/construct-cli/logs/construct-copilot-wrapper.log` (last 40 lines). Created on first Copilot session.
 7. **Copilot JS bridge** — Which `@teddyzhu/clipboard/index.js` files exist, whether `construct-copilot-clipboard-bridge-v3` marker is present.
 8. **Temp clipboard files** — Any `.png` files left in `/tmp`.
@@ -448,7 +445,7 @@ The Homebrew copilot bin script does `import('./index.js')` relative to its own 
 Early wrapper versions logged to `/tmp/construct-copilot-wrapper.log`. Because containers run with `--rm`, `/tmp` is destroyed on exit. Logs must go to the home dir bind-mount (`~/.config/construct-cli/home/` on the host = `/home/construct/` in the container). All persistent logs now use `~/.config/construct-cli/logs/` inside the container.
 
 **The `CONSTRUCT_FILE_PASTE_AGENTS` constant vs clipper default:**
-`constants.go` defines `FileBasedPasteAgents = "gemini,qwen,codex"`. The clipper shim uses this from the `CONSTRUCT_FILE_PASTE_AGENTS` env var. Claude and Copilot are absent — they use raw-bytes mode through the shim (Claude/Pi) or bypass the shim entirely (Copilot via PTY wrapper). Do not add Copilot to this list; it would break the PTY wrapper's path injection.
+`constants.go` defines `FileBasedPasteAgents = "gemini,qwen,codex"`. The clipper shim uses this from the `CONSTRUCT_FILE_PASTE_AGENTS` env var. Claude and Copilot are absent — they use raw-bytes mode through the shim (Claude/Pi) or bypass the shim entirely (Copilot via PTY wrapper). Codex now uses the PTY wrapper as primary path and this list is legacy-safe for clipper compatibility.
 
 **Clipboard server port is random per session:**
 A new port is assigned each time `construct <agent>` starts. The wrapper's `CONSTRUCT_CLIPBOARD_URL` env var is only valid for that session. If you restart the agent without a fresh `ct <agent>` invocation, the URL may be stale.
@@ -473,7 +470,7 @@ Host (macOS/Linux/Windows)
    │  │  ├─ patch_copilot_clipboard()  — replace @teddyzhu/clipboard with pure-JS bridge
    │  │  ├─ patch_copilot_keybinding() — allow Ctrl+V on Linux in Ink TUI
    │  │  └─ patch_copilot_paste_wrapper() — install Python PTY wrapper at copilot bin path
-   │  └─ X11 bridge (optional): Xvfb + clipboard-x11-sync.sh
+   │  └─ X11 bridge (optional): Xvfb + clipboard-x11-sync.sh (non-Codex)
    │
    ├─ Agent session env:
    │  CONSTRUCT_CLIPBOARD_URL=http://host.docker.internal:PORT
@@ -500,7 +497,7 @@ Host (macOS/Linux/Windows)
    │     ├─ curl → Clipboard Server → PNG bytes
    │     └─ Emit raw PNG bytes → agent receives binary image data
    │
-   └─ Gemini / Qwen / Codex session
+   └─ Gemini / Qwen session
       └─ Agent calls xsel/xclip/wl-paste (→ clipper shim)
          ├─ clipper: PATH_AGENT=true (in FILE_PASTE_AGENTS)
          ├─ curl → Clipboard Server → PNG bytes

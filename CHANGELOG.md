@@ -2,6 +2,31 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.6.2 -->
+## [1.6.3] - 2026-04-08
+
+### Fixed
+- **Codex Image Paste Reliability (Non-Daemon)**: Added a dedicated Codex Python PTY wrapper (`construct-codex-wrapper-v1`) that intercepts paste keystrokes, fetches PNG data from the host clipboard bridge, saves it in `.construct-clipboard/`, and injects the file path directly into Codex input. This removes dependence on fragile terminal/X11 clipboard internals.
+- **Copilot PTY Recursion / PTY Exhaustion**: Fixed wrapper installation logic to avoid overwriting or self-targeting the real npm-global `copilot` binary, preventing recursive wrapper launches and `OSError: out of pty devices`.
+- **Copilot Wrapper Install Robustness**: Hardened wrapper path selection to install at the active PATH-resolved binary while preserving the true npm-global target for execution.
+- **Clipboard Debug Coverage**: Expanded `construct sys clipboard-debug` with Codex wrapper diagnostics (`which codex`, wrapper marker/version, `_REAL` target, wrapper log tail) to make Codex paste failures directly actionable.
+
+### Changed
+- **CI Lint Toolchain Pin**: Updated CI `golangci-lint` pin from `v2.10.1` to `v2.11.4` in build and release workflows; aligned local Makefile CI pin message to `2.11.4`.
+- **Codex Clipboard Architecture**: Retired the legacy Codex WSL/powershell clipboard fallback path in favor of PTY-wrapper-first handling.
+- **Entrypoint Clipboard Behavior**: Clarified runtime behavior so Codex is excluded from optional X11 sync startup because Codex paste now routes through PTY interception.
+
+### Removed
+- **Legacy Codex WSL Clipboard Fallback**: Removed WSL env injection (`WSL_DISTRO_NAME`, `WSL_INTEROP`, forced `DISPLAY`) from run/exec/daemon env assembly for Codex.
+- **`powershell.exe` Shim Path**: Removed the fake `powershell.exe` template and all associated embedding/init/migration/runtime references.
+- **Legacy Codex WSL Docs/Diagnostics**: Removed stale WSL/powershell references from clipboard diagnostics and architecture documentation.
+
+### Documentation
+- **Clipboard & Architecture Docs Refresh**: Updated `docs/CLIPBOARD.md` and `docs/ARCHITECTURE-DESIGN.md` to reflect the new PTY-wrapper model for Codex, Copilot wrapper `v9`, and removal of the WSL/powershell fallback path.
+
+<!-- RELEASE:END 1.6.2 -->
+---
+
 <!-- RELEASE:START 1.6.1 -->
 ## [1.6.2] - 2026-04-06
 

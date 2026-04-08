@@ -224,8 +224,8 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 	// Version string — idempotency guard uses this to skip reinstall.
 	// Bump this when the wrapper logic changes so containers reinstall.
-	if !strings.Contains(AgentPatch, "construct-copilot-wrapper-v8") {
-		t.Error("agent-patch.sh: missing PTY wrapper version string 'construct-copilot-wrapper-v8'; bump version when wrapper logic changes")
+	if !strings.Contains(AgentPatch, "construct-copilot-wrapper-v9") {
+		t.Error("agent-patch.sh: missing PTY wrapper version string 'construct-copilot-wrapper-v9'; bump version when wrapper logic changes")
 	}
 
 	// Kitty Keyboard Protocol sequences — Ghostty and other modern terminals send
@@ -262,13 +262,13 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 
 	// rm -f before install — must remove symlink/file before cat > to avoid writing
 	// through a Homebrew symlink and corrupting the npm package binary.
-	if !strings.Contains(AgentPatch, `rm -f "$real_copilot"`) {
-		t.Error("agent-patch.sh: missing 'rm -f $real_copilot' before wrapper install; symlink overwrite will corrupt npm package")
+	if !strings.Contains(AgentPatch, `rm -f "$wrapper_path"`) {
+		t.Error("agent-patch.sh: missing 'rm -f $wrapper_path' before wrapper install; stale wrapper can break launch")
 	}
 
 	// Stale copilot-real cleanup — removes broken copies left by previous wrapper versions
 	// that used cp-through-symlink approach.
-	if !strings.Contains(AgentPatch, `rm -f "${real_copilot}-real"`) {
+	if !strings.Contains(AgentPatch, `rm -f "${wrapper_path}-real"`) {
 		t.Error("agent-patch.sh: missing stale 'copilot-real' cleanup; old broken copies will persist in named volume")
 	}
 
@@ -288,6 +288,28 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 	// /tmp is ephemeral (--rm containers); home dir persists to host.
 	if !strings.Contains(AgentPatch, "construct-cli/logs") {
 		t.Error("agent-patch.sh: wrapper log must use ~/.config/construct-cli/logs (host bind-mount), not /tmp")
+	}
+}
+
+func TestAgentPatchCodexPTYWrapper(t *testing.T) {
+	if !strings.Contains(AgentPatch, "construct-codex-wrapper-v1") {
+		t.Error("agent-patch.sh: missing Codex PTY wrapper version string 'construct-codex-wrapper-v1'")
+	}
+	if !strings.Contains(AgentPatch, "__CONSTRUCT_REAL_CODEX__") {
+		t.Error("agent-patch.sh: missing '__CONSTRUCT_REAL_CODEX__' placeholder for real codex binary injection")
+	}
+	if !strings.Contains(AgentPatch, "command -v codex") {
+		t.Error("agent-patch.sh: missing 'command -v codex' detection for wrapper install location")
+	}
+	if !strings.Contains(AgentPatch, ".npm-global/bin/codex") {
+		t.Error("agent-patch.sh: missing npm-global codex candidate resolution")
+	}
+	if !strings.Contains(AgentPatch, "construct-codex-wrapper.log") {
+		t.Error("agent-patch.sh: codex wrapper log path missing")
+	}
+	// Codex expects raw file path paste, not @path.
+	if !strings.Contains(AgentPatch, "out += f'{img} '.encode()") {
+		t.Error("agent-patch.sh: codex wrapper should inject raw image path without '@' prefix")
 	}
 }
 
