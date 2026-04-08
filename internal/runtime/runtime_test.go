@@ -493,9 +493,6 @@ func TestGenerateDockerComposeOverrideHomeCwdSELinuxUsesFallbackWorkingDir(t *te
 	if err := os.WriteFile(filepath.Join(containerDir, "Dockerfile"), []byte("FROM scratch\n"), 0644); err != nil {
 		t.Fatalf("failed to write Dockerfile fixture: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(containerDir, "powershell.exe"), []byte("#!/usr/bin/env bash\n"), 0755); err != nil {
-		t.Fatalf("failed to write powershell fixture: %v", err)
-	}
 	if err := os.WriteFile(filepath.Join(configDir, "packages.toml"), []byte(""), 0644); err != nil {
 		t.Fatalf("failed to write packages fixture: %v", err)
 	}
@@ -705,7 +702,6 @@ func TestGenerateDockerComposeOverrideKeepsUserMappingWhenNonRootStrictEnabled(t
 	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\nnon_root_strict = true\n"
 	requiredFiles := map[string]string{
 		"Dockerfile":            "FROM alpine\n",
-		"powershell.exe":        "binary\n",
 		"packages.toml":         "[npm]\npackages = []\n",
 		"config.toml":           configToml,
 		"docker-compose.yml":    "version: '3'\n",
@@ -766,7 +762,6 @@ func TestGenerateDockerComposeOverrideKeepsManualUserMappingWhenCustomOverrideAl
 	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\nallow_custom_compose_override = true\n"
 	requiredFiles := map[string]string{
 		"Dockerfile":            "FROM alpine\n",
-		"powershell.exe":        "binary\n",
 		"packages.toml":         "[npm]\npackages = []\n",
 		"config.toml":           configToml,
 		"docker-compose.yml":    "version: '3'\n",
@@ -835,7 +830,6 @@ func TestGenerateDockerComposeOverrideStrictNetworkUsesConsistentName(t *testing
 	configToml := "[runtime]\nengine = \"docker\"\n"
 	requiredFiles := map[string]string{
 		"Dockerfile":            "FROM alpine\n",
-		"powershell.exe":        "binary\n",
 		"packages.toml":         "[npm]\npackages = []\n",
 		"config.toml":           configToml,
 		"docker-compose.yml":    "version: '3'\n",

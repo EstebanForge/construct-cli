@@ -38,7 +38,7 @@ During startup for recognized commands/subcommands, `main.go` checks `migration.
 When migration is needed, `migration.CheckAndMigrate()`:
 
 1. **Updates Container Templates** (`updateContainerTemplates`)
-   - Replaces all files in `~/.config/construct-cli/container/` with new versions (Dockerfile, docker-compose.yml, entrypoint.sh, agent-patch.sh, clipper, clipboard-x11-sync.sh, osascript, powershell.exe, etc.)
+   - Replaces all files in `~/.config/construct-cli/container/` with new versions (Dockerfile, docker-compose.yml, entrypoint.sh, agent-patch.sh, clipper, clipboard-x11-sync.sh, osascript, etc.)
    - Safe to replace - no user modifications expected here
 
 2. **Merges Packages File** (`mergePackagesFile`)
@@ -243,7 +243,6 @@ func RunMigrations() error {
 - `~/.config/construct-cli/container/clipper`
 - `~/.config/construct-cli/container/clipboard-x11-sync.sh`
 - `~/.config/construct-cli/container/osascript`
-- `~/.config/construct-cli/container/powershell.exe`
 - `~/.config/construct-cli/packages.toml`
 - `~/.config/construct-cli/topgrade.toml`
 

@@ -31,7 +31,7 @@ func TestFileBasedPasteAgents(t *testing.T) {
 // TestFileBasedPasteAgentsExcludesPTYWrapperAgents guards against accidentally re-adding agents
 // that use alternative paste mechanisms, breaking those mechanisms.
 //
-// Copilot: uses the Python PTY wrapper (construct-copilot-wrapper-v8) which intercepts
+// Copilot: uses the Python PTY wrapper (construct-copilot-wrapper-v9) which intercepts
 // Ctrl+V / Cmd+V keystrokes and injects @path directly. Adding copilot here would make
 // the clipper shim emit @path ALSO, causing double injection or confusing Copilot's @file parser.
 //

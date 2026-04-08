@@ -78,12 +78,36 @@ else
   echo "(missing — paste an image during an agent session to populate)"
 fi
 
+echo "--- Codex clipboard ---"
+codex_bin=$(command -v codex 2>/dev/null || true)
+echo "  which codex resolves to: ${codex_bin:-(not found)}"
+if [[ -n "$codex_bin" ]] && grep -q "construct-codex-wrapper-v1" "$codex_bin" 2>/dev/null; then
+  echo "PTY wrapper v1: installed at $codex_bin"
+  if [[ -x "$codex_bin" ]]; then
+    echo "  executable: YES"
+  else
+    echo "  executable: NO (chmod failed?)"
+  fi
+  echo "  shebang: $(head -1 "$codex_bin")"
+  real_line=$(grep "_REAL" "$codex_bin" 2>/dev/null | head -1)
+  echo "  _REAL: $real_line"
+else
+  echo "PTY wrapper: NOT installed at active codex path (run 'construct sys rebuild' then restart agent)"
+fi
+codex_wrapper_log="$HOME/.config/construct-cli/logs/construct-codex-wrapper.log"
+echo "Wrapper log: $codex_wrapper_log"
+if [[ -f "$codex_wrapper_log" ]]; then
+  tail -n 40 "$codex_wrapper_log"
+else
+  echo "(missing — start a Codex session; log is always-on and persists to host)"
+fi
+
 echo
 echo "--- Copilot clipboard ---"
 copilot_bin=$(command -v copilot 2>/dev/null || true)
 echo "  which copilot resolves to: ${copilot_bin:-(not found)}"
-if [[ -n "$copilot_bin" ]] && grep -q "construct-copilot-wrapper-v8" "$copilot_bin" 2>/dev/null; then
-  echo "PTY wrapper v8: installed at $copilot_bin"
+if [[ -n "$copilot_bin" ]] && grep -q "construct-copilot-wrapper-v9" "$copilot_bin" 2>/dev/null; then
+  echo "PTY wrapper v9: installed at $copilot_bin"
   if [[ -x "$copilot_bin" ]]; then
     echo "  executable: YES"
   else

@@ -45,7 +45,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - docker-compose.yml plus auto-generated override for OS/network specifics.
   - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, and starts login forwarders when enabled.
   - network-filter script for strict mode; update-all for maintenance.
-  - clipper, clipboard-x11-sync.sh, osascript shim, and powershell.exe for clipboard bridging.
+  - clipper, clipboard-x11-sync.sh, and osascript shim for clipboard bridging.
   - packages.toml template used to generate the install script (apt/brew/npm/pip/cargo/gems + post-install hooks).
 - **PATH Construction**
   - PATH is hardcoded and must be kept in sync across these files:
@@ -334,17 +334,19 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
 - **In-Container Shimming**:
   - **Binary Interception**: System-wide shims for `xclip`, `xsel`, and `wl-paste` redirect all clipboard calls to the bridge script (`clipper`).
   - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Gemini/Qwen's `clipboardy` dependency).
-- **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux; a fake `powershell.exe` enables Codex WSL clipboard fallback.
-- **WSL Path Mapping for Codex**: The entrypoint creates `/mnt/c` aliases for container paths used by fallback image paste (`/projects`, `/workspaces`, and `/tmp`) so Windows-style paths returned by the shim resolve correctly inside the container.
+- **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux.
 - **Dynamic Content Bridging**:
   - **Image-First Behavior**: The bridge always attempts to fetch image data first; if present, it returns resized/normalized image bytes for most agents.
-  - **Agent-Specific Paths**: Gemini, Qwen, and Codex receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
+  - **Agent-Specific Paths**: Gemini and Qwen receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
   - **Runtime Patching**: `agent-patch.sh` patches agent source code at session start to bypass `process.platform !== 'darwin'` checks that would otherwise disable clipboard support on Linux. It also replaces `@teddyzhu/clipboard`'s native NAPI-RS addon with a pure-JS HTTP bridge for agents that use that library.
 - **Copilot PTY Wrapper** (primary Copilot image paste path):
   - Copilot's native clipboard addon fails in headless containers; its Ink TUI paste handler never fires reliably over a Docker PTY. The JS bridge and keybinding patches are applied as a fallback layer but are not the primary mechanism.
   - `agent-patch.sh` installs a Python 3 PTY wrapper at the Homebrew bin path (`/home/linuxbrew/.linuxbrew/bin/copilot`, which takes PATH priority). The real copilot binary path is resolved via npm-global candidates and injected at install time via `sed`.
   - The wrapper spawns the real copilot process on an inner PTY and bridges the outer Docker stdin, intercepting paste keystrokes before Copilot ever sees them.
   - Intercepted sequences: legacy `\x16` (Ctrl+V) plus Kitty Keyboard Protocol variants `\x1b[118;5u` (Ctrl+V in KKP) and `\x1b[118;9u` (Cmd+V in KKP). Modern terminals such as Ghostty send KKP sequences exclusively — `\x16` is never sent.
+- **Codex PTY Wrapper** (primary Codex image paste path):
+  - `agent-patch.sh` installs a Python 3 PTY wrapper at the active `codex` bin path.
+  - The wrapper intercepts paste keystrokes, fetches image bytes from the host clipboard bridge, saves to `.construct-clipboard/`, and injects the absolute file path into Codex input.
   - On detection: fetches PNG from the host bridge, saves to `.construct-clipboard/clipboard-{timestamp}.png`, and injects `@{path} ` as typed text into Copilot's inner PTY. Copilot recognises the `@file` syntax and attaches the image.
   - Wrapper log: `~/.config/construct-cli/logs/construct-copilot-wrapper.log` (always-on, persists to host via bind-mount).
   - Full details: see `docs/CLIPBOARD.md`.
