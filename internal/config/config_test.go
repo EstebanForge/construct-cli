@@ -336,7 +336,6 @@ func TestConfigModificationPersistence(t *testing.T) {
 		"clipper":               "binary\n",
 		"clipboard-x11-sync.sh": "#!/bin/bash\n",
 		"osascript":             "binary\n",
-		"powershell.exe":        "binary\n",
 		"config.toml":           "[runtime]\nengine = \"docker\"\n\n[sandbox]\n\n[network]\nmode = \"permissive\"\nallowed_domains = []\nallowed_ips = []\nblocked_domains = []\nblocked_ips = []\n\n[agents]\nyolo_all = false\nyolo_agents = []\n\n[daemon]\nauto_start = true\n",
 		"packages.toml":         "[npm]\npackages = []\n",
 	}

@@ -165,41 +165,26 @@ func TestEnsureAgentRuntimeDirsSkipsNonCodex(t *testing.T) {
 	}
 }
 
-// TestCodexWSLEnvironment verifies codex-specific environment setup
-func TestCodexWSLEnvironment(t *testing.T) {
-	// Test that codex agent gets WSL environment variables
+// TestCodexEnvironment verifies codex-specific environment setup
+func TestCodexEnvironment(t *testing.T) {
+	// Test that codex agent gets CODEX_HOME and no legacy clipboard fallback env.
 	envVars := []string{}
 	appendAgentSpecificDaemonEnv(&envVars, "codex")
 
 	hasCodexHome := false
-	hasWSLDistro := false
-	hasWSLInterop := false
-	hasDisplay := false
 
 	for _, env := range envVars {
 		switch env {
 		case "CODEX_HOME=/home/construct/.codex":
 			hasCodexHome = true
-		case "WSL_DISTRO_NAME=Ubuntu":
-			hasWSLDistro = true
-		case "WSL_INTEROP=/run/WSL/8_interop":
-			hasWSLInterop = true
-		case "DISPLAY=":
-			hasDisplay = true
 		}
 	}
 
 	if !hasCodexHome {
 		t.Error("Codex agent should have CODEX_HOME set to /home/construct/.codex")
 	}
-	if !hasWSLDistro {
-		t.Error("Codex agent should have WSL_DISTRO_NAME set")
-	}
-	if !hasWSLInterop {
-		t.Error("Codex agent should have WSL_INTEROP set")
-	}
-	if !hasDisplay {
-		t.Error("Codex agent should have DISPLAY set to empty")
+	if len(envVars) != 1 {
+		t.Fatalf("expected only CODEX_HOME for codex daemon env, got %v", envVars)
 	}
 }
 
@@ -209,9 +194,6 @@ func TestAppendAgentSpecificRunFlagsCodex(t *testing.T) {
 
 	expected := []string{
 		"CODEX_HOME=/home/construct/.codex",
-		"WSL_DISTRO_NAME=Ubuntu",
-		"WSL_INTEROP=/run/WSL/8_interop",
-		"DISPLAY=",
 	}
 	for _, envVar := range expected {
 		if !hasRunFlagEnv(runFlags, envVar) {
@@ -227,11 +209,7 @@ func TestAppendAgentSpecificRunFlagsCodexNoClipboardPatch(t *testing.T) {
 	if !hasRunFlagEnv(runFlags, "CODEX_HOME=/home/construct/.codex") {
 		t.Fatalf("expected CODEX_HOME in run flags, got %v", runFlags)
 	}
-	unexpected := []string{
-		"WSL_DISTRO_NAME=Ubuntu",
-		"WSL_INTEROP=/run/WSL/8_interop",
-		"DISPLAY=",
-	}
+	unexpected := []string{}
 	for _, envVar := range unexpected {
 		if hasRunFlagEnv(runFlags, envVar) {
 			t.Fatalf("did not expect %q in run flags when clipboard patch is disabled: %v", envVar, runFlags)
@@ -273,9 +251,6 @@ func TestAppendAgentSpecificExecEnvCodex(t *testing.T) {
 
 	expected := []string{
 		"CODEX_HOME=/home/construct/.codex",
-		"WSL_DISTRO_NAME=Ubuntu",
-		"WSL_INTEROP=/run/WSL/8_interop",
-		"DISPLAY=",
 	}
 
 	for _, expectedVar := range expected {
@@ -293,11 +268,7 @@ func TestAppendAgentSpecificExecEnvCodexNoClipboardPatch(t *testing.T) {
 		t.Fatalf("expected CODEX_HOME in env vars, got %v", envVars)
 	}
 
-	unexpected := []string{
-		"WSL_DISTRO_NAME=Ubuntu",
-		"WSL_INTEROP=/run/WSL/8_interop",
-		"DISPLAY=",
-	}
+	unexpected := []string{}
 	for _, unexpectedVar := range unexpected {
 		if containsEnv(envVars, unexpectedVar) {
 			t.Fatalf("did not expect %q when clipboard patch is disabled: %v", unexpectedVar, envVars)
@@ -528,9 +499,6 @@ func TestExecInRunningContainerInjectsConstructHomeAndCodexEnv(t *testing.T) {
 		"CONSTRUCT_CLIPBOARD_IMAGE_PATCH=1",
 		"CONSTRUCT_AGENT_NAME=codex",
 		"CODEX_HOME=/home/construct/.codex",
-		"WSL_DISTRO_NAME=Ubuntu",
-		"WSL_INTEROP=/run/WSL/8_interop",
-		"DISPLAY=",
 		"CONSTRUCT_CLIPBOARD_URL=http://clip.local:1234",
 		"CONSTRUCT_CLIPBOARD_TOKEN=clip-token",
 		"CONSTRUCT_FILE_PASTE_AGENTS=" + constants.FileBasedPasteAgents,

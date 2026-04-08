@@ -43,12 +43,6 @@ if [ "$(id -u)" = "0" ]; then
     ln -sf /usr/local/bin/clipper /usr/bin/xsel 2>/dev/null || true
     ln -sf /usr/local/bin/clipper /usr/bin/wl-paste 2>/dev/null || true
 
-    # WSL-like paths for Codex fallback
-    mkdir -p /mnt/c 2>/dev/null || true
-    ln -sf /tmp /mnt/c/tmp 2>/dev/null || true
-    ln -sf /projects /mnt/c/projects 2>/dev/null || true
-    ln -sf /workspaces /mnt/c/workspaces 2>/dev/null || true
-
     # Patch /etc/profile to preserve PATH
     if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
         sed -i '/^if \[ "$(id -u)" -eq 0 \]; then$/,/^export PATH$/ {
@@ -337,8 +331,8 @@ EOF
 setup_shell_environment
 
 # Start a headless X11 clipboard bridge for agents using native X11 clipboard access.
-# Skip for Codex WSL fallback path to avoid forcing X11 and breaking paste.
-if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ] && [ -z "$WSL_DISTRO_NAME" ] && [ -z "$WSL_INTEROP" ]; then
+# Skip for Codex, which now uses PTY-based clipboard interception.
+if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ]; then
     if [ -z "$DISPLAY" ]; then
         if command -v Xvfb >/dev/null; then
             DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"

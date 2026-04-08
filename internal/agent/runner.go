@@ -1354,15 +1354,6 @@ func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchVa
 	case "codex":
 		// Force Codex to use the container home config path (not project-relative .codex).
 		*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
-
-		// Set WSL env vars to trigger clipboard fallback.
-		// Codex will think it's in WSL and use our fake powershell.exe.
-		if clipboardPatchValue != "0" {
-			*runFlags = append(*runFlags, "-e", "WSL_DISTRO_NAME=Ubuntu")
-			*runFlags = append(*runFlags, "-e", "WSL_INTEROP=/run/WSL/8_interop")
-			// Unset DISPLAY so arboard fails and triggers WSL fallback.
-			*runFlags = append(*runFlags, "-e", "DISPLAY=")
-		}
 	case "pi", "claude", "copilot":
 		// Pi, Claude and Copilot use native clipboard modules that talk directly to X11/Wayland,
 		// bypassing xclip/xsel shims. Setting XDG_SESSION_TYPE=wayland forces these
@@ -1380,9 +1371,6 @@ func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
 	case "codex":
 		// Force Codex to use the container home config path (not project-relative .codex).
 		*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
-		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
-		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
-		*envVars = append(*envVars, "DISPLAY=")
 	case "pi", "claude", "copilot":
 		*envVars = append(*envVars, "XDG_SESSION_TYPE=wayland")
 	}
@@ -1392,14 +1380,6 @@ func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValu
 	switch agentName {
 	case "codex":
 		*envVars = append(*envVars, "CODEX_HOME=/home/construct/.codex")
-
-		if clipboardPatchValue == "0" {
-			return
-		}
-
-		*envVars = append(*envVars, "WSL_DISTRO_NAME=Ubuntu")
-		*envVars = append(*envVars, "WSL_INTEROP=/run/WSL/8_interop")
-		*envVars = append(*envVars, "DISPLAY=")
 	case "pi", "claude", "copilot":
 		if clipboardPatchValue == "0" {
 			return

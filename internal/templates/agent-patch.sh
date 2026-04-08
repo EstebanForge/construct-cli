@@ -219,18 +219,11 @@ patch_copilot_keybinding() {
 }
 
 patch_copilot_paste_wrapper() {
-    # Detect where copilot actually lives in PATH so we install at the right spot.
-    local real_copilot
-    real_copilot=$(command -v copilot 2>/dev/null || true)
+    local active_copilot
+    active_copilot=$(command -v copilot 2>/dev/null || true)
 
-    if [[ -z "$real_copilot" ]]; then
+    if [[ -z "$active_copilot" ]]; then
         dbg "copilot not found in PATH — skipping wrapper install"
-        return
-    fi
-
-    # Skip if our wrapper is already in place (idempotent guard on version string).
-    if grep -q "construct-copilot-wrapper-v8" "$real_copilot" 2>/dev/null; then
-        dbg "Copilot PTY wrapper v8 already at $real_copilot"
         return
     fi
 
@@ -255,15 +248,32 @@ patch_copilot_paste_wrapper() {
     fi
     dbg "Real copilot target: $real_target"
 
-    # Remove any stale copilot-real created by previous wrapper versions.
-    rm -f "${real_copilot}-real"
-    # Remove the Homebrew bin script/file and install our wrapper in its place.
-    rm -f "$real_copilot"
+    # Choose wrapper install location. Never overwrite the real npm-global copilot binary.
+    local wrapper_path="$active_copilot"
+    if [[ "$wrapper_path" == "$real_target" ]]; then
+        if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
+            wrapper_path="/home/linuxbrew/.linuxbrew/bin/copilot"
+        else
+            wrapper_path="$HOME/.local/bin/copilot"
+            mkdir -p "$HOME/.local/bin"
+        fi
+    fi
 
-    dbg "Installing Copilot clipboard PTY wrapper at $real_copilot (real: $real_target)"
-    cat > "$real_copilot" << 'PYEOF'
+    # Skip if our wrapper is already in place (idempotent guard on version string).
+    if grep -q "construct-copilot-wrapper-v9" "$wrapper_path" 2>/dev/null; then
+        dbg "Copilot PTY wrapper v9 already at $wrapper_path"
+        return
+    fi
+
+    # Remove any stale copilot-real created by previous wrapper versions.
+    rm -f "${wrapper_path}-real"
+    # Remove prior wrapper path before writing the new wrapper script.
+    rm -f "$wrapper_path"
+
+    dbg "Installing Copilot clipboard PTY wrapper at $wrapper_path (real: $real_target)"
+    cat > "$wrapper_path" << 'PYEOF'
 #!/home/linuxbrew/.linuxbrew/bin/python3
-# construct-copilot-wrapper-v8
+# construct-copilot-wrapper-v9
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
@@ -450,9 +460,224 @@ if __name__ == '__main__':
     main()
 PYEOF
     # Inject the resolved real binary path (sed is safe here; path is from readlink -f).
-    sed -i "s|__CONSTRUCT_REAL_COPILOT__|${real_target}|" "$real_copilot"
-    chmod +x "$real_copilot"
-    dbg "Copilot PTY wrapper v8 installed at $real_copilot (real: $real_target)"
+    sed -i "s|__CONSTRUCT_REAL_COPILOT__|${real_target}|" "$wrapper_path"
+    chmod +x "$wrapper_path"
+    dbg "Copilot PTY wrapper v9 installed at $wrapper_path (real: $real_target)"
+}
+
+patch_codex_paste_wrapper() {
+    local active_codex
+    active_codex=$(command -v codex 2>/dev/null || true)
+
+    if [[ -z "$active_codex" ]]; then
+        dbg "codex not found in PATH — skipping wrapper install"
+        return
+    fi
+
+    local real_target=""
+    local npm_bin
+    npm_bin=$(npm bin -g 2>/dev/null || true)
+    for candidate in \
+        "$HOME/.npm-global/bin/codex" \
+        "${npm_bin}/codex"; do
+        if [[ -f "$candidate" ]] && ! grep -q "construct-codex-wrapper" "$candidate" 2>/dev/null; then
+            real_target="$candidate"
+            break
+        fi
+    done
+    if [[ -z "$real_target" ]]; then
+        dbg "Cannot find real codex binary in npm-global — skipping wrapper install"
+        return
+    fi
+    dbg "Real codex target: $real_target"
+
+    local wrapper_path="$active_codex"
+    if [[ "$wrapper_path" == "$real_target" ]]; then
+        if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
+            wrapper_path="/home/linuxbrew/.linuxbrew/bin/codex"
+        else
+            wrapper_path="$HOME/.local/bin/codex"
+            mkdir -p "$HOME/.local/bin"
+        fi
+    fi
+
+    if grep -q "construct-codex-wrapper-v1" "$wrapper_path" 2>/dev/null; then
+        dbg "Codex PTY wrapper v1 already at $wrapper_path"
+        return
+    fi
+
+    rm -f "${wrapper_path}-real"
+    rm -f "$wrapper_path"
+
+    dbg "Installing Codex clipboard PTY wrapper at $wrapper_path (real: $real_target)"
+    cat > "$wrapper_path" << 'PYEOF'
+#!/home/linuxbrew/.linuxbrew/bin/python3
+# construct-codex-wrapper-v1
+# PTY interceptor: catches Ctrl+V and injects image file path into Codex input.
+import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
+
+_URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
+_TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
+_DIR   = '.construct-clipboard'
+_LOGDIR = os.path.expanduser('~/.config/construct-cli/logs')
+_LOG    = os.path.join(_LOGDIR, 'construct-codex-wrapper.log')
+_REAL   = '__CONSTRUCT_REAL_CODEX__'
+
+def _log(msg):
+    try:
+        os.makedirs(_LOGDIR, exist_ok=True)
+        with open(_LOG, 'a') as f:
+            f.write(f'[{time.strftime("%H:%M:%S")}] {msg}\n')
+    except Exception:
+        pass
+
+def _save_image():
+    _log(f'ctrl+v detected: url_set={bool(_URL)} token_set={bool(_TOKEN)}')
+    if not _URL or not _TOKEN:
+        _log('save_image: bridge env not set — cannot fetch')
+        return None
+    try:
+        os.makedirs(_DIR, exist_ok=True)
+    except Exception:
+        return None
+    ts  = int(time.time() * 1000)
+    img = os.path.abspath(f'{_DIR}/clipboard-{ts}.png')
+    r = subprocess.run(
+        ['curl', '-sSf', '-H', f'X-Construct-Clip-Token: {_TOKEN}',
+         f'{_URL}/paste?type=image/png', '-o', img],
+        capture_output=True, timeout=5,
+    )
+    if r.returncode != 0 or not os.path.exists(img) or os.path.getsize(img) == 0:
+        try:
+            os.remove(img)
+        except Exception:
+            pass
+        _log(f'save_image: fetch failed rc={r.returncode} stderr={r.stderr[:200]}')
+        return None
+    _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
+    return img
+
+_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
+
+def _handle_paste(data):
+    if not any(t in data for t in _PASTE_TRIGGERS):
+        return data
+    out = b''
+    while data:
+        earliest_idx = None
+        earliest_seq = None
+        for seq in _PASTE_TRIGGERS:
+            idx = data.find(seq)
+            if idx >= 0 and (earliest_idx is None or idx < earliest_idx):
+                earliest_idx = idx
+                earliest_seq = seq
+        if earliest_idx is None:
+            out += data
+            break
+        out += data[:earliest_idx]
+        data = data[earliest_idx + len(earliest_seq):]
+        img = _save_image()
+        if img:
+            out += f'{img} '.encode()
+            _log(f'injected {img}')
+        else:
+            _log('no image — forwarding raw trigger')
+            out += earliest_seq
+    return out
+
+def _winsz(fd):
+    try:
+        buf = fcntl.ioctl(fd, termios.TIOCGWINSZ, b'\x00' * 8)
+        return struct.unpack('HHHH', buf)[:2]
+    except Exception:
+        return (24, 80)
+
+def _setwinsz(fd, rows, cols):
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+    except Exception:
+        pass
+
+def main():
+    real = _REAL
+    if not os.path.isfile(real) or not os.access(real, os.X_OK):
+        _log(f'ERROR: real binary not found or not executable: {real}')
+        sys.exit(1)
+    args = [real] + sys.argv[1:]
+    _log(f'starting: real={real} url_set={bool(_URL)} token_set={bool(_TOKEN)} args={sys.argv[1:]}')
+
+    fd_in = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd_in)
+    except termios.error:
+        _log('not a tty — exec direct (no interception)')
+        os.execv(real, args)
+        return
+
+    mfd, sfd = pty.openpty()
+    r, c = _winsz(sys.stdout.fileno())
+    _setwinsz(sfd, r, c)
+
+    proc = subprocess.Popen(args, stdin=sfd, stdout=sfd, stderr=sfd,
+                            close_fds=True, start_new_session=True)
+    os.close(sfd)
+    tty.setraw(fd_in)
+    _log(f'pty ready: pid={proc.pid}')
+
+    def _resize(sig, frame):
+        r, c = _winsz(sys.stdout.fileno())
+        _setwinsz(mfd, r, c)
+    signal.signal(signal.SIGWINCH, _resize)
+
+    out_fd = sys.stdout.fileno()
+    try:
+        while True:
+            if proc.poll() is not None:
+                break
+            try:
+                rl, _, _ = select.select([fd_in, mfd], [], [], 0.05)
+            except (OSError, select.error):
+                break
+
+            if fd_in in rl:
+                try:
+                    data = os.read(fd_in, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                data = _handle_paste(data)
+                try:
+                    os.write(mfd, data)
+                except OSError:
+                    break
+
+            if mfd in rl:
+                try:
+                    data = os.read(mfd, 4096)
+                    if data:
+                        os.write(out_fd, data)
+                except OSError:
+                    break
+    finally:
+        _log(f'select loop exited: codex poll={proc.poll()}')
+        try:
+            termios.tcsetattr(fd_in, termios.TCSADRAIN, old)
+        except Exception:
+            pass
+        try:
+            os.close(mfd)
+        except Exception:
+            pass
+    proc.wait()
+    sys.exit(proc.returncode or 0)
+
+if __name__ == '__main__':
+    main()
+PYEOF
+    sed -i "s|__CONSTRUCT_REAL_CODEX__|${real_target}|" "$wrapper_path"
+    chmod +x "$wrapper_path"
+    dbg "Codex PTY wrapper v1 installed at $wrapper_path (real: $real_target)"
 }
 
 echo "🔧 Patching clipboard support for agents..."
@@ -465,3 +690,5 @@ echo "🔧 Patching agent code for cross-platform clipboard..."
 patch_agent_code
 echo "🔧 Installing Copilot clipboard PTY wrapper..."
 patch_copilot_paste_wrapper
+echo "🔧 Installing Codex clipboard PTY wrapper..."
+patch_codex_paste_wrapper

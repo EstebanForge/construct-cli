@@ -240,7 +240,6 @@ func Load() (*Config, bool, error) {
 		"entrypoint-hash.sh",
 		"update-all.sh",
 		"agent-patch.sh",
-		"powershell.exe",
 	}
 	for _, filename := range requiredContainerFiles {
 		if _, err := os.Stat(filepath.Join(containerDir, filename)); os.IsNotExist(err) {
@@ -368,7 +367,6 @@ func Init() error {
 		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
 		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
 		{filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755},
-		{filepath.Join(containerDir, "powershell.exe"), []byte(templates.PowershellExe), 0755},
 		{filepath.Join(configPath, "config.toml"), []byte(templates.Config), 0644},
 		{filepath.Join(configPath, "packages.toml"), []byte(templates.Packages), 0644},
 	}
