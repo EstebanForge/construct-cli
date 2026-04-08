@@ -151,7 +151,6 @@ func TestGenerateDockerComposeOverrideMultiPaths(t *testing.T) {
 
 	requiredFiles := map[string]string{
 		"Dockerfile":            "FROM alpine\n",
-		"powershell.exe":        "binary\n",
 		"packages.toml":         "[npm]\npackages = []\n",
 		"config.toml":           configToml,
 		"docker-compose.yml":    "version: '3'\n",

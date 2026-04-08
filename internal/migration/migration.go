@@ -234,7 +234,6 @@ func updateContainerTemplates() error {
 		"clipper":               templates.Clipper,
 		"clipboard-x11-sync.sh": templates.ClipboardX11Sync,
 		"osascript":             templates.Osascript,
-		"powershell.exe":        templates.PowershellExe,
 	}
 
 	// Ensure directory exists
@@ -303,7 +302,7 @@ func updateContainerTemplates() error {
 	for filename, content := range containerFiles {
 		path := filepath.Join(containerDir, filename)
 		perm := os.FileMode(0644)
-		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" || filename == "powershell.exe" {
+		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" {
 			perm = 0755
 		}
 		if err := writeTemplateFile(path, []byte(content), perm); err != nil {
