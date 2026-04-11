@@ -27,23 +27,23 @@ Global Flags:
   construct sys agents             # List supported agents
   construct sys agents-md          # Manage global instruction files (rules) for agents
   construct sys config             # Config operations (opens config.toml by default)
-                                   # [--migrate] Re-sync config/templates with the current binary
-                                   # [--restore] Restore config.toml from backup
+                                     # [--migrate] Re-sync config/templates with the current binary
+                                     # [--restore] Restore config.toml from backup
   construct sys daemon             # Manage background daemon (start|stop|attach|status)
   construct sys packages           # Package operations (opens packages.toml by default)
-                                   # [--install] Apply changes from packages.toml to running container
-                                   # [--reinstall] Recreate package volume and reinstall packages
-                                   # [--update] Alias for 'construct sys update'
+                                     # [--install] Apply changes from packages.toml to running container
+                                     # [--reinstall] Recreate package volume and reinstall packages
+                                     # [--update] Alias for 'construct sys update'
   construct sys doctor             # System health operations (includes packages drift checks)
-                                   # [--fix] Append missing defaults to config.toml (backup first)
+                                     # [--fix] Append missing defaults to config.toml (backup first)
   construct sys clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
   construct sys ct-fix             # Repair the ct shorthand command symlink
   construct sys help               # Show this help (alias for --help)
   construct sys init               # Initialize environment and install agents inside Construct
   construct sys aliases            # Host alias operations
-                                   # [--install] Install agent aliases/functions (includes ns-)
-                                   # [--update] Reinstall/update host aliases
-                                   # [--uninstall] Remove Construct alias block from shell
+                                     # [--install] Install agent aliases/functions (includes ns-)
+                                     # [--update] Reinstall/update host aliases
+                                     # [--uninstall] Remove Construct alias block from shell
   construct sys login-bridge       # Start localhost login callback bridge for headless agents
   construct sys rebuild            # Migrate and sync config/templates, then rebuild Docker image
   construct sys reset              # Delete agent binaries and cache (preserves personal config)
@@ -72,17 +72,6 @@ Agent Examples:
   Available agents: claude, qwen, gemini, opencode, copilot, cline, crush, codex,
                     droid, goose, kilocode, pi, omp, amp
 
-Network Isolation:
-  Set in config.toml [network] section or use --ct-network flag:
-    mode = "permissive"  # Full network access (default)
-    mode = "strict"      # Custom network + domain/IP filtering (use network commands)
-    mode = "offline"     # No network access
-
-Daemon Opt-In (Multi-Root):
-  Set in config.toml [daemon] section:
-    multi_paths_enabled = true
-    mount_paths = ["~/Dev/Projects", "~/Dev/Local"]
-
 For more information, visit: https://github.com/EstebanForge/construct-cli
 `
 	if GumAvailable() {
@@ -104,20 +93,20 @@ Commands:
   agents             # List supported agents
   agents-md          # Manage global instruction files (rules) for agents
   config             # Config operations (opens config.toml by default)
-                     # [--migrate] Re-sync config/templates with current binary
-                     # [--restore] Restore config.toml from backup
+                       # [--migrate] Re-sync config/templates with current binary
+                       # [--restore] Restore config.toml from backup
   daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
   packages           # Manage packages.toml and package lifecycle
   doctor             # System health operations
-                     # [--fix] Append missing defaults to config.toml (backup first)
+                       # [--fix] Append missing defaults to config.toml (backup first)
   clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
   ct-fix             # Repair the ct shorthand command symlink
   help               # Show this help
   init               # Initialize environment and install agents inside Construct
   aliases            # Host alias operations
-                     # [--install] Install agent aliases/functions (includes ns-)
-                     # [--update] Reinstall/update host aliases
-                     # [--uninstall] Remove Construct alias block from shell
+                       # [--install] Install agent aliases/functions (includes ns-)
+                       # [--update] Reinstall/update host aliases
+                       # [--uninstall] Remove Construct alias block from shell
   login-bridge       # Start localhost login callback bridge for headless agents
   rebuild            # Migrate and sync config/templates, then rebuild Docker image
   reset              # Delete agent binaries and cache (preserves personal config)
