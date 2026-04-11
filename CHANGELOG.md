@@ -2,6 +2,38 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.6.3 -->
+## [1.6.4] - 2026-04-11
+
+### Added
+- **Hide Secrets Allowlist**: Added `hide_secrets_allow_paths` configuration option to exclude specific files from redaction. This allows tools that must read files directly (like AWS CLI with `~/.aws/credentials`) to bypass secret redaction while keeping the security model intact.
+- **Content-Based Scanning**: Enhanced secret detection with ripgrep integration for fast pattern-based scanning across all project files.
+- **Stream-Time Output Masking**: Added regex-based secret pattern matching in stdout/stderr to catch API keys, tokens, and credentials in agent output.
+
+### Changed
+- **Help Text Simplified**: Removed verbose Network Management and Agent Examples sections from main help output for better scannability. Users can access detailed help via namespace-specific commands (`construct network --help`).
+- **Help Text Alignment**: Fixed column alignment in help text - all descriptions and continuation lines now align properly for improved readability.
+- **CLI Command Syntax**: Corrected documentation to use `construct <agent>` instead of non-existent `construct run <agent>` syntax across all documentation files.
+
+### Fixed
+- **Hide Secrets Experiment Notice**: Suppressed "hide_secrets=off" message for users who haven't enabled the experimental feature, preventing unnecessary noise.
+- **Code Lint Issues**: Fixed ineffassign lint error in scanner.go by removing unused args assignment.
+
+### Documentation
+- **Comprehensive Documentation Restructure**: Created 8 new user-facing documentation files organized by topic:
+  - `docs/HIDE-SECRETS.md` - Complete secret redaction user guide
+  - `docs/INSTALLATION.md` - Platform-specific installation instructions
+  - `docs/CONFIGURATION.md` - Complete configuration reference
+  - `docs/SECURITY.md` - Security features and best practices
+  - `docs/PROVIDERS.md` - Custom Claude API endpoint configuration
+  - `docs/PACKAGES.md` - Package management guide
+  - `docs/AGENTS.md` - Complete agent reference
+  - `docs/INDEX.md` - Documentation navigation hub
+- **README Streamlining**: Reduced README from ~500 lines to ~100 lines with links to detailed documentation.
+
+<!-- RELEASE:END 1.6.3 -->
+---
+
 <!-- RELEASE:START 1.6.2 -->
 ## [1.6.3] - 2026-04-08
 
