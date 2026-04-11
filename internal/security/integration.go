@@ -74,7 +74,7 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 	sm.workspace = workspace
 
 	// Create scanner and scan project
-	sm.scanner = NewScanner(projectRoot, sm.config.Security.HideSecretsMaskStyle, sm.config.Security.HideSecretsDenyPaths, sm.sessionManager)
+	sm.scanner = NewScanner(projectRoot, sm.config.Security.HideSecretsMaskStyle, sm.config.Security.HideSecretsDenyPaths, sm.config.Security.HideSecretsAllowPaths, sm.sessionManager)
 
 	scanResult, err := sm.scanner.ScanProject(sessionID, sm.config.Security.HideGitDir)
 	if err != nil {

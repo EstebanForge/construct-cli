@@ -149,6 +149,13 @@ hide_secrets_mask_style = "hash"
 # Example: ["**/secrets.yml", "**/.env.local"]
 hide_secrets_deny_paths = []
 
+# ⚠️  DANGER: Files to NEVER redact (breaks security model, use sparingly!)
+# These files will be passed to agents in raw, unredacted form.
+# Use ONLY for files that tools must read directly (e.g., ~/.aws/credentials for AWS CLI).
+# WARNING: Any secrets in these files WILL be visible to agents.
+# Example: ["~/.aws/credentials", "config/tool-specific-secrets.yaml"]
+hide_secrets_allow_paths = []
+
 # Environment variable names to pass through unmasked (advanced, use sparingly)
 # These vars will be visible to agents in raw form. Example: ["PUBLIC_API_URL", "APP_ENV"]
 hide_secrets_passthrough_vars = []

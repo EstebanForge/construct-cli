@@ -34,6 +34,7 @@ hide_secrets = false
 # Ignored unless CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
 hide_secrets_mask_style = "hash"   # hash | fixed
 hide_secrets_deny_paths  = []      # globs always scanned regardless of heuristics
+hide_secrets_allow_paths = []      # ⚠️  DANGER: files to NEVER redact (breaks security model)
 hide_secrets_passthrough_vars = [] # env vars to never mask (e.g. ["PUBLIC_API_URL"])
 hide_secrets_report = true
 hide_git_dir = true
@@ -51,6 +52,12 @@ Security invariants that are not user-configurable in hide-secrets mode:
 - No direct "get raw secret value" operation is available to the agent runtime.
 - Provider traffic is allowed only through Construct proxy policy checks.
 - Run-only session authz is enforced for all agent-originated secret-use flows.
+
+**Exception**: `hide_secrets_allow_paths` allows users to opt-out specific files from redaction.
+- Use sparingly and only for files that tools must read directly (e.g., `~/.aws/credentials` for AWS CLI).
+- Files in this list will be passed to agents in raw, unredacted form.
+- Emit warning when allowlisted files are encountered during scan.
+- Allowlist takes precedence over deny_paths and candidate patterns.
 
 ---
 
@@ -774,7 +781,7 @@ Legend:
 ### 0) Foundation and Feature Gate
 
 - [x] Add `security` config model in `internal/config/config.go`:
-  - fields: `hide_secrets`, `hide_secrets_mask_style`, `hide_secrets_deny_paths`, `hide_secrets_passthrough_vars`, `hide_secrets_report`, `hide_git_dir`
+  - fields: `hide_secrets`, `hide_secrets_mask_style`, `hide_secrets_deny_paths`, `hide_secrets_allow_paths`, `hide_secrets_passthrough_vars`, `hide_secrets_report`, `hide_git_dir`
   - defaults per this proposal
 - [x] Add defaults + migration coverage for missing keys:
   - `internal/config/config.go` (`DefaultConfig`)
@@ -791,6 +798,12 @@ Legend:
 - [x] Add zero-load assertions when feature is disabled:
   - no detector init, no overlay init, no session writes
   - tests in `internal/runtime/runtime_test.go` (+ new security package tests)
+- [x] Implement `hide_secrets_allow_paths`:
+  - config field and defaults added
+  - scanner checks allowlist before redaction
+  - emits warning when allowlisted files encountered
+  - allowlist takes precedence over deny/candidate patterns
+  - tests added for allowlist functionality
 
 ### 1) Security Package Skeleton (New)
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -16,6 +17,7 @@ import (
 type Scanner struct {
 	redactor       *Redactor
 	denyPaths      []string
+	allowPaths     []string
 	projectRoot    string
 	sessionManager *Manager
 }
@@ -29,10 +31,11 @@ type ScanResult struct {
 }
 
 // NewScanner creates a new scanner.
-func NewScanner(projectRoot string, maskStyle string, denyPaths []string, sessionManager *Manager) *Scanner {
+func NewScanner(projectRoot string, maskStyle string, denyPaths []string, allowPaths []string, sessionManager *Manager) *Scanner {
 	return &Scanner{
 		redactor:       NewRedactor(maskStyle),
 		denyPaths:      denyPaths,
+		allowPaths:     allowPaths,
 		projectRoot:    projectRoot,
 		sessionManager: sessionManager,
 	}
@@ -44,6 +47,10 @@ func (s *Scanner) ScanProject(sessionID SessionID, hideGitDir bool) (*ScanResult
 		Redactions: []*FileRedaction{},
 	}
 
+	// Track which files we've already scanned (avoid duplicates from content scan)
+	scanned := make(map[string]bool)
+
+	// First pass: path-based candidate scanning
 	err := filepath.WalkDir(s.projectRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -75,41 +82,13 @@ func (s *Scanner) ScanProject(sessionID SessionID, hideGitDir bool) (*ScanResult
 			return nil
 		}
 
-		result.FilesScanned++
+		// Mark as scanned
+		scanned[path] = true
 
-		// Read file content
-		content, err := os.ReadFile(path)
-		if err != nil {
+		// Process the file
+		if err := s.scanFile(path, relPath, sessionID, result); err != nil {
 			// Log error but continue scanning
-			fmt.Fprintf(os.Stderr, "warning: failed to read file %s: %v\n", path, err)
-			return nil
-		}
-
-		// Check if file contains secrets
-		redacted, redaction, err := s.redactor.RedactFile(path, content)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to redact file %s: %v\n", path, err)
-			return nil
-		}
-
-		if redaction.SecretsCount > 0 {
-			result.FilesRedacted++
-			result.SecretsCount += redaction.SecretsCount
-			result.Redactions = append(result.Redactions, redaction)
-
-			// Write redacted copy to session upper layer
-			sessionDir := s.sessionManager.GetSessionDir(sessionID)
-			upperPath := filepath.Join(sessionDir, "upper", relPath)
-
-			// Create directory structure
-			if err := os.MkdirAll(filepath.Dir(upperPath), 0755); err != nil {
-				return fmt.Errorf("failed to create upper directory: %w", err)
-			}
-
-			// Write redacted content
-			if err := os.WriteFile(upperPath, redacted, 0644); err != nil {
-				return fmt.Errorf("failed to write redacted file: %w", err)
-			}
+			fmt.Fprintf(os.Stderr, "warning: failed to scan file %s: %v\n", path, err)
 		}
 
 		return nil
@@ -119,7 +98,84 @@ func (s *Scanner) ScanProject(sessionID SessionID, hideGitDir bool) (*ScanResult
 		return nil, fmt.Errorf("scan failed: %w", err)
 	}
 
+	// Second pass: content-based scanning using ripgrep
+	// This catches secrets in files that don't match path patterns
+	contentFiles, err := s.ContentScan(s.projectRoot, GetRipgrepPatterns())
+	if err != nil {
+		// Log warning but don't fail - content scan is best-effort
+		fmt.Fprintf(os.Stderr, "warning: content scan failed: %v\n", err)
+	} else {
+		// Process files found by content scan
+		for _, path := range contentFiles {
+			// Skip if already scanned in first pass
+			if scanned[path] {
+				continue
+			}
+
+			// Skip hard excluded files
+			if IsHardExcluded(path, s.projectRoot) {
+				continue
+			}
+
+			relPath, err := filepath.Rel(s.projectRoot, path)
+			if err != nil {
+				continue
+			}
+
+			// Process the file
+			if err := s.scanFile(path, relPath, sessionID, result); err != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to scan file %s: %v\n", path, err)
+			}
+		}
+	}
+
 	return result, nil
+}
+
+// scanFile processes a single file for secret redaction.
+func (s *Scanner) scanFile(fullPath, relPath string, sessionID SessionID, result *ScanResult) error {
+	// Check if file is allowlisted (should not be redacted)
+	if s.isAllowlisted(relPath) {
+		// File is allowlisted - skip redaction, log warning
+		fmt.Fprintf(os.Stderr, "warning: file %s is allowlisted and will NOT be redacted - secrets will be visible to agent\n", relPath)
+		return nil
+	}
+
+	result.FilesScanned++
+
+	// Read file content
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		return err
+	}
+
+	// Check if file contains secrets
+	redacted, redaction, err := s.redactor.RedactFile(fullPath, content)
+	if err != nil {
+		return err
+	}
+
+	if redaction.SecretsCount > 0 {
+		result.FilesRedacted++
+		result.SecretsCount += redaction.SecretsCount
+		result.Redactions = append(result.Redactions, redaction)
+
+		// Write redacted copy to session upper layer
+		sessionDir := s.sessionManager.GetSessionDir(sessionID)
+		upperPath := filepath.Join(sessionDir, "upper", relPath)
+
+		// Create directory structure
+		if err := os.MkdirAll(filepath.Dir(upperPath), 0755); err != nil {
+			return fmt.Errorf("failed to create upper directory: %w", err)
+		}
+
+		// Write redacted content
+		if err := os.WriteFile(upperPath, redacted, 0644); err != nil {
+			return fmt.Errorf("failed to write redacted file: %w", err)
+		}
+	}
+
+	return nil
 }
 
 // shouldScanFile determines if a file should be scanned for secrets.
@@ -129,14 +185,46 @@ func (s *Scanner) shouldScanFile(relPath, fullPath string) bool {
 		return false
 	}
 
-	// Check candidate patterns
+	// Check candidate patterns (path-based)
 	if MatchesCandidatePattern(relPath, s.denyPaths) {
 		return true
 	}
 
-	// For V1, only scan files that match candidate patterns
-	// Content-based scanning would be done here in V2
+	// For V1, content-based scanning is opt-in via deny_paths only
+	// Files that don't match path patterns are not scanned
 	return false
+}
+
+// isAllowlisted returns true if a file should never be redacted.
+func (s *Scanner) isAllowlisted(relPath string) bool {
+	baseName := filepath.Base(relPath)
+
+	// Check user-specified allowlist
+	for _, pattern := range s.allowPaths {
+		matched, err := filepath.Match(pattern, baseName)
+		if err == nil && matched {
+			return true
+		}
+		// Also check full path
+		matched, err = filepath.Match(pattern, relPath)
+		if err == nil && matched {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetRipgrepPatterns converts secret patterns to ripgrep-compatible regex.
+func GetRipgrepPatterns() []string {
+	patterns := DefaultSecretPatterns()
+	rgPatterns := make([]string, len(patterns))
+
+	for i, p := range patterns {
+		rgPatterns[i] = p.Pattern
+	}
+
+	return rgPatterns
 }
 
 // CheckSymlinks verifies that symlinks don't escape the project root.
@@ -198,11 +286,90 @@ func (s *Scanner) CheckSymlinks(projectRoot string) ([]string, error) {
 }
 
 // ContentScan performs content-based scanning using ripgrep patterns.
-func (s *Scanner) ContentScan(_ /* projectRoot */ string, patterns []string) ([]string, error) {
-	// For V1, this is a placeholder
-	// In V2, we'd integrate with ripgrep for fast content scanning
-	_ = patterns // TODO: use patterns in V2
-	return []string{}, nil
+// Returns a list of file paths that match secret patterns.
+func (s *Scanner) ContentScan(projectRoot string, patterns []string) ([]string, error) {
+	// Check if ripgrep is available
+	if _, err := os.Stat("/usr/bin/rg"); err != nil {
+		// Fallback: return empty list (content scan disabled)
+		// This is safe - we'll still catch path-based candidates
+		return []string{}, nil
+	}
+
+	// Build ripgrep patterns from secret patterns
+	// For performance, we use --files-with-matches to get matching files only
+	args := []string{
+		"--files-with-matches",
+		"--case-sensitive",
+		"--no-ignore", // Independent from .gitignore
+		"--hidden",     // Scan hidden files like .env
+	}
+
+	// Add patterns
+	for _, pattern := range patterns {
+		args = append(args, "--regexp", pattern)
+	}
+
+	// Add project root as the search path
+	args = append(args, projectRoot)
+
+	// Execute ripgrep
+	// We use os/exec here instead of directly reading files
+	// This keeps the scanner fast and memory-efficient
+	var files []string
+	seen := make(map[string]bool)
+
+	// For each pattern, run ripgrep and collect unique files
+	for _, pattern := range patterns {
+		patternArgs := []string{
+			"--files-with-matches",
+			"--case-sensitive",
+			"--no-ignore",
+			"--hidden",
+			"--regexp", pattern,
+			projectRoot,
+		}
+
+		output, err := exec.Command("rg", patternArgs...).Output()
+		if err != nil {
+			// Ripgrep returns exit code 1 when no matches found
+			// This is not an error for us - just means no matches
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				continue
+			}
+			// Other errors (rg not found, etc.) - log and continue
+			fmt.Fprintf(os.Stderr, "warning: ripgrep scan failed for pattern %s: %v\n", pattern, err)
+			continue
+		}
+
+		// Parse output - each line is a file path
+		scanner := bufio.NewScanner(bytes.NewReader(output))
+		for scanner.Scan() {
+			path := scanner.Text()
+			// Skip if already seen
+			if !seen[path] {
+				seen[path] = true
+				// Verify it's inside project root
+				if isPathInProject(path, projectRoot) {
+					files = append(files, path)
+				}
+			}
+		}
+	}
+
+	return files, nil
+}
+
+// isPathInProject verifies that a path is inside the project root.
+func isPathInProject(path, projectRoot string) bool {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return false
+	}
+	absRoot, err := filepath.Abs(projectRoot)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(absPath, absRoot+string(filepath.Separator)) || absPath == absRoot
 }
 
 // HashFile computes SHA256 hash of a file.
