@@ -46,7 +46,7 @@ export CNSTR_ZAI_API_KEY="your-api-key-here"
 ### Step 4: Run Construct
 
 ```bash
-construct run claude zai "Help me with this code"
+construct claude zai "Help me with this code"
 ```
 
 ## Supported Providers
@@ -207,7 +207,7 @@ ANTHROPIC_AUTH_TOKEN = "${CNSTR_ZAI_API_KEY}"
 export CNSTR_ZAI_API_KEY="your-key-here"
 
 # Run with provider
-construct run claude zai "Help me debug this"
+construct claude zai "Help me debug this"
 ```
 
 ### Multiple Providers
@@ -224,10 +224,10 @@ ANTHROPIC_AUTH_TOKEN = "${CNSTR_MINIMAX_API_KEY}"
 
 ```bash
 # Use Zai provider
-construct run claude zai "Task for Zai"
+construct claude zai "Task for Zai"
 
 # Use MiniMax provider
-construct run claude minimax "Task for MiniMax"
+construct claude minimax "Task for MiniMax"
 ```
 
 ### Custom API Endpoint
@@ -259,7 +259,7 @@ ANTHROPIC_SMALL_FAST_MODEL = "MiniMax-M2"
 
 ```bash
 # List available providers
-construct run claude --help
+construct claude --help
 
 # Check config
 construct sys config
@@ -293,10 +293,10 @@ construct sys config
 4. **Check for typos in provider name**
    ```bash
    # Correct
-   construct run claude zai "..."
+   construct claude zai "..."
    
    # Wrong
-   construct run claude ZAI "..."  # Provider IDs are lowercase
+   construct claude ZAI "..."  # Provider IDs are lowercase
    ```
 
 ### Connection Timeout

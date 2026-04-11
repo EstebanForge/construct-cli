@@ -15,8 +15,8 @@ The Construct CLI supports 15+ AI agents that can run inside an isolated sandbox
 **Best for:** General coding, code review, refactoring, debugging
 
 ```bash
-construct run claude "Help me refactor this function"
-construct run claude "Review this code for security issues"
+construct claude "Help me refactor this function"
+construct claude "Review this code for security issues"
 ```
 
 **Documentation:** [docs.anthropic.com](https://docs.anthropic.com)
@@ -28,8 +28,8 @@ construct run claude "Review this code for security issues"
 **Best for:** Code explanation, documentation, multi-language support
 
 ```bash
-construct run gemini "Explain how this code works"
-construct run gemini "Generate documentation for this API"
+construct gemini "Explain how this code works"
+construct gemini "Generate documentation for this API"
 ```
 
 ### Qwen Code (`qwen`)
@@ -39,8 +39,8 @@ construct run gemini "Generate documentation for this API"
 **Best for:** Quick code generation, debugging, code completion
 
 ```bash
-construct run qwen "Help me debug this error"
-construct run qwen "Complete this function"
+construct qwen "Help me debug this error"
+construct qwen "Complete this function"
 ```
 
 ### GitHub Copilot CLI (`copilot`)
@@ -50,8 +50,8 @@ construct run qwen "Complete this function"
 **Best for:** Everyday coding tasks, quick suggestions
 
 ```bash
-construct run copilot "Suggest a completion for this function"
-construct run copilot "Generate tests for this code"
+construct copilot "Suggest a completion for this function"
+construct copilot "Generate tests for this code"
 ```
 
 ### Crush CLI (`crush`)
@@ -61,8 +61,8 @@ construct run copilot "Generate tests for this code"
 **Best for:** Building CLI tools, systems programming
 
 ```bash
-construct run crush "Help me build a CLI tool"
-construct run crush "Optimize this Rust code"
+construct crush "Help me build a CLI tool"
+construct crush "Optimize this Rust code"
 ```
 
 ### Pi Coding Agent (`pi`)
@@ -72,8 +72,8 @@ construct run crush "Optimize this Rust code"
 **Best for:** General coding tasks, prototyping
 
 ```bash
-construct run pi "Help me implement this feature"
-construct run pi "Debug this issue"
+construct pi "Help me implement this feature"
+construct pi "Debug this issue"
 ```
 
 ### Oh My Pi (`omp`)
@@ -83,8 +83,8 @@ construct run pi "Debug this issue"
 **Best for:** Python development, data science, Jupyter workflows
 
 ```bash
-construct run omp "Analyze this Python code"
-construct run omp "Help with this pandas script"
+construct omp "Analyze this Python code"
+construct omp "Help with this pandas script"
 ```
 
 ### Amp CLI (`amp`)
@@ -94,7 +94,7 @@ construct run omp "Help with this pandas script"
 **Best for:** Amp-specific workflows
 
 ```bash
-construct run amp "Help me with this task"
+construct amp "Help me with this task"
 ```
 
 ### OpenCode (`opencode`)
@@ -104,8 +104,8 @@ construct run amp "Help me with this task"
 **Best for:** Code explanation, general programming help
 
 ```bash
-construct run opencode "Explain this architecture"
-construct run opencode "Help me understand this code"
+construct opencode "Explain this architecture"
+construct opencode "Help me understand this code"
 ```
 
 ### Cline (`cline`)
@@ -115,8 +115,8 @@ construct run opencode "Help me understand this code"
 **Best for:** Multi-step tasks, workflow automation
 
 ```bash
-construct run cline "Help me set up this project"
-construct run cline "Implement this feature end-to-end"
+construct cline "Help me set up this project"
+construct cline "Implement this feature end-to-end"
 ```
 
 ### Droid CLI (`droid`)
@@ -126,7 +126,7 @@ construct run cline "Implement this feature end-to-end"
 **Best for:** Droid-specific workflows
 
 ```bash
-construct run droid "Help with this Android development task"
+construct droid "Help with this Android development task"
 ```
 
 ### Goose CLI (`goose`)
@@ -136,7 +136,7 @@ construct run droid "Help with this Android development task"
 **Best for:** Goose-specific workflows
 
 ```bash
-construct run goose "Help me with this task"
+construct goose "Help me with this task"
 ```
 
 ### Kilo Code CLI (`kilocode`)
@@ -146,8 +146,8 @@ construct run goose "Help me with this task"
 **Best for:** Complex coding tasks, mode-specific operations
 
 ```bash
-construct run kilocode "Refactor this component"
-construct run kilocode "Review this pull request"
+construct kilocode "Refactor this component"
+construct kilocode "Review this pull request"
 ```
 
 ### OpenAI Codex (`codex`)
@@ -157,8 +157,8 @@ construct run kilocode "Review this pull request"
 **Best for:** Quick code snippets, boilerplate generation
 
 ```bash
-construct run codex "Generate a function that does X"
-construct run codex "Complete this code pattern"
+construct codex "Generate a function that does X"
+construct codex "Complete this code pattern"
 ```
 
 ## Provider-Specific Agents
@@ -170,7 +170,7 @@ Construct also supports alternative providers for Claude Code:
 **Provider:** Z.AI
 **Best for:** Cost-effective Claude-compatible API
 ```bash
-construct run claude zai "Help me with this code"
+construct claude zai "Help me with this code"
 ```
 
 **Configuration:** See [Providers Guide](PROVIDERS.md)
@@ -180,7 +180,7 @@ construct run claude zai "Help me with this code"
 **Provider:** MiniMax
 **Best for:** Fast responses, cost-effective
 ```bash
-construct run claude minimax "Quick code review"
+construct claude minimax "Quick code review"
 ```
 
 ### Moonshot Kimi K2 (`kimi`)
@@ -188,7 +188,7 @@ construct run claude minimax "Quick code review"
 **Provider:** Moonshot
 **Best for:** Chinese-language support, long context
 ```bash
-construct run claude kimi "分析这个代码"  # Chinese input
+construct claude kimi "分析这个代码"  # Chinese input
 ```
 
 ### Alibaba Qwen (`qwen`)
@@ -196,7 +196,7 @@ construct run claude kimi "分析这个代码"  # Chinese input
 **Provider:** Alibaba
 **Best for:** Chinese market, local deployment
 ```bash
-construct run claude qwen "帮我调试这个"  # Chinese input
+construct claude qwen "帮我调试这个"  # Chinese input
 ```
 
 ### Xiaomi Mimo (`mimo`)
@@ -204,7 +204,7 @@ construct run claude qwen "帮我调试这个"  # Chinese input
 **Provider:** Xiaomi
 **Best for:** Chinese-language support, cost-effective
 ```bash
-construct run claude mimo "帮助我优化代码"  # Chinese input
+construct claude mimo "帮助我优化代码"  # Chinese input
 ```
 
 ## Running Agents
@@ -213,30 +213,30 @@ construct run claude mimo "帮助我优化代码"  # Chinese input
 
 ```bash
 # Run default agent
-construct run claude "Help me with this code"
+construct claude "Help me with this code"
 
 # Run specific agent
-construct run gemini "Explain this function"
+construct gemini "Explain this function"
 ```
 
 ### With Network Modes
 
 ```bash
 # Strict network isolation
-construct run claude -ct-n strict "Review my code"
+construct claude -ct-n strict "Review my code"
 
 # Offline mode
-construct run gemini --ct-network offline "Explain this code"
+construct gemini --ct-network offline "Explain this code"
 ```
 
 ### With Configuration
 
 ```bash
 # Use specific provider
-construct run claude zai "Debug this API"
+construct claude zai "Debug this API"
 
 # With custom timeout
-construct run claude --timeout 600000 "Long-running task"
+construct claude --timeout 600000 "Long-running task"
 ```
 
 ## Agent Comparison
@@ -322,7 +322,7 @@ This opens your global AGENTS.md file for editing.
 **Solution:**
 ```bash
 # List available agents
-construct run --help
+construct --help
 
 # Check if agent is installed
 construct sys doctor

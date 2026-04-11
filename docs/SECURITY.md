@@ -180,7 +180,7 @@ ANTHROPIC_AUTH_TOKEN = "${CUSTOM_API_KEY}"  # Reference env var
 **1. Expose Container to Untrusted Networks**
 ```bash
 # Avoid port forwarding to public internet
-construct run --publish 8080:80  # Risky on public networks
+construct --publish 8080:80  # Risky on public networks
 ```
 
 **2. Add All Config Files to Allowlist**
@@ -341,7 +341,7 @@ construct sys doctor
 construct sys doctor
 
 # Check what's mounted
-construct run --mount | grep -v construct
+construct --mount | grep -v construct
 
 # Review configuration
 construct sys config

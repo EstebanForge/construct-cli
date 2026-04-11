@@ -254,7 +254,7 @@ Test your installation:
 construct version
 
 # Run a simple agent command
-construct run claude "Say hello"
+construct claude "Say hello"
 
 # Check system health
 construct sys doctor

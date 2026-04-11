@@ -59,7 +59,7 @@ brew install EstebanForge/tap/construct-cli
 construct sys init
 
 # Run an agent
-construct run claude "Help me refactor this function"
+construct claude "Help me refactor this function"
 
 # Use host aliases (after installation)
 construct sys aliases --install
@@ -70,10 +70,10 @@ claude "Debug my API code"  # Now available as short command
 
 ```bash
 # Strict network isolation (allowlist only)
-construct run claude -ct-n strict "Review my code"
+construct claude -ct-n strict "Review my code"
 
 # Offline run (no network)
-construct run gemini --ct-network offline "Explain this code"
+construct gemini --ct-network offline "Explain this code"
 
 # Update all agents
 construct sys update
@@ -127,13 +127,13 @@ construct sys update           # Update agents
 construct sys reset            # Reset everything
 
 # Agent commands
-construct run <agent>          # Run an agent
+construct <agent>              # Run an agent (e.g., construct claude, construct gemini)
 construct sys aliases          # Manage host aliases
 construct sys agents-md        # Manage AGENTS.md rules
 
 # Development
 construct sys rebuild          # Rebuild containers
-construct sys migrate          # Migrate configuration
+construct sys config --migrate # Migrate configuration
 construct --help               # Show all commands
 ```
 
