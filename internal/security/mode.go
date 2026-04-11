@@ -74,11 +74,10 @@ func ResolveEnablement(configEnabled bool) *EnablementStatus {
 // LogStartupStatus emits a startup log line indicating hide-secrets state.
 func LogStartupStatus(status *EnablementStatus) {
 	switch status.Source {
-	case "experiment_gate_disabled":
-		fmt.Printf("hide_secrets=off (reason=%s)\n", status.Reason)
 	case "config_disabled":
 		fmt.Printf("hide_secrets=off (source=config)\n")
 	case "config_enabled":
 		fmt.Printf("hide_secrets=on (source=config)\n")
 	}
+	// Note: experiment_gate_disabled produces no output to avoid bothering users
 }
