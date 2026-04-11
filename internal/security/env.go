@@ -2,6 +2,7 @@ package security
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -46,8 +47,22 @@ func (em *EnvMasker) ShouldMaskEnvVar(key, value string) bool {
 		if strings.Contains(keyLower, indicator) {
 			// Additional check: is value actually sensitive-looking?
 			// Skip short values or common non-sensitive values
-			if len(value) > 8 && !em.isCommonNonSecret(value) {
-				return true
+			// For keys like SECRET_TOKEN, TOKEN, etc., we should mask even short values
+			isStrongIndicator := strings.Contains(keyLower, "secret") ||
+				strings.Contains(keyLower, "password") ||
+				strings.Contains(keyLower, "private_key") ||
+				strings.Contains(keyLower, "credential")
+
+			if isStrongIndicator {
+				// Mask even short values for strong indicators
+				if len(value) > 0 && !em.isCommonNonSecret(value) {
+					return true
+				}
+			} else {
+				// For weaker indicators, require longer values
+				if len(value) > 8 && !em.isCommonNonSecret(value) {
+					return true
+				}
 			}
 		}
 	}
@@ -128,37 +143,75 @@ func (em *EnvMasker) BuildMaskedEnvSlice(environ []string) []string {
 }
 
 // StreamMasker masks secrets in stdout/stderr streams in real-time.
+// It tracks known secret values and uses longest-match-first replacement.
 type StreamMasker struct {
-	masker            *Masker
-	sensitivePatterns []string
+	masker     *Masker
+	secretVals []string // Known secret values for exact matching
+	patterns   []*regexp.Regexp // Compiled patterns for detection
 }
 
 // NewStreamMasker creates a new stream masker.
 func NewStreamMasker(maskStyle string) *StreamMasker {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),                 // API keys
+		regexp.MustCompile(`ghp_[a-zA-Z0-9]{36}`),                 // GitHub tokens
+		regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{95}`),            // Anthropic keys
+		regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                    // AWS keys
+		regexp.MustCompile(`[a-zA-Z0-9+/]{32,}={0,2}`),            // Base64-encoded secrets
+		regexp.MustCompile(`-----BEGIN [A-Z]+ PRIVATE KEY-----`),  // Private key blocks
+	}
+
 	return &StreamMasker{
-		masker: NewMasker(maskStyle),
-		sensitivePatterns: []string{
-			// Common secret patterns in output
-			`sk-[a-zA-Z0-9]{20,}`,                // API keys
-			`[a-zA-Z0-9+/]{32,}={0,2}`,           // Base64-encoded secrets
-			`[a-fA-F0-9]{32,}`,                   // Hex-encoded secrets
-			`-----BEGIN [A-Z]+ PRIVATE KEY-----`, // Private keys
-		},
+		masker:     NewMasker(maskStyle),
+		secretVals: []string{},
+		patterns:   patterns,
+	}
+}
+
+// AddSecret adds a secret value to the masker for exact matching.
+func (sm *StreamMasker) AddSecret(secret string) {
+	if secret != "" {
+		sm.secretVals = append(sm.secretVals, secret)
+	}
+}
+
+// AddSecrets adds multiple secret values to the masker.
+func (sm *StreamMasker) AddSecrets(secrets []string) {
+	for _, secret := range secrets {
+		sm.AddSecret(secret)
 	}
 }
 
 // MaskLine masks secrets in a single line of output.
+// It performs exact matching first (for known secrets), then pattern-based masking.
 func (sm *StreamMasker) MaskLine(line string) string {
 	masked := line
-	for _, pattern := range sm.sensitivePatterns {
-		// Simple pattern-based masking
-		// In production, use regex.Compile for efficiency
-		if strings.Contains(masked, pattern) {
-			// Replace with masked placeholder
-			// For now, just indicate masking occurred
-			masked = strings.ReplaceAll(masked, pattern, sm.masker.Mask(pattern))
+
+	// First, do exact value replacement for known secrets
+	// Sort by length (longest first) to handle overlaps
+	for i := 0; i < len(sm.secretVals); i++ {
+		for j := i + 1; j < len(sm.secretVals); j++ {
+			if len(sm.secretVals[i]) < len(sm.secretVals[j]) {
+				sm.secretVals[i], sm.secretVals[j] = sm.secretVals[j], sm.secretVals[i]
+			}
 		}
 	}
+
+	// Replace exact secret values
+	for _, secret := range sm.secretVals {
+		if strings.Contains(masked, secret) {
+			masked = strings.ReplaceAll(masked, secret, sm.masker.Mask(secret))
+		}
+	}
+
+	// Then, do pattern-based masking for things we can't know exactly
+	for _, pattern := range sm.patterns {
+		if pattern.MatchString(masked) {
+			// Replace matches with masked placeholder
+			masked = pattern.ReplaceAllString(masked, sm.masker.Mask(pattern.String()))
+		}
+	}
+
 	return masked
 }
 
