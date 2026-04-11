@@ -55,22 +55,8 @@ Global Flags:
   construct sys check-update       # Check if an update is available for The Construct
   construct sys version            # Show version
 
-[network] Network Management:
-  construct network allow <domain>  # Add domain to allowlist
-  construct network block <domain>  # Add domain to blocklist
-  construct network remove <id>     # Remove rule
-  construct network list            # Show all rules
-  construct network status          # Show active UFW status in container
-  construct network clear           # Clear all rules
-
-Agent Examples:
-  construct claude "Debug this"           # Run Claude Code
-  construct gemini --resume id "Continue" # Run Gemini with flags
-  construct shell "run bash script"       # No collision with sys shell
-  ct qwen "Fix bugs"                      # Use ct alias
-
-  Available agents: claude, qwen, gemini, opencode, copilot, cline, crush, codex,
-                    droid, goose, kilocode, pi, omp, amp
+Available agents: claude, qwen, gemini, opencode, copilot, cline, crush, codex,
+                droid, goose, kilocode, pi, omp, amp
 
 For more information, visit: https://github.com/EstebanForge/construct-cli
 `
