@@ -7,13 +7,13 @@ import (
 
 func TestRedactor_RedactFile(t *testing.T) {
 	tests := []struct {
-		name         string
-		filename     string
-		content      []byte
-		wantMasked   string
-		wantCount    int
-		wantErr      bool
-		skip         bool
+		name       string
+		filename   string
+		content    []byte
+		wantMasked string
+		wantCount  int
+		wantErr    bool
+		skip       bool
 	}{
 		{
 			name:     "dotenv with secrets",
@@ -147,12 +147,12 @@ CONSTRUCT_REDACTED_
 			wantErr:   false,
 		},
 		{
-			name:     "unknown file type",
-			filename: "unknown.xyz",
-			content:  []byte("some content"),
+			name:       "unknown file type",
+			filename:   "unknown.xyz",
+			content:    []byte("some content"),
 			wantMasked: "some content",
-			wantCount: 0,
-			wantErr:   false,
+			wantCount:  0,
+			wantErr:    false,
 		},
 		{
 			name:     "dotenv comments and empty lines",

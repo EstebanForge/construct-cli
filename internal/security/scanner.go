@@ -295,23 +295,6 @@ func (s *Scanner) ContentScan(projectRoot string, patterns []string) ([]string, 
 		return []string{}, nil
 	}
 
-	// Build ripgrep patterns from secret patterns
-	// For performance, we use --files-with-matches to get matching files only
-	args := []string{
-		"--files-with-matches",
-		"--case-sensitive",
-		"--no-ignore", // Independent from .gitignore
-		"--hidden",     // Scan hidden files like .env
-	}
-
-	// Add patterns
-	for _, pattern := range patterns {
-		args = append(args, "--regexp", pattern)
-	}
-
-	// Add project root as the search path
-	args = append(args, projectRoot)
-
 	// Execute ripgrep
 	// We use os/exec here instead of directly reading files
 	// This keeps the scanner fast and memory-efficient

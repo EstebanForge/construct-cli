@@ -146,19 +146,19 @@ func (em *EnvMasker) BuildMaskedEnvSlice(environ []string) []string {
 // It tracks known secret values and uses longest-match-first replacement.
 type StreamMasker struct {
 	masker     *Masker
-	secretVals []string // Known secret values for exact matching
+	secretVals []string         // Known secret values for exact matching
 	patterns   []*regexp.Regexp // Compiled patterns for detection
 }
 
 // NewStreamMasker creates a new stream masker.
 func NewStreamMasker(maskStyle string) *StreamMasker {
 	patterns := []*regexp.Regexp{
-		regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),                 // API keys
-		regexp.MustCompile(`ghp_[a-zA-Z0-9]{36}`),                 // GitHub tokens
-		regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{95}`),            // Anthropic keys
-		regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                    // AWS keys
-		regexp.MustCompile(`[a-zA-Z0-9+/]{32,}={0,2}`),            // Base64-encoded secrets
-		regexp.MustCompile(`-----BEGIN [A-Z]+ PRIVATE KEY-----`),  // Private key blocks
+		regexp.MustCompile(`sk-[a-zA-Z0-9]{20,}`),                // API keys
+		regexp.MustCompile(`ghp_[a-zA-Z0-9]{36}`),                // GitHub tokens
+		regexp.MustCompile(`sk-ant-[a-zA-Z0-9\-]{95}`),           // Anthropic keys
+		regexp.MustCompile(`AKIA[0-9A-Z]{16}`),                   // AWS keys
+		regexp.MustCompile(`[a-zA-Z0-9+/]{32,}={0,2}`),           // Base64-encoded secrets
+		regexp.MustCompile(`-----BEGIN [A-Z]+ PRIVATE KEY-----`), // Private key blocks
 	}
 
 	return &StreamMasker{
