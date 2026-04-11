@@ -145,7 +145,7 @@ func TestScanner_AllowlistWithDenyPathsInteraction(t *testing.T) {
 	// Scanner with deny_paths (force scan) but allowlist (skip redaction)
 	// Note: deny_paths works together with candidate patterns, not as a replacement
 	scanner := NewScanner(tempDir, "hash",
-		[]string{"custom.env*"},  // Deny: force scan these specific patterns
+		[]string{"custom.env*"},    // Deny: force scan these specific patterns
 		[]string{".env.allowlist"}, // Allowlist: but skip this one
 		sm)
 
@@ -220,13 +220,13 @@ func TestScanner_AllowlistCaseSensitivity(t *testing.T) {
 	scanner := NewScanner("/project/root", "hash", []string{}, []string{"SECRET.txt"}, sm)
 
 	tests := []struct {
-		path    string
-		want    bool
+		path string
+		want bool
 	}{
-		{"SECRET.txt", true},      // Exact match
-		{"secret.txt", false},     // Different case
-		{"SECRET.TXT", false},     // Different case extension (filepath.Match is case-sensitive)
-		{"secret.TXT", false},     // Mixed case, no match
+		{"SECRET.txt", true},  // Exact match
+		{"secret.txt", false}, // Different case
+		{"SECRET.TXT", false}, // Different case extension (filepath.Match is case-sensitive)
+		{"secret.TXT", false}, // Mixed case, no match
 	}
 
 	for _, tt := range tests {
@@ -251,18 +251,18 @@ func TestScanner_AllowlistWildcardPatterns(t *testing.T) {
 			name:       "asterisk pattern",
 			allowPaths: []string{"*.pem"},
 			testPaths: map[string]bool{
-				"file.pem":        true,  // basename matches
-				"cert.pem":        true,  // basename matches
+				"file.pem":        true, // basename matches
+				"cert.pem":        true, // basename matches
 				"file.txt":        false,
-				"subdir/cert.pem": true,  // basename matches (we check basename)
+				"subdir/cert.pem": true, // basename matches (we check basename)
 			},
 		},
 		{
 			name:       "question mark pattern",
 			allowPaths: []string{"file?.txt"},
 			testPaths: map[string]bool{
-				"file1.txt": true,
-				"file2.txt": true,
+				"file1.txt":  true,
+				"file2.txt":  true,
 				"file10.txt": false, // ? matches exactly one char
 				"file.txt":   false,
 			},

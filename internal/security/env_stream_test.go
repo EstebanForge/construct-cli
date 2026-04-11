@@ -7,67 +7,67 @@ import (
 
 func TestStreamMasker_MaskLine(t *testing.T) {
 	tests := []struct {
-		name     string
+		name      string
 		maskStyle string
-		secrets  []string
-		input    string
-		want     string
+		secrets   []string
+		input     string
+		want      string
 	}{
 		{
-			name:     "no secrets configured",
+			name:      "no secrets configured",
 			maskStyle: "hash",
-			secrets:  []string{},
-			input:    "normal output line",
-			want:     "normal output line",
+			secrets:   []string{},
+			input:     "normal output line",
+			want:      "normal output line",
 		},
 		{
-			name:     "exact secret replacement",
+			name:      "exact secret replacement",
 			maskStyle: "hash",
-			secrets:  []string{"my_secret_password"},
-			input:    "password=my_secret_password",
-			want:     "password=CONSTRUCT_REDACTED_", // Prefix only (hash suffix varies)
+			secrets:   []string{"my_secret_password"},
+			input:     "password=my_secret_password",
+			want:      "password=CONSTRUCT_REDACTED_", // Prefix only (hash suffix varies)
 		},
 		{
-			name:     "multiple exact secrets",
+			name:      "multiple exact secrets",
 			maskStyle: "hash",
-			secrets:  []string{"key1", "key2"},
-			input:    "key1 and key2",
-			want:     "CONSTRUCT_REDACTED_ and CONSTRUCT_REDACTED_",
+			secrets:   []string{"key1", "key2"},
+			input:     "key1 and key2",
+			want:      "CONSTRUCT_REDACTED_ and CONSTRUCT_REDACTED_",
 		},
 		{
-			name:     "overlapping secrets - longest first",
+			name:      "overlapping secrets - longest first",
 			maskStyle: "hash",
-			secrets:  []string{"long_secret_value", "long_secret"},
-			input:    "long_secret_value and long_secret",
-			want:     "CONSTRUCT_REDACTED_ and CONSTRUCT_REDACTED_",
+			secrets:   []string{"long_secret_value", "long_secret"},
+			input:     "long_secret_value and long_secret",
+			want:      "CONSTRUCT_REDACTED_ and CONSTRUCT_REDACTED_",
 		},
 		{
-			name:     "repeated secret",
+			name:      "repeated secret",
 			maskStyle: "hash",
-			secrets:  []string{"secret123"},
-			input:    "secret123 secret123 secret123",
-			want:     "CONSTRUCT_REDACTED_ CONSTRUCT_REDACTED_ CONSTRUCT_REDACTED_",
+			secrets:   []string{"secret123"},
+			input:     "secret123 secret123 secret123",
+			want:      "CONSTRUCT_REDACTED_ CONSTRUCT_REDACTED_ CONSTRUCT_REDACTED_",
 		},
 		{
-			name:     "fixed mask style",
+			name:      "fixed mask style",
 			maskStyle: "fixed",
-			secrets:  []string{"api_key_123"},
-			input:    "api_key=api_key_123",
-			want:     "api_key=CONSTRUCT_REDACTED",
+			secrets:   []string{"api_key_123"},
+			input:     "api_key=api_key_123",
+			want:      "api_key=CONSTRUCT_REDACTED",
 		},
 		{
-			name:     "case sensitive matching",
+			name:      "case sensitive matching",
 			maskStyle: "hash",
-			secrets:  []string{"Secret"},
-			input:    "Secret secret",
-			want:     "CONSTRUCT_REDACTED_ secret",
+			secrets:   []string{"Secret"},
+			input:     "Secret secret",
+			want:      "CONSTRUCT_REDACTED_ secret",
 		},
 		{
-			name:     "partial match not replaced",
+			name:      "partial match not replaced",
 			maskStyle: "hash",
-			secrets:  []string{"xyz123"}, // Secret that doesn't appear in input
-			input:    "password123",
-			want:     "password123",
+			secrets:   []string{"xyz123"}, // Secret that doesn't appear in input
+			input:     "password123",
+			want:      "password123",
 		},
 	}
 
@@ -199,9 +199,9 @@ func TestEnvMasker_ShouldMaskEnvVar(t *testing.T) {
 	em := NewEnvMasker("hash", []string{"PUBLIC_URL"})
 
 	tests := []struct {
-		key     string
-		value   string
-		want    bool
+		key   string
+		value string
+		want  bool
 	}{
 		{"PASSWORD", "secret123", true},
 		{"API_KEY", "sk-123456", true},
