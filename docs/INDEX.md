@@ -195,7 +195,7 @@ construct sys init
 
 **Run agent:**
 ```bash
-construct run claude "Help me with this code"
+construct claude "Help me with this code"
 ```
 
 **Configuration:**

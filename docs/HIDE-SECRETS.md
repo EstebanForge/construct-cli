@@ -40,7 +40,7 @@ hide_secrets_mask_style = "hash"
 ### 3. Run Construct Normally
 
 ```bash
-construct run claude "Help me debug my API code"
+construct claude "Help me debug my API code"
 ```
 
 The agent will now see redacted secrets instead of real values.
@@ -157,17 +157,17 @@ Construct also detects:
 
 **Debugging API code** without exposing API keys
 ```bash
-construct run claude "Debug why my API calls are failing"
+construct claude "Debug why my API calls are failing"
 ```
 
 **Code review** of authentication logic
 ```bash
-construct run claude "Review my authentication flow for security issues"
+construct claude "Review my authentication flow for security issues"
 ```
 
 **Working with sensitive projects**
 ```bash
-construct run claude "Help me refactor this database migration code"
+construct claude "Help me refactor this database migration code"
 ```
 
 ### ❌ When NOT to Use
@@ -218,7 +218,7 @@ Sessions are automatically cleaned up:
 export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
 
 # 2. Run agent
-construct run claude "Debug my database connection code"
+construct claude "Debug my database connection code"
 
 # Agent sees:
 # DATABASE_URL=CONSTRUCT_REDACTED_A1B2C3D4
@@ -239,7 +239,7 @@ hide_secrets_allow_paths = ["~/.aws/credentials"]
 ```
 
 ```bash
-construct run claude "Use AWS CLI to list S3 buckets"
+construct claude "Use AWS CLI to list S3 buckets"
 # Agent can run: aws s3 ls
 # But other secrets remain redacted
 ```
