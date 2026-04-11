@@ -116,37 +116,6 @@ construct sys doctor
 | [**Development**](docs/DEVELOPMENT.md) | Contributing and development guide |
 | [**Contributing**](docs/CONTRIBUTING.md) | Contribution guidelines |
 
-## Quick Configuration
-
-### Basic Setup
-
-```toml
-# ~/.config/construct-cli/config.toml
-[runtime]
-engine = "auto"              # Auto-detect runtime
-
-[network]
-mode = "permissive"          # Network mode
-
-[agents]
-clipboard_image_patch = true # Enable image paste support
-```
-
-### Security Setup
-
-```toml
-[network]
-mode = "strict"
-allowed_domains = ["*.anthropic.com", "*.openai.com"]
-
-[security]
-# Requires: export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
-hide_secrets = true
-hide_git_dir = true
-```
-
-**[Complete Configuration Guide →](docs/CONFIGURATION.md)**
-
 ## CLI Reference
 
 ```bash
