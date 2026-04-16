@@ -2,6 +2,32 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.0 -->
+## [1.7.0] - 2026-04-16
+
+### Added
+- **Host Service Bridge**: New `[bridge]` configuration section that allows sandboxed containers to access services running on the host machine. This enables AI agents to connect to local databases, APIs, and development servers without leaving the isolated environment.
+- **Cross-Platform Gateway Detection**: Automatic host gateway IP detection supporting Docker (host-gateway, host.docker.internal), Podman (host.containers.internal), and network interface inspection across macOS, Linux, and WSL.
+- **Service Environment Variables**: For each configured host service, automatically injects `CONSTRUCT_<SERVICE>_HOST`, `CONSTRUCT_<SERVICE>_PORT`, and `CONSTRUCT_<SERVICE>_URL` environment variables, plus `CONSTRUCT_HOST_IP` for the detected gateway.
+- **Configurable Failure Behavior**: `on_failure` option in `[bridge]` section allows users to choose behavior when gateway detection fails: `"warn"` (default, continue with warning), `"fail"` (stop container startup), or `"silent"` (continue silently).
+- **Manual Host IP Override**: Advanced `manual_host_ip` option for users who need to specify a custom host IP when automatic detection fails or for non-standard network setups.
+- **AgentMemory Integration**: Out-of-the-box support for AgentMemory persistent memory server. Configure `services = ["agentmemory:3111"]` to enable AI agents to remember context across sessions while running in complete isolation.
+
+### Changed
+- **Docker Compose Override**: Enhanced `docker-compose.override.yml` generation to dynamically inject `extra_hosts` configuration based on `[bridge]` settings and detected host gateway.
+- **Container Environment Injection**: Extended environment variable assembly to include host service connection details when bridge is enabled.
+
+### Security
+- **Opt-In Security Model**: Host service bridge is disabled by default (`enabled = false`) and must be explicitly enabled by users. This maintains construct-cli's security-first approach while providing flexibility for development workflows.
+- **Gateway Validation**: Host gateway detection includes multiple validation methods and fallback mechanisms to ensure reliability while preventing accidental host exposure.
+
+### Documentation
+- **Configuration Reference**: Added comprehensive `[bridge]` section documentation in default `config.toml` template with usage examples and security considerations.
+- **Cross-Platform Support**: Documented platform-specific detection methods and troubleshooting steps for each container runtime.
+
+<!-- RELEASE:END 1.7.0 -->
+---
+
 <!-- RELEASE:START 1.6.3 -->
 ## [1.6.4] - 2026-04-11
 

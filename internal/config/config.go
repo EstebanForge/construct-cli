@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/EstebanForge/construct-cli/internal/bridge"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -26,6 +27,7 @@ type Config struct {
 	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
 	Security    SecurityConfig    `toml:"security"`
+	Bridge      BridgeConfig      `toml:"bridge"`
 }
 
 // RuntimeConfig holds container runtime settings.
@@ -97,6 +99,9 @@ type SecurityConfig struct {
 	HideGitDir                 bool     `toml:"hide_git_dir"`                  // Hide .git directory in merged view (default true)
 }
 
+// BridgeConfig holds host service bridge configuration.
+type BridgeConfig = bridge.HostServiceConfig
+
 // DefaultConfig returns the default configuration values.
 func DefaultConfig() Config {
 	return Config{
@@ -164,6 +169,7 @@ func DefaultConfig() Config {
 			HideSecretsReport:          true,
 			HideGitDir:                 true,
 		},
+		Bridge: bridge.DefaultHostServiceConfig(),
 	}
 }
 

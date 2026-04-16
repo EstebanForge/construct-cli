@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EstebanForge/construct-cli/internal/bridge"
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
@@ -1112,8 +1113,16 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
 	}
 
-	// Extra hosts for Linux (host.docker.internal)
-	if runtime.GOOS == "linux" {
+	// Host Service Bridge (cross-platform)
+	// Handles agentmemory, databases, and other host services
+	bridgeBuilder := bridge.NewOverrideBuilder()
+	if cfg != nil && cfg.Bridge.Enabled {
+		bridge.InjectHostBridgeConfig(bridgeBuilder, &cfg.Bridge, containerRuntime)
+		if bridgeBuilder.HasContent() {
+			override.WriteString(bridgeBuilder.GetContent())
+		}
+	} else if runtime.GOOS == "linux" {
+		// Legacy Linux support (backwards compatibility)
 		override.WriteString("    extra_hosts:\n")
 		override.WriteString("      - \"host.docker.internal:host-gateway\"\n")
 	}
@@ -1143,6 +1152,15 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
 		}
 		// On macOS, SSH_AUTH_SOCK is set in entrypoint.sh via the TCP bridge
+	}
+
+	// Host Service Bridge environment variables
+	if cfg != nil && cfg.Bridge.Enabled {
+		bridgeEnv := bridge.GetBridgeEnvironment(&cfg.Bridge, containerRuntime)
+		for key, value := range bridgeEnv {
+			fmt.Fprintf(&override, "      - %s=%s\n", key, value)
+			ui.LogDebug("Adding bridge env: %s=%s", key, value)
+		}
 	}
 
 	// Network isolation mode
