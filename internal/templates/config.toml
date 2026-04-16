@@ -167,6 +167,50 @@ hide_secrets_report = true
 # WARNING: Setting to false exposes git history, reflogs, and past commits which may contain secrets
 hide_git_dir = true
 
+# Host Service Bridge
+[bridge]
+# Enable access to services running on the host machine from within the sandbox (default: false)
+# SECURITY: This feature is opt-in for security reasons. When enabled, containers can access
+# services on your host machine (e.g., agentmemory server, databases, APIs).
+enabled = false
+
+# Automatically detect host gateway IP (default: true)
+# When true, construct-cli will automatically detect the best method to reach host services
+# based on your container runtime (Docker, Podman, macOS native). If auto-detection fails,
+# see the on_failure setting below.
+auto_detect = true
+
+# Behavior when host gateway detection fails: "warn" (default), "fail", "silent"
+# - "warn": Show warning but continue (plugin hooks may fail silently)
+# - "fail": Stop container startup and require manual fix
+# - "silent": Continue without warning (not recommended)
+on_failure = "warn"
+
+# Manual host IP override (advanced, use only if auto_detect fails)
+# Example: "192.168.65.1" for Docker Desktop macOS, or "10.0.2.2" for some Linux setups
+# Leave empty to use automatic detection.
+manual_host_ip = ""
+
+# Host services to bridge (format: "service_name:port")
+# Each service will generate environment variables:
+#   CONSTRUCT_<SERVICE>_HOST (e.g., CONSTRUCT_AGENTMEMORY_HOST)
+#   CONSTRUCT_<SERVICE>_PORT (e.g., CONSTRUCT_AGENTMEMORY_PORT)
+#   CONSTRUCT_<SERVICE>_URL  (e.g., CONSTRUCT_AGENTMEMORY_URL)
+# Plus CONSTRUCT_HOST_IP for the detected host IP.
+services = [
+    # Example: AgentMemory persistent memory server
+    # "agentmemory:3111",
+    #
+    # Example: PostgreSQL database on host
+    # "postgres:5432",
+    #
+    # Example: Redis cache on host
+    # "redis:6379",
+    #
+    # Example: Local development API
+    # "api:8080",
+]
+
 # Claude Code Provider Aliases
 # Configure custom API endpoints and authentication for Claude Code.
 # Reference host environment variables using ${VAR_NAME} syntax
