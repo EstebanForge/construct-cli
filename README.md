@@ -165,11 +165,7 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ## Acknowledgments
 
-Built with:
-- ❤️ for the AI agent community
-- 🐳 Docker/Podman container runtimes
-- 🍎 Apple native container runtime (macOS 14+)
-- 🔧 All the amazing AI agent developers
+Built with ❤️ for my kids. Go wild and experiment. Have fun.
 
 ---
 
