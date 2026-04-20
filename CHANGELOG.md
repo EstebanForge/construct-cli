@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.1 -->
+## [1.7.1] - 2026-04-20
+
+### Added
+- **Daemon Restart Command**: New `construct sys daemon restart` command that stops and starts the daemon container in one operation. Handles all container states: missing (starts), stopped (cleans up and starts), and running (stops then starts).
+
+<!-- RELEASE:END 1.7.1 -->
+---
+
 <!-- RELEASE:START 1.7.0 -->
 ## [1.7.0] - 2026-04-16
 

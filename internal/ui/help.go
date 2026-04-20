@@ -29,7 +29,7 @@ Global Flags:
   construct sys config             # Config operations (opens config.toml by default)
                                    # [--migrate] Re-sync config/templates with the current binary
                                    # [--restore] Restore config.toml from backup
-  construct sys daemon             # Manage background daemon (start|stop|attach|status)
+  construct sys daemon             # Manage background daemon (start|stop|restart|attach|status)
   construct sys packages           # Package operations (opens packages.toml by default)
                                    # [--install] Apply changes from packages.toml to running container
                                    # [--reinstall] Recreate package volume and reinstall packages
@@ -81,7 +81,7 @@ Commands:
   config             # Config operations (opens config.toml by default)
                      # [--migrate] Re-sync config/templates with current binary
                      # [--restore] Restore config.toml from backup
-  daemon             # Manage background daemon (start|stop|attach|status|install|uninstall)
+  daemon             # Manage background daemon (start|stop|restart|attach|status|install|uninstall)
   packages           # Manage packages.toml and package lifecycle
   doctor             # System health operations
                      # [--fix] Append missing defaults to config.toml (backup first)
@@ -141,6 +141,7 @@ Usage:
 Commands:
   start          # Start background container
   stop           # Stop background container
+  restart        # Restart background container
   attach         # Attach to running daemon (Ctrl+P Ctrl+Q to detach)
   status         # Show daemon + auto-start service status
   install        # Install daemon as auto-start service (runs on login/boot)
@@ -151,6 +152,7 @@ Examples:
   construct sys daemon attach
   construct sys daemon status
   construct sys daemon stop
+  construct sys daemon restart
   construct sys daemon install
   construct sys daemon uninstall
 `
