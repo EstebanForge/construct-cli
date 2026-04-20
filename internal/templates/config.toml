@@ -201,6 +201,9 @@ services = [
     # Example: AgentMemory persistent memory server
     # "agentmemory:3111",
     #
+    # Example: Codex Interceptor (AI model routing proxy)
+    # "codexinterceptor:7777",
+    #
     # Example: PostgreSQL database on host
     # "postgres:5432",
     #

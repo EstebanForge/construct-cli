@@ -459,6 +459,8 @@ func handleDaemonCommand(args []string) {
 		daemon.Start()
 	case "stop":
 		daemon.Stop()
+	case "restart":
+		daemon.Restart()
 	case "attach":
 		daemon.Attach()
 	case "status":

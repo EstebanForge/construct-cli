@@ -127,6 +127,42 @@ func Stop() {
 	ui.GumSuccess("Daemon stopped")
 }
 
+// Restart restarts the daemon container
+func Restart() {
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerName := "construct-cli-daemon"
+
+	state := runtime.GetContainerState(containerRuntime, containerName)
+
+	switch state {
+	case runtime.ContainerStateMissing:
+		ui.GumInfo("Daemon is not running, starting...")
+		Start()
+		return
+	case runtime.ContainerStateExited:
+		ui.GumInfo("Daemon is stopped, cleaning up and starting...")
+		if err := runtime.CleanupExitedContainer(containerRuntime, containerName); err != nil {
+			ui.GumWarning(fmt.Sprintf("Failed to cleanup: %v", err))
+		}
+		Start()
+		return
+	}
+
+	ui.GumInfo("Restarting daemon...")
+
+	if err := runtime.StopContainer(containerRuntime, containerName); err != nil {
+		ui.GumError(fmt.Sprintf("Failed to stop daemon: %v", err))
+		os.Exit(1)
+	}
+
+	Start()
+}
+
 // Attach attaches to the running daemon
 func Attach() {
 	cfg, _, err := config.Load()
