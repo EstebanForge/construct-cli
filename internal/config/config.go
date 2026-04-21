@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/EstebanForge/construct-cli/internal/bridge"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -27,7 +26,6 @@ type Config struct {
 	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
 	Security    SecurityConfig    `toml:"security"`
-	Bridge      BridgeConfig      `toml:"bridge"`
 }
 
 // RuntimeConfig holds container runtime settings.
@@ -51,6 +49,7 @@ type SandboxConfig struct {
 	Shell                  string   `toml:"shell"`
 	ClipboardHost          string   `toml:"clipboard_host"`
 	SelinuxLabels          string   `toml:"selinux_labels"`
+	HostServiceEnv         []string `toml:"host_service_env"` // ENV=http://localhost:port, rewritten to host.docker.internal
 }
 
 // NetworkConfig holds network allow/block settings.
@@ -98,9 +97,6 @@ type SecurityConfig struct {
 	HideSecretsReport          bool     `toml:"hide_secrets_report"`           // Emit session report
 	HideGitDir                 bool     `toml:"hide_git_dir"`                  // Hide .git directory in merged view (default true)
 }
-
-// BridgeConfig holds host service bridge configuration.
-type BridgeConfig = bridge.HostServiceConfig
 
 // DefaultConfig returns the default configuration values.
 func DefaultConfig() Config {
@@ -169,7 +165,6 @@ func DefaultConfig() Config {
 			HideSecretsReport:          true,
 			HideGitDir:                 true,
 		},
-		Bridge: bridge.DefaultHostServiceConfig(),
 	}
 }
 
