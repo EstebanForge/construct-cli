@@ -2,6 +2,23 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.2 -->
+## [1.7.2] - 2026-04-21
+
+### Added
+- **Host Service Env**: New `host_service_env` field in `[sandbox]` config section. Injects environment variables into the container with `localhost`/`127.0.0.1` automatically rewritten to `host.docker.internal`. Enables agents inside the sandbox to reach host services like AgentMemory without complex IP detection. Example: `"AGENTMEMORY_URL=http://localhost:3111"`.
+- AgentMemory config directory (`~/.agentmemory`) is now created on container first run.
+
+### Changed
+- Replaced the `[bridge]` configuration section and `internal/bridge` package (IP detection, gateway probing, `CONSTRUCT_*` env vars) with the simpler `host_service_env` mechanism. The old `[bridge]` config is no longer recognized and should be removed from `config.toml`.
+
+### Removed
+- Deleted `internal/bridge/` package (config, detector, injector, integration).
+- Removed `[bridge]` section from config template and `BridgeConfig` type.
+
+<!-- RELEASE:END 1.7.2 -->
+---
+
 <!-- RELEASE:START 1.7.1 -->
 ## [1.7.1] - 2026-04-20
 
@@ -14,25 +31,8 @@ All notable changes to Construct CLI will be documented in this file.
 <!-- RELEASE:START 1.7.0 -->
 ## [1.7.0] - 2026-04-16
 
-### Added
-- **Host Service Bridge**: New `[bridge]` configuration section that allows sandboxed containers to access services running on the host machine. This enables AI agents to connect to local databases, APIs, and development servers without leaving the isolated environment.
-- **Cross-Platform Gateway Detection**: Automatic host gateway IP detection supporting Docker (host-gateway, host.docker.internal), Podman (host.containers.internal), and network interface inspection across macOS, Linux, and WSL.
-- **Service Environment Variables**: For each configured host service, automatically injects `CONSTRUCT_<SERVICE>_HOST`, `CONSTRUCT_<SERVICE>_PORT`, and `CONSTRUCT_<SERVICE>_URL` environment variables, plus `CONSTRUCT_HOST_IP` for the detected gateway.
-- **Configurable Failure Behavior**: `on_failure` option in `[bridge]` section allows users to choose behavior when gateway detection fails: `"warn"` (default, continue with warning), `"fail"` (stop container startup), or `"silent"` (continue silently).
-- **Manual Host IP Override**: Advanced `manual_host_ip` option for users who need to specify a custom host IP when automatic detection fails or for non-standard network setups.
-- **AgentMemory Integration**: Out-of-the-box support for AgentMemory persistent memory server. Configure `services = ["agentmemory:3111"]` to enable AI agents to remember context across sessions while running in complete isolation.
-
 ### Changed
-- **Docker Compose Override**: Enhanced `docker-compose.override.yml` generation to dynamically inject `extra_hosts` configuration based on `[bridge]` settings and detected host gateway.
-- **Container Environment Injection**: Extended environment variable assembly to include host service connection details when bridge is enabled.
-
-### Security
-- **Opt-In Security Model**: Host service bridge is disabled by default (`enabled = false`) and must be explicitly enabled by users. This maintains construct-cli's security-first approach while providing flexibility for development workflows.
-- **Gateway Validation**: Host gateway detection includes multiple validation methods and fallback mechanisms to ensure reliability while preventing accidental host exposure.
-
-### Documentation
-- **Configuration Reference**: Added comprehensive `[bridge]` section documentation in default `config.toml` template with usage examples and security considerations.
-- **Cross-Platform Support**: Documented platform-specific detection methods and troubleshooting steps for each container runtime.
+- **Host Service Env**: Replaced the `[bridge]` configuration section with `host_service_env` in `[sandbox]`. Configure environment variables that are injected into the container with `localhost`/`127.0.0.1` automatically rewritten to `host.docker.internal`, enabling agents to reach host services (e.g., AgentMemory) without complex IP detection.
 
 <!-- RELEASE:END 1.7.0 -->
 ---
