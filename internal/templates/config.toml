@@ -48,7 +48,19 @@ exec_as_host_user = true
 
 # Explicit host env vars to pass through into Construct unchanged.
 # Default passthroughs cover common CLI/tool auth use cases.
-env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"]
+env_passthrough = [
+    "GITHUB_TOKEN",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "QWEN_API_KEY",
+    "MINIMAX_API_KEY",
+    "KIMI_API_KEY",
+    "ZAI_API_KEY",
+    "MIMO_API_KEY",
+    "OPENCODE_API_KEY",
+    "CONTEXT7_API_KEY",
+]
 
 # Host env prefixes to auto-pass into Construct after stripping the prefix.
 # Example: host CNSTR_CONTEXT7_API_KEY=... becomes CONTEXT7_API_KEY inside Construct.

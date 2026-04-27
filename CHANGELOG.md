@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.3 -->
+## [1.7.3] - 2026-04-27
+
+### Changed
+- **Expanded Default Env Passthroughs**: Fresh configs now default `sandbox.env_passthrough` to include `GITHUB_TOKEN`, `GEMINI_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `QWEN_API_KEY`, `MINIMAX_API_KEY`, `KIMI_API_KEY`, `ZAI_API_KEY`, `MIMO_API_KEY`, `OPENCODE_API_KEY`, and `CONTEXT7_API_KEY`.
+
+<!-- RELEASE:END 1.7.3 -->
+---
+
 <!-- RELEASE:START 1.7.2 -->
 ## [1.7.2] - 2026-04-21
 
