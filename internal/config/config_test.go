@@ -200,8 +200,26 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	if !cfg.Sandbox.ExecAsHostUser {
 		t.Error("Expected default exec_as_host_user to be true")
 	}
-	if len(cfg.Sandbox.EnvPassthrough) != 2 || cfg.Sandbox.EnvPassthrough[0] != "GITHUB_TOKEN" || cfg.Sandbox.EnvPassthrough[1] != "CONTEXT7_API_KEY" {
-		t.Errorf("Expected default env_passthrough to include GITHUB_TOKEN and CONTEXT7_API_KEY, got %v", cfg.Sandbox.EnvPassthrough)
+	expectedEnvPassthrough := []string{
+		"GITHUB_TOKEN",
+		"GEMINI_API_KEY",
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"QWEN_API_KEY",
+		"MINIMAX_API_KEY",
+		"KIMI_API_KEY",
+		"ZAI_API_KEY",
+		"MIMO_API_KEY",
+		"OPENCODE_API_KEY",
+		"CONTEXT7_API_KEY",
+	}
+	if len(cfg.Sandbox.EnvPassthrough) != len(expectedEnvPassthrough) {
+		t.Fatalf("Expected default env_passthrough length %d, got %d (%v)", len(expectedEnvPassthrough), len(cfg.Sandbox.EnvPassthrough), cfg.Sandbox.EnvPassthrough)
+	}
+	for i, expected := range expectedEnvPassthrough {
+		if cfg.Sandbox.EnvPassthrough[i] != expected {
+			t.Fatalf("Expected default env_passthrough[%d]=%q, got %q", i, expected, cfg.Sandbox.EnvPassthrough[i])
+		}
 	}
 	if len(cfg.Sandbox.EnvPassthroughPrefixes) != 1 || cfg.Sandbox.EnvPassthroughPrefixes[0] != "CNSTR_" {
 		t.Errorf("Expected default env_passthrough_prefixes to contain CNSTR_, got %v", cfg.Sandbox.EnvPassthroughPrefixes)

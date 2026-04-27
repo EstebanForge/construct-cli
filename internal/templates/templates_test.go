@@ -61,8 +61,26 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "exec_as_host_user = true") {
 		t.Error("config.toml template should include exec_as_host_user with default true")
 	}
-	if !strings.Contains(Config, `env_passthrough = ["GITHUB_TOKEN", "CONTEXT7_API_KEY"]`) {
-		t.Error("config.toml template should include default env_passthrough entries for GITHUB_TOKEN and CONTEXT7_API_KEY")
+	if !strings.Contains(Config, "env_passthrough = [") {
+		t.Error("config.toml template should include env_passthrough defaults block")
+	}
+	defaultPassthroughKeys := []string{
+		`"GITHUB_TOKEN"`,
+		`"GEMINI_API_KEY"`,
+		`"OPENAI_API_KEY"`,
+		`"ANTHROPIC_API_KEY"`,
+		`"QWEN_API_KEY"`,
+		`"MINIMAX_API_KEY"`,
+		`"KIMI_API_KEY"`,
+		`"ZAI_API_KEY"`,
+		`"MIMO_API_KEY"`,
+		`"OPENCODE_API_KEY"`,
+		`"CONTEXT7_API_KEY"`,
+	}
+	for _, key := range defaultPassthroughKeys {
+		if !strings.Contains(Config, key) {
+			t.Errorf("config.toml template should include default env_passthrough key %s", key)
+		}
 	}
 	if !strings.Contains(Config, `env_passthrough_prefixes = ["CNSTR_"]`) {
 		t.Error("config.toml template should include default env_passthrough_prefixes for CNSTR_")
