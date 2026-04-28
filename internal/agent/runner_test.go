@@ -152,16 +152,38 @@ func TestEnsureAgentRuntimeDirsCreatesCodexHome(t *testing.T) {
 	}
 }
 
-func TestEnsureAgentRuntimeDirsSkipsNonCodex(t *testing.T) {
+func TestEnsureAgentRuntimeDirsSkipsUnknownAgents(t *testing.T) {
 	configPath := t.TempDir()
 
 	if err := ensureAgentRuntimeDirs([]string{"claude"}, configPath); err != nil {
-		t.Fatalf("expected no error for non-codex agent, got %v", err)
+		t.Fatalf("expected no error for unknown agent, got %v", err)
 	}
 
 	codexHome := filepath.Join(configPath, "home", ".codex")
 	if _, err := os.Stat(codexHome); !os.IsNotExist(err) {
-		t.Fatalf("expected codex home to remain absent for non-codex agent, stat err=%v", err)
+		t.Fatalf("expected codex home to remain absent for unknown agent, stat err=%v", err)
+	}
+}
+
+func TestEnsureAgentRuntimeDirsCreatesOpenCodeDirs(t *testing.T) {
+	configPath := t.TempDir()
+
+	if err := ensureAgentRuntimeDirs([]string{"opencode"}, configPath); err != nil {
+		t.Fatalf("expected no error creating opencode runtime dirs, got %v", err)
+	}
+
+	dataDir := filepath.Join(configPath, "home", ".local", "share", "opencode")
+	if info, err := os.Stat(dataDir); err != nil {
+		t.Fatalf("expected opencode data dir to exist at %s: %v", dataDir, err)
+	} else if !info.IsDir() {
+		t.Fatalf("expected opencode data dir to be a directory: %s", dataDir)
+	}
+
+	configDir := filepath.Join(configPath, "home", ".config", "opencode")
+	if info, err := os.Stat(configDir); err != nil {
+		t.Fatalf("expected opencode config dir to exist at %s: %v", configDir, err)
+	} else if !info.IsDir() {
+		t.Fatalf("expected opencode config dir to be a directory: %s", configDir)
 	}
 }
 
