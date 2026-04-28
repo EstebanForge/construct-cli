@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.4 -->
+## [1.7.4] - 2026-04-28
+
+### Fixed
+- **OpenCode First-Run SQLite Error**: Pre-creates `~/.local/share/opencode` and `~/.config/opencode` directories before container startup, preventing the `DrizzleError: Failed to run the query 'PRAGMA journal_mode = WAL'` failure that occurred on first run in a fresh Construct environment.
+
+<!-- RELEASE:END 1.7.4 -->
+---
+
 <!-- RELEASE:START 1.7.3 -->
 ## [1.7.3] - 2026-04-27
 

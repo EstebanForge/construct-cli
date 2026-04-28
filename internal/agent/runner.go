@@ -1338,13 +1338,24 @@ func ensureAgentRuntimeDirs(args []string, configPath string) error {
 	if len(args) == 0 || configPath == "" {
 		return nil
 	}
-	if !strings.EqualFold(args[0], "codex") {
-		return nil
-	}
 
-	codexHome := filepath.Join(configPath, "home", ".codex")
-	if err := os.MkdirAll(codexHome, 0755); err != nil {
-		return fmt.Errorf("failed to create Codex home directory at %s: %w", codexHome, err)
+	agent := strings.ToLower(args[0])
+	switch agent {
+	case "codex":
+		codexHome := filepath.Join(configPath, "home", ".codex")
+		if err := os.MkdirAll(codexHome, 0755); err != nil {
+			return fmt.Errorf("failed to create Codex home directory at %s: %w", codexHome, err)
+		}
+	case "opencode":
+		// OpenCode stores its SQLite DB in ~/.local/share/opencode and config in ~/.config/opencode
+		opencodeDataDir := filepath.Join(configPath, "home", ".local", "share", "opencode")
+		if err := os.MkdirAll(opencodeDataDir, 0755); err != nil {
+			return fmt.Errorf("failed to create OpenCode data directory at %s: %w", opencodeDataDir, err)
+		}
+		opencodeConfigDir := filepath.Join(configPath, "home", ".config", "opencode")
+		if err := os.MkdirAll(opencodeConfigDir, 0755); err != nil {
+			return fmt.Errorf("failed to create OpenCode config directory at %s: %w", opencodeConfigDir, err)
+		}
 	}
 	return nil
 }
