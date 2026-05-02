@@ -22,6 +22,7 @@ disable = [
     "snap",          # Not installed in construct
     "containers",    # Avoid recursive container updates
     "claude_code",   # Avoid duplicate Claude step; use guarded custom command
+    "pnpm",          # Managed by Homebrew; topgrade step is redundant
     "sdkman",        # Not used by default
     "vagrant",       # Not used in container
     "wsl",           # Not applicable (we're inside Linux)
