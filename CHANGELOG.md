@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.5 -->
+## [1.7.5] - 2026-05-02
+
+### Fixed
+- **pnpm Update False Failure**: `ct sys update` reported `pnpm: FAILED` because topgrade's native pnpm step exits non-zero when pnpm is managed by Homebrew. Topgrade's pnpm step is now disabled — brew already handles pnpm updates.
+
+<!-- RELEASE:END 1.7.5 -->
+---
+
 <!-- RELEASE:START 1.7.4 -->
 ## [1.7.4] - 2026-04-28
 
