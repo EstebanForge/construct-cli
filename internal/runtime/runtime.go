@@ -214,6 +214,11 @@ func startRuntime(runtimeName string) bool {
 
 	case "docker":
 		if runtime.GOOS == "darwin" {
+			// Docker daemon may already be running (e.g. OrbStack in background).
+			// Avoid needlessly bringing the app to front every time.
+			if IsRuntimeRunning("docker") {
+				return true
+			}
 			if isOrbStackInstalled() {
 				fmt.Fprintln(os.Stderr, "Found OrbStack - launching engine...")
 				cmd := exec.Command("open", "-a", "OrbStack")

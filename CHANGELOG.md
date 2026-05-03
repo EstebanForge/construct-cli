@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.6 -->
+## [1.7.6] - 2026-05-03
+
+### Fixed
+- **OrbStack Repeated Launch**: On macOS, Construct no longer brings OrbStack to the foreground on every invocation when Docker is already running in the background. `startRuntime` now checks `docker info` before launching OrbStack, avoiding redundant `open -a OrbStack` calls.
+
+<!-- RELEASE:END 1.7.6 -->
+---
+
 <!-- RELEASE:START 1.7.5 -->
 ## [1.7.5] - 2026-05-02
 
