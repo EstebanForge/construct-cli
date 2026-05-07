@@ -8,7 +8,7 @@ import (
 
 func TestGetSupportedAgents(t *testing.T) {
 	agents := GetSupportedAgents()
-	expectedAgents := 13
+	expectedAgents := 12
 	if len(agents) != expectedAgents {
 		t.Errorf("Expected %d agents, got %d", expectedAgents, len(agents))
 	}
@@ -19,7 +19,6 @@ func TestGetSupportedAgents(t *testing.T) {
 	foundGoose := false
 	foundKilo := false
 	foundAmp := false
-	foundOmp := false
 	foundCrush := false
 	for _, a := range agents {
 		if a.Name == "cline" {
@@ -40,9 +39,6 @@ func TestGetSupportedAgents(t *testing.T) {
 		if a.Name == "amp" {
 			foundAmp = true
 		}
-		if a.Name == "omp" {
-			foundOmp = true
-		}
 		if a.Name == "crush" {
 			foundCrush = true
 		}
@@ -61,9 +57,6 @@ func TestGetSupportedAgents(t *testing.T) {
 	}
 	if !foundAmp {
 		t.Error("Amp CLI not found in supported agents")
-	}
-	if !foundOmp {
-		t.Error("Oh My Pi not found in supported agents")
 	}
 	if !foundCrush {
 		t.Error("Crush CLI not found in supported agents")
