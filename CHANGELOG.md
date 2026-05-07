@@ -2,6 +2,20 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.7.7 -->
+## [1.7.7] - 2026-05-07
+
+### Changed
+- **Pi Coding Agent Package**: Switched from `@mariozechner/pi-coding-agent` to `@earendil-works/pi-coding-agent` in default npm packages.
+- **Gemini CLI Distribution**: Moved `gemini-cli` from Homebrew to npm (`@google/gemini-cli`) for consistent cross-platform installation.
+- **OpenCode Install Source**: Removed `opencode` from default Homebrew packages; added automatic OpenCode installation via official installer in `[post_install]` commands.
+
+### Removed
+- **Oh My Pi Agent**: Removed `omp` (Oh My Pi) from supported agents. Unregistered from `agent.go`, `help.go`, `memories.go`, `update-all.sh`, `packages.toml`, `README.md`, and `AGENTS.md`.
+
+<!-- RELEASE:END 1.7.7 -->
+---
+
 <!-- RELEASE:START 1.7.6 -->
 ## [1.7.6] - 2026-05-03
 
