@@ -36,7 +36,6 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot with terminal helpers
 - **Crush CLI** (`crush`) – Charmbracelet Crush coding agent
 - **Pi Coding Agent** (`pi`) – General-purpose coding assistant
-- **Oh My Pi** (`omp`) – Fork of Pi with Python/IPython and LSP support
 - **Claude Code** with other providers: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo
 - [Full agent list →](docs/AGENTS.md)
 

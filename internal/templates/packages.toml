@@ -29,7 +29,7 @@ packages = [
     # Web & Build tools
     "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "pipx", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod", "hugo", "zola",
     # AI Agents
-    "gemini-cli", "opencode", "block-goose-cli", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
+    "block-goose-cli", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
     # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
     "shivammathur/extensions/pcov@8.5",
 ]
@@ -44,7 +44,6 @@ packages = [
 [bun]
 packages = [
     "@tobilu/qmd",
-    "@oh-my-pi/pi-coding-agent",
 ]
 
 # Global Node.js packages
@@ -59,7 +58,8 @@ packages = [
     "agent-browser",
     "url-to-markdown-cli-tool",
     "sass",
-    "@mariozechner/pi-coding-agent",
+    "@google/gemini-cli",
+    "@earendil-works/pi-coding-agent",
 ]
 
 # Python packages
@@ -92,4 +92,5 @@ volta = false
 commands = [
     "agent-browser install --with-deps",
     "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
+    "if [ -x \"$HOME/.opencode/bin/opencode\" ]; then echo \"OpenCode already installed\"; else curl -fsSL https://opencode.ai/install | bash; fi",
 ]
