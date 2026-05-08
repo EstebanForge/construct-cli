@@ -23,7 +23,7 @@ GOMOD := $(GOCMD) mod
 GOFMT := $(GOCMD) fmt
 GOVET := $(GOCMD) vet
 GOLANGCI_LINT := golangci-lint
-GOLANGCI_LINT_VERSION ?= 2.11.4
+GOLANGCI_LINT_VERSION ?= 2.12.2
 LINT_TIMEOUT ?= 5m
 
 # Build flags

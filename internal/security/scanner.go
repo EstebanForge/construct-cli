@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -289,7 +290,7 @@ func (s *Scanner) CheckSymlinks(projectRoot string) ([]string, error) {
 // Returns a list of file paths that match secret patterns.
 func (s *Scanner) ContentScan(projectRoot string, patterns []string) ([]string, error) {
 	// Check if ripgrep is available
-	if _, err := os.Stat("/usr/bin/rg"); err != nil {
+	if _, err := exec.LookPath("rg"); err != nil {
 		// Fallback: return empty list (content scan disabled)
 		// This is safe - we'll still catch path-based candidates
 		return []string{}, nil
@@ -367,37 +368,15 @@ func HashFile(path string) (string, error) {
 }
 
 // WriteManifest writes the session manifest file.
-func (s *Scanner) WriteManifest(sessionDir string, manifest *Session) error {
+func (s *Scanner) WriteManifest(sessionDir string, manifest *SessionState) error {
 	manifestPath := filepath.Join(sessionDir, "manifest.json")
 
-	// For now, we'll use simple JSON encoding
-	// In production, use json.Marshal with proper error handling
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, `{
-  "session_id": "%s",
-  "created_at": "%s",
-  "host_project_root": "%s",
-  "overlay_upper_root": "%s",
-  "mask_style": "%s",
-  "files_scanned": %d,
-  "files_redacted": %d,
-  "secrets_redacted": %d,
-  "mode": "%s",
-  "pid": %d
-}`,
-		manifest.ID,
-		manifest.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-		manifest.ProjectRoot,
-		manifest.OverlayUpper,
-		manifest.MaskStyle,
-		manifest.FilesScanned,
-		manifest.FilesRedacted,
-		manifest.SecretsCount,
-		manifest.Mode,
-		manifest.PID,
-	)
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal manifest: %w", err)
+	}
 
-	if err := os.WriteFile(manifestPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
 
@@ -408,29 +387,12 @@ func (s *Scanner) WriteManifest(sessionDir string, manifest *Session) error {
 func (s *Scanner) WriteRedactionIndex(sessionDir string, redactions []*FileRedaction) error {
 	indexPath := filepath.Join(sessionDir, "redaction-index.json")
 
-	var buf bytes.Buffer
-	buf.WriteString("[\n")
-
-	for i, redaction := range redactions {
-		if i > 0 {
-			buf.WriteString(",\n")
-		}
-		fmt.Fprintf(&buf, `  {
-    "path": "%s",
-    "source_hash": "%s",
-    "redacted_hash": "%s",
-    "secrets_count": %d
-  }`,
-			redaction.Path,
-			redaction.SourceHash,
-			redaction.RedactedHash,
-			redaction.SecretsCount,
-		)
+	data, err := json.MarshalIndent(redactions, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal redaction index: %w", err)
 	}
 
-	buf.WriteString("\n]\n")
-
-	if err := os.WriteFile(indexPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(indexPath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write redaction index: %w", err)
 	}
 
@@ -438,7 +400,7 @@ func (s *Scanner) WriteRedactionIndex(sessionDir string, redactions []*FileRedac
 }
 
 // ReadManifest reads a session manifest file.
-func ReadManifest(sessionDir string) (*Session, error) {
+func ReadManifest(sessionDir string) (*SessionState, error) {
 	manifestPath := filepath.Join(sessionDir, "manifest.json")
 
 	data, err := os.ReadFile(manifestPath)
@@ -446,22 +408,9 @@ func ReadManifest(sessionDir string) (*Session, error) {
 		return nil, fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	// For V1, this is a simplified parser
-	// In production, use json.Unmarshal
-	scanner := bufio.NewScanner(bytes.NewReader(data))
-	manifest := &Session{}
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.Contains(line, "session_id") {
-			// Extract value between quotes
-			if start := strings.Index(line, "\""); start != -1 {
-				if end := strings.Index(line[start+1:], "\""); end != -1 {
-					manifest.ID = SessionID(line[start+1 : start+1+end])
-				}
-			}
-		}
-		// Parse other fields similarly...
+	manifest := &SessionState{}
+	if err := json.Unmarshal(data, manifest); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal manifest: %w", err)
 	}
 
 	return manifest, nil
