@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	stdruntime "runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -698,38 +699,51 @@ func collectForwardedEnv(cfg *config.Config, providerEnv []string) []string {
 }
 
 func applyYoloArgs(args []string, cfg *config.Config) []string {
-	if cfg == nil || !cfg.Agents.YoloAll {
-		return args
-	}
-	if len(args) == 0 {
+	if cfg == nil || len(args) == 0 {
 		return args
 	}
 
-	yoloAgents := []string{"pi", "claude", "copilot", "codex", "opencode", "crush", "kilo"}
 	agent := strings.ToLower(args[0])
-	isYoloAgent := false
-	for _, a := range yoloAgents {
-		if a == agent {
-			isYoloAgent = true
-			break
-		}
+	flag, ok := yoloFlagForAgent(agent)
+	if !ok {
+		return args
 	}
-
-	if !isYoloAgent {
+	if !shouldEnableYolo(agent, cfg) {
+		return args
+	}
+	if slices.Contains(args, flag) {
 		return args
 	}
 
-	for _, arg := range args {
-		if arg == "--yolo" || arg == "-y" {
-			return args
+	updated := make([]string, 0, len(args)+1)
+	updated = append(updated, args[0], flag)
+	updated = append(updated, args[1:]...)
+	return updated
+}
+
+func yoloFlagForAgent(agent string) (string, bool) {
+	switch agent {
+	case "claude":
+		return "--dangerously-skip-permissions", true
+	case "copilot":
+		return "--allow-all-tools", true
+	case "gemini", "codex", "qwen", "cline", "kilocode", "crush":
+		return "--yolo", true
+	default:
+		return "", false
+	}
+}
+
+func shouldEnableYolo(agent string, cfg *config.Config) bool {
+	if cfg.Agents.YoloAll {
+		return true
+	}
+	for _, name := range cfg.Agents.YoloAgents {
+		if strings.EqualFold(name, agent) || strings.EqualFold(name, "all") {
+			return true
 		}
 	}
-
-	newArgs := make([]string, len(args)+1)
-	newArgs[0] = args[0]
-	newArgs[1] = "--yolo"
-	copy(newArgs[2:], args[1:])
-	return newArgs
+	return false
 }
 
 func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, _ string) string {
