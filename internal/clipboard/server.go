@@ -64,6 +64,13 @@ func StartServer(host string) (*Server, error) {
 	return server, nil
 }
 
+// Stop stops the clipboard server.
+func (s *Server) Stop() {
+	if s.listener != nil {
+		_ = s.listener.Close() //nolint:errcheck
+	}
+}
+
 func (s *Server) serve() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/paste", s.handlePaste)

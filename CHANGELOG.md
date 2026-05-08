@@ -2,6 +2,35 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.0 -->
+## [1.8.0] - 2026-05-08
+
+### Changed
+- **Runtime Engine Extraction**: Extracted ~1000 lines of monolithic container orchestration from `internal/agent/runner.go` into a dedicated `RuntimeEngine` in new `internal/agent/engine.go`. `runner.go` now delegates to `engine.Prepare()` and `engine.Execute()`, centralizing daemon detection, clipboard server, SSH bridge, login forwarding, environment assembly, and container state handling.
+- **Security Session Interface**: Introduced a new `Session` interface in `internal/security/session_deep.go` with `noOpSession` (disabled) and `secureSession` (active) implementations. Replaces direct `SessionManager` coupling throughout the codebase with a clean, testable abstraction.
+- **SecretShield Deep Module**: Created `internal/security/shield.go` as a deep module encapsulating secret detection and redaction into a single atomic `Protect()` operation. `integration.go` now delegates scanning to `SecretShield` instead of orchestrating `Scanner` directly.
+- **Runner Integration Refactor**: `internal/security/runner_integration.go` completely rewritten around the `Session` interface. Uses the new `security.Open()` factory and delegates env masking to `sess.MaskEnv()`. Eliminates redundant `EnvMasker` instantiation at every call site.
+- **Scanner JSON Serialization**: Replaced hand-rolled string-buffer JSON generation in `internal/security/scanner.go` with proper `encoding/json` `MarshalIndent`/`Unmarshal` for manifest and redaction index I/O.
+- **RiPGrep Path Resolution**: Changed hardcoded `/usr/bin/rg` stat to `exec.LookPath("rg")` for cross-distro compatibility.
+- **Session Manager Cleanup Removal**: Removed `Manager.Cleanup()` and `isProcessAlive` orphan-reaping logic from `internal/security/session.go`. Session lifecycle is now managed explicitly through the `Session` interface.
+- **Workspace Type Override**: Added `CONSTRUCT_SECURITY_WORKSPACE_TYPE` environment variable and `WorkspaceTypeNone` for testability. `DetectWorkspaceType()` now respects the override.
+- **OverlayFS Mount Fix**: Corrected overlayfs mount options to use `lowerdir=<lower>,upperdir=<upper>,workdir=<work>` instead of the erroneous `lowerdir=<lower>:<upper>,upperdir=<upper>,workdir=<work>` that duplicated the upper layer in the lower stack.
+- **Setup PATH Construction**: `runSetup` now constructs `PATH` and `CONSTRUCT_PATH` directly via `env.BuildConstructPath()` instead of the removed `applyConstructPath()` helper.
+
+### Added
+- **Clipboard Server Stop**: Added `Stop()` method to `internal/clipboard/server.go` for clean listener shutdown.
+- **Security Session Tests**: Added `internal/security/session_test.go` with regression coverage for both `noOpSession` (disabled) and `secureSession` (enabled with `CONSTRUCT_SECURITY_WORKSPACE_TYPE=none`) deep interface behavior.
+
+### Fixed
+- **Nil Status Guards**: Added nil-pointer checks in `internal/security/integration.go` before calling `sm.status.IsEnabled()`.
+- **CI Lint Toolchain Pin**: Bumped `golangci-lint` pin from `v2.11.4` to `v2.12.2` in build and release workflows; aligned local Makefile CI pin to `2.12.2`.
+
+### Removed
+- **~29 Helper Functions from runner.go**: Removed `collectForwardedEnv`, `buildRunFlags`, `shouldEnableLoginForward`, `applyYoloArgs`, `applyConstructPath`, `execUserForAgentExec`, `appendExecUserRunFlags`, `resolveExecUserForRunningContainer`, `shouldEnableYolo`, `yoloFlagForAgent`, `readLoginBridgePorts`, `parsePorts`, `formatPorts`, `mapDaemonWorkdir`, `warnDaemonMountFallback`, `getEffectiveCwd`, `execViaDaemon`, `runAgentPatchInDaemon`, `buildDaemonExecEnv`, `execInRunningContainer`, `startDaemonSSHBridge`, `ensureDaemonSSHProxy`, `waitForDaemonSSHProxy`, `checkDaemonSSHProxy`, `startDaemonBackground`, `waitForDaemon`, `ensureAgentRuntimeDirs`, `appendAgentSpecificRunFlags`, `appendAgentSpecificDaemonEnv`, and `appendAgentSpecificExecEnv`. All behavior preserved in `RuntimeEngine`.
+
+<!-- RELEASE:END 1.8.0 -->
+---
+
 <!-- RELEASE:START 1.7.7 -->
 ## [1.7.7] - 2026-05-07
 

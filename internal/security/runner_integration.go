@@ -9,34 +9,31 @@ import (
 )
 
 var (
-	globalSessionManager *SessionManager
-	sessionMutex         sync.RWMutex
+	globalSession Session
+	sessionMutex  sync.RWMutex
 )
 
-// InitializeSessionForRun creates and initializes a session manager for a run.
+// InitializeSessionForRun creates and initializes a security session for a run.
 // This should be called early in the agent execution flow.
-func InitializeSessionForRun(cfg *config.Config, configDir string, projectRoot string) (*SessionManager, error) {
+func InitializeSessionForRun(cfg *config.Config, configDir string, projectRoot string) (Session, error) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 
-	// Create new session manager
-	sm := NewSessionManager(cfg, configDir)
-	globalSessionManager = sm
-
-	// Initialize the session (no-op if hide-secrets is disabled)
-	if err := sm.Initialize(projectRoot); err != nil {
-		globalSessionManager = nil
-		return nil, fmt.Errorf("failed to initialize security session: %w", err)
+	// Use the new deep factory
+	sess, err := Open(cfg, configDir, projectRoot)
+	if err != nil {
+		return nil, err
 	}
 
-	return sm, nil
+	globalSession = sess
+	return sess, nil
 }
 
-// GetGlobalSessionManager returns the active session manager, if any.
-func GetGlobalSessionManager() *SessionManager {
+// GetGlobalSession returns the active session, if any.
+func GetGlobalSession() Session {
 	sessionMutex.RLock()
 	defer sessionMutex.RUnlock()
-	return globalSessionManager
+	return globalSession
 }
 
 // CleanupSession cleans up the active session.
@@ -44,12 +41,12 @@ func CleanupSession() error {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 
-	if globalSessionManager == nil {
+	if globalSession == nil {
 		return nil
 	}
 
-	err := globalSessionManager.Cleanup()
-	globalSessionManager = nil
+	err := globalSession.Close()
+	globalSession = nil
 	return err
 }
 
@@ -57,23 +54,22 @@ func CleanupSession() error {
 // If hide-secrets is active, returns the merged overlay directory.
 // Otherwise, returns the original project root.
 func GetProjectRoot(originalProjectRoot string) string {
-	sm := GetGlobalSessionManager()
-	if sm == nil {
+	sess := GetGlobalSession()
+	if sess == nil {
 		return originalProjectRoot
 	}
-	return sm.GetProjectRoot(originalProjectRoot)
+	return sess.ProjectRoot()
 }
 
 // IsActive returns true if hide-secrets mode is currently active.
 func IsActive() bool {
-	sm := GetGlobalSessionManager()
-	return sm != nil && sm.IsActive()
+	sess := GetGlobalSession()
+	return sess != nil && sess.IsActive()
 }
 
 // GetConfigForEnv returns environment variable overrides for hide-secrets mode.
 func GetConfigForEnv() []string {
-	sm := GetGlobalSessionManager()
-	if sm == nil || !sm.IsActive() {
+	if !IsActive() {
 		return nil
 	}
 
@@ -88,23 +84,17 @@ func ShouldMaskEnv() bool {
 
 // GetMaskedEnvSlice returns a masked environment slice for exec calls.
 func GetMaskedEnvSlice(environ []string) []string {
-	sm := GetGlobalSessionManager()
-	if sm == nil || !sm.IsActive() {
+	sess := GetGlobalSession()
+	if sess == nil {
 		return environ
 	}
-
-	masker := NewEnvMasker(
-		sm.config.Security.HideSecretsMaskStyle,
-		sm.config.Security.HideSecretsPassthroughVars,
-	)
-
-	return masker.BuildMaskedEnvSlice(environ)
+	return sess.MaskEnv(environ)
 }
 
 // GetMaskedEnvMap returns a masked environment map for agent execution.
 func GetMaskedEnvMap(environ []string) map[string]string {
-	sm := GetGlobalSessionManager()
-	if sm == nil || !sm.IsActive() {
+	sess := GetGlobalSession()
+	if sess == nil {
 		envMap := make(map[string]string)
 		for _, env := range environ {
 			parts := splitEnv(env)
@@ -115,12 +105,16 @@ func GetMaskedEnvMap(environ []string) map[string]string {
 		return envMap
 	}
 
-	masker := NewEnvMasker(
-		sm.config.Security.HideSecretsMaskStyle,
-		sm.config.Security.HideSecretsPassthroughVars,
-	)
-
-	return masker.BuildMaskedEnvMap(environ)
+	// Re-use MaskEnv but convert to map for agent
+	maskedSlice := sess.MaskEnv(environ)
+	envMap := make(map[string]string)
+	for _, env := range maskedSlice {
+		parts := splitEnv(env)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	return envMap
 }
 
 // splitEnv splits an environment variable string into key and value.
@@ -143,16 +137,9 @@ func HandleExit() {
 
 // GetSessionReport returns a session report if available.
 func GetSessionReport() string {
-	sm := GetGlobalSessionManager()
-	if sm == nil || !sm.IsActive() {
+	sess := GetGlobalSession()
+	if sess == nil {
 		return ""
 	}
-
-	ws := sm.GetWorkspace()
-	if ws == nil {
-		return ""
-	}
-
-	return fmt.Sprintf("hide_secrets session active: workspace=%s mask_style=%s",
-		ws.MergedDir, ws.MaskStyle)
+	return sess.Report()
 }

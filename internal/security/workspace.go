@@ -29,10 +29,16 @@ const (
 	WorkspaceTypeOverlayFS WorkspaceType = "overlayfs"
 	// WorkspaceTypeAPFSClone uses macOS APFS clones.
 	WorkspaceTypeAPFSClone WorkspaceType = "apfsclone"
+	// WorkspaceTypeNone performs no isolation (useful for testing).
+	WorkspaceTypeNone WorkspaceType = "none"
 )
 
 // DetectWorkspaceType returns the appropriate workspace type for the current platform.
 func DetectWorkspaceType() WorkspaceType {
+	if t := os.Getenv("CONSTRUCT_SECURITY_WORKSPACE_TYPE"); t != "" {
+		return WorkspaceType(t)
+	}
+
 	switch runtime.GOOS {
 	case "linux":
 		return WorkspaceTypeOverlayFS
@@ -68,6 +74,10 @@ func (wm *WorkspaceManager) CreateSessionWorkspace(sessionID SessionID, projectR
 		mergedPath, err = wm.createOverlayFS(projectRoot, upperDir, workDir, mergedDir)
 	case WorkspaceTypeAPFSClone:
 		mergedPath, err = wm.createAPFSClone(projectRoot, upperDir, mergedDir)
+	case WorkspaceTypeNone:
+		// Just use the original root for mergedPath in "none" mode
+		mergedPath = projectRoot
+		err = nil
 	default:
 		return nil, fmt.Errorf("unsupported workspace type: %s", wsType)
 	}
@@ -107,16 +117,9 @@ func (wm *WorkspaceManager) createOverlayFS(lower, upper, work, merged string) (
 		return "", fmt.Errorf("overlayfs mounts require root privileges or unprivileged user namespace support")
 	}
 
-	// Ensure lower is read-only
-	lowerRO := lower + "-ro"
-	if err := os.MkdirAll(lowerRO, 0755); err != nil {
-		return "", fmt.Errorf("failed to create lower ro directory: %w", err)
-	}
-
 	// Use mount command for overlayfs
-	// mount -t overlay overlay -olowerdir=<lower>:<upper>,upperdir=<upper>,workdir=<work> <merged>
-	lowerPath := fmt.Sprintf("%s:%s", lower, upper)
-	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lowerPath, upper, work)
+	// mount -t overlay overlay -olowerdir=<lower>,upperdir=<upper>,workdir=<work> <merged>
+	options := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s", lower, upper, work)
 
 	cmd := exec.Command("mount", "-t", "overlay", "overlay", "-o", options, merged)
 	if output, err := cmd.CombinedOutput(); err != nil {

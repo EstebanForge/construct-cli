@@ -17,7 +17,7 @@ type SessionManager struct {
 	scanResult     *ScanResult
 	sessionManager *Manager
 	wsManager      *WorkspaceManager
-	scanner        *Scanner
+	shield         *SecretShield
 }
 
 // NewSessionManager creates a new session manager.
@@ -73,21 +73,20 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 	}
 	sm.workspace = workspace
 
-	// Create scanner and scan project
-	sm.scanner = NewScanner(projectRoot, sm.config.Security.HideSecretsMaskStyle, sm.config.Security.HideSecretsDenyPaths, sm.config.Security.HideSecretsAllowPaths, sm.sessionManager)
-
-	scanResult, err := sm.scanner.ScanProject(sessionID, sm.config.Security.HideGitDir)
+	// Create and run secret shield
+	sm.shield = NewSecretShield(sm.config, projectRoot, sm.sessionManager)
+	scanResult, err := sm.shield.Protect(sessionID, sm.config.Security.HideGitDir)
 	if err != nil {
 		// Cleanup workspace on scan failure
 		if cerr := sm.workspace.Cleanup(); cerr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to cleanup workspace after scan failure: %v\n", cerr)
 		}
-		return fmt.Errorf("failed to scan project: %w", err)
+		return fmt.Errorf("failed to redact secrets: %w", err)
 	}
 	sm.scanResult = scanResult
 
 	// Check for blocked symlinks
-	blockedSymlinks, err := sm.scanner.CheckSymlinks(projectRoot)
+	blockedSymlinks, err := sm.shield.scanner.CheckSymlinks(projectRoot)
 	if err != nil {
 		ui.GumWarning(fmt.Sprintf("Failed to check symlinks: %v", err))
 	} else if len(blockedSymlinks) > 0 {
@@ -98,7 +97,7 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 
 	// Write session manifest and redaction index
 	sessionDir := sm.sessionManager.GetSessionDir(sessionID)
-	if err := sm.scanner.WriteManifest(sessionDir, &Session{
+	if err := sm.shield.scanner.WriteManifest(sessionDir, &SessionState{
 		ID:            sessionID,
 		ProjectRoot:   projectRoot,
 		OverlayUpper:  workspace.UpperDir,
@@ -112,7 +111,7 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 		ui.GumWarning(fmt.Sprintf("Failed to write session manifest: %v", err))
 	}
 
-	if err := sm.scanner.WriteRedactionIndex(sessionDir, scanResult.Redactions); err != nil {
+	if err := sm.shield.scanner.WriteRedactionIndex(sessionDir, scanResult.Redactions); err != nil {
 		ui.GumWarning(fmt.Sprintf("Failed to write redaction index: %v", err))
 	}
 
@@ -155,7 +154,7 @@ func (sm *SessionManager) emitReport(result *ScanResult) {
 
 // GetWorkspace returns the prepared workspace (nil if hide-secrets is disabled).
 func (sm *SessionManager) GetWorkspace() *SessionWorkspace {
-	if !sm.status.IsEnabled() {
+	if sm.status == nil || !sm.status.IsEnabled() {
 		return nil
 	}
 	return sm.workspace
@@ -163,7 +162,7 @@ func (sm *SessionManager) GetWorkspace() *SessionWorkspace {
 
 // Cleanup performs session cleanup.
 func (sm *SessionManager) Cleanup() error {
-	if !sm.status.IsEnabled() {
+	if sm.status == nil || !sm.status.IsEnabled() {
 		return nil
 	}
 
