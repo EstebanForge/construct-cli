@@ -1305,6 +1305,175 @@ func TestEntrypointHashWithInstallScript(t *testing.T) {
 	}
 }
 
+// --- Yolo flag mapping regression tests ---
+
+func TestYoloFlagForAgent(t *testing.T) {
+	tests := []struct {
+		agent     string
+		flag      string
+		supported bool
+	}{
+		{"claude", "--dangerously-skip-permissions", true},
+		{"copilot", "--allow-all-tools", true},
+		{"gemini", "--yolo", true},
+		{"codex", "--yolo", true},
+		{"qwen", "--yolo", true},
+		{"cline", "--yolo", true},
+		{"kilocode", "--yolo", true},
+		{"crush", "--yolo", true},
+
+		// Unsupported agents — must not inject any flag
+		{"pi", "", false},
+		{"opencode", "", false},
+		{"goose", "", false},
+		{"droid", "", false},
+		{"unknown", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.agent, func(t *testing.T) {
+			flag, ok := yoloFlagForAgent(tt.agent)
+			if ok != tt.supported {
+				t.Fatalf("yoloFlagForAgent(%q): supported=%v, want %v", tt.agent, ok, tt.supported)
+			}
+			if flag != tt.flag {
+				t.Fatalf("yoloFlagForAgent(%q): flag=%q, want %q", tt.agent, flag, tt.flag)
+			}
+		})
+	}
+}
+
+func TestShouldEnableYolo(t *testing.T) {
+	t.Run("yolo_all enables any agent", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		if !shouldEnableYolo("pi", cfg) {
+			t.Fatal("expected yolo_all to enable yolo for any agent")
+		}
+	})
+
+	t.Run("per-agent list enables listed agent", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAgents: []string{"claude"}}}
+		if !shouldEnableYolo("claude", cfg) {
+			t.Fatal("expected per-agent list to enable claude")
+		}
+	})
+
+	t.Run("per-agent list does not enable unlisted agent", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAgents: []string{"claude"}}}
+		if shouldEnableYolo("pi", cfg) {
+			t.Fatal("expected per-agent list not to enable pi")
+		}
+	})
+
+	t.Run("per-agent list with all enables any agent", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAgents: []string{"all"}}}
+		if !shouldEnableYolo("pi", cfg) {
+			t.Fatal("expected 'all' in yolo_agents to enable any agent")
+		}
+	})
+
+	t.Run("empty config disables yolo", func(t *testing.T) {
+		cfg := &config.Config{}
+		if shouldEnableYolo("claude", cfg) {
+			t.Fatal("expected empty config to disable yolo")
+		}
+	})
+
+	t.Run("per-agent list is case-insensitive", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAgents: []string{"Claude"}}}
+		if !shouldEnableYolo("claude", cfg) {
+			t.Fatal("expected case-insensitive match for Claude")
+		}
+	})
+}
+
+func TestApplyYoloArgs(t *testing.T) {
+	t.Run("nil config returns args unchanged", func(t *testing.T) {
+		args := []string{"claude"}
+		got := applyYoloArgs(args, nil)
+		if len(got) != 1 || got[0] != "claude" {
+			t.Fatalf("expected unchanged args, got %v", got)
+		}
+	})
+
+	t.Run("empty args returns empty", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		got := applyYoloArgs([]string{}, cfg)
+		if len(got) != 0 {
+			t.Fatalf("expected empty, got %v", got)
+		}
+	})
+
+	t.Run("unsupported agent gets no flag even with yolo_all", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		args := []string{"pi", "--model", "sonnet"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 3 || got[0] != "pi" {
+			t.Fatalf("expected pi args unchanged (no yolo flag), got %v", got)
+		}
+	})
+
+	t.Run("claude gets --dangerously-skip-permissions", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		args := []string{"claude", "build it"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 3 || got[1] != "--dangerously-skip-permissions" {
+			t.Fatalf("expected --dangerously-skip-permissions injected, got %v", got)
+		}
+	})
+
+	t.Run("copilot gets --allow-all-tools", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		args := []string{"copilot"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 2 || got[1] != "--allow-all-tools" {
+			t.Fatalf("expected --allow-all-tools injected, got %v", got)
+		}
+	})
+
+	t.Run("gemini gets --yolo", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		args := []string{"gemini"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 2 || got[1] != "--yolo" {
+			t.Fatalf("expected --yolo injected, got %v", got)
+		}
+	})
+
+	t.Run("flag not duplicated if already present", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
+		args := []string{"gemini", "--yolo"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 2 {
+			t.Fatalf("expected no duplicate flag, got %v", got)
+		}
+	})
+
+	t.Run("yolo not injected when config disabled", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: false, YoloAgents: nil}}
+		args := []string{"claude"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 1 {
+			t.Fatalf("expected no flag injection when yolo disabled, got %v", got)
+		}
+	})
+
+	t.Run("per-agent yolo_agents enables only listed agent", func(t *testing.T) {
+		cfg := &config.Config{Agents: config.AgentsConfig{YoloAgents: []string{"claude"}}}
+		args := []string{"claude"}
+		got := applyYoloArgs(args, cfg)
+		if len(got) != 2 || got[1] != "--dangerously-skip-permissions" {
+			t.Fatalf("expected flag for listed agent, got %v", got)
+		}
+
+		argsPi := []string{"pi"}
+		gotPi := applyYoloArgs(argsPi, cfg)
+		if len(gotPi) != 1 {
+			t.Fatalf("expected no flag for unlisted agent, got %v", gotPi)
+		}
+	})
+}
+
 // hashString is a test helper for SHA256 hashing
 func hashString(s string) string {
 	// Use actual SHA256 for deterministic hashing
