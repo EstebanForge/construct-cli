@@ -6,12 +6,19 @@ All notable changes to Construct CLI will be documented in this file.
 ## [1.8.3] - 2026-05-09
 
 ### Fixed
+- **ARM64 Setup & agent-browser**: Fixed `agent-browser` installation failure on ARM64 Linux by implementing an automatic wrapper that uses the system Chromium (`/usr/bin/chromium`).
+- **Resilient Package Installation**: Added failure-safe command execution (`cmd || echo ...`) in `install_user_packages.sh` to prevent a single tool failure from aborting the entire setup.
+- **Sudo Detection**: Improved `SUDO_AVAILABLE` check to use `sudo -n apt-get --version`, resolving issues in restricted sudoers environments where `true` was not permitted.
 - **Multimodal Clipboard Regression**: Resolved image pasting failures in Gemini and Codex agents.
     - **macOS Networking**: Fixed `127.0.0.1` hardcoding in the clipboard server; now correctly uses `host.docker.internal` (or configured `clipboard_host`), making the host clipboard reachable from the container.
     - **Ghostty / Bracketed Paste Support**: Added PTY interception for `\x1b[200~` sequences. PTY wrappers now consume bracketed paste content and inject image paths directly, bypassing terminal protocol mismatches.
     - **Daemon Patching**: Restored `runAgentPatchInDaemon` logic to ensure shims, wrappers, and Xvfb are correctly initialized in persistent daemon containers.
     - **Headless X11 (Xvfb)**: Moved Xvfb startup to the agent-patch script to ensure a valid `DISPLAY` is always available for agents that expect a real display.
     - **Gemini @-prefix**: Ensured Gemini uses the required `@path` injection format while Codex uses raw paths.
+
+### Changed
+- **Official Goose CLI Installer**: Switched to the official Goose installation script (`github.com/aaif-goose/goose`) for more reliable setup.
+- **Updated OpenCode Installer**: Updated the OpenCode post-install command to use the canonical `curl -fsSL https://opencode.ai/install | bash`.
 
 <!-- RELEASE:START 1.8.2 -->
 ## [1.8.2] - 2026-05-09
