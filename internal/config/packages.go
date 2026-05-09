@@ -199,14 +199,8 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "fi\n\n"
 
 	// Standard Tools (Always installed)
-	script += "echo 'Installing Claude Code...'\n"
-	script += "if [ -x \"/home/construct/.local/bin/claude\" ]; then\n"
-	script += "    echo \"Claude already installed; skipping.\"\n"
-	script += "else\n"
-	script += "    curl -fsSL https://claude.ai/install.sh | bash\n"
-	script += "fi\n\n"
-
 	script += "echo 'Installing Amp CLI...'\n"
+
 	script += "if [ -x \"/home/construct/.local/bin/amp\" ] || [ -x \"/home/construct/.amp/bin/amp\" ]; then\n"
 	script += "    echo \"Amp already installed; skipping.\"\n"
 	script += "else\n"
@@ -513,6 +507,7 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 
 	config += "[commands]\n"
 	config += "\"Claude Code\" = \"claude update || true\"\n"
+	config += "\"Pi Coding Agent\" = \"pi update || true\"\n"
 
 	return config
 }

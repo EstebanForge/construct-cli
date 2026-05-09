@@ -508,8 +508,8 @@ func TestExecInRunningContainerInjectsConstructHomeAndCodexEnv(t *testing.T) {
 	if gotWorkdir != "" {
 		t.Fatalf("expected empty workdir for attach exec, got %q", gotWorkdir)
 	}
-	if gotUser != "" {
-		t.Fatalf("expected empty exec user when exec_as_host_user disabled, got %q", gotUser)
+	if gotUser != "construct" {
+		t.Fatalf("expected construct exec user (daemon runs as root), got %q", gotUser)
 	}
 
 	if len(gotCmdArgs) != 2 || gotCmdArgs[0] != "codex" || gotCmdArgs[1] != "help" {
@@ -586,18 +586,13 @@ func TestExecInRunningContainerUsesHostUserOnLinuxDocker(t *testing.T) {
 
 	origStartClipboard := startClipboardServerFn
 	origExecInteractive := execInteractiveAsUserFn
-	origHasUIDEntry := containerHasUIDEntryFn
 	t.Cleanup(func() {
 		startClipboardServerFn = origStartClipboard
 		execInteractiveAsUserFn = origExecInteractive
-		containerHasUIDEntryFn = origHasUIDEntry
 	})
 
 	startClipboardServerFn = func(string) (*clipboard.Server, error) {
 		return nil, fmt.Errorf("clipboard unavailable")
-	}
-	containerHasUIDEntryFn = func(_, _ string, uid int) (bool, error) {
-		return uid == os.Getuid(), nil
 	}
 
 	var gotUser string
@@ -621,6 +616,12 @@ func TestExecInRunningContainerUsesHostUserOnLinuxDocker(t *testing.T) {
 	}
 
 	wantUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	// When running as root (uid=0), we default to "construct" instead of "0:0"
+	// because the container daemon runs as root and agents like Claude reject
+	// --dangerously-skip-permissions when invoked as root.
+	if os.Getuid() == 0 {
+		wantUser = "construct"
+	}
 	if gotUser != wantUser {
 		t.Fatalf("expected host exec user %q, got %q", wantUser, gotUser)
 	}
@@ -808,81 +809,8 @@ func TestBuildDaemonExecEnvSSHAuthSock(t *testing.T) {
 	}
 }
 
-func TestExecUserForAgentExec(t *testing.T) {
-	tests := []struct {
-		name    string
-		cfg     *config.Config
-		runtime string
-		want    string
-	}{
-		{
-			name:    "nil config",
-			cfg:     nil,
-			runtime: "docker",
-			want:    "",
-		},
-		{
-			name: "disabled setting",
-			cfg: &config.Config{
-				Sandbox: config.SandboxConfig{ExecAsHostUser: false},
-			},
-			runtime: "docker",
-			want:    "",
-		},
-		{
-			name: "enabled setting non docker runtime",
-			cfg: &config.Config{
-				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
-			},
-			runtime: "podman",
-			want:    "",
-		},
-	}
-
-	if stdruntime.GOOS == "linux" {
-		tests = append(tests, struct {
-			name    string
-			cfg     *config.Config
-			runtime string
-			want    string
-		}{
-			name: "enabled setting docker runtime linux",
-			cfg: &config.Config{
-				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
-			},
-			runtime: "docker",
-			want: func() string {
-				if runtime.UsesUserNamespaceRemap("docker") {
-					return ""
-				}
-				return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-			}(),
-		})
-	} else {
-		tests = append(tests, struct {
-			name    string
-			cfg     *config.Config
-			runtime string
-			want    string
-		}{
-			name: "enabled setting docker runtime non linux",
-			cfg: &config.Config{
-				Sandbox: config.SandboxConfig{ExecAsHostUser: true},
-			},
-			runtime: "docker",
-			want:    "",
-		})
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := execUserForAgentExec(tt.cfg, tt.runtime)
-			if got != tt.want {
-				t.Fatalf("expected %q, got %q", tt.want, got)
-			}
-		})
-	}
-}
+// TestExecUserForAgentExec removed — function was dead code (never called from production).
+// The docker-run path is handled by buildRunFlags + appendExecUserRunFlags.
 
 func TestAppendExecUserRunFlags(t *testing.T) {
 	tests := []struct {
@@ -933,6 +861,13 @@ func TestAppendExecUserRunFlags(t *testing.T) {
 				return
 			}
 
+			if os.Getuid() == 0 {
+				if len(runFlags) != 0 {
+					t.Fatalf("expected no run flags when running as root, got %v", runFlags)
+				}
+				return
+			}
+
 			expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 			expected := []string{
 				"--user", expectedUser,
@@ -955,76 +890,37 @@ func TestAppendExecUserRunFlags(t *testing.T) {
 }
 
 func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
-	original := containerHasUIDEntryFn
-	t.Cleanup(func() {
-		containerHasUIDEntryFn = original
-	})
-
 	cfg := &config.Config{
 		Sandbox: config.SandboxConfig{ExecAsHostUser: true},
 	}
 
 	if stdruntime.GOOS != "linux" {
-		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
-			t.Fatalf("uid lookup should not be called on non-linux hosts")
-			return false, nil
-		}
-		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "" {
-			t.Fatalf("expected empty user on non-linux, got %q", got)
+		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
+			t.Fatalf("expected construct user on non-linux, got %q", got)
 		}
 		return
 	}
 
-	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if os.Getuid() == 0 {
+		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
+			t.Fatalf("expected construct user when running as root, got %q", got)
+		}
+		return
+	}
+
 	if runtime.UsesUserNamespaceRemap("docker") {
-		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
-			t.Fatalf("uid lookup should not be called in userns-remap mode")
-			return false, nil
-		}
-		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "" {
-			t.Fatalf("expected empty user in userns-remap mode, got %q", got)
+		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
+			t.Fatalf("expected construct user in userns-remap mode, got %q", got)
 		}
 		return
 	}
 
-	t.Run("uses host uid when passwd entry exists", func(t *testing.T) {
-		containerHasUIDEntryFn = func(containerRuntime, containerName string, uid int) (bool, error) {
-			if containerRuntime != "docker" {
-				t.Fatalf("expected docker runtime, got %s", containerRuntime)
-			}
-			if containerName != "construct-cli-daemon" {
-				t.Fatalf("expected daemon container name, got %s", containerName)
-			}
-			if uid != os.Getuid() {
-				t.Fatalf("expected uid %d, got %d", os.Getuid(), uid)
-			}
-			return true, nil
-		}
-		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-		if got != expectedUser {
-			t.Fatalf("expected %q, got %q", expectedUser, got)
-		}
-	})
-
-	t.Run("falls back when passwd entry missing", func(t *testing.T) {
-		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
-			return false, nil
-		}
-		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-		if got != expectedUser {
-			t.Fatalf("expected host uid mapping %q when passwd entry is missing, got %q", expectedUser, got)
-		}
-	})
-
-	t.Run("uses host uid when uid lookup errors", func(t *testing.T) {
-		containerHasUIDEntryFn = func(_, _ string, _ int) (bool, error) {
-			return false, fmt.Errorf("lookup failed")
-		}
-		got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-		if got != expectedUser {
-			t.Fatalf("expected host uid mapping %q on lookup error, got %q", expectedUser, got)
-		}
-	})
+	// Non-root on Linux with ExecAsHostUser and no userns-remap: should return host uid:gid
+	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
+	if got != expectedUser {
+		t.Fatalf("expected host uid:gid %q, got %q", expectedUser, got)
+	}
 }
 
 // TestDaemonName verifies daemon container name constant

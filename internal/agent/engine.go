@@ -25,7 +25,6 @@ const loginForwardListenOffset = 10000
 const loginBridgeFlagFile = ".login_bridge"
 const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
 
-var containerHasUIDEntryFn = runtime.ContainerHasUIDEntry
 var startClipboardServerFn = clipboard.StartServer
 var execInteractiveAsUserFn = runtime.ExecInteractiveAsUser
 
@@ -268,6 +267,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 				fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port),
 				"SSH_AUTH_SOCK=" + daemonSSHProxySock,
 			}
+			fmt.Println("✓ Started SSH Agent proxy (daemon)")
 		}
 	}
 
@@ -285,7 +285,19 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 
 	envVars = e.sec.MaskEnv(envVars)
 
+	// Print daemon execution context before handing off to the agent.
+	if len(args) == 0 {
+		fmt.Println("Entering Construct daemon shell...")
+	} else {
+		fmt.Printf("Running in Construct daemon: %v\n", args)
+	}
+
 	exitCode, err := execInteractiveAsUserFn(e.containerRuntime, daemonName, args, envVars, workdir, execUser)
+	if err == nil && len(args) > 0 && (exitCode == 126 || exitCode == 127) {
+		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
+		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
+		fmt.Println("If needed, run 'construct sys packages --install' to reapply packages.toml.")
+	}
 	return true, exitCode, err
 }
 
@@ -748,15 +760,22 @@ func shouldEnableYolo(agent string, cfg *config.Config) bool {
 
 func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, _ string) string {
 	if containerRuntime != "docker" || stdruntime.GOOS != "linux" {
-		return ""
+		// Daemon runs as root (USER construct is commented out in Dockerfile for
+		// entrypoint permission-fixing). Without an explicit user, docker exec inherits
+		// root — which causes agents like Claude to reject flags like
+		// --dangerously-skip-permissions. Default to "construct" on non-Linux.
+		return "construct"
 	}
 	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
-		return ""
+		return "construct"
+	}
+	if runtime.UsesUserNamespaceRemap(containerRuntime) {
+		return "construct"
 	}
 
 	uid := os.Getuid()
 	if uid == 0 {
-		return ""
+		return "construct"
 	}
 
 	return fmt.Sprintf("%d:%d", uid, os.Getgid())
@@ -875,15 +894,8 @@ func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, o
 	return runFlags
 }
 
-func execUserForAgentExec(cfg *config.Config, containerRuntime string) string {
-	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
-		return ""
-	}
-	if stdruntime.GOOS != "linux" || containerRuntime != "docker" {
-		return ""
-	}
-	return fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-}
+// execUserForAgentExec was removed: the docker-run path uses buildRunFlags which
+// already sets --user construct on macOS, and appendExecUserRunFlags for Linux host-uid.
 
 func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, execUser string) (*SSHBridge, []string, error) {
 	if stdruntime.GOOS != "darwin" {

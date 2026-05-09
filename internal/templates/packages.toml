@@ -91,6 +91,7 @@ volta = false
 [post_install]
 commands = [
     "agent-browser install --with-deps",
+    "if [ -x \"$HOME/.local/bin/claude\" ]; then echo \"Claude already installed\"; else curl -fsSL https://claude.ai/install.sh | bash; fi",
     "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
     "if [ -x \"$HOME/.opencode/bin/opencode\" ]; then echo \"OpenCode already installed\"; else curl -fsSL https://opencode.ai/install | bash; fi",
 ]
