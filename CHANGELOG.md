@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.2 -->
+## [1.8.2] - 2026-05-09
+
+### Fixed
+- **Daemon shell with no args**: `execViaDaemon` now defaults to the configured shell (`sandbox.shell` or `/bin/bash`) when invoked without arguments, matching the existing behavior of `execInRunningContainer`. Previously, `ct sys shell` passed an empty command to `docker exec`, causing "requires at least 2 arguments" error.
+
 <!-- RELEASE:START 1.8.1 -->
 ## [1.8.1] - 2026-05-09
 
