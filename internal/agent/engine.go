@@ -90,9 +90,9 @@ func (e *RuntimeEngine) Prepare() error {
 	e.loginForward, e.loginPorts = shouldEnableLoginForward(e.args)
 
 	// 5. Clipboard Server
-	clipboardHost := "127.0.0.1"
-	if stdruntime.GOOS == "linux" && e.containerRuntime == "docker" {
-		clipboardHost = "host.docker.internal"
+	clipboardHost := "host.docker.internal"
+	if e.cfg != nil && e.cfg.Sandbox.ClipboardHost != "" {
+		clipboardHost = e.cfg.Sandbox.ClipboardHost
 	}
 	cbServer, err := startClipboardServerFn(clipboardHost)
 	if err == nil {
@@ -283,6 +283,11 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
+	// Patch the daemon if needed (ensure clipboard shims and wrappers are present)
+	if e.cfg == nil || e.cfg.Agents.ClipboardImagePatch {
+		_ = e.runAgentPatchInDaemon(daemonName, execUser) //nolint:errcheck
+	}
+
 	envVars = e.sec.MaskEnv(envVars)
 
 	// Default to configured shell when no command is provided.
@@ -379,6 +384,14 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 
 	env.SetEnvVar(&envVars, "CONSTRUCT_CLIPBOARD_IMAGE_PATCH", clipboardPatchValue)
 
+	if clipboardPatchValue != "0" {
+		display := ":0"
+		if d := os.Getenv("CONSTRUCT_X11_DISPLAY"); d != "" {
+			display = d
+		}
+		env.SetEnvVar(&envVars, "DISPLAY", display)
+	}
+
 	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
 		env.SetEnvVar(&envVars, "CONSTRUCT_DEBUG", "1")
 	}
@@ -466,6 +479,14 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 		clipboardPatchValue = "0"
 	}
 	*runFlags = append(*runFlags, "-e", "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
+
+	if clipboardPatchValue != "0" {
+		display := ":0"
+		if d := os.Getenv("CONSTRUCT_X11_DISPLAY"); d != "" {
+			display = d
+		}
+		*runFlags = append(*runFlags, "-e", "DISPLAY="+display)
+	}
 
 	if os.Getenv("CONSTRUCT_DEBUG") == "1" {
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_DEBUG=1")
@@ -611,6 +632,14 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 	}
 	env.SetEnvVar(&envVars, "CONSTRUCT_CLIPBOARD_IMAGE_PATCH", clipboardPatchValue)
 
+	if clipboardPatchValue != "0" {
+		display := ":0"
+		if d := os.Getenv("CONSTRUCT_X11_DISPLAY"); d != "" {
+			display = d
+		}
+		env.SetEnvVar(&envVars, "DISPLAY", display)
+	}
+
 	if len(args) > 0 {
 		env.SetEnvVar(&envVars, "CONSTRUCT_AGENT_NAME", args[0])
 		appendAgentSpecificExecEnv(&envVars, args[0], clipboardPatchValue)
@@ -633,11 +662,34 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 	return envVars
 }
 
+func (e *RuntimeEngine) runAgentPatchInDaemon(daemonName, execUser string) error {
+	patchScript := "/home/construct/.config/construct-cli/container/agent-patch.sh"
+	args := []string{"bash", patchScript}
+
+	patchEnv := make([]string, 0, 3)
+	patchEnv = append(patchEnv, "CONSTRUCT_DEBUG=0")
+	display := ":0"
+	if d := os.Getenv("CONSTRUCT_X11_DISPLAY"); d != "" {
+		display = d
+	}
+	patchEnv = append(patchEnv, "CONSTRUCT_X11_DISPLAY="+display)
+
+	clipboardPatchValue := "1"
+	if e.cfg != nil && !e.cfg.Agents.ClipboardImagePatch {
+		clipboardPatchValue = "0"
+	}
+	patchEnv = append(patchEnv, "CONSTRUCT_CLIPBOARD_IMAGE_PATCH="+clipboardPatchValue)
+
+	// Run non-interactively and silently
+	_, err := execInteractiveAsUserFn(e.containerRuntime, daemonName, args, patchEnv, "", execUser)
+	return err
+}
+
 func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchValue string) {
 	switch agentName {
 	case "codex":
 		*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
-	case "pi", "claude", "copilot":
+	case "gemini", "pi", "claude", "copilot":
 		if clipboardPatchValue != "0" {
 			*runFlags = append(*runFlags, "-e", "XDG_SESSION_TYPE=wayland")
 		}
@@ -648,7 +700,7 @@ func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValu
 	switch agentName {
 	case "codex":
 		env.SetEnvVar(envVars, "CODEX_HOME", "/home/construct/.codex")
-	case "pi", "claude", "copilot":
+	case "gemini", "pi", "claude", "copilot":
 		if clipboardPatchValue != "0" {
 			env.SetEnvVar(envVars, "XDG_SESSION_TYPE", "wayland")
 		}

@@ -334,14 +334,19 @@ EOF
 setup_shell_environment
 
 # Start a headless X11 clipboard bridge for agents using native X11 clipboard access.
-# Skip for Codex, which now uses PTY-based clipboard interception.
-if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ]; then
+if [ -n "$CONSTRUCT_CLIPBOARD_URL" ]; then
     if [ -z "$DISPLAY" ]; then
         if command -v Xvfb >/dev/null; then
-            DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
-            export DISPLAY
+            export DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
             if ! pgrep -x Xvfb >/dev/null 2>&1; then
                 Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+                # Wait for Xvfb to be ready
+                for _ in $(seq 1 20); do
+                    if [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; then
+                        break
+                    fi
+                    sleep 0.1
+                done
                 if [ "$CONSTRUCT_DEBUG" = "1" ]; then
                     echo "✓ Started Xvfb for headless clipboard"
                 fi
@@ -354,14 +359,6 @@ if [ -n "$CONSTRUCT_CLIPBOARD_URL" ] && [ "$CONSTRUCT_AGENT_NAME" != "codex" ]; 
     fi
 
     if [ -n "$DISPLAY" ]; then
-        # Wait briefly for the X11 socket to appear when we started or reused a display.
-        XSOCK="/tmp/.X11-unix/X${DISPLAY#:}"
-        for _ in $(seq 1 20); do
-            if [ -S "$XSOCK" ]; then
-                break
-            fi
-            sleep 0.1
-        done
         /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
     fi
 fi
