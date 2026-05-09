@@ -227,21 +227,8 @@ patch_copilot_paste_wrapper() {
         return
     fi
 
-    # Find the real copilot binary via npm-global — do NOT use readlink on the Homebrew bin.
-    # The Homebrew bin script uses relative imports (import('./index.js')); running it from any
-    # other directory (e.g. after cp) breaks Node module resolution. The npm-global symlink
-    # is the authoritative binary: Node resolves imports from the symlink's package directory.
-    local real_target=""
-    local npm_bin
-    npm_bin=$(npm bin -g 2>/dev/null || true)
-    for candidate in \
-        "$HOME/.npm-global/bin/copilot" \
-        "${npm_bin}/copilot"; do
-        if [[ -f "$candidate" ]] && ! grep -q "construct-copilot-wrapper" "$candidate" 2>/dev/null; then
-            real_target="$candidate"
-            break
-        fi
-    done
+    local real_target
+    real_target=$(find_real_npm_binary "copilot" "@github/copilot-cli")
     if [[ -z "$real_target" ]]; then
         dbg "Cannot find real copilot binary in npm-global — skipping wrapper install"
         return
@@ -260,8 +247,8 @@ patch_copilot_paste_wrapper() {
     fi
 
     # Skip if our wrapper is already in place (idempotent guard on version string).
-    if grep -q "construct-copilot-wrapper-v9" "$wrapper_path" 2>/dev/null; then
-        dbg "Copilot PTY wrapper v9 already at $wrapper_path"
+    if grep -q "construct-copilot-wrapper-v10" "$wrapper_path" 2>/dev/null; then
+        dbg "Copilot PTY wrapper v10 already at $wrapper_path"
         return
     fi
 
@@ -273,7 +260,7 @@ patch_copilot_paste_wrapper() {
     dbg "Installing Copilot clipboard PTY wrapper at $wrapper_path (real: $real_target)"
     cat > "$wrapper_path" << 'PYEOF'
 #!/home/linuxbrew/.linuxbrew/bin/python3
-# construct-copilot-wrapper-v9
+# construct-copilot-wrapper-v10
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
@@ -281,14 +268,11 @@ import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, t
 _URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
 _TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
 _DIR   = '.construct-clipboard'
-# ~/.config/construct-cli/logs is mounted from the host — log persists across containers.
 _LOGDIR = os.path.expanduser('~/.config/construct-cli/logs')
 _LOG    = os.path.join(_LOGDIR, 'construct-copilot-wrapper.log')
-# Absolute path to the real copilot binary — injected by agent-patch.sh at install time.
 _REAL   = '__CONSTRUCT_REAL_COPILOT__'
 
 def _log(msg):
-    # Always-on logging — not gated on CONSTRUCT_DEBUG.
     try:
         os.makedirs(_LOGDIR, exist_ok=True)
         with open(_LOG, 'a') as f:
@@ -297,7 +281,7 @@ def _log(msg):
         pass
 
 def _save_image():
-    _log(f'ctrl+v detected: url_set={bool(_URL)} token_set={bool(_TOKEN)}')
+    _log(f'paste detected: url_set={bool(_URL)} token_set={bool(_TOKEN)}')
     if not _URL or not _TOKEN:
         _log('save_image: bridge env not set — cannot fetch')
         return None
@@ -306,8 +290,7 @@ def _save_image():
     except Exception:
         return None
     ts  = int(time.time() * 1000)
-    img = f'{_DIR}/clipboard-{ts}.png'
-    _log(f'save_image: fetching from {_URL}')
+    img = os.path.abspath(f'{_DIR}/clipboard-{ts}.png')
     r = subprocess.run(
         ['curl', '-sSf', '-H', f'X-Construct-Clip-Token: {_TOKEN}',
          f'{_URL}/paste?type=image/png', '-o', img],
@@ -320,29 +303,14 @@ def _save_image():
             pass
         _log(f'save_image: fetch failed rc={r.returncode} stderr={r.stderr[:200]}')
         return None
-    latest = f'{_DIR}/clipboard-latest.png'
-    try:
-        if os.path.exists(latest):
-            os.remove(latest)
-        os.symlink(os.path.abspath(img), latest)
-    except Exception:
-        pass
     _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
     return img
 
-# Paste trigger sequences — traditional \x16 plus Kitty Keyboard Protocol variants
-# that Ghostty (and other modern terminals) send instead of the legacy control byte.
-#   \x16           — traditional Ctrl+V (legacy terminals)
-#   \x1b[118;5u   — Ctrl+V  in KKP (key=118='v', modifier=5=ctrl)
-#   \x1b[118;9u   — Cmd+V   in KKP (modifier=9=super)
-_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
+_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u', b'\x1b[200~']
 
 def _handle_paste(data):
-    """Replace every paste trigger in data with @file path (or raw trigger if no image)."""
-    # Quick bail if no trigger present.
     if not any(t in data for t in _PASTE_TRIGGERS):
         return data
-    # Split on all triggers in one pass via recursive find-first approach.
     out = b''
     while data:
         earliest_idx = None
@@ -355,10 +323,18 @@ def _handle_paste(data):
         if earliest_idx is None:
             out += data
             break
+        
         out += data[:earliest_idx]
         data = data[earliest_idx + len(earliest_seq):]
+        
         img = _save_image()
         if img:
+            if earliest_seq == b'\x1b[200~':
+                end_idx = data.find(b'\x1b[201~')
+                if end_idx >= 0:
+                    data = data[end_idx + 6:]
+            
+            # Copilot usually wants @path for its CLI
             out += f'@{img} '.encode()
             _log(f'injected @{img}')
         else:
@@ -380,21 +356,16 @@ def _setwinsz(fd, rows, cols):
         pass
 
 def main():
-    # _REAL is injected at install time by agent-patch.sh — the npm-global copilot path.
-    # Node resolves relative imports (import('./index.js')) from the symlink's target dir.
     real = _REAL
     if not os.path.isfile(real) or not os.access(real, os.X_OK):
         _log(f'ERROR: real binary not found or not executable: {real}')
         sys.exit(1)
     args = [real] + sys.argv[1:]
-    _log(f'starting: real={real} url_set={bool(_URL)} token_set={bool(_TOKEN)} args={sys.argv[1:]}')
 
     fd_in = sys.stdin.fileno()
     try:
         old = termios.tcgetattr(fd_in)
     except termios.error:
-        # Not a TTY; exec directly without wrapping.
-        _log('not a tty — exec direct (no interception)')
         os.execv(real, args)
         return
 
@@ -406,7 +377,6 @@ def main():
                             close_fds=True, start_new_session=True)
     os.close(sfd)
     tty.setraw(fd_in)
-    _log(f'pty ready: pid={proc.pid}')
 
     def _resize(sig, frame):
         r, c = _winsz(sys.stdout.fileno())
@@ -444,7 +414,6 @@ def main():
                 except OSError:
                     break
     finally:
-        _log(f'select loop exited: copilot poll={proc.poll()}')
         try:
             termios.tcsetattr(fd_in, termios.TCSADRAIN, old)
         except Exception:
@@ -459,10 +428,9 @@ def main():
 if __name__ == '__main__':
     main()
 PYEOF
-    # Inject the resolved real binary path (sed is safe here; path is from readlink -f).
     sed -i "s|__CONSTRUCT_REAL_COPILOT__|${real_target}|" "$wrapper_path"
     chmod +x "$wrapper_path"
-    dbg "Copilot PTY wrapper v9 installed at $wrapper_path (real: $real_target)"
+    dbg "Copilot PTY wrapper v10 installed at $wrapper_path (real: $real_target)"
 }
 
 patch_codex_paste_wrapper() {
@@ -474,17 +442,8 @@ patch_codex_paste_wrapper() {
         return
     fi
 
-    local real_target=""
-    local npm_bin
-    npm_bin=$(npm bin -g 2>/dev/null || true)
-    for candidate in \
-        "$HOME/.npm-global/bin/codex" \
-        "${npm_bin}/codex"; do
-        if [[ -f "$candidate" ]] && ! grep -q "construct-codex-wrapper" "$candidate" 2>/dev/null; then
-            real_target="$candidate"
-            break
-        fi
-    done
+    local real_target
+    real_target=$(find_real_npm_binary "codex" "@openai/codex")
     if [[ -z "$real_target" ]]; then
         dbg "Cannot find real codex binary in npm-global — skipping wrapper install"
         return
@@ -501,8 +460,8 @@ patch_codex_paste_wrapper() {
         fi
     fi
 
-    if grep -q "construct-codex-wrapper-v1" "$wrapper_path" 2>/dev/null; then
-        dbg "Codex PTY wrapper v1 already at $wrapper_path"
+    if grep -q "construct-codex-wrapper-v2" "$wrapper_path" 2>/dev/null; then
+        dbg "Codex PTY wrapper v2 already at $wrapper_path"
         return
     fi
 
@@ -512,7 +471,7 @@ patch_codex_paste_wrapper() {
     dbg "Installing Codex clipboard PTY wrapper at $wrapper_path (real: $real_target)"
     cat > "$wrapper_path" << 'PYEOF'
 #!/home/linuxbrew/.linuxbrew/bin/python3
-# construct-codex-wrapper-v1
+# construct-codex-wrapper-v2
 # PTY interceptor: catches Ctrl+V and injects image file path into Codex input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
 
@@ -557,7 +516,7 @@ def _save_image():
     _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
     return img
 
-_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
+_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u', b'\x1b[200~']
 
 def _handle_paste(data):
     if not any(t in data for t in _PASTE_TRIGGERS):
@@ -574,10 +533,18 @@ def _handle_paste(data):
         if earliest_idx is None:
             out += data
             break
+        
         out += data[:earliest_idx]
         data = data[earliest_idx + len(earliest_seq):]
+        
         img = _save_image()
         if img:
+            if earliest_seq == b'\x1b[200~':
+                end_idx = data.find(b'\x1b[201~')
+                if end_idx >= 0:
+                    data = data[end_idx + 6:]
+            
+            # Codex wants raw path
             out += f'{img} '.encode()
             _log(f'injected {img}')
         else:
@@ -677,10 +644,303 @@ if __name__ == '__main__':
 PYEOF
     sed -i "s|__CONSTRUCT_REAL_CODEX__|${real_target}|" "$wrapper_path"
     chmod +x "$wrapper_path"
-    dbg "Codex PTY wrapper v1 installed at $wrapper_path (real: $real_target)"
+    dbg "Codex PTY wrapper v2 installed at $wrapper_path (real: $real_target)"
+}
+
+patch_gemini_paste_wrapper() {
+    local active_gemini
+    active_gemini=$(command -v gemini 2>/dev/null || true)
+
+    if [[ -z "$active_gemini" ]]; then
+        dbg "gemini not found in PATH — skipping wrapper install"
+        return
+    fi
+
+    local real_target
+    real_target=$(find_real_npm_binary "gemini" "@google/gemini-cli")
+    if [[ -z "$real_target" ]]; then
+        dbg "Cannot find real gemini binary in npm-global — skipping wrapper install"
+        return
+    fi
+    dbg "Real gemini target: $real_target"
+
+    local wrapper_path="$active_gemini"
+    if [[ "$wrapper_path" == "$real_target" ]]; then
+        if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
+            wrapper_path="/home/linuxbrew/.linuxbrew/bin/gemini"
+        else
+            wrapper_path="$HOME/.local/bin/gemini"
+            mkdir -p "$HOME/.local/bin"
+        fi
+    fi
+
+    if grep -q "construct-gemini-wrapper-v1" "$wrapper_path" 2>/dev/null; then
+        dbg "Gemini PTY wrapper v1 already at $wrapper_path"
+        return
+    fi
+
+    rm -f "${wrapper_path}-real"
+    rm -f "$wrapper_path"
+
+    dbg "Installing Gemini clipboard PTY wrapper at $wrapper_path (real: $real_target)"
+    cat > "$wrapper_path" << 'PYEOF'
+#!/home/linuxbrew/.linuxbrew/bin/python3
+# construct-gemini-wrapper-v1
+# PTY interceptor: catches Ctrl+V and injects @image file path into Gemini input.
+import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty
+
+_URL   = os.environ.get('CONSTRUCT_CLIPBOARD_URL', '')
+_TOKEN = os.environ.get('CONSTRUCT_CLIPBOARD_TOKEN', '')
+_DIR   = '.construct-clipboard'
+_LOGDIR = os.path.expanduser('~/.config/construct-cli/logs')
+_LOG    = os.path.join(_LOGDIR, 'construct-gemini-wrapper.log')
+_REAL   = '__CONSTRUCT_REAL_GEMINI__'
+
+def _log(msg):
+    try:
+        os.makedirs(_LOGDIR, exist_ok=True)
+        with open(_LOG, 'a') as f:
+            f.write(f'[{time.strftime("%H:%M:%S")}] {msg}\n')
+    except Exception:
+        pass
+
+def _save_image():
+    _log(f'ctrl+v detected: url_set={bool(_URL)} token_set={bool(_TOKEN)}')
+    if not _URL or not _TOKEN:
+        _log('save_image: bridge env not set — cannot fetch')
+        return None
+    try:
+        os.makedirs(_DIR, exist_ok=True)
+    except Exception:
+        return None
+    ts  = int(time.time() * 1000)
+    img = os.path.abspath(f'{_DIR}/clipboard-{ts}.png')
+    r = subprocess.run(
+        ['curl', '-sSf', '-H', f'X-Construct-Clip-Token: {_TOKEN}',
+         f'{_URL}/paste?type=image/png', '-o', img],
+        capture_output=True, timeout=5,
+    )
+    if r.returncode != 0 or not os.path.exists(img) or os.path.getsize(img) == 0:
+        try:
+            os.remove(img)
+        except Exception:
+            pass
+        _log(f'save_image: fetch failed rc={r.returncode} stderr={r.stderr[:200]}')
+        return None
+    _log(f'save_image: saved {img} ({os.path.getsize(img)} bytes)')
+    return img
+
+_PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u', b'\x1b[200~']
+
+def _handle_paste(data):
+    # If bracketed paste start is found, we might want to skip until end
+    # but for now let's just treat it as a trigger.
+    if not any(t in data for t in _PASTE_TRIGGERS):
+        return data
+    out = b''
+    while data:
+        earliest_idx = None
+        earliest_seq = None
+        for seq in _PASTE_TRIGGERS:
+            idx = data.find(seq)
+            if idx >= 0 and (earliest_idx is None or idx < earliest_idx):
+                earliest_idx = idx
+                earliest_seq = seq
+        if earliest_idx is None:
+            out += data
+            break
+        
+        # Add everything before the trigger
+        out += data[:earliest_idx]
+        # Skip the trigger in the input data
+        data = data[earliest_idx + len(earliest_seq):]
+        
+        # Try to fetch image
+        img = _save_image()
+        if img:
+            # If it was bracketed paste, we should also try to consume until \x1b[201~
+            if earliest_seq == b'\x1b[200~':
+                end_idx = data.find(b'\x1b[201~')
+                if end_idx >= 0:
+                    data = data[end_idx + 6:] # Skip content and \x1b[201~
+            
+            # Inject path (Gemini/Qwen/Cline/Pi/Claude/Copilot usually want @path)
+            # Codex wants raw path.
+            # This wrapper is for gemini, so we use @.
+            out += f'@{img} '.encode()
+            _log(f'injected @{img}')
+        else:
+            _log('no image — forwarding raw trigger')
+            out += earliest_seq
+    return out
+
+def _winsz(fd):
+    try:
+        buf = fcntl.ioctl(fd, termios.TIOCGWINSZ, b'\x00' * 8)
+        return struct.unpack('HHHH', buf)[:2]
+    except Exception:
+        return (24, 80)
+
+def _setwinsz(fd, rows, cols):
+    try:
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack('HHHH', rows, cols, 0, 0))
+    except Exception:
+        pass
+
+def main():
+    real = _REAL
+    if not os.path.isfile(real) or not os.access(real, os.X_OK):
+        _log(f'ERROR: real binary not found or not executable: {real}')
+        sys.exit(1)
+    args = [real] + sys.argv[1:]
+    _log(f'starting: real={real} url_set={bool(_URL)} token_set={bool(_TOKEN)} args={sys.argv[1:]}')
+
+    fd_in = sys.stdin.fileno()
+    try:
+        old = termios.tcgetattr(fd_in)
+    except termios.error:
+        _log('not a tty — exec direct (no interception)')
+        os.execv(real, args)
+        return
+
+    mfd, sfd = pty.openpty()
+    r, c = _winsz(sys.stdout.fileno())
+    _setwinsz(sfd, r, c)
+
+    proc = subprocess.Popen(args, stdin=sfd, stdout=sfd, stderr=sfd,
+                            close_fds=True, start_new_session=True)
+    os.close(sfd)
+    tty.setraw(fd_in)
+    _log(f'pty ready: pid={proc.pid}')
+
+    def _resize(sig, frame):
+        r, c = _winsz(sys.stdout.fileno())
+        _setwinsz(mfd, r, c)
+    signal.signal(signal.SIGWINCH, _resize)
+
+    out_fd = sys.stdout.fileno()
+    try:
+        while True:
+            if proc.poll() is not None:
+                break
+            try:
+                rl, _, _ = select.select([fd_in, mfd], [], [], 0.05)
+            except (OSError, select.error):
+                break
+
+            if fd_in in rl:
+                try:
+                    data = os.read(fd_in, 4096)
+                except OSError:
+                    break
+                if not data:
+                    break
+                data = _handle_paste(data)
+                try:
+                    os.write(mfd, data)
+                except OSError:
+                    break
+
+            if mfd in rl:
+                try:
+                    data = os.read(mfd, 4096)
+                    if data:
+                        os.write(out_fd, data)
+                except OSError:
+                    break
+    finally:
+        _log(f'select loop exited: gemini poll={proc.poll()}')
+        try:
+            termios.tcsetattr(fd_in, termios.TCSADRAIN, old)
+        except Exception:
+            pass
+        try:
+            os.close(mfd)
+        except Exception:
+            pass
+    proc.wait()
+    sys.exit(proc.returncode or 0)
+
+if __name__ == '__main__':
+    main()
+PYEOF
+    sed -i "s|__CONSTRUCT_REAL_GEMINI__|${real_target}|" "$wrapper_path"
+    chmod +x "$wrapper_path"
+    dbg "Gemini PTY wrapper v1 installed at $wrapper_path (real: $real_target)"
+}
+
+ensure_xvfb() {
+    # If clipboard image patch is disabled, don't start Xvfb.
+    if [[ "${CONSTRUCT_CLIPBOARD_IMAGE_PATCH:-1}" == "0" ]]; then
+        return
+    fi
+
+    # Ensure DISPLAY is set (default to :0 if missing)
+    if [[ -z "$DISPLAY" ]]; then
+        export DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
+    fi
+
+    local display_num="${DISPLAY#:}"
+    local x_sock="/tmp/.X11-unix/X${display_num}"
+    local x_lock="/tmp/.X${display_num}-lock"
+
+    # If the socket is missing, we need to start Xvfb.
+    if [[ ! -S "$x_sock" ]]; then
+        if command -v Xvfb >/dev/null; then
+            dbg "Starting Xvfb on $DISPLAY..."
+            # Clean up stale locks that might prevent Xvfb from starting.
+            rm -f "$x_lock" 2>/dev/null
+            Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+            
+            # Wait for Xvfb to be ready (up to 2 seconds).
+            local count=0
+            while [ $count -lt 20 ]; do
+                if [ -S "$x_sock" ]; then
+                    dbg "Xvfb ready on $DISPLAY"
+                    break
+                fi
+                sleep 0.1
+                count=$((count + 1))
+            done
+        else
+            dbg "Xvfb not found; skipping headless X11 setup"
+        fi
+    fi
+}
+
+find_real_npm_binary() {
+    local cmd="$1"
+    local pkg="$2"
+    local npm_bin
+    npm_bin=$(npm bin -g 2>/dev/null || true)
+    
+    # Priority 1: Check in npm-global/lib/node_modules (authoritative location)
+    local lib_path="$HOME/.npm-global/lib/node_modules/$pkg"
+    if [[ -d "$lib_path" ]]; then
+        local bin_rel
+        bin_rel=$(jq -r ".bin[\"$cmd\"] // .bin" "$lib_path/package.json" 2>/dev/null || true)
+        if [[ -n "$bin_rel" ]] && [[ "$bin_rel" != "null" ]]; then
+            echo "$lib_path/$bin_rel"
+            return
+        fi
+    fi
+
+    # Priority 2: Candidates in npm-global/bin that are NOT already our wrapper.
+    for candidate in "$HOME/.npm-global/bin/$cmd" "${npm_bin}/$cmd"; do
+        if [[ -f "$candidate" ]] && ! grep -q "construct-.*-wrapper" "$candidate" 2>/dev/null; then
+            echo "$candidate"
+            return
+        fi
+    done
+    
+    # Priority 3: Search within the package directory for the binary name.
+    if [[ -d "$lib_path" ]]; then
+        find -L "$lib_path" -type f -name "$cmd" 2>/dev/null | head -1
+    fi
 }
 
 echo "🔧 Patching clipboard support for agents..."
+ensure_xvfb
 fix_clipboard_libs
 echo "🔧 Patching Copilot clipboard bridge..."
 patch_copilot_clipboard
@@ -692,3 +952,5 @@ echo "🔧 Installing Copilot clipboard PTY wrapper..."
 patch_copilot_paste_wrapper
 echo "🔧 Installing Codex clipboard PTY wrapper..."
 patch_codex_paste_wrapper
+echo "🔧 Installing Gemini clipboard PTY wrapper..."
+patch_gemini_paste_wrapper
