@@ -285,8 +285,13 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 
 	envVars = e.sec.MaskEnv(envVars)
 
-	// Print daemon execution context before handing off to the agent.
+	// Default to configured shell when no command is provided.
 	if len(args) == 0 {
+		shell := "/bin/bash"
+		if e.cfg != nil && e.cfg.Sandbox.Shell != "" {
+			shell = e.cfg.Sandbox.Shell
+		}
+		args = []string{shell}
 		fmt.Println("Entering Construct daemon shell...")
 	} else {
 		fmt.Printf("Running in Construct daemon: %v\n", args)
