@@ -5,75 +5,166 @@
 # Uncomment any you need:
 [apt]
 packages = [
-    "vim",       # Full-featured text editor (nano is included by default)
-    "tmux",      # Terminal multiplexer for persistent sessions
-    "nano",
-    "g++",       # C++ compiler needed for native Node.js modules
+  "vim",  # Full-featured text editor (nano is included by default)
+  "tmux",  # Terminal multiplexer for persistent sessions
+  "nano",
+  "g++",  # C++ compiler needed for native Node.js modules
 ]
 
 # Homebrew packages and taps
 [brew]
 taps = [
-    "shivammathur/extensions",  # PHP extensions (required for pcov)
-    "EstebanForge/tap",
+  "shivammathur/extensions",  # PHP extensions (required for pcov)
+  "EstebanForge/tap",
 ]
 packages = [
-    # Core utilities
-    "ast-grep", "yq", "sd", "fzf", "eza", "fd", "bat", "ripgrep", "jq", "curl", "wget", "tree", "unzip", "socat", "make", "htop", "netcat", "bind", "sshpass", "nano", "lftp", "tmux", "btop", "htop",
-    # Development tools
-    "gh", "git-lfs", "git-delta", "git-cliff", "rsync", "procs", "python-setuptools", "awscli", "cmake", "pkg-config", "direnv", "gum",
-    # Languages
-    "go", "openjdk", "typescript", "rust", "kotlin", "lua", "ruby", "dart-sdk", "swift", "perl", "zig", "erlang", "gnucobol", "node", "python@3", "openssl@3", "llvm", "gcc", "nasm", "yasm", "postgresql@16", "mysql-client", "redis", "sqlite", "podman", "podman-compose", "groovy", "scala", "elixir", "r", "micropython", "gleam", "ocaml", "swi-prolog",
-    # Linters & Formatters
-    "golangci-lint", "golangci-lint-langserver", "php-cs-fixer", "prettier", "shellcheck", "yamllint",
-    # Web & Build tools
-    "yarn", "pnpm", "composer", "neovim", "gulp-cli", "ffmpeg", "php", "wp-cli", "tailwindcss", "uv", "pipx", "vite", "webpack", "tlrc", "ninja", "gradle", "fastmod", "hugo", "zola",
-    # AI Agents
-    "block-goose-cli", "EstebanForge/tap/mcp-cli-ent", "EstebanForge/tap/md-over-here",
-    # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
-    "shivammathur/extensions/pcov@8.5",
+  # Core utilities
+  "ast-grep",
+  "yq",
+  "sd",
+  "fzf",
+  "eza",
+  "fd",
+  "bat",
+  "ripgrep",
+  "jq",
+  "curl",
+  "wget",
+  "tree",
+  "unzip",
+  "socat",
+  "make",
+  "htop",
+  "netcat",
+  "bind",
+  "sshpass",
+  "nano",
+  "lftp",
+  "tmux",
+  "btop",
+  "htop",
+  # Development tools
+  "gh",
+  "git-lfs",
+  "git-delta",
+  "git-cliff",
+  "rsync",
+  "procs",
+  "python-setuptools",
+  "awscli",
+  "cmake",
+  "pkg-config",
+  "direnv",
+  "gum",
+  # Languages
+  "go",
+  "openjdk",
+  "typescript",
+  "rust",
+  "kotlin",
+  "lua",
+  "ruby",
+  "dart-sdk",
+  "swift",
+  "perl",
+  "zig",
+  "erlang",
+  "gnucobol",
+  "node",
+  "python@3",
+  "openssl@3",
+  "llvm",
+  "gcc",
+  "nasm",
+  "yasm",
+  "postgresql@16",
+  "mysql-client",
+  "redis",
+  "sqlite",
+  "podman",
+  "podman-compose",
+  "groovy",
+  "scala",
+  "elixir",
+  "r",
+  "micropython",
+  "gleam",
+  "ocaml",
+  "swi-prolog",
+  # Linters & Formatters
+  "golangci-lint",
+  "golangci-lint-langserver",
+  "php-cs-fixer",
+  "prettier",
+  "shellcheck",
+  "yamllint",
+  # Web & Build tools
+  "yarn",
+  "pnpm",
+  "composer",
+  "neovim",
+  "gulp-cli",
+  "ffmpeg",
+  "php",
+  "wp-cli",
+  "tailwindcss",
+  "uv",
+  "pipx",
+  "vite",
+  "webpack",
+  "tlrc",
+  "ninja",
+  "gradle",
+  "fastmod",
+  "hugo",
+  "zola",
+  # AI Agents
+  "EstebanForge/tap/mcp-cli-ent",
+  "EstebanForge/tap/md-over-here",
+  # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
+  "shivammathur/extensions/pcov@8.5",
 ]
 
 # Rust tools installed via Cargo
 [cargo]
 packages = [
-    "worktrunk",
+  "worktrunk",
 ]
 
 # Global Bun packages
 [bun]
 packages = [
-    "@tobilu/qmd",
+  "@tobilu/qmd",
 ]
 
 # Global Node.js packages
 [npm]
 packages = [
-    "@qwen-code/qwen-code@latest",
-    "@github/copilot",
-    "@charmland/crush",
-    "cline",
-    "@openai/codex",
-    "@kilocode/cli",
-    "agent-browser",
-    "url-to-markdown-cli-tool",
-    "sass",
-    "@google/gemini-cli",
-    "@earendil-works/pi-coding-agent",
+  "@qwen-code/qwen-code@latest",
+  "@github/copilot",
+  "@charmland/crush",
+  "cline",
+  "@openai/codex",
+  "@kilocode/cli",
+  "agent-browser",
+  "url-to-markdown-cli-tool",
+  "sass",
+  "@google/gemini-cli",
+  "@earendil-works/pi-coding-agent",
 ]
 
 # Python packages
 [pip]
 packages = [
-    "litellm",
-    # "black",
-    # "isort",
+  "litellm",
+  # "black",
+  # "isort",
 ]
 
 # Ruby gems
 [gems]
 packages = [
-    "jekyll",
+  "jekyll",
 ]
 
 # Specialized tools and version managers
@@ -90,8 +181,9 @@ volta = false
 # Commands to run after all package managers finish
 [post_install]
 commands = [
-    "agent-browser install --with-deps",
-    "if [ -x \"$HOME/.local/bin/claude\" ]; then echo \"Claude already installed\"; else curl -fsSL https://claude.ai/install.sh | bash; fi",
-    "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
-    "if [ -x \"$HOME/.opencode/bin/opencode\" ]; then echo \"OpenCode already installed\"; else curl -fsSL https://opencode.ai/install | bash; fi",
+  "if [ \"$(uname -m)\" = \"aarch64\" ] || [ \"$(uname -m)\" = \"arm64\" ]; then echo \"ℹ️ ARM64 detected: Configuring agent-browser to use system Chromium\"; mkdir -p ~/.local/bin; printf '#!/bin/bash\\nexec \"'\"$(npm config get prefix)\"'\"/bin/agent-browser --executable-path /usr/bin/chromium \"$@\"' > ~/.local/bin/agent-browser && chmod +x ~/.local/bin/agent-browser; else agent-browser install --with-deps; fi",
+  "if command -v goose &>/dev/null; then echo \"Goose already installed\"; else curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash; fi",
+  "if [ -x \"$HOME/.local/bin/claude\" ]; then echo \"Claude already installed\"; else curl -fsSL https://claude.ai/install.sh | bash; fi",
+  "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
+  "curl -fsSL https://opencode.ai/install | bash",
 ]

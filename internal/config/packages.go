@@ -121,7 +121,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	script += "SUDO_AVAILABLE=1\n"
 	script += "if [ \"$(id -u)\" = \"0\" ]; then\n"
 	script += "    SUDO=\"\"\n"
-	script += "elif sudo -n true 2>/dev/null; then\n"
+	script += "elif sudo -n apt-get --version &>/dev/null; then\n"
 	script += "    SUDO=\"sudo\"\n"
 	script += "else\n"
 	script += "    echo '⚠️  sudo not available or not configured - skipping privileged package operations'\n"
@@ -385,7 +385,14 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		script += "echo 'Running post-install commands...'\n"
 		script += "export NPM_CONFIG_YES=true\n"
 		for _, cmd := range c.PostInstall.Commands {
-			script += cmd + "\n"
+			// Auto-migrate legacy or incompatible commands
+			if cmd == "agent-browser install --with-deps" {
+				cmd = "if [ \"$(uname -m)\" = \"aarch64\" ] || [ \"$(uname -m)\" = \"arm64\" ]; then echo \"ℹ️ ARM64 detected: Configuring agent-browser to use system Chromium\"; mkdir -p ~/.local/bin; printf '#!/bin/bash\\nexec \"'\"$(npm config get prefix)\"'\"/bin/agent-browser --executable-path /usr/bin/chromium \"$@\"' > ~/.local/bin/agent-browser && chmod +x ~/.local/bin/agent-browser; else agent-browser install --with-deps; fi"
+			} else if cmd == "if [ -x \"$HOME/.opencode/bin/opencode\" ]; then echo \"OpenCode already installed\"; else curl -fsSL https://opencode.ai/install | bash; fi" {
+				cmd = "curl -fsSL https://opencode.ai/install | bash"
+			}
+
+			script += cmd + " || echo \"⚠️ Post-install command failed: " + cmd + "\"\n"
 		}
 		script += "\n"
 	}
