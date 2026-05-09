@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.1 -->
+## [1.8.1] - 2026-05-09
+
+### Fixed
+- **Root exec in daemon containers**: `resolveExecUserForRunningContainer()` now returns `"construct"` on all code paths instead of `""`. Previously, `docker exec -it` into the daemon ran agents as root (since `USER construct` is commented out in the Dockerfile), causing Claude CLI to reject `--dangerously-skip-permissions`. Added uid==0 guard and `UsesUserNamespaceRemap()` check.
+- **Pre-existing test failure on uid=0 CI**: `TestAppendExecUserRunFlags` now correctly handles root environments by expecting no `--user` flag when uid=0.
+- **Missing daemon launch messages**: Restored `"Running in Construct daemon: [args]"`, `"Entering Construct daemon shell..."`, `"✓ Started SSH Agent proxy (daemon)"`, and exit code 126/127 PATH hints that were lost in the v1.8.0 refactor.
+
+### Changed
+- **Claude install moved to packages.toml**: Claude Code installation moved from hardcoded `packages.go` to `[post_install]` section in `packages.toml`, consistent with droid/opencode pattern.
+- **Pi self-update in update routine**: Added `pi update` to both `update-all.sh` manual fallback and topgrade `[commands]` config.
+
+### Removed
+- **Dead code cleanup**: Removed unused `containerHasUIDEntryFn` variable, dead `execUserForAgentExec` function (never called from production), and stale test mocks that referenced removed behavior.
+
 <!-- RELEASE:START 1.8.0 -->
 ## [1.8.0] - 2026-05-08
 
