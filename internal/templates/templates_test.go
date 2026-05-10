@@ -242,8 +242,8 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 	// Version string — idempotency guard uses this to skip reinstall.
 	// Bump this when the wrapper logic changes so containers reinstall.
-	if !strings.Contains(AgentPatch, "construct-copilot-wrapper-v9") {
-		t.Error("agent-patch.sh: missing PTY wrapper version string 'construct-copilot-wrapper-v9'; bump version when wrapper logic changes")
+	if !strings.Contains(AgentPatch, "construct-copilot-wrapper-v10") {
+		t.Error("agent-patch.sh: missing PTY wrapper version string 'construct-copilot-wrapper-v10'; bump version when wrapper logic changes")
 	}
 
 	// Kitty Keyboard Protocol sequences — Ghostty and other modern terminals send
@@ -274,8 +274,8 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 
 	// npm-global candidate — the real copilot binary found here avoids Node relative-import
 	// issues that break when using readlink -f through the Homebrew symlink.
-	if !strings.Contains(AgentPatch, ".npm-global/bin/copilot") {
-		t.Error("agent-patch.sh: missing '~/.npm-global/bin/copilot' candidate; _REAL resolution broken")
+	if !strings.Contains(AgentPatch, "$HOME/.npm-global/bin/$cmd") {
+		t.Error("agent-patch.sh: missing '$HOME/.npm-global/bin/$cmd' candidate; _REAL resolution broken")
 	}
 
 	// rm -f before install — must remove symlink/file before cat > to avoid writing
@@ -310,8 +310,8 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 }
 
 func TestAgentPatchCodexPTYWrapper(t *testing.T) {
-	if !strings.Contains(AgentPatch, "construct-codex-wrapper-v1") {
-		t.Error("agent-patch.sh: missing Codex PTY wrapper version string 'construct-codex-wrapper-v1'")
+	if !strings.Contains(AgentPatch, "construct-codex-wrapper-v2") {
+		t.Error("agent-patch.sh: missing Codex PTY wrapper version string 'construct-codex-wrapper-v2'")
 	}
 	if !strings.Contains(AgentPatch, "__CONSTRUCT_REAL_CODEX__") {
 		t.Error("agent-patch.sh: missing '__CONSTRUCT_REAL_CODEX__' placeholder for real codex binary injection")
@@ -319,7 +319,7 @@ func TestAgentPatchCodexPTYWrapper(t *testing.T) {
 	if !strings.Contains(AgentPatch, "command -v codex") {
 		t.Error("agent-patch.sh: missing 'command -v codex' detection for wrapper install location")
 	}
-	if !strings.Contains(AgentPatch, ".npm-global/bin/codex") {
+	if !strings.Contains(AgentPatch, "$HOME/.npm-global/bin/$cmd") {
 		t.Error("agent-patch.sh: missing npm-global codex candidate resolution")
 	}
 	if !strings.Contains(AgentPatch, "construct-codex-wrapper.log") {

@@ -17,6 +17,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/security"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -76,6 +77,14 @@ func (e *RuntimeEngine) Prepare() error {
 	// 2. Directory Preparation
 	if err := e.ensureAgentRuntimeDirs(); err != nil {
 		return err
+	}
+
+	// 2.1 Write Global Agent Instructions (AGENTS.md)
+	globalAgentsMD := filepath.Join(e.configPath, "home", "AGENTS.md")
+	if _, err := os.Stat(globalAgentsMD); os.IsNotExist(err) {
+		if err := os.WriteFile(globalAgentsMD, []byte(templates.GlobalAgentsRules), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to write global AGENTS.md: %v\n", err)
+		}
 	}
 
 	// 3. Environment Preparation
@@ -285,9 +294,23 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 
 	// Patch the daemon if needed (ensure clipboard shims and wrappers are present)
 	if e.cfg == nil || e.cfg.Agents.ClipboardImagePatch {
+		markerFile := "/home/construct/.construct_patched"
+		markerCmd := []string{"cat", markerFile}
+		if output, err := runtime.ExecInContainerWithEnv(e.containerRuntime, daemonName, markerCmd, nil, execUser); err == nil {
+			if strings.TrimSpace(output) == constants.Version {
+				// Already patched for this version, skip
+				goto skipPatch
+			}
+		}
+
 		_ = e.runAgentPatchInDaemon(daemonName, execUser) //nolint:errcheck
+
+		// Write marker file after successful patch
+		writeMarkerCmd := []string{"bash", "-c", fmt.Sprintf("echo '%s' > %s", constants.Version, markerFile)}
+		_, _ = runtime.ExecInContainerWithEnv(e.containerRuntime, daemonName, writeMarkerCmd, nil, execUser) //nolint:errcheck
 	}
 
+skipPatch:
 	envVars = e.sec.MaskEnv(envVars)
 
 	// Default to configured shell when no command is provided.

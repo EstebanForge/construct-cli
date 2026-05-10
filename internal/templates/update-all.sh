@@ -8,6 +8,9 @@ fi
 echo "Updating all agents, packages & tools..."
 echo ""
 
+# Clear patching marker to ensure re-patching after updates
+rm -f "$HOME/.construct_patched"
+
 echo "=== Construct update diagnostics ==="
 echo "Timestamp (UTC): $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "User IDs: uid=$(id -u) gid=$(id -g)"

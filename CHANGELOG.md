@@ -15,10 +15,16 @@ All notable changes to Construct CLI will be documented in this file.
     - **Daemon Patching**: Restored `runAgentPatchInDaemon` logic to ensure shims, wrappers, and Xvfb are correctly initialized in persistent daemon containers.
     - **Headless X11 (Xvfb)**: Moved Xvfb startup to the agent-patch script to ensure a valid `DISPLAY` is always available for agents that expect a real display.
     - **Gemini @-prefix**: Ensured Gemini uses the required `@path` injection format while Codex uses raw paths.
+- **Agent Update Hardening**: Added defensive `command -v` checks for Claude and Pi update commands in Topgrade configuration, preventing errors in environments where these agents are not installed.
 
 ### Changed
 - **Official Goose CLI Installer**: Switched to the official Goose installation script (`github.com/aaif-goose/goose`) for more reliable setup.
 - **Updated OpenCode Installer**: Updated the OpenCode post-install command to use the canonical `curl -fsSL https://opencode.ai/install | bash`.
+- **Pi Update Integration**: Integrated `pi update` into the primary Topgrade update path to ensure Pi and its internal packages are kept current during `ct sys update`.
+- **Clean Brew Installation Logs**: Optimized the Homebrew installation script to check for existing packages before running `brew install`, replacing noisy "already installed" warnings with clean confirmation messages.
+
+### Optimized
+- **Fast Agent Startup (Patch Marker)**: Implemented a versioned marker-based guard (`~/.construct_patched`) to skip redundant agent clipboard patching on startup. This significantly reduces latency when entering a shell or launching an agent in a warm daemon container. Patching is now only re-triggered after Construct version changes or package installations.
 
 <!-- RELEASE:START 1.8.2 -->
 ## [1.8.2] - 2026-05-09
