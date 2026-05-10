@@ -241,14 +241,14 @@ func TestAppendAgentSpecificRunFlagsCodexNoClipboardPatch(t *testing.T) {
 
 func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
 	runFlags := []string{}
-	appendAgentSpecificRunFlags(&runFlags, "gemini", "1")
+	appendAgentSpecificRunFlags(&runFlags, "cline", "1")
 	if len(runFlags) != 0 {
-		t.Fatalf("expected no run flags for non-codex agent, got %v", runFlags)
+		t.Fatalf("expected no run flags for cline agent, got %v", runFlags)
 	}
 }
 
 func TestAppendAgentSpecificRunFlagsWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot"} {
+	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
 		runFlags := []string{}
 		appendAgentSpecificRunFlags(&runFlags, agent, "1")
 		if !containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
@@ -258,7 +258,7 @@ func TestAppendAgentSpecificRunFlagsWaylandAgents(t *testing.T) {
 }
 
 func TestAppendAgentSpecificRunFlagsWaylandAgentsNoPatch(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot"} {
+	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
 		runFlags := []string{}
 		appendAgentSpecificRunFlags(&runFlags, agent, "0")
 		if containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
@@ -300,22 +300,22 @@ func TestAppendAgentSpecificExecEnvCodexNoClipboardPatch(t *testing.T) {
 
 func TestAppendAgentSpecificExecEnvNonCodex(t *testing.T) {
 	envVars := []string{}
-	appendAgentSpecificExecEnv(&envVars, "gemini", "1")
+	appendAgentSpecificExecEnv(&envVars, "cline", "1")
 	if len(envVars) != 0 {
-		t.Fatalf("expected no env vars for non-codex agent, got %v", envVars)
+		t.Fatalf("expected no env vars for cline agent, got %v", envVars)
 	}
 }
 
 func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 	envVars := []string{}
-	appendAgentSpecificDaemonEnv(&envVars, "gemini")
+	appendAgentSpecificDaemonEnv(&envVars, "cline")
 	if len(envVars) != 0 {
-		t.Fatalf("expected no daemon env vars for non-codex agent, got %v", envVars)
+		t.Fatalf("expected no daemon env vars for cline agent, got %v", envVars)
 	}
 }
 
 func TestAppendAgentSpecificExecEnvWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot"} {
+	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
 		envVars := []string{}
 		appendAgentSpecificExecEnv(&envVars, agent, "1")
 		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {
@@ -325,7 +325,7 @@ func TestAppendAgentSpecificExecEnvWaylandAgents(t *testing.T) {
 }
 
 func TestAppendAgentSpecificDaemonEnvWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot"} {
+	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
 		envVars := []string{}
 		appendAgentSpecificDaemonEnv(&envVars, agent)
 		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {

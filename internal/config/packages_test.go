@@ -73,7 +73,7 @@ func TestGenerateInstallScriptSudoDetection(t *testing.T) {
 	if !strings.Contains(script, "if [ \"$(id -u)\" = \"0\" ]; then") {
 		t.Error("Script should check if running as root")
 	}
-	if !strings.Contains(script, "elif sudo -n true 2>/dev/null; then") {
+	if !strings.Contains(script, "elif sudo -n apt-get --version &>/dev/null; then") {
 		t.Error("Script should test if sudo works non-interactively")
 	}
 	if !strings.Contains(script, "SUDO_AVAILABLE=0") {
@@ -122,6 +122,9 @@ func TestGenerateInstallScriptWithAptPackages(t *testing.T) {
 
 func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	config := &PackagesConfig{
+		Brew: BrewConfig{
+			Packages: []string{"imagemagick", "topgrade"},
+		},
 		Bun: BunConfig{
 			Packages: []string{"@tobilu/qmd"},
 		},
@@ -131,11 +134,14 @@ func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	}
 	script := config.GenerateInstallScript()
 
-	if !strings.Contains(script, "brew install imagemagick || echo") {
+	if !strings.Contains(script, "brew install --formula imagemagick || echo") {
 		t.Error("Script should guard imagemagick install failures")
 	}
-	if !strings.Contains(script, "brew install topgrade || echo") {
+	if !strings.Contains(script, "brew install --formula topgrade || echo") {
 		t.Error("Script should guard topgrade install failures")
+	}
+	if !strings.Contains(script, "INSTALLED_BREW=$(brew list --formula -1") {
+		t.Error("Script should pre-check installed brew packages")
 	}
 	if !strings.Contains(script, "if command -v brew &> /dev/null; then") {
 		t.Error("Script should check for brew before brew installs")
@@ -204,8 +210,8 @@ func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
 
 	// claude update exits non-zero when already up-to-date; topgrade would mark
 	// it FAILED without || true even though no update was needed.
-	if !strings.Contains(result, `"Claude Code" = "claude update || true"`) {
-		t.Error("topgrade config must use 'claude update || true' to avoid false FAILED status when already up-to-date")
+	if !strings.Contains(result, `"Claude Code" = "if command -v claude &> /dev/null; then claude update || true; fi"`) {
+		t.Error("topgrade config must use guarded 'claude update || true' to avoid false FAILED status")
 	}
 	if !strings.Contains(result, `"claude_code",`) {
 		t.Error("topgrade config must disable built-in claude_code step to avoid duplicate/conflicting Claude update runs")

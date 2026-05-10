@@ -91,4 +91,5 @@ self_update = false
 
 # Custom commands for tools topgrade doesn't natively support
 [commands]
-"Claude Code" = "claude update || true"
+"Claude Code" = "if command -v claude &> /dev/null; then claude update || true; fi"
+"Pi Coding Agent" = "if command -v pi &> /dev/null; then pi update || true; fi"

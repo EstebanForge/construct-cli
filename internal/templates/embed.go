@@ -62,3 +62,8 @@ var ClipboardX11Sync string
 //
 //go:embed osascript
 var Osascript string
+
+// GlobalAgentsRules is the embedded content of the global AGENTS.md rules template.
+//
+//go:embed AGENTS.md
+var GlobalAgentsRules string
