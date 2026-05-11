@@ -584,6 +584,7 @@ func ensureMountedTemplateFiles(configPath string) error {
 		content string
 		perm    os.FileMode
 	}{
+		{name: "entrypoint.sh", content: templates.Entrypoint, perm: 0755},
 		{name: "entrypoint-hash.sh", content: templates.EntrypointHash, perm: 0755},
 		{name: "update-all.sh", content: templates.UpdateAll, perm: 0755},
 		{name: "agent-patch.sh", content: templates.AgentPatch, perm: 0755},

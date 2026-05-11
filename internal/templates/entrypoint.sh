@@ -43,6 +43,27 @@ if [ "$(id -u)" = "0" ]; then
     ln -sf /usr/local/bin/clipper /usr/bin/xsel 2>/dev/null || true
     ln -sf /usr/local/bin/clipper /usr/bin/wl-paste 2>/dev/null || true
 
+    # Agent Rule Symlinks
+    # Ensure global AGENTS.md is accessible in common mount points
+    if [ -f /home/construct/AGENTS.md ]; then
+        for root_path in "/workspaces" "/projects"; do
+            if [ -d "$root_path" ]; then
+                # Root level symlink (only if not exists or is already a symlink)
+                if [ ! -e "${root_path}/AGENTS.md" ] || [ -L "${root_path}/AGENTS.md" ]; then
+                    ln -sf /home/construct/AGENTS.md "${root_path}/AGENTS.md" 2>/dev/null || true
+                fi
+                # Subdirectory symlinks (handles random hashes in daemon mode and project folders)
+                for d in "${root_path}"/*/ ; do
+                    if [ -d "$d" ]; then
+                        if [ ! -e "${d}AGENTS.md" ] || [ -L "${d}AGENTS.md" ]; then
+                            ln -sf /home/construct/AGENTS.md "${d}AGENTS.md" 2>/dev/null || true
+                        fi
+                    fi
+                done
+            fi
+        done
+    fi
+
     # Patch /etc/profile to preserve PATH
     if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
         sed -i '/^if \[ "$(id -u)" -eq 0 \]; then$/,/^export PATH$/ {

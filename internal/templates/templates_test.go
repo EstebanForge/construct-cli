@@ -170,6 +170,20 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Entrypoint, "export HOME=\"${HOME:-/home/construct}\"") {
 		t.Error("entrypoint.sh should preserve HOME before privilege drop")
 	}
+
+	// Verify AGENTS.md symlink logic
+	symlinkFragments := []string{
+		"# Agent Rule Symlinks",
+		"if [ ! -e \"${root_path}/AGENTS.md\" ] || [ -L \"${root_path}/AGENTS.md\" ]; then",
+		"ln -sf /home/construct/AGENTS.md \"${root_path}/AGENTS.md\"",
+		"if [ ! -e \"${d}AGENTS.md\" ] || [ -L \"${d}AGENTS.md\" ]; then",
+		"ln -sf /home/construct/AGENTS.md \"${d}AGENTS.md\"",
+	}
+	for _, fragment := range symlinkFragments {
+		if !strings.Contains(Entrypoint, fragment) {
+			t.Errorf("entrypoint.sh missing symlink logic fragment: %s", fragment)
+		}
+	}
 	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID:-}") {
 		t.Error("docker-compose.yml should pass through CONSTRUCT_HOST_UID with empty default")
 	}

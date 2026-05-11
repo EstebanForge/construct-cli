@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.4 -->
+## [1.8.4] - 2026-05-11
+
+### Added
+- **Global AGENTS.md Symlinks**: Automatically creates symlinks to the global `AGENTS.md` rules file in common mount points (`/workspaces/`, `/projects/`) and their subdirectories. This ensures agents can easily discover global instructions regardless of the project's mount path or random daemon hash.
+
 <!-- RELEASE:START 1.8.3 -->
 ## [1.8.3] - 2026-05-09
 
