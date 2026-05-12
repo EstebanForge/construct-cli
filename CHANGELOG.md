@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.5 -->
+## [1.8.5] - 2026-05-12
+
+### Fixed
+- **AGENTS.md Symlink Scope**: Fixed symlinks being created at every directory level (including project subdirectories), which overwrote pre-existing AGENTS.md files. Symlinks are now created only at `/workspaces/`, `/workspaces/<hash>/`, and `/projects/`. Pre-existing real files are never overwritten. Now also creates `CLAUDE.md` and `GEMINI.md` symlinks alongside `AGENTS.md`, all pointing to the global rules file.
+
 <!-- RELEASE:START 1.8.4 -->
 ## [1.8.4] - 2026-05-11
 
