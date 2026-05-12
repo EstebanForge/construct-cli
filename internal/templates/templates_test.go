@@ -174,10 +174,11 @@ func TestEmbeddedTemplates(t *testing.T) {
 	// Verify AGENTS.md symlink logic
 	symlinkFragments := []string{
 		"# Agent Rule Symlinks",
-		"if [ ! -e \"${root_path}/AGENTS.md\" ] || [ -L \"${root_path}/AGENTS.md\" ]; then",
-		"ln -sf /home/construct/AGENTS.md \"${root_path}/AGENTS.md\"",
-		"if [ ! -e \"${d}AGENTS.md\" ] || [ -L \"${d}AGENTS.md\" ]; then",
-		"ln -sf /home/construct/AGENTS.md \"${d}AGENTS.md\"",
+		"maybe_symlink()",
+		"for name in AGENTS.md CLAUDE.md GEMINI.md; do",
+		"maybe_symlink /workspaces/",
+		"maybe_symlink \"$d\"",
+		"maybe_symlink /projects/",
 	}
 	for _, fragment := range symlinkFragments {
 		if !strings.Contains(Entrypoint, fragment) {
