@@ -171,18 +171,26 @@ func TestEmbeddedTemplates(t *testing.T) {
 		t.Error("entrypoint.sh should preserve HOME before privilege drop")
 	}
 
-	// Verify AGENTS.md symlink logic
-	symlinkFragments := []string{
-		"# Agent Rule Symlinks",
-		"maybe_symlink()",
-		"for name in AGENTS.md CLAUDE.md GEMINI.md; do",
+	// Verify AGENTS.md alias logic (container-internal only, no bind-mount leaks)
+	aliasFragments := []string{
+		"# Agent Rule Aliases",
+		"ln -sf /home/construct/AGENTS.md",
+		"for name in CLAUDE.md GEMINI.md; do",
+		"host bind mounts and would leak dangling symlinks",
+	}
+	for _, fragment := range aliasFragments {
+		if !strings.Contains(Entrypoint, fragment) {
+			t.Errorf("entrypoint.sh missing alias logic fragment: %s", fragment)
+		}
+	}
+	// Verify no bind-mount symlink creation (these would leak onto the host)
+	leakFragments := []string{
 		"maybe_symlink /workspaces/",
-		"maybe_symlink \"$d\"",
 		"maybe_symlink /projects/",
 	}
-	for _, fragment := range symlinkFragments {
-		if !strings.Contains(Entrypoint, fragment) {
-			t.Errorf("entrypoint.sh missing symlink logic fragment: %s", fragment)
+	for _, fragment := range leakFragments {
+		if strings.Contains(Entrypoint, fragment) {
+			t.Errorf("entrypoint.sh should not create symlinks on bind mounts: found %q", fragment)
 		}
 	}
 	if !strings.Contains(DockerCompose, "CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID:-}") {

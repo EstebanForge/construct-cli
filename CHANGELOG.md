@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.6 -->
+## [1.8.6] - 2026-05-14
+
+### Fixed
+- **Global AGENTS.md Symlinks Leaked onto Host**: Removed creation of `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` symlinks in `/workspaces/` and `/projects/`. These directories are host bind mounts, so symlinks pointing to the container-internal `/home/construct/AGENTS.md` leaked onto the host filesystem as dangling links. Symlink aliases are now created only inside `/home/construct/` (container-internal). Existing dangling symlinks on the host must be cleaned up manually.
+
 <!-- RELEASE:START 1.8.5 -->
 ## [1.8.5] - 2026-05-12
 
