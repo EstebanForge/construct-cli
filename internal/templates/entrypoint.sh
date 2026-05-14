@@ -43,27 +43,12 @@ if [ "$(id -u)" = "0" ]; then
     ln -sf /usr/local/bin/clipper /usr/bin/xsel 2>/dev/null || true
     ln -sf /usr/local/bin/clipper /usr/bin/wl-paste 2>/dev/null || true
 
-    # Agent Rule Symlinks
-    # Ensure global AGENTS.md is accessible in common mount points.
-    # Creates AGENTS.md, CLAUDE.md, GEMINI.md symlinks (all pointing to
-    # /home/construct/AGENTS.md) at:
-    #   /workspaces/<name>   (mount root + one level deep)
-    #   /projects/           (mount root only, no subdirectories)
-    # Never overwrite a pre-existing real (non-symlink) file.
+    # Agent Rule Aliases (container-internal only)
+    # Create CLAUDE.md + GEMINI.md symlinks alongside AGENTS.md inside
+    # /home/construct/ so common agent config names all resolve.
+    # We do NOT create symlinks in /workspaces/ or /projects/ — those
+    # are host bind mounts and would leak dangling symlinks onto the host.
     if [ -f /home/construct/AGENTS.md ]; then
-        maybe_symlink() {
-            local dir="$1"
-            local name
-            for name in AGENTS.md CLAUDE.md GEMINI.md; do
-                local target="${dir}${name}"
-                if [ -e "$target" ] && [ ! -L "$target" ]; then
-                    continue
-                fi
-                ln -sf /home/construct/AGENTS.md "$target" 2>/dev/null || true
-            done
-        }
-
-        # /home/construct/ itself (only CLAUDE.md + GEMINI.md; AGENTS.md is the source)
         for name in CLAUDE.md GEMINI.md; do
             target="/home/construct/${name}"
             if [ -e "$target" ] && [ ! -L "$target" ]; then
@@ -71,21 +56,6 @@ if [ "$(id -u)" = "0" ]; then
             fi
             ln -sf /home/construct/AGENTS.md "$target" 2>/dev/null || true
         done
-
-        # /workspaces/ root + one-level-deep only
-        if [ -d /workspaces ]; then
-            maybe_symlink /workspaces/
-            for d in /workspaces/*/ ; do
-                if [ -d "$d" ]; then
-                    maybe_symlink "$d"
-                fi
-            done
-        fi
-
-        # /projects/ root only (no subdirectories)
-        if [ -d /projects ]; then
-            maybe_symlink /projects/
-        fi
     fi
 
     # Patch /etc/profile to preserve PATH
