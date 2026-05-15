@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.7 -->
+## [1.8.7] - 2026-05-15
+
+### Fixed
+- **Yolo Mode Ignored on Cold-Start**: Config values (`yolo_all`, `yolo_agents`) from `config.toml` were not applied when running agents via the cold-start (non-daemon) path. Root cause: `Execute()` applied yolo flags to a local variable, but `runNewContainer()` discarded its `args` parameter (`_`) and read `e.args` directly from the struct. The daemon path worked because it passed yolo-applied args directly. Fixed by writing yolo results back to `e.args` and removing the dead parameter from `runNewContainer()`.
+
 <!-- RELEASE:START 1.8.6 -->
 ## [1.8.6] - 2026-05-14
 
