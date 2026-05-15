@@ -160,7 +160,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	}
 
 	// 2. Direct Container Path
-	args := applyYoloArgs(baseArgs, e.cfg)
+	e.args = applyYoloArgs(baseArgs, e.cfg)
 	containerName := "construct-cli"
 	state := runtime.GetContainerState(e.containerRuntime, containerName)
 
@@ -172,7 +172,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 			return 0, nil // Canceled
 		}
 		if choice == "attach" {
-			return e.execInRunningContainer(args, containerName, mergedProviderEnv)
+			return e.execInRunningContainer(e.args, containerName, mergedProviderEnv)
 		}
 		// Continue to "Stop and Restart"
 		_ = runtime.StopContainer(e.containerRuntime, containerName)          //nolint:errcheck
@@ -185,7 +185,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	// 3. Final Build & Run
 	e.ensureImageExists()
-	return e.runNewContainer(args, containerName, mergedProviderEnv)
+	return e.runNewContainer(containerName, mergedProviderEnv)
 }
 
 // Teardown cleans up resources used by the engine.
@@ -446,7 +446,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	return execInteractiveAsUserFn(e.containerRuntime, containerName, args, envVars, "", execUser)
 }
 
-func (e *RuntimeEngine) runNewContainer(_ []string, containerName string, providerEnv []string) (int, error) {
+func (e *RuntimeEngine) runNewContainer(containerName string, providerEnv []string) (int, error) {
 	runFlags := []string{"--name", containerName}
 	e.buildRunFlags(&runFlags, providerEnv)
 
