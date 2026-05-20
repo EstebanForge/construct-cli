@@ -9,7 +9,7 @@ RUN useradd -m -s /bin/bash construct && \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \
     libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
-    xdg-utils && \
+    gnome-keyring libsecret-1-0 dbus-x11 xdg-utils && \
     rm -rf /var/lib/apt/lists/*
 
 # Allow construct user to run privileged commands without password

@@ -107,6 +107,28 @@ if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
     echo "✓ Started SSH Agent proxy"
 fi
 
+# Start gnome-keyring-daemon for persistent secret storage (used by agy and other agents).
+# Stores secrets in ~/.local/share/keyrings/ which persists across container restarts
+# (home dir is bind-mounted from host at ~/.config/construct-cli/home).
+# Pre-seed directory and unlock with blank password so agents never get prompted.
+if command -v gnome-keyring-daemon >/dev/null 2>&1; then
+    KEYRING_DIR="$HOME/.local/share/keyrings"
+    mkdir -p "$KEYRING_DIR"
+    # First run: create a default alias pointing to the login keyring
+    if [ ! -f "$KEYRING_DIR/default" ]; then
+        echo "login" > "$KEYRING_DIR/default"
+    fi
+    # Start D-Bus session bus if not present (gnome-keyring requires it)
+    if [ -z "$DBUS_SESSION_BUS_ADDRESS" ] && command -v dbus-launch >/dev/null 2>&1; then
+        eval "$(dbus-launch --sh-syntax)"
+        export DBUS_SESSION_BUS_ADDRESS
+        export DBUS_SESSION_BUS_PID
+    fi
+    # --start begins the daemon; --unlock reads blank password from stdin for unattended unlock
+    eval "$(printf '\n' | gnome-keyring-daemon --start --unlock --components=secrets 2>/tmp/keyring-start.log)"
+    export GNOME_KEYRING_CONTROL
+fi
+
 # Ensure all required paths are in PATH
 # NOTE: Keep this PATH list in sync with:
 # - internal/env/env.go (BuildConstructPath)
@@ -180,6 +202,12 @@ export PATH="$CONSTRUCT_PATH"
 export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:\$LD_LIBRARY_PATH"
 export NODE_NO_WARNINGS=1
 export CGO_ENABLED="${CGO_ENABLED:-1}"
+if [ -n "\$GNOME_KEYRING_CONTROL" ]; then
+  export GNOME_KEYRING_CONTROL
+fi
+if [ -n "\$DBUS_SESSION_BUS_ADDRESS" ]; then
+  export DBUS_SESSION_BUS_ADDRESS
+fi
 EOF
 
 profile_file="$HOME/.profile"
@@ -344,6 +372,29 @@ EOF
             echo "# Alias support"
             echo 'test -f ~/.bash_aliases && . ~/.bash_aliases'
         } >> "$HOME/.bashrc"
+    fi
+
+    # 3. Ensure non-login shells (docker exec) inherit keyring and D-Bus vars.
+    #    .profile only sources .construct-path.sh for login shells.
+    if [ -n "$GNOME_KEYRING_CONTROL" ]; then
+        if ! grep -q "GNOME_KEYRING_CONTROL" "$HOME/.bashrc" 2>/dev/null; then
+            {
+                echo ""
+                echo "# gnome-keyring (non-login shell inheritance)"
+                echo "export GNOME_KEYRING_CONTROL=\"${GNOME_KEYRING_CONTROL}\""
+            } >> "$HOME/.bashrc"
+        else
+            sed -i "s|export GNOME_KEYRING_CONTROL=.*|export GNOME_KEYRING_CONTROL=\"${GNOME_KEYRING_CONTROL}\"|" "$HOME/.bashrc" 2>/dev/null
+        fi
+    fi
+    if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then
+        if ! grep -q "DBUS_SESSION_BUS_ADDRESS" "$HOME/.bashrc" 2>/dev/null; then
+            {
+                echo "export DBUS_SESSION_BUS_ADDRESS=\"${DBUS_SESSION_BUS_ADDRESS}\""
+            } >> "$HOME/.bashrc"
+        else
+            sed -i "s|export DBUS_SESSION_BUS_ADDRESS=.*|export DBUS_SESSION_BUS_ADDRESS=\"${DBUS_SESSION_BUS_ADDRESS}\"|" "$HOME/.bashrc" 2>/dev/null
+        fi
     fi
 }
 setup_shell_environment

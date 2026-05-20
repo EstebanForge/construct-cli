@@ -5,6 +5,12 @@ All notable changes to Construct CLI will be documented in this file.
 <!-- RELEASE:START unreleased -->
 ## [Unreleased]
 
+<!-- RELEASE:START 1.8.10 -->
+## [1.8.10] - 2026-05-20
+
+### Fixed
+- **Agent Credential Persistence**: Added `gnome-keyring`, `libsecret-1-0`, and `dbus-x11` to the container image, with automatic daemon startup in the entrypoint. Agents (e.g., `agy`) that rely on the OS keyring for OAuth tokens now persist credentials across container restarts. Previously, every session required a fresh login.
+
 <!-- RELEASE:START 1.8.9 -->
 ## [1.8.9] - 2026-05-20
 
