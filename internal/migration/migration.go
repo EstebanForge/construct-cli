@@ -597,10 +597,39 @@ func mergePackagesFile() error {
 	return nil
 }
 
+// collectSessionContainers discovers daemon + all CWD-derived session containers
+// for the given runtime. CWD-derived containers use the naming pattern
+// "construct-cli-<hash>" so we discover them via prefix filter.
+func collectSessionContainers(containerRuntime string) []string {
+	names := []string{"construct-cli-daemon"}
+	// The Apple container runtime ("container") uses docker-compatible CLI commands
+	runtimeBin := "docker"
+	if containerRuntime == "podman" {
+		runtimeBin = "podman"
+	}
+	cmd := exec.Command(runtimeBin, "ps", "-aq", "--filter", "name=construct-cli-", "--format", "{{.Names}}")
+	output, err := cmd.Output()
+	if err == nil {
+		for _, name := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			if name != "" && name != "construct-cli-daemon" {
+				names = append(names, name)
+			}
+		}
+	}
+	// Legacy singleton container (pre-CWD-naming)
+	checkState := exec.Command(runtimeBin, "ps", "-aq", "--filter", "name=^construct-cli$", "--format", "{{.Names}}")
+	legacyOut, legacyErr := checkState.Output()
+	if legacyErr == nil {
+		legacyName := strings.TrimSpace(string(legacyOut))
+		if legacyName == "construct-cli" {
+			names = append(names, "construct-cli")
+		}
+	}
+	return names
+}
+
 // markImageForRebuild stops containers and removes the old image to force rebuild
 func markImageForRebuild() {
-	// Include both regular container and daemon container
-	containerNames := []string{"construct-cli", "construct-cli-daemon"}
 	imageName := "construct-box:latest"
 
 	if ui.GumAvailable() {
@@ -611,7 +640,7 @@ func markImageForRebuild() {
 
 	// Try docker
 	if _, err := exec.LookPath("docker"); err == nil {
-		for _, containerName := range containerNames {
+		for _, containerName := range collectSessionContainers("docker") {
 			// Stop container (errors are OK - might not be running)
 			if err := exec.Command("docker", "stop", containerName).Run(); err != nil {
 				ui.LogDebug("Failed to stop container %s: %v", containerName, err)
@@ -629,7 +658,7 @@ func markImageForRebuild() {
 
 	// Try podman
 	if _, err := exec.LookPath("podman"); err == nil {
-		for _, containerName := range containerNames {
+		for _, containerName := range collectSessionContainers("podman") {
 			if err := exec.Command("podman", "stop", containerName).Run(); err != nil {
 				ui.LogDebug("Failed to stop container %s: %v", containerName, err)
 			}
@@ -644,7 +673,7 @@ func markImageForRebuild() {
 
 	// Try Apple container (macOS 26+)
 	if _, err := exec.LookPath("container"); err == nil {
-		for _, containerName := range containerNames {
+		for _, containerName := range collectSessionContainers("container") {
 			// Apple container uses different commands:
 			// - container stop (not docker stop)
 			// - container rm (not docker rm)

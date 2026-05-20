@@ -1889,6 +1889,35 @@ func BuildComposeCommand(containerRuntime, configPath, subCommand string, args [
 	return cmd, nil
 }
 
+// ListContainersByPrefix returns container names matching a name prefix across all
+// states (running, exited, etc.). Used for cleanup of CWD-derived containers
+// where the exact name is not known at compile time.
+func ListContainersByPrefix(containerRuntime, prefix string) []string {
+	var cmd *exec.Cmd
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", "ps", "-aq", "--filter", fmt.Sprintf("name=%s", prefix), "--format", "{{.Names}}")
+	case "podman":
+		cmd = exec.Command("podman", "ps", "-aq", "--filter", fmt.Sprintf("name=%s", prefix), "--format", "{{.Names}}")
+	default:
+		return nil
+	}
+
+	output, err := cmd.Output()
+	if err != nil {
+		return nil
+	}
+
+	var names []string
+	for _, name := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
 // GetPlatformRunFlags returns platform-specific flags for the 'run' command
 func GetPlatformRunFlags() []string {
 	if runtime.GOOS == "linux" {

@@ -66,17 +66,16 @@ func AddRule(target, action string) {
 
 	// 6. Apply to running container if exists
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
-	containerName := "construct-cli"
-
-	if runtime.IsContainerRunning(containerRuntime, containerName) {
+	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := ApplyRuleToContainer(containerRuntime, containerName,
 			target, action, resolvedIPs); err != nil {
-			ui.GumWarning("Could not apply to running container")
+			ui.GumWarning(fmt.Sprintf("Could not apply to container '%s'", containerName))
 			fmt.Println("   Rule will apply on next container start")
 		} else {
-			ui.GumSuccess("Applied to running container immediately")
+			ui.GumSuccess(fmt.Sprintf("Applied to container '%s' immediately", containerName))
 		}
-	} else {
+	}
+	if len(runningSessionContainers(containerRuntime)) == 0 {
 		ui.GumInfo("No running container. Rule will apply on next start.")
 	}
 }
@@ -131,16 +130,15 @@ func RemoveRule(target string) {
 
 	// 4. Remove from running container if exists
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
-	containerName := "construct-cli"
-
-	if runtime.IsContainerRunning(containerRuntime, containerName) {
+	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := RemoveRuleFromContainer(containerRuntime, containerName, target); err != nil {
-			ui.GumWarning("Could not remove from running container")
+			ui.GumWarning(fmt.Sprintf("Could not remove from container '%s'", containerName))
 			fmt.Println("   Rule will be removed on next container start")
 		} else {
-			ui.GumSuccess("Removed from running container immediately")
+			ui.GumSuccess(fmt.Sprintf("Removed from container '%s' immediately", containerName))
 		}
-	} else {
+	}
+	if len(runningSessionContainers(containerRuntime)) == 0 {
 		ui.GumInfo("No running container. Rule will be removed on next start.")
 	}
 }
@@ -301,13 +299,15 @@ func ShowStatus() {
 		os.Exit(1)
 	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
-	containerName := "construct-cli"
+	containers := runningSessionContainers(containerRuntime)
 
-	if !runtime.IsContainerRunning(containerRuntime, containerName) {
+	if len(containers) == 0 {
 		ui.GumWarning("Container is not running")
 		fmt.Println("Start an agent to see active network status")
 		os.Exit(1)
 	}
+
+	containerName := containers[0]
 
 	fmt.Println("=== Active UFW Status in Container ===")
 	fmt.Println()
@@ -665,4 +665,20 @@ func ExecUFWCommand(containerRuntime, containerName, command, arg string) error 
 	}
 
 	return nil
+}
+
+// runningSessionContainers returns all running session containers (CWD-derived
+// names like construct-cli-<hash> plus the legacy singleton construct-cli).
+func runningSessionContainers(containerRuntime string) []string {
+	var names []string
+	for _, name := range runtime.ListContainersByPrefix(containerRuntime, "construct-cli-") {
+		if name != "construct-cli-daemon" && runtime.IsContainerRunning(containerRuntime, name) {
+			names = append(names, name)
+		}
+	}
+	// Legacy singleton container
+	if runtime.IsContainerRunning(containerRuntime, "construct-cli") {
+		names = append(names, "construct-cli")
+	}
+	return names
 }

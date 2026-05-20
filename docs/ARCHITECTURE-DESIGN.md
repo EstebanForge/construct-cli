@@ -94,7 +94,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
 - **Mounts**:
-  - Ephemeral runs: host project directory → `/projects/<folder_name>`.
+  - Ephemeral runs: host project directory → `/projects/<folder_name>`. Each CWD gets its own container (`construct-cli-<hash>`) derived from `sha256(cwd)[:8]`.
   - Daemon runs with `daemon.multi_paths_enabled = true`: host paths mount under deterministic roots at `/workspaces/<hash>/...` and the runtime maps the current host `cwd` into that tree.
   - Host config/agents mount under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
 - **Isolation**: Each agent run is isolated within its container; only the active project/workspace mount (`/projects/...` or `/workspaces/...`) bridges host project files.
@@ -258,7 +258,7 @@ Self-update checks the configured channel marker file (`VERSION` or `VERSION-BET
 Construct supports an optional daemon mode that keeps a background container running for instant agent execution (~100ms startup vs 2-5s for cold start).
 
 **Daemon Container Architecture:**
-- **Container name**: `construct-cli-daemon` (distinct from ephemeral `construct-cli` containers)
+- **Container name**: `construct-cli-daemon` (distinct from ephemeral CWD-derived session containers)
 - **Image**: Shares the same `construct-box:latest` image
 - **Lifecycle**: Managed via `daemon start|stop|attach|status` commands
 - **Execution**: Uses `docker exec` instead of `docker-compose run` for instant startup
@@ -302,7 +302,7 @@ mount_paths = ["~/Dev/Projects", "/work/client-repos"]
   - Logs via systemd journal
 
 **Upgrade Safety:**
-- Migration system stops and removes both `construct-cli` and `construct-cli-daemon` containers during template updates
+- Migration system stops and removes `construct-cli-daemon` and all CWD-derived session containers (`construct-cli-*`) during template updates
 - Staleness detection compares container image ID against current image; warns user if daemon is outdated
 - User can manually restart daemon: `construct sys daemon stop && construct sys daemon start`
 
@@ -474,7 +474,7 @@ if isDaemonStale(containerRuntime, daemonName) {
 
 **Implemented in this version:**
 
-1. **Migration fix (Option A):** `markImageForRebuild()` in `internal/migration/migration.go` now stops/removes both `construct-cli` and `construct-cli-daemon` containers during upgrades.
+1. **Migration fix (Option A):** `markImageForRebuild()` in `internal/migration/migration.go` now discovers and removes `construct-cli-daemon` plus all CWD-derived session containers (`construct-cli-<hash>`) during upgrades.
 
 2. **Daemon staleness detection (Option B):** `IsContainerStale()` function in `internal/runtime/runtime.go` compares container's image ID against current image. If stale, warns user and falls back to normal startup path.
 
