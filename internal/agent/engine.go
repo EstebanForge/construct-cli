@@ -819,7 +819,9 @@ func yoloFlagForAgent(agent string) (string, bool) {
 		return "--dangerously-skip-permissions", true
 	case "copilot":
 		return "--allow-all-tools", true
-	case "agy", "codex", "qwen", "cline", "kilocode", "crush":
+	case "agy":
+		return "--dangerously-skip-permissions", true
+	case "codex", "qwen", "cline", "kilocode", "crush":
 		return "--yolo", true
 	default:
 		return "", false
