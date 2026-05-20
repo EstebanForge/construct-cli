@@ -1211,7 +1211,7 @@ func TestYoloFlagForAgent(t *testing.T) {
 	}{
 		{"claude", "--dangerously-skip-permissions", true},
 		{"copilot", "--allow-all-tools", true},
-		{"agy", "--yolo", true},
+		{"agy", "--dangerously-skip-permissions", true},
 		{"codex", "--yolo", true},
 		{"qwen", "--yolo", true},
 		{"cline", "--yolo", true},
@@ -1327,18 +1327,18 @@ func TestApplyYoloArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("agy gets --yolo", func(t *testing.T) {
+	t.Run("agy gets --dangerously-skip-permissions", func(t *testing.T) {
 		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
 		args := []string{"agy"}
 		got := applyYoloArgs(args, cfg)
-		if len(got) != 2 || got[1] != "--yolo" {
-			t.Fatalf("expected --yolo injected, got %v", got)
+		if len(got) != 2 || got[1] != "--dangerously-skip-permissions" {
+			t.Fatalf("expected --dangerously-skip-permissions injected, got %v", got)
 		}
 	})
 
 	t.Run("flag not duplicated if already present", func(t *testing.T) {
 		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
-		args := []string{"agy", "--yolo"}
+		args := []string{"agy", "--dangerously-skip-permissions"}
 		got := applyYoloArgs(args, cfg)
 		if len(got) != 2 {
 			t.Fatalf("expected no duplicate flag, got %v", got)
