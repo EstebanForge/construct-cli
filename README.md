@@ -30,12 +30,14 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 
 ## Available AGENTS
 
-- **Claude Code** (`claude`) – Full-code agent with strong editing/refactoring
-- **Antigravity CLI** (`agy`) – Google Antigravity models with CLI UX
-- **Qwen Code** (`qwen`) – Alibaba Qwen models tuned for coding
-- **GitHub Copilot CLI** (`copilot`) – GitHub Copilot with terminal helpers
-- **Crush CLI** (`crush`) – Charmbracelet Crush coding agent
-- **Pi Coding Agent** (`pi`) – General-purpose coding assistant
+- **Codex CLI** (`codex`) – OpenAI's premier coding agent for GPT models
+- **Antigravity CLI** (`agy`) – Google's premier code agent for Gemini models
+- **Claude Code** (`claude`) – Anthropic's premier coding agent for Claude models
+- **GitHub Copilot CLI** (`copilot`) – GitHub Copilot code agent with access to all Copilot supported models
+- **Pi Coding Agent** (`pi`) – Earendil Works minimal extensible coding agent
+- **OpenCode** (`opencode`) – OpenCode's coding agent, fast and full of open weights models
+- **Qwen Code** (`qwen`) – Alibaba's coding agent for Qwen models
+- **Crush CLI** (`crush`) – Charmbracelet's coding agent
 - **Claude Code** with other providers: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo
 - [Full agent list →](docs/AGENTS.md)
 
