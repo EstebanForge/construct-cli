@@ -2,53 +2,53 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-<!-- RELEASE:START unreleased -->
-## [Unreleased]
-
-<!-- RELEASE:START 1.8.10 -->
-## [1.8.10] - 2026-05-20
-
-### Fixed
-- **Agent Credential Persistence**: Added `gnome-keyring`, `libsecret-1-0`, and `dbus-x11` to the container image, with automatic daemon startup in the entrypoint. Agents (e.g., `agy`) that rely on the OS keyring for OAuth tokens now persist credentials across container restarts. Previously, every session required a fresh login.
-
-<!-- RELEASE:START 1.8.9 -->
-## [1.8.9] - 2026-05-20
+<!-- RELEASE:START 1.8.11 -->
+## [1.8.11] - 2026-05-20
 
 ### Added
 - **Antigravity Update Integration**: Added `agy update` integration to the dynamic Topgrade generator (`packages.go`), `topgrade.toml` template, and the manual system update fallback script (`update-all.sh`).
 
 ### Fixed
 - **Yolo Configuration for agy**: Fixed yolo settings (`yolo_all` and `yolo_agents`) to correctly apply the `--dangerously-skip-permissions` flag when initializing the `agy` agent.
+- **Agent Credential Persistence**: Added `gnome-keyring`, `libsecret-1-0`, and `dbus-x11` to the container image, with automatic daemon startup in the entrypoint. Agents (e.g., `agy`) that rely on the OS keyring for OAuth tokens now persist credentials across container restarts. Previously, every session required a fresh login.
+- **Keyring Daemon Startup**: Fixed `gnome-keyring-daemon` invocation in the entrypoint. The `--start` and `--unlock` flags are mutually exclusive and caused the daemon to silently fail, leaving the keyring locked. Changed to `--unlock --components=secrets` which both starts the daemon and unlocks the login keyring with a blank password.
+- **Keyring Env Vars Not Reaching Agents**: `docker exec` runs agents directly (no shell), so `.bashrc`/`.profile` are never sourced and `GNOME_KEYRING_CONTROL`/`DBUS_SESSION_BUS_ADDRESS` were invisible to agent binaries. agy's keyring auth timed out after 1s, fell back to browser OAuth, and hung. Fixed by having the entrypoint write these vars to `~/.construct-keyring-env`, which the Go CLI reads from the host-side bind mount and injects via `-e` flags on every `docker exec`.
+<!-- RELEASE:END 1.8.11 -->
 
 <!-- RELEASE:START 1.8.8 -->
 ## [1.8.8] - 2026-05-20
 
 ### Changed
 - **Replaced Gemini CLI with Antigravity CLI**: Replaced `gemini` agent (Google Gemini CLI, npm-installed) with `agy` agent (Google Antigravity CLI, curl-installed from `https://antigravity.google/cli/install.sh`). Binary lands at `~/.local/bin/agy`. Removed Gemini-specific clipboard paste wrapper (~220 lines of Python PTY code). Renamed `GEMINI_API_KEY` to `ANTIGRAVITY_API_KEY` throughout source, templates, and docs. Updated agent registration, memory paths, constants, env passthrough, runtime candidates, wayland/yolo flags, help text, aliases, verification loops, and all documentation.
+<!-- RELEASE:END 1.8.8 -->
 
 <!-- RELEASE:START 1.8.7 -->
 ## [1.8.7] - 2026-05-15
 
 ### Fixed
 - **Yolo Mode Ignored on Cold-Start**: Config values (`yolo_all`, `yolo_agents`) from `config.toml` were not applied when running agents via the cold-start (non-daemon) path. Root cause: `Execute()` applied yolo flags to a local variable, but `runNewContainer()` discarded its `args` parameter (`_`) and read `e.args` directly from the struct. The daemon path worked because it passed yolo-applied args directly. Fixed by writing yolo results back to `e.args` and removing the dead parameter from `runNewContainer()`.
+<!-- RELEASE:END 1.8.7 -->
 
 <!-- RELEASE:START 1.8.6 -->
 ## [1.8.6] - 2026-05-14
 
 ### Fixed
 - **Global AGENTS.md Symlinks Leaked onto Host**: Removed creation of `AGENTS.md`, `CLAUDE.md`, and `GEMINI.md` symlinks in `/workspaces/` and `/projects/`. These directories are host bind mounts, so symlinks pointing to the container-internal `/home/construct/AGENTS.md` leaked onto the host filesystem as dangling links. Symlink aliases are now created only inside `/home/construct/` (container-internal). Existing dangling symlinks on the host must be cleaned up manually.
+<!-- RELEASE:END 1.8.6 -->
 
 <!-- RELEASE:START 1.8.5 -->
 ## [1.8.5] - 2026-05-12
 
 ### Fixed
 - **AGENTS.md Symlink Scope**: Fixed symlinks being created at every directory level (including project subdirectories), which overwrote pre-existing AGENTS.md files. Symlinks are now created only at `/workspaces/`, `/workspaces/<hash>/`, and `/projects/`. Pre-existing real files are never overwritten. Now also creates `CLAUDE.md` and `GEMINI.md` symlinks alongside `AGENTS.md`, all pointing to the global rules file.
+<!-- RELEASE:END 1.8.5 -->
 
 <!-- RELEASE:START 1.8.4 -->
 ## [1.8.4] - 2026-05-11
 
 ### Added
 - **Global AGENTS.md Symlinks**: Automatically creates symlinks to the global `AGENTS.md` rules file in common mount points (`/workspaces/`, `/projects/`) and their subdirectories. This ensures agents can easily discover global instructions regardless of the project's mount path or random daemon hash.
+<!-- RELEASE:END 1.8.4 -->
 
 <!-- RELEASE:START 1.8.3 -->
 ## [1.8.3] - 2026-05-09
@@ -73,12 +73,14 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Optimized
 - **Fast Agent Startup (Patch Marker)**: Implemented a versioned marker-based guard (`~/.construct_patched`) to skip redundant agent clipboard patching on startup. This significantly reduces latency when entering a shell or launching an agent in a warm daemon container. Patching is now only re-triggered after Construct version changes or package installations.
+<!-- RELEASE:END 1.8.3 -->
 
 <!-- RELEASE:START 1.8.2 -->
 ## [1.8.2] - 2026-05-09
 
 ### Fixed
 - **Daemon shell with no args**: `execViaDaemon` now defaults to the configured shell (`sandbox.shell` or `/bin/bash`) when invoked without arguments, matching the existing behavior of `execInRunningContainer`. Previously, `ct sys shell` passed an empty command to `docker exec`, causing "requires at least 2 arguments" error.
+<!-- RELEASE:END 1.8.2 -->
 
 <!-- RELEASE:START 1.8.1 -->
 ## [1.8.1] - 2026-05-09
@@ -94,6 +96,7 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Removed
 - **Dead code cleanup**: Removed unused `containerHasUIDEntryFn` variable, dead `execUserForAgentExec` function (never called from production), and stale test mocks that referenced removed behavior.
+<!-- RELEASE:END 1.8.1 -->
 
 <!-- RELEASE:START 1.8.0 -->
 ## [1.8.0] - 2026-05-08
@@ -120,7 +123,6 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Removed
 - **~29 Helper Functions from runner.go**: Removed `collectForwardedEnv`, `buildRunFlags`, `shouldEnableLoginForward`, `applyYoloArgs`, `applyConstructPath`, `execUserForAgentExec`, `appendExecUserRunFlags`, `resolveExecUserForRunningContainer`, `shouldEnableYolo`, `yoloFlagForAgent`, `readLoginBridgePorts`, `parsePorts`, `formatPorts`, `mapDaemonWorkdir`, `warnDaemonMountFallback`, `getEffectiveCwd`, `execViaDaemon`, `runAgentPatchInDaemon`, `buildDaemonExecEnv`, `execInRunningContainer`, `startDaemonSSHBridge`, `ensureDaemonSSHProxy`, `waitForDaemonSSHProxy`, `checkDaemonSSHProxy`, `startDaemonBackground`, `waitForDaemon`, `ensureAgentRuntimeDirs`, `appendAgentSpecificRunFlags`, `appendAgentSpecificDaemonEnv`, and `appendAgentSpecificExecEnv`. All behavior preserved in `RuntimeEngine`.
-
 <!-- RELEASE:END 1.8.0 -->
 ---
 
