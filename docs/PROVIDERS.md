@@ -180,7 +180,7 @@ Construct automatically forwards common provider keys:
 
 - `ANTHROPIC_API_KEY` - Official Anthropic API
 - `OPENAI_API_KEY` - OpenAI API key
-- `GEMINI_API_KEY` - Google Gemini API key
+- `ANTIGRAVITY_API_KEY` - Google Antigravity API key
 - `OPENROUTER_API_KEY` - OpenRouter API key
 - `ZAI_API_KEY` - Zai API key
 - `OPENCODE_API_KEY` - OpenCode API key

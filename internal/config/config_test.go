@@ -36,7 +36,7 @@ blocked_ips = []
 
 [agents]
 yolo_all = false
-yolo_agents = ["claude", "gemini"]
+yolo_agents = ["claude", "agy"]
 clipboard_image_patch = false
 
 `
@@ -99,7 +99,7 @@ clipboard_image_patch = false
 		t.Error("Expected yolo_all to be false")
 	}
 	if len(config.Agents.YoloAgents) != 2 || config.Agents.YoloAgents[0] != "claude" {
-		t.Errorf("Expected yolo_agents to contain claude and gemini")
+		t.Errorf("Expected yolo_agents to contain claude and agy")
 	}
 	if config.Agents.ClipboardImagePatch {
 		t.Error("Expected clipboard_image_patch to be false")
@@ -202,7 +202,7 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	}
 	expectedEnvPassthrough := []string{
 		"GITHUB_TOKEN",
-		"GEMINI_API_KEY",
+		"ANTIGRAVITY_API_KEY",
 		"OPENAI_API_KEY",
 		"ANTHROPIC_API_KEY",
 		"QWEN_API_KEY",

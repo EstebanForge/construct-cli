@@ -42,9 +42,9 @@ bin/
 # Test artifacts
 test-results/
 .test-cache/
-/gemini-cli-main
+# /gemini-cli-main removed (replaced by Antigravity CLI)
 /qwen-code-main
-/.gemini-clipboard
+# /.gemini-clipboard removed (replaced by Antigravity CLI)
 /reference-only-codex-main
 /.construct-clipboard
 /.gocache

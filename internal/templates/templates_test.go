@@ -66,7 +66,7 @@ func TestEmbeddedTemplates(t *testing.T) {
 	}
 	defaultPassthroughKeys := []string{
 		`"GITHUB_TOKEN"`,
-		`"GEMINI_API_KEY"`,
+		`"ANTIGRAVITY_API_KEY"`,
 		`"OPENAI_API_KEY"`,
 		`"ANTHROPIC_API_KEY"`,
 		`"QWEN_API_KEY"`,
@@ -175,7 +175,7 @@ func TestEmbeddedTemplates(t *testing.T) {
 	aliasFragments := []string{
 		"# Agent Rule Aliases",
 		"ln -sf /home/construct/AGENTS.md",
-		"for name in CLAUDE.md GEMINI.md; do",
+		"for name in CLAUDE.md; do",
 		"host bind mounts and would leak dangling symlinks",
 	}
 	for _, fragment := range aliasFragments {

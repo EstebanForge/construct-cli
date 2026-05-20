@@ -6,7 +6,7 @@ const (
 	AppName          = "construct"
 	ConfigDir        = ".config/construct-cli"
 	ImageName        = "construct-box"
-	Version          = "1.8.7"
+	Version          = "1.8.8"
 	GithubAPIURL     = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
 	GithubRawURL     = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
 	GithubRawBetaURL = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION-BETA"
@@ -18,4 +18,4 @@ const (
 // instead of raw bytes. These agents receive "@path/to/image.png" instead of binary data.
 // Claude and Copilot use raw-bytes mode: their clipboard modules expect actual PNG data,
 // not a file path reference.
-const FileBasedPasteAgents = "gemini,qwen,codex"
+const FileBasedPasteAgents = "qwen,codex"

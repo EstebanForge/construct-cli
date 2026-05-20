@@ -68,3 +68,11 @@ Reverse the steps above: remove the package from `packages.toml`, unregister fro
   - Command: `npm install -g @charmland/crush` (run as `crush`)
   - Rules path: `~/.config/crush/AGENTS.md`
   - Files updated: `internal/templates/packages.toml`, `internal/agent/agent.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `internal/templates/update-all.sh`, `internal/config/packages.go`, `internal/agent/runner.go`, `internal/templates/config.toml`, `README.md`, `docs/ARCHITECTURE-DESIGN.md`
+- Antigravity CLI (replaced Gemini CLI)
+  - Command: `curl -fsSL https://antigravity.google/cli/install.sh | bash` (run as `agy`)
+  - Rules path: `~/.antigravity/AGENTS.md`
+  - Binary: `~/.local/bin/agy`
+  - Install method: curl (not npm)
+  - Files updated: All Go source files (agent, sys, constants, env, config, runtime, engine, help, shell, packages, tests), all shell templates (entrypoint, update-all, agent-patch, config.toml, clipper, packages.toml), all docs (README, AGENTS, ARCHITECTURE-DESIGN, CONFIGURATION, CLIPBOARD, TODO, PROVIDERS), .gitignore
+  - Removed: `patch_gemini_paste_wrapper()` function from agent-patch.sh (~220 lines), GEMINI.md symlink from entrypoint.sh, `@google/gemini-cli` from packages.toml npm section, `gemini-cli-main` and `.gemini-clipboard` from .gitignore
+  - Renamed: `GEMINI_API_KEY` → `ANTIGRAVITY_API_KEY` throughout

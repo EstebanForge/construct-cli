@@ -33,7 +33,7 @@ IS_OUTPUT_MODE=false
 REQUESTED_TARGETS=false
 PATH_AGENT=false
 
-FILE_PASTE_AGENTS="${CONSTRUCT_FILE_PASTE_AGENTS:-gemini,qwen,codex,claude,copilot}"
+FILE_PASTE_AGENTS="${CONSTRUCT_FILE_PASTE_AGENTS:-qwen,codex,claude,copilot}"
 if [[ ",$FILE_PASTE_AGENTS," == *",$AGENT_NAME,"* ]]; then
     PATH_AGENT=true
 fi

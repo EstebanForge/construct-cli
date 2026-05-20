@@ -26,7 +26,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
-- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`gemini-cli`, `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@charmland/crush`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`, `worktrunk`).
+- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Swift, Zig, Kotlin, Lua, Ruby, Dart, Perl, Erlang, etc.), and agents/tools (`agy` (Antigravity CLI), `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@charmland/crush`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`, `worktrunk`).
 
 ---
 
@@ -108,7 +108,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 
 ## 5. Agents (installed in container)
 - claude (Claude Code) - with configurable provider support
-- gemini (Gemini CLI)
+- agy (Antigravity CLI)
 - amp (Amp CLI)
 - qwen (Qwen Code)
 - copilot (GitHub Copilot CLI)
@@ -196,7 +196,7 @@ make cross-compile   # all platforms
 ## 8. UX Notes
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
-- `aliases --install`: One-step command to add `claude`, `gemini`, etc., and `cc-*` aliases to host shell.
+- `aliases --install`: One-step command to add `claude`, `agy`, etc., and `cc-*` aliases to host shell.
 - `aliases --update`: Reinstall/update host aliases if they already exist.
 - `aliases --uninstall`: Remove Construct alias block from host shell.
 - `sys check-update`: Manual command to check for new versions.
@@ -333,11 +333,11 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
   - Uses ephemeral authentication tokens injected into the container via environment variables (`CONSTRUCT_CLIPBOARD_TOKEN`).
 - **In-Container Shimming**:
   - **Binary Interception**: System-wide shims for `xclip`, `xsel`, and `wl-paste` redirect all clipboard calls to the bridge script (`clipper`).
-  - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Gemini/Qwen's `clipboardy` dependency).
+  - **Dependency Shimming**: `entrypoint.sh` recursively finds and shims bundled clipboard binaries inside `node_modules` (e.g., Qwen's `clipboardy` dependency).
 - **Tool Mocks**: A fake `osascript` shim allows macOS-centric agents to use their native "save image" logic while running on Linux.
 - **Dynamic Content Bridging**:
   - **Image-First Behavior**: The bridge always attempts to fetch image data first; if present, it returns resized/normalized image bytes for most agents.
-  - **Agent-Specific Paths**: Gemini and Qwen receive an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
+  - **Agent-Specific Paths**: Qwen receives an `@path` pointing to `.construct-clipboard/` instead of raw bytes; text is returned only when no image is available.
   - **Runtime Patching**: `agent-patch.sh` patches agent source code at session start to bypass `process.platform !== 'darwin'` checks that would otherwise disable clipboard support on Linux. It also replaces `@teddyzhu/clipboard`'s native NAPI-RS addon with a pure-JS HTTP bridge for agents that use that library.
 - **Copilot PTY Wrapper** (primary Copilot image paste path):
   - Copilot's native clipboard addon fails in headless containers; its Ink TUI paste handler never fires reliably over a Docker PTY. The JS bridge and keybinding patches are applied as a fallback layer but are not the primary mechanism.
@@ -396,8 +396,8 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
 **Opportunity:** Keep container warm in background. Agent execution becomes `docker exec` (~100ms) instead of `docker-compose run` (~3s).
 
 ```
-Current:  ct gemini  →  compose run  →  entrypoint  →  gemini
-Proposed: ct gemini  →  docker exec  →  gemini (container already running)
+Current:  ct agy  →  compose run  →  entrypoint  →  agy
+Proposed: ct agy  →  docker exec  →  agy (container already running)
 ```
 
 **Implementation:**

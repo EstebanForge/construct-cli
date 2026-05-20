@@ -10,7 +10,7 @@ type Agent struct {
 
 // SupportedAgents defines the list of agents with direct configuration mounting
 var SupportedAgents = []Agent{
-	{Name: "Google Gemini", Slug: "gemini", ConfigPath: "/home/construct/.gemini"},
+	{Name: "Antigravity CLI", Slug: "agy", ConfigPath: "/home/construct/.antigravity"},
 	{Name: "Claude Code", Slug: "claude", ConfigPath: "/home/construct/.claude"},
 	{Name: "Amp CLI", Slug: "amp", ConfigPath: "/home/construct/.config/amp"},
 	{Name: "Qwen Code", Slug: "qwen", ConfigPath: "/home/construct/.qwen"},

@@ -712,7 +712,7 @@ func appendAgentSpecificRunFlags(runFlags *[]string, agentName, clipboardPatchVa
 	switch agentName {
 	case "codex":
 		*runFlags = append(*runFlags, "-e", "CODEX_HOME=/home/construct/.codex")
-	case "gemini", "pi", "claude", "copilot":
+	case "pi", "claude", "copilot":
 		if clipboardPatchValue != "0" {
 			*runFlags = append(*runFlags, "-e", "XDG_SESSION_TYPE=wayland")
 		}
@@ -723,7 +723,7 @@ func appendAgentSpecificExecEnv(envVars *[]string, agentName, clipboardPatchValu
 	switch agentName {
 	case "codex":
 		env.SetEnvVar(envVars, "CODEX_HOME", "/home/construct/.codex")
-	case "gemini", "pi", "claude", "copilot":
+	case "pi", "claude", "copilot":
 		if clipboardPatchValue != "0" {
 			env.SetEnvVar(envVars, "XDG_SESSION_TYPE", "wayland")
 		}
@@ -819,7 +819,7 @@ func yoloFlagForAgent(agent string) (string, bool) {
 		return "--dangerously-skip-permissions", true
 	case "copilot":
 		return "--allow-all-tools", true
-	case "gemini", "codex", "qwen", "cline", "kilocode", "crush":
+	case "agy", "codex", "qwen", "cline", "kilocode", "crush":
 		return "--yolo", true
 	default:
 		return "", false

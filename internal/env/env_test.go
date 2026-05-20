@@ -185,7 +185,7 @@ func TestCollectProviderEnvFallbackWhenCNSTREmpty(t *testing.T) {
 
 func TestMergeEnvVarsOverride(t *testing.T) {
 	base := []string{"OPENAI_API_KEY=base", "HF_TOKEN=base-hf"}
-	override := []string{"OPENAI_API_KEY=override", "GEMINI_API_KEY=gem"}
+	override := []string{"OPENAI_API_KEY=override", "ANTIGRAVITY_API_KEY=agy"}
 
 	merged := MergeEnvVars(base, override)
 	values := make(map[string]string, len(merged))
@@ -203,8 +203,8 @@ func TestMergeEnvVarsOverride(t *testing.T) {
 	if values["HF_TOKEN"] != "base-hf" {
 		t.Errorf("Expected base HF_TOKEN to be preserved, got %s", values["HF_TOKEN"])
 	}
-	if values["GEMINI_API_KEY"] != "gem" {
-		t.Errorf("Expected GEMINI_API_KEY to be set, got %s", values["GEMINI_API_KEY"])
+	if values["ANTIGRAVITY_API_KEY"] != "agy" {
+		t.Errorf("Expected ANTIGRAVITY_API_KEY to be set, got %s", values["ANTIGRAVITY_API_KEY"])
 	}
 }
 

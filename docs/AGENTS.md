@@ -21,15 +21,15 @@ construct claude "Review this code for security issues"
 
 **Documentation:** [docs.anthropic.com](https://docs.anthropic.com)
 
-### Gemini CLI (`gemini`)
+### Antigravity CLI (`agy`)
 
 **Provider:** Google
 **Strengths:** Multimodal capabilities, strong reasoning
 **Best for:** Code explanation, documentation, multi-language support
 
 ```bash
-construct gemini "Explain how this code works"
-construct gemini "Generate documentation for this API"
+construct agy "Explain how this code works"
+construct agy "Generate documentation for this API"
 ```
 
 ### Qwen Code (`qwen`)
@@ -216,7 +216,7 @@ construct claude mimo "帮助我优化代码"  # Chinese input
 construct claude "Help me with this code"
 
 # Run specific agent
-construct gemini "Explain this function"
+construct agy "Explain this function"
 ```
 
 ### With Network Modes
@@ -226,7 +226,7 @@ construct gemini "Explain this function"
 construct claude -ct-n strict "Review my code"
 
 # Offline mode
-construct gemini --ct-network offline "Explain this code"
+construct agy --ct-network offline "Explain this code"
 ```
 
 ### With Configuration
@@ -244,7 +244,7 @@ construct claude --timeout 600000 "Long-running task"
 | Agent | Best For | Speed | Cost | Special Features |
 |-------|-----------|-------|------|------------------|
 | **claude** | General coding | Medium | High | Strong refactoring |
-| **gemini** | Multimodal | Fast | Medium | Google integration |
+| **agy** | Multimodal | Fast | Medium | Google integration |
 | **qwen** | Quick tasks | Fast | Low | Tuned for coding |
 | **copilot** | Everyday coding | Fast | High | GitHub integration |
 | **omp** | Python dev | Medium | Medium | IPython/Jupyter |
@@ -256,13 +256,13 @@ construct claude --timeout 600000 "Long-running task"
 
 **General development:**
 - `claude` - Best all-around choice
-- `gemini` - Great for explanation
+- `agy` - Great for explanation
 - `qwen` - Fast for quick tasks
 
 **Web development:**
 - `claude` - Strong refactoring
 - `copilot` - Everyday coding
-- `gemini` - Documentation
+- `agy` - Documentation
 
 **Python development:**
 - `omp` - Python/IPython integration

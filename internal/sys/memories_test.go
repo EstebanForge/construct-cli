@@ -75,8 +75,8 @@ func TestExpandPath(t *testing.T) {
 	}{
 		{
 			name:     "Expand home to Construct home",
-			path:     "~/.gemini/GEMINI.md",
-			expected: filepath.Join(expectedBase, ".gemini/GEMINI.md"),
+			path:     "~/.antigravity/AGENTS.md",
+			expected: filepath.Join(expectedBase, ".antigravity/AGENTS.md"),
 		},
 		{
 			name:     "Regular path",

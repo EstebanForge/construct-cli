@@ -33,7 +33,7 @@ Whether an agent receives the image as **raw PNG bytes** or as a **file path ref
 
 | Agent | Paste Mode | Mechanism |
 |-------|-----------|-----------|
-| Gemini | File path (`@path`) | Clipper shim |
+| Antigravity | File path (`@path`) | Clipper shim |
 | Qwen | File path (`@path`) | Clipper shim |
 | Codex | File path | Python PTY wrapper |
 | Claude | Raw bytes | Clipper shim → raw PNG stream |
@@ -87,16 +87,16 @@ All variables below are injected into the container at session start by `interna
 |----------|--------------|---------|
 | `CONSTRUCT_CLIPBOARD_URL` | `http://host.docker.internal:54247` | Full URL of host clipboard server. |
 | `CONSTRUCT_CLIPBOARD_TOKEN` | `a3f9...` (64-char hex) | Auth token for `/paste` requests. |
-| `CONSTRUCT_FILE_PASTE_AGENTS` | `gemini,qwen,codex` | Agents that get file-path mode in the clipper shim. |
+| `CONSTRUCT_FILE_PASTE_AGENTS` | `qwen,codex` | Agents that get file-path mode in the clipper shim. |
 | `CONSTRUCT_CLIPBOARD_IMAGE_PATCH` | `1` or `0` | Gates `agent-patch.sh` execution in the entrypoint. |
-| `CONSTRUCT_AGENT_NAME` | `copilot`, `claude`, `gemini`… | Agent identity, used by clipper to decide paste mode. |
+| `CONSTRUCT_AGENT_NAME` | `copilot`, `claude`, `agy`… | Agent identity, used by clipper to decide paste mode. |
 | `XDG_SESSION_TYPE` | `wayland` | Forces native clipboard modules (Claude, Copilot, Pi) through `wl-paste` → clipper shim. |
 | `CONSTRUCT_DEBUG` | `1` | Optional. Enables verbose logging in clipper, JS bridge, entrypoint. |
 
 `CONSTRUCT_FILE_PASTE_AGENTS` is sourced from `internal/constants/constants.go`:
 
 ```go
-const FileBasedPasteAgents = "gemini,qwen,codex"
+const FileBasedPasteAgents = "qwen,codex"
 ```
 
 Note: Claude and Copilot are intentionally **absent** from this list. Claude's native clipboard module handles raw bytes. Copilot's PTY wrapper handles its own path injection independently.
@@ -226,7 +226,7 @@ else
 fi
 ```
 
-### File-path mode (`PATH_AGENT=true` — Gemini, Qwen, Codex legacy)
+### File-path mode (`PATH_AGENT=true` — Qwen, Codex legacy)
 
 1. Fetch image from host: `curl -sS -H "X-Construct-Clip-Token: TOKEN" URL/paste?type=image/png`
 2. Save to `.construct-clipboard/clipboard-{timestamp}.png` in the current working directory.
@@ -260,7 +260,7 @@ Always logs to `$CONSTRUCT_CLIPBOARD_LOG` (default: `/tmp/construct-clipper.log`
 
 ## Per-Agent Behaviour
 
-### Gemini, Qwen
+### Qwen
 
 - **Paste mode:** File path (`@path`).
 - **Mechanism:** Clipper shim (xsel/xclip/wl-paste replacement).
@@ -445,7 +445,7 @@ The Homebrew copilot bin script does `import('./index.js')` relative to its own 
 Early wrapper versions logged to `/tmp/construct-copilot-wrapper.log`. Because containers run with `--rm`, `/tmp` is destroyed on exit. Logs must go to the home dir bind-mount (`~/.config/construct-cli/home/` on the host = `/home/construct/` in the container). All persistent logs now use `~/.config/construct-cli/logs/` inside the container.
 
 **The `CONSTRUCT_FILE_PASTE_AGENTS` constant vs clipper default:**
-`constants.go` defines `FileBasedPasteAgents = "gemini,qwen,codex"`. The clipper shim uses this from the `CONSTRUCT_FILE_PASTE_AGENTS` env var. Claude and Copilot are absent — they use raw-bytes mode through the shim (Claude/Pi) or bypass the shim entirely (Copilot via PTY wrapper). Codex now uses the PTY wrapper as primary path and this list is legacy-safe for clipper compatibility.
+`constants.go` defines `FileBasedPasteAgents = "qwen,codex"`. The clipper shim uses this from the `CONSTRUCT_FILE_PASTE_AGENTS` env var. Claude and Copilot are absent — they use raw-bytes mode through the shim (Claude/Pi) or bypass the shim entirely (Copilot via PTY wrapper). Codex now uses the PTY wrapper as primary path and this list is legacy-safe for clipper compatibility.
 
 **Clipboard server port is random per session:**
 A new port is assigned each time `construct <agent>` starts. The wrapper's `CONSTRUCT_CLIPBOARD_URL` env var is only valid for that session. If you restart the agent without a fresh `ct <agent>` invocation, the URL may be stale.
@@ -476,7 +476,7 @@ Host (macOS/Linux/Windows)
    │  CONSTRUCT_CLIPBOARD_URL=http://host.docker.internal:PORT
    │  CONSTRUCT_CLIPBOARD_TOKEN=...
    │  CONSTRUCT_AGENT_NAME=<agent>
-   │  CONSTRUCT_FILE_PASTE_AGENTS=gemini,qwen,codex
+   │  CONSTRUCT_FILE_PASTE_AGENTS=qwen,codex
    │  XDG_SESSION_TYPE=wayland  (claude, copilot, pi)
    │
    ├─ Copilot session
@@ -497,7 +497,7 @@ Host (macOS/Linux/Windows)
    │     ├─ curl → Clipboard Server → PNG bytes
    │     └─ Emit raw PNG bytes → agent receives binary image data
    │
-   └─ Gemini / Qwen session
+   └─ Qwen session
       └─ Agent calls xsel/xclip/wl-paste (→ clipper shim)
          ├─ clipper: PATH_AGENT=true (in FILE_PASTE_AGENTS)
          ├─ curl → Clipboard Server → PNG bytes

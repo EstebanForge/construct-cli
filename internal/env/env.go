@@ -98,7 +98,7 @@ func lookupEnvWithFallback(varName string) (string, bool) {
 var ProviderKeyVars = []string{
 	"ANTHROPIC_API_KEY",
 	"OPENAI_API_KEY",
-	"GEMINI_API_KEY",
+	"ANTIGRAVITY_API_KEY",
 	"OPENROUTER_API_KEY",
 	"ZAI_API_KEY",
 	"OPENCODE_API_KEY",
