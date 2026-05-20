@@ -50,7 +50,7 @@ exec_as_host_user = true
 # Default passthroughs cover common CLI/tool auth use cases.
 env_passthrough = [
     "GITHUB_TOKEN",
-    "GEMINI_API_KEY",
+    "ANTIGRAVITY_API_KEY",
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "QWEN_API_KEY",
@@ -88,8 +88,8 @@ host_service_env = [
 # Enable yolo mode for all supported agents (default: false, overrides yolo_agents)
 yolo_all = false
 
-# Enable yolo mode for specific agents (slugs), e.g. ["claude", "gemini"]
-# Supported: claude, gemini, codex, qwen, copilot, cline, kilocode, crush
+# Enable yolo mode for specific agents (slugs), e.g. ["claude", "agy"]
+# Supported: claude, agy, codex, qwen, copilot, cline, kilocode, crush
 yolo_agents = []
 
 # Patch clipboard integrations for JS/NPM agents and install PTY clipboard wrappers

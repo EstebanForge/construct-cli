@@ -2,6 +2,12 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START unreleased -->
+## [Unreleased]
+
+### Changed
+- **Replaced Gemini CLI with Antigravity CLI**: Replaced `gemini` agent (Google Gemini CLI, npm-installed) with `agy` agent (Google Antigravity CLI, curl-installed from `https://antigravity.google/cli/install.sh`). Binary lands at `~/.local/bin/agy`. Removed Gemini-specific clipboard paste wrapper (~220 lines of Python PTY code). Renamed `GEMINI_API_KEY` to `ANTIGRAVITY_API_KEY` throughout source, templates, and docs. Updated agent registration, memory paths, constants, env passthrough, runtime candidates, wayland/yolo flags, help text, aliases, verification loops, and all documentation.
+
 <!-- RELEASE:START 1.8.7 -->
 ## [1.8.7] - 2026-05-15
 

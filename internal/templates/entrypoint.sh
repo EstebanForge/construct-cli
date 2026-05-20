@@ -44,12 +44,12 @@ if [ "$(id -u)" = "0" ]; then
     ln -sf /usr/local/bin/clipper /usr/bin/wl-paste 2>/dev/null || true
 
     # Agent Rule Aliases (container-internal only)
-    # Create CLAUDE.md + GEMINI.md symlinks alongside AGENTS.md inside
+    # Create CLAUDE.md symlink alongside AGENTS.md inside
     # /home/construct/ so common agent config names all resolve.
     # We do NOT create symlinks in /workspaces/ or /projects/ — those
     # are host bind mounts and would leak dangling symlinks onto the host.
     if [ -f /home/construct/AGENTS.md ]; then
-        for name in CLAUDE.md GEMINI.md; do
+        for name in CLAUDE.md; do
             target="/home/construct/${name}"
             if [ -e "$target" ] && [ ! -L "$target" ]; then
                 continue

@@ -272,7 +272,7 @@ hide_git_dir = true
 yolo_all = false      # Bypass confirmation for ALL agents
 yolo_agents = [       # Bypass confirmation for specific agents
     "claude",
-    "gemini"
+    "agy"
 ]
 ```
 
@@ -288,7 +288,7 @@ yolo_agents = [       # Bypass confirmation for specific agents
 clipboard_image_patch = true  # Patch agents for image clipboard support
 ```
 
-**Required for:** Image paste support in Claude, Copilot, Gemini, etc.
+**Required for:** Image paste support in Claude, Copilot, Antigravity, etc.
 
 ## Daemon Settings
 
@@ -380,7 +380,7 @@ CONSTRUCT_DATA_DIR=/custom/data        # Custom data directory
 **Common provider keys (auto-forwarded):**
 - `ANTHROPIC_API_KEY`
 - `OPENAI_API_KEY`
-- `GEMINI_API_KEY`
+- `ANTIGRAVITY_API_KEY`
 - `CNSTR_*` (custom prefix)
 
 **Usage:**

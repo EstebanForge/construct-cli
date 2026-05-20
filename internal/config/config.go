@@ -116,7 +116,7 @@ func DefaultConfig() Config {
 			ExecAsHostUser:       true,
 			EnvPassthrough: []string{
 				"GITHUB_TOKEN",
-				"GEMINI_API_KEY",
+				"ANTIGRAVITY_API_KEY",
 				"OPENAI_API_KEY",
 				"ANTHROPIC_API_KEY",
 				"QWEN_API_KEY",

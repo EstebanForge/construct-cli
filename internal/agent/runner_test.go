@@ -116,7 +116,7 @@ func TestAgentArgParsing(t *testing.T) {
 		expected string
 	}{
 		{"Single agent", []string{"claude"}, "claude"},
-		{"Agent with flags", []string{"gemini", "--resume", "id123"}, "gemini"},
+		{"Agent with flags", []string{"agy", "--resume", "id123"}, "agy"},
 		{"Agent with prompt", []string{"codex", "write code"}, "codex"},
 		{"Empty args", []string{}, ""},
 	}
@@ -248,7 +248,7 @@ func TestAppendAgentSpecificRunFlagsNonCodex(t *testing.T) {
 }
 
 func TestAppendAgentSpecificRunFlagsWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
 		runFlags := []string{}
 		appendAgentSpecificRunFlags(&runFlags, agent, "1")
 		if !containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
@@ -258,7 +258,7 @@ func TestAppendAgentSpecificRunFlagsWaylandAgents(t *testing.T) {
 }
 
 func TestAppendAgentSpecificRunFlagsWaylandAgentsNoPatch(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
 		runFlags := []string{}
 		appendAgentSpecificRunFlags(&runFlags, agent, "0")
 		if containsEnv(runFlags, "XDG_SESSION_TYPE=wayland") {
@@ -315,7 +315,7 @@ func TestAppendAgentSpecificDaemonEnvNonCodex(t *testing.T) {
 }
 
 func TestAppendAgentSpecificExecEnvWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
 		envVars := []string{}
 		appendAgentSpecificExecEnv(&envVars, agent, "1")
 		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {
@@ -325,7 +325,7 @@ func TestAppendAgentSpecificExecEnvWaylandAgents(t *testing.T) {
 }
 
 func TestAppendAgentSpecificDaemonEnvWaylandAgents(t *testing.T) {
-	for _, agent := range []string{"pi", "claude", "copilot", "gemini"} {
+	for _, agent := range []string{"pi", "claude", "copilot"} {
 		envVars := []string{}
 		appendAgentSpecificDaemonEnv(&envVars, agent)
 		if !containsEnv(envVars, "XDG_SESSION_TYPE=wayland") {
@@ -1211,7 +1211,7 @@ func TestYoloFlagForAgent(t *testing.T) {
 	}{
 		{"claude", "--dangerously-skip-permissions", true},
 		{"copilot", "--allow-all-tools", true},
-		{"gemini", "--yolo", true},
+		{"agy", "--yolo", true},
 		{"codex", "--yolo", true},
 		{"qwen", "--yolo", true},
 		{"cline", "--yolo", true},
@@ -1327,9 +1327,9 @@ func TestApplyYoloArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("gemini gets --yolo", func(t *testing.T) {
+	t.Run("agy gets --yolo", func(t *testing.T) {
 		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
-		args := []string{"gemini"}
+		args := []string{"agy"}
 		got := applyYoloArgs(args, cfg)
 		if len(got) != 2 || got[1] != "--yolo" {
 			t.Fatalf("expected --yolo injected, got %v", got)
@@ -1338,7 +1338,7 @@ func TestApplyYoloArgs(t *testing.T) {
 
 	t.Run("flag not duplicated if already present", func(t *testing.T) {
 		cfg := &config.Config{Agents: config.AgentsConfig{YoloAll: true}}
-		args := []string{"gemini", "--yolo"}
+		args := []string{"agy", "--yolo"}
 		got := applyYoloArgs(args, cfg)
 		if len(got) != 2 {
 			t.Fatalf("expected no duplicate flag, got %v", got)

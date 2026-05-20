@@ -141,7 +141,7 @@ fi
 echo ""
 echo "Post-update command verification..."
 missing_cmds=""
-for cmd in claude amp copilot opencode qwen cline crush codex goose gemini kilocode pi; do
+for cmd in claude amp copilot opencode qwen cline crush codex goose agy kilocode pi; do
     if command -v "$cmd" &> /dev/null; then
         cmd_path=$(command -v "$cmd")
         echo "  ✓ $cmd -> $cmd_path"

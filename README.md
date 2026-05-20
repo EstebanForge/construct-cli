@@ -16,7 +16,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Clean Slate**: Ephemeral containers with persistent volumes for agents and packages
 - **Network Isolation**: Optional `permissive`, `strict`, or `offline` network modes with allow/block lists
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent
-- **Full Clipboard Bridge**: Text and image pasting support for Claude, Copilot, Gemini, Qwen, Pi, and OMP
+- **Full Clipboard Bridge**: Text and image pasting support for Claude, Copilot, Antigravity, Qwen, Pi, and OMP
 - **Agent Browser**: Headless browser automation CLI for AI agents
 - **User-Defined Packages**: Customize your sandbox with apt, brew, bun, npm, or pip packages
 - **Parallel Workflows**: Git worktree management for parallel AI agent workflows
@@ -31,7 +31,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 ## Available AGENTS
 
 - **Claude Code** (`claude`) – Full-code agent with strong editing/refactoring
-- **Gemini CLI** (`gemini`) – Google Gemini models with CLI UX
+- **Antigravity CLI** (`agy`) – Google Antigravity models with CLI UX
 - **Qwen Code** (`qwen`) – Alibaba Qwen models tuned for coding
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot with terminal helpers
 - **Crush CLI** (`crush`) – Charmbracelet Crush coding agent
@@ -72,7 +72,7 @@ claude "Debug my API code"  # Now available as short command
 construct claude -ct-n strict "Review my code"
 
 # Offline run (no network)
-construct gemini --ct-network offline "Explain this code"
+construct agy --ct-network offline "Explain this code"
 
 # Update all agents
 construct sys update
@@ -126,7 +126,7 @@ construct sys update           # Update agents
 construct sys reset            # Reset everything
 
 # Agent commands
-construct <agent>              # Run an agent (e.g., construct claude, construct gemini)
+construct <agent>              # Run an agent (e.g., construct claude, construct agy)
 construct sys aliases          # Manage host aliases
 construct sys agents-md        # Manage AGENTS.md rules
 

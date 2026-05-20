@@ -23,7 +23,7 @@ type AgentMemory struct {
 // GetSupportedAgents returns the list of agents supported by 'sys agents-md'
 func GetSupportedAgents() []AgentMemory {
 	return []AgentMemory{
-		{Name: "gemini", FriendlyName: "Gemini CLI", Paths: []string{"~/.gemini/GEMINI.md"}},
+		{Name: "agy", FriendlyName: "Antigravity CLI", Paths: []string{"~/.antigravity/AGENTS.md"}},
 		{Name: "qwen", FriendlyName: "Qwen CLI", Paths: []string{"~/.qwen/AGENTS.md"}},
 		{Name: "opencode", FriendlyName: "OpenCode CLI", Paths: []string{"~/.config/opencode/AGENTS.md"}},
 		{Name: "claude", FriendlyName: "Claude CLI", Paths: []string{"~/.claude/CLAUDE.md"}},

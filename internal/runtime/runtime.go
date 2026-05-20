@@ -410,7 +410,7 @@ func AreAgentsInstalled() bool {
 		"amp",
 		"mcp-cli-ent",
 		"opencode",
-		"gemini",
+		"agy",
 		"crush",
 		"codex",
 		"qwen-code",

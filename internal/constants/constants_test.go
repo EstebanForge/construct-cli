@@ -20,7 +20,7 @@ func TestConstants(t *testing.T) {
 
 // TestFileBasedPasteAgents ensures that required agents are listed for file-based paste
 func TestFileBasedPasteAgents(t *testing.T) {
-	required := []string{"gemini", "qwen", "codex"}
+	required := []string{"qwen", "codex"}
 	for _, agent := range required {
 		if !contains(FileBasedPasteAgents, agent) {
 			t.Errorf("FileBasedPasteAgents should contain '%s', got '%s'", agent, FileBasedPasteAgents)
@@ -42,6 +42,7 @@ func TestFileBasedPasteAgentsExcludesPTYWrapperAgents(t *testing.T) {
 		slug   string
 		reason string
 	}{
+		{"agy", "removed from clipboard patching until behavior is verified"},
 		{"copilot", "uses Python PTY wrapper for @path injection; clipper shim must emit raw bytes"},
 		{"claude", "uses raw-bytes mode via clipper shim; expects binary PNG, not @path reference"},
 	}

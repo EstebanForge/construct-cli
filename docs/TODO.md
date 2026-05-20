@@ -4,7 +4,7 @@
 
 Claude Code is currently hard-coded in `internal/config/packages.go` as a "Standard Tool (Always installed)" alongside Bun, Amp, imagemagick, topgrade, and cargo-update.
 
-Other agents (gemini, copilot, codex, pi, etc.) are installed via `packages.toml` (npm/brew sections).
+Other agents (agy, copilot, codex, pi, etc.) are installed via `packages.toml` (npm/brew sections).
 
 ## Current State
 
