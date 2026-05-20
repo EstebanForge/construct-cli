@@ -50,20 +50,18 @@ run_cleanup() {
     fi
 }
 
-# 1. Stop running construct containers
+# 1. Stop running construct containers (broad filter catches CWD-derived names)
 echo "1. Stopping running containers:"
-run_cleanup "$RUNTIME stop construct-cli construct-session construct-cli-daemon" "Stopping containers" || true
+for container in $($RUNTIME ps -q --filter "name=construct" || true); do
+    echo -n "  Stopping container $container... "
+    $RUNTIME stop "$container" &> /dev/null && echo -e "${GREEN}✓${NC}" || echo -e "${YELLOW}skipped${NC}"
+done
 
-# 2. Remove construct containers
+# 2. Remove construct containers (broad filter catches CWD-derived names)
 echo ""
 echo "2. Removing containers:"
-run_cleanup "$RUNTIME rm -f construct-cli construct-session construct-cli-daemon" "Removing containers"
-
-# 2.1. Force remove ANY remaining construct containers (crucial for releasing volumes)
-echo ""
-echo "2.1. Ensuring all construct containers are gone:"
-for container in $($RUNTIME ps -a -q --filter "name=construct" || true); do
-    echo -n "  Force removing container $container... "
+for container in $($RUNTIME ps -aq --filter "name=construct" || true); do
+    echo -n "  Removing container $container... "
     $RUNTIME rm -f "$container" &> /dev/null && echo -e "${GREEN}✓${NC}" || echo -e "${YELLOW}skipped${NC}"
 done
 

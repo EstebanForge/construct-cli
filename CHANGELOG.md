@@ -2,6 +2,24 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.12 -->
+## [1.8.12] - 2026-05-20
+
+### Added
+- **CWD-Derived Container Naming**: Each working directory now gets its own container (`construct-cli-<sha256[:8]>`) instead of a shared singleton. Running agents from multiple terminals with different working directories no longer conflicts with "Container 'construct-cli' is already running." Same directory always hashes to the same container name, preserving attach semantics.
+
+### Fixed
+- **Daemon Killed by `sys doctor --fix`**: `cleanupAgentContainer` prefix-matched `construct-cli-daemon` and killed it; `recreateDaemonContainer` then saw it missing and no-op'd. Daemon is now excluded from session container cleanup.
+- **Stopped Containers Returned by Network Manager**: `runningSessionContainers` used `docker ps -aq` (all states), causing spurious UFW rule warnings on stopped containers. Now filters by running state.
+- **Legacy Singleton Missed by Migration**: `collectSessionContainers` only discovered CWD-hash containers, missing pre-upgrade `construct-cli` singleton. Now includes exact-match discovery for the legacy name.
+- **Stale Error Message**: `sys doctor --fix` suggestion referenced old `docker rm -f construct-cli` instead of prefix-based cleanup.
+- **Keyring Env Path Hardcoding**: `readKeyringEnv` used `os.UserHomeDir()` instead of `config.GetConfigDir()` for the keyring env file path.
+
+### Changed
+- **Container Discovery**: All consumers of the static `"construct-cli"` container name (`doctor.go`, `migration.go`, `network/manager.go`, `reset-environment.sh`) now discover containers by prefix `"construct-cli-"` via `runtime.ListContainersByPrefix()`.
+- **Architecture Docs**: Updated `ARCHITECTURE-DESIGN.md` Sections 4, 9.3, and 11.2.1 for the new naming pattern.
+<!-- RELEASE:END 1.8.12 -->
+
 <!-- RELEASE:START 1.8.11 -->
 ## [1.8.11] - 2026-05-20
 

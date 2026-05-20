@@ -1435,3 +1435,29 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/baz
 		}
 	})
 }
+
+func TestCwdContainerName(t *testing.T) {
+	a := cwdContainerName("/home/user/project-a")
+
+	// determinism
+	if cwdContainerName("/home/user/project-a") != a {
+		t.Fatal("same cwd must produce same name")
+	}
+
+	// differentiation
+	b := cwdContainerName("/home/user/project-b")
+	if a == b {
+		t.Fatalf("different cwds produced same name: %q", a)
+	}
+
+	// format
+	if !strings.HasPrefix(a, "construct-cli-") {
+		t.Fatalf("missing prefix: %q", a)
+	}
+	if len(a) != len("construct-cli-")+8 {
+		t.Fatalf("unexpected length %d: %q", len(a), a)
+	}
+
+	// no panic on empty
+	_ = cwdContainerName("")
+}

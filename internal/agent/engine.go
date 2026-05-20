@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -161,13 +163,13 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	// 2. Direct Container Path
 	e.args = applyYoloArgs(baseArgs, e.cfg)
-	containerName := "construct-cli"
+	containerName := cwdContainerName(e.cwd)
 	state := runtime.GetContainerState(e.containerRuntime, containerName)
 
 	switch state {
 	case runtime.ContainerStateRunning:
-		fmt.Printf("⚠️  Container '%s' is already running.\n\n", containerName)
-		choice, err := e.promptForAttachOrRestart(containerName)
+		fmt.Printf("⚠️  A container for '%s' is already running.\n\n", e.cwd)
+		choice, err := e.promptForAttachOrRestart()
 		if err != nil {
 			return 0, nil // Canceled
 		}
@@ -179,7 +181,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 		_ = runtime.CleanupExitedContainer(e.containerRuntime, containerName) //nolint:errcheck
 
 	case runtime.ContainerStateExited:
-		fmt.Printf("🧹 Removing old stopped container '%s'...\n", containerName)
+		fmt.Printf("🧹 Removing stopped container for '%s'...\n", e.cwd)
 		_ = runtime.CleanupExitedContainer(e.containerRuntime, containerName) //nolint:errcheck
 	}
 
@@ -582,7 +584,7 @@ func (e *RuntimeEngine) checkDaemonSSHProxy(daemonName, execUser string) error {
 	return err
 }
 
-func (e *RuntimeEngine) promptForAttachOrRestart(_ string) (string, error) {
+func (e *RuntimeEngine) promptForAttachOrRestart() (string, error) {
 	if ui.GumAvailable() {
 		cmd := ui.GetGumCommand("choose",
 			"Attach to existing session (recommended)",
@@ -930,15 +932,14 @@ func applyConstructPath(osEnv *[]string) {
 	}
 }
 
-// readKeyringEnv reads ~/.config/construct-cli/home/.construct-keyring-env
-// (the host-side path of the container's ~/.construct-keyring-env).
+// readKeyringEnv reads the keyring env file from the Construct config directory.
+// The entrypoint writes GNOME_KEYRING_CONTROL and DBUS_SESSION_BUS_ADDRESS
+// to .construct-keyring-env inside the container home (bind-mounted from host).
+// Without these vars, agents like agy cannot reach the keyring daemon and
+// fall back to browser OAuth on every run.
 func readKeyringEnv() map[string]string {
 	result := make(map[string]string)
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return result
-	}
-	envFile := filepath.Join(home, ".config", "construct-cli", "home", ".construct-keyring-env")
+	envFile := filepath.Join(config.GetConfigDir(), "home", ".construct-keyring-env")
 	data, err := os.ReadFile(envFile)
 	if err != nil {
 		return result
@@ -985,6 +986,9 @@ func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
 	appendAgentSpecificExecEnv(envVars, agentName, "1")
 }
 
+// Compatibility wrapper for existing unit tests.
+// NOTE: Hardcodes "construct-cli" (pre-CWD-naming) because runner_test.go:505
+// asserts this exact value. Production code uses cwdContainerName(e.cwd).
 func execInRunningContainer(args []string, cfg *config.Config, containerRuntime string, providerEnv []string) (int, error) {
 	e := NewRuntimeEngine(cfg, args, containerRuntime, "", providerEnv)
 	// Manual setup since we're bypassing Prepare()
@@ -999,6 +1003,14 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime 
 	e.cbServer = cbServer
 
 	return e.execInRunningContainer(args, "construct-cli", providerEnv)
+}
+
+// cwdContainerName returns a deterministic container name derived from the
+// working directory. Same CWD always produces the same name, different CWDs
+// produce independent names, eliminating the singleton conflict.
+func cwdContainerName(cwd string) string {
+	sum := sha256.Sum256([]byte(cwd))
+	return fmt.Sprintf("construct-cli-%s", hex.EncodeToString(sum[:4]))
 }
 
 func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, osEnv []string, cbServer *clipboard.Server, mergedProviderEnv []string, loginForward bool, loginPorts []int) []string {

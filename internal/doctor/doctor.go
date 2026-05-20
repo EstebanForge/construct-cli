@@ -444,7 +444,7 @@ func Run(args ...string) {
 			sessionCleanupCheck.Message = "Failed to recycle session container"
 			sessionCleanupCheck.Details = append(sessionCleanupCheck.Details, cleanupDetails...)
 			sessionCleanupCheck.Details = append(sessionCleanupCheck.Details, err.Error())
-			sessionCleanupCheck.Suggestion = "Run: construct sys daemon stop && docker rm -f construct-cli (or podman rm -f construct-cli)"
+			sessionCleanupCheck.Suggestion = "Run: construct sys daemon stop && docker rm -f $(docker ps -aq --filter name=construct-cli-) (or podman rm -f $(podman ps -aq --filter name=construct-cli-))"
 		} else if cleaned {
 			sessionCleanupCheck.Status = CheckStatusOK
 			sessionCleanupCheck.Message = "Session container recycled"
@@ -1380,24 +1380,49 @@ func cleanupAgentContainer(runtimeName string) (bool, []string, error) {
 		return false, nil, nil
 	}
 
-	containerName := "construct-cli"
-	state := getContainerStateFn(runtimeName, containerName)
-	if state == runtimepkg.ContainerStateMissing {
+	// Discover all CWD-derived session containers (construct-cli-<hash>)
+	containers := runtimepkg.ListContainersByPrefix(runtimeName, "construct-cli-")
+	// Filter out the daemon — it's managed separately by recreateDaemonContainer
+	filtered := containers[:0]
+	for _, c := range containers {
+		if c != "construct-cli-daemon" {
+			filtered = append(filtered, c)
+		}
+	}
+	containers = filtered
+	// Also check legacy singleton name for pre-CWD-naming containers
+	if state := getContainerStateFn(runtimeName, "construct-cli"); state != runtimepkg.ContainerStateMissing {
+		containers = append(containers, "construct-cli")
+	}
+	if len(containers) == 0 {
 		return false, nil, nil
 	}
 
-	details := []string{fmt.Sprintf("Previous session container state: %s", state)}
-	if state == runtimepkg.ContainerStateRunning {
-		if err := stopContainerFn(runtimeName, containerName); err != nil {
-			return false, details, fmt.Errorf("failed to stop session container: %w", err)
+	var allDetails []string
+	for _, containerName := range containers {
+		state := getContainerStateFn(runtimeName, containerName)
+		if state == runtimepkg.ContainerStateMissing {
+			continue
 		}
-		details = append(details, "Stopped running session container")
+
+		details := []string{fmt.Sprintf("Session container '%s' state: %s", containerName, state)}
+		if state == runtimepkg.ContainerStateRunning {
+			if err := stopContainerFn(runtimeName, containerName); err != nil {
+				return false, details, fmt.Errorf("failed to stop session container: %w", err)
+			}
+			details = append(details, fmt.Sprintf("Stopped running session container '%s'", containerName))
+		}
+		if err := cleanupExitedContainerFn(runtimeName, containerName); err != nil {
+			return false, details, fmt.Errorf("failed to remove session container: %w", err)
+		}
+		details = append(details, fmt.Sprintf("Removed session container '%s'", containerName))
+		allDetails = append(allDetails, details...)
 	}
-	if err := cleanupExitedContainerFn(runtimeName, containerName); err != nil {
-		return false, details, fmt.Errorf("failed to remove session container: %w", err)
+
+	if len(allDetails) == 0 {
+		return false, nil, nil
 	}
-	details = append(details, "Removed session container")
-	return true, details, nil
+	return true, allDetails, nil
 }
 
 func recreateDaemonContainer(runtimeName, configPath string) (bool, []string, error) {
