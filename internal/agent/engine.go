@@ -918,6 +918,47 @@ func applyConstructPath(osEnv *[]string) {
 	constructPath := env.BuildConstructPath("/home/construct")
 	env.SetEnvVar(osEnv, "PATH", constructPath)
 	env.SetEnvVar(osEnv, "CONSTRUCT_PATH", constructPath)
+
+	// Inject keyring env vars from the container's entrypoint.
+	// The entrypoint writes GNOME_KEYRING_CONTROL and DBUS_SESSION_BUS_ADDRESS
+	// to ~/.construct-keyring-env inside the container home (bind-mounted from host).
+	// Without these vars, agents like agy cannot reach the keyring daemon and
+	// fall back to browser OAuth on every run.
+	keyringEnv := readKeyringEnv()
+	for k, v := range keyringEnv {
+		env.SetEnvVar(osEnv, k, v)
+	}
+}
+
+// readKeyringEnv reads ~/.config/construct-cli/home/.construct-keyring-env
+// (the host-side path of the container's ~/.construct-keyring-env).
+func readKeyringEnv() map[string]string {
+	result := make(map[string]string)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return result
+	}
+	envFile := filepath.Join(home, ".config", "construct-cli", "home", ".construct-keyring-env")
+	data, err := os.ReadFile(envFile)
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+			// Only inject known keyring-related vars for safety
+			if key == "GNOME_KEYRING_CONTROL" || key == "DBUS_SESSION_BUS_ADDRESS" {
+				result[key] = val
+			}
+		}
+	}
+	return result
 }
 
 func mapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
