@@ -76,17 +76,6 @@ construct pi "Help me implement this feature"
 construct pi "Debug this issue"
 ```
 
-### Oh My Pi (`omp`)
-
-**Provider:** Fork of Pi with enhancements
-**Strengths:** Python/IPython integration, LSP support, extended tooling
-**Best for:** Python development, data science, Jupyter workflows
-
-```bash
-construct omp "Analyze this Python code"
-construct omp "Help with this pandas script"
-```
-
 ### Amp CLI (`amp`)
 
 **Provider:** Amp
