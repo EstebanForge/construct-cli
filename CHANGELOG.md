@@ -5,6 +5,18 @@ All notable changes to Construct CLI will be documented in this file.
 <!-- RELEASE:START unreleased -->
 ## [Unreleased]
 
+<!-- RELEASE:START 1.8.9 -->
+## [1.8.9] - 2026-05-20
+
+### Added
+- **Antigravity Update Integration**: Added `agy update` integration to the dynamic Topgrade generator (`packages.go`), `topgrade.toml` template, and the manual system update fallback script (`update-all.sh`).
+
+### Fixed
+- **Yolo Configuration for agy**: Fixed yolo settings (`yolo_all` and `yolo_agents`) to correctly apply the `--dangerously-skip-permissions` flag when initializing the `agy` agent.
+
+<!-- RELEASE:START 1.8.8 -->
+## [1.8.8] - 2026-05-20
+
 ### Changed
 - **Replaced Gemini CLI with Antigravity CLI**: Replaced `gemini` agent (Google Gemini CLI, npm-installed) with `agy` agent (Google Antigravity CLI, curl-installed from `https://antigravity.google/cli/install.sh`). Binary lands at `~/.local/bin/agy`. Removed Gemini-specific clipboard paste wrapper (~220 lines of Python PTY code). Renamed `GEMINI_API_KEY` to `ANTIGRAVITY_API_KEY` throughout source, templates, and docs. Updated agent registration, memory paths, constants, env passthrough, runtime candidates, wayland/yolo flags, help text, aliases, verification loops, and all documentation.
 

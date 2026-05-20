@@ -213,6 +213,9 @@ func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
 	if !strings.Contains(result, `"Claude Code" = "if command -v claude &> /dev/null; then claude update || true; fi"`) {
 		t.Error("topgrade config must use guarded 'claude update || true' to avoid false FAILED status")
 	}
+	if !strings.Contains(result, `"Antigravity Agent" = "if command -v agy &> /dev/null; then agy update || true; fi"`) {
+		t.Error("topgrade config must use guarded 'agy update || true' to avoid false FAILED status")
+	}
 	if !strings.Contains(result, `"claude_code",`) {
 		t.Error("topgrade config must disable built-in claude_code step to avoid duplicate/conflicting Claude update runs")
 	}

@@ -82,6 +82,11 @@ else
         pi update || true
     fi
 
+    echo "Updating Antigravity Agent..."
+    if command -v agy &> /dev/null; then
+        agy update || true
+    fi
+
     echo "Updating Homebrew packages..."
     brew update && brew upgrade --greedy && brew cleanup && brew autoremove || true
 fi
