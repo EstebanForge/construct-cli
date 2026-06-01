@@ -857,6 +857,7 @@ type overrideInputs struct {
 	PropagateGit   bool   // Git identity propagation enabled
 	DaemonMulti    bool   // Multi-path daemon mounts enabled
 	DaemonMounts   string // Hash of normalized mount paths
+	GitIgnorePath  string // Host global gitignore path (empty if not found)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -880,6 +881,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "propagategit:%v", inputs.PropagateGit)
 	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
+	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -997,6 +999,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		PropagateGit:   propagateGit,
 		DaemonMulti:    cfg != nil && cfg.Daemon.MultiPathsEnabled,
 		DaemonMounts:   daemonMounts.Hash,
+		GitIgnorePath:  func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
 	}
 
 	// Check if override needs regeneration
@@ -1093,6 +1096,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
+		// Mount global gitignore (read-only) if found on host
+		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
+				formatVolumePath(gitIgnorePath), selinuxSuffix)
+			fmt.Println("✓ Global gitignore mounted from:", gitIgnorePath)
+		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		for _, mount := range daemonMounts.Mounts {
@@ -1104,6 +1113,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
 		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
+		// Mount global gitignore (read-only) if found on host
+		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
+				formatVolumePath(gitIgnorePath))
+			fmt.Println("✓ Global gitignore mounted from:", gitIgnorePath)
+		}
 	}
 
 	// SSH Agent Forwarding
@@ -1833,6 +1848,79 @@ func getGitConfig(key string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// getGlobalGitIgnorePath returns the path to the host's global gitignore file.
+// Checks four locations in order:
+//  1. git config --global core.excludesFile (explicit config)
+//  2. $XDG_CONFIG_HOME/git/ignore (XDG default, git's modern default)
+//     Falls back to ~/.config/git/ignore if XDG_CONFIG_HOME not set
+//  3. ~/.gitignore (legacy common location)
+//  4. ~/.gitignore_global (macOS older git convention)
+//
+// Returns the path and true if found, empty string and false if not found.
+func getGlobalGitIgnorePath() (string, bool) {
+	// Use $HOME directly instead of os.UserHomeDir().
+	// Go 1.24+ changed os.UserHomeDir to prefer getpwuid over $HOME on Unix,
+	// which breaks tests that override HOME to a temp directory.
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		fallback, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		homeDir = fallback
+	}
+
+	// expandTilde expands ~ to the user's home directory
+	expandTilde := func(path string) string {
+		if strings.HasPrefix(path, "~/") {
+			return filepath.Join(homeDir, path[2:])
+		}
+		return path
+	}
+
+	// 1. Check explicit git config (may contain ~)
+	excludesFile := getGitConfig("core.excludesFile")
+	if excludesFile != "" {
+		expandedPath := expandTilde(excludesFile)
+		if _, err := os.Stat(expandedPath); err == nil {
+			return expandedPath, true
+		}
+	}
+
+	// 2. XDG default: $XDG_CONFIG_HOME/git/ignore or ~/.config/git/ignore
+	xdgConfigHome := os.Getenv("XDG_CONFIG_HOME")
+	if xdgConfigHome == "" {
+		xdgConfigHome = filepath.Join(homeDir, ".config")
+	}
+	xdgPath := filepath.Join(xdgConfigHome, "git", "ignore")
+	if _, err := os.Stat(xdgPath); err == nil {
+		return xdgPath, true
+	}
+
+	// 3. Legacy common: ~/.gitignore
+	legacyPath := filepath.Join(homeDir, ".gitignore")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath, true
+	}
+
+	// 4. macOS older git convention: ~/.gitignore_global
+	macosLegacyPath := filepath.Join(homeDir, ".gitignore_global")
+	if _, err := os.Stat(macosLegacyPath); err == nil {
+		return macosLegacyPath, true
+	}
+
+	return "", false
+}
+
+// formatVolumePath quotes a path for use in docker-compose volume mounts.
+// Paths with spaces or special characters are wrapped in double quotes.
+func formatVolumePath(path string) string {
+	if strings.ContainsAny(path, " 	:\"") {
+		return fmt.Sprintf("%q", path)
+	}
+	return path
 }
 
 // BuildComposeCommand constructs a docker-compose command

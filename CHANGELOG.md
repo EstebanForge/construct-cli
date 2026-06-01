@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.13 -->
+## [1.8.13] - 2026-06-01
+
+### Added
+- **Global Gitignore Mount**: User's global gitignore file is now automatically mounted (read-only) into the container at `/home/construct/.config/git/ignore`. Detects the file from four locations in priority order: `git config core.excludesFile`, `$XDG_CONFIG_HOME/git/ignore`, `~/.gitignore`, and `~/.gitignore_global`. Tilde paths and spaces in paths are handled correctly. Mount is included in the override hash for proper cache invalidation.
+
+<!-- RELEASE:END 1.8.13 -->
+
 <!-- RELEASE:START 1.8.12 -->
 ## [1.8.12] - 2026-05-20
 
