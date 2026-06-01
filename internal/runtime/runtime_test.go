@@ -3,6 +3,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1321,5 +1322,214 @@ func TestCheckRuntimesParallelPrefersRunning(t *testing.T) {
 		if !validRuntimes[installedResult] {
 			t.Errorf("Invalid installed runtime: %s", installedResult)
 		}
+	}
+}
+
+// TestGetGlobalGitIgnorePath tests the getGlobalGitIgnorePath function.
+// It creates temporary gitignore files and verifies the correct path is detected.
+func TestGetGlobalGitIgnorePath(t *testing.T) {
+	// Save original env and restore after all subtests
+	originalHome := os.Getenv("HOME")
+	originalXDG := os.Getenv("XDG_CONFIG_HOME")
+	defer func() {
+		os.Setenv("HOME", originalHome)
+		if originalXDG == "" {
+			os.Unsetenv("XDG_CONFIG_HOME")
+		} else {
+			os.Setenv("XDG_CONFIG_HOME", originalXDG)
+		}
+	}()
+
+	// Create a temp directory to use as fake home
+	tmpHome, err := os.MkdirTemp("", "gitignore-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpHome)
+	os.Setenv("HOME", tmpHome)
+
+	// Helper to create a file at a given path
+	createFile := func(path string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatalf("Failed to create dir for %s: %v", path, err)
+		}
+		if err := os.WriteFile(path, []byte("# test"), 0644); err != nil {
+			t.Fatalf("Failed to create file %s: %v", path, err)
+		}
+	}
+
+	tests := []struct {
+		name       string
+		setupFiles func()
+		mockGitCmd bool
+		gitOutput  string
+		wantPath   string
+		wantFound  bool
+	}{
+		{
+			name: "finds git config explicit excludesFile",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, "custom", "ignore"))
+			},
+			mockGitCmd: true,
+			gitOutput:  filepath.Join(tmpHome, "custom", "ignore"),
+			wantPath:   filepath.Join(tmpHome, "custom", "ignore"),
+			wantFound:  true,
+		},
+		{
+			name: "expands tilde in git config excludesFile",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".gitignore_global"))
+			},
+			mockGitCmd: true,
+			gitOutput:  "~/.gitignore_global",
+			wantPath:   filepath.Join(tmpHome, ".gitignore_global"),
+			wantFound:  true,
+		},
+		{
+			name: "falls back to XDG default ~/.config/git/ignore",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".config", "git", "ignore"))
+			},
+			wantPath:  filepath.Join(tmpHome, ".config", "git", "ignore"),
+			wantFound: true,
+		},
+		{
+			name: "honors XDG_CONFIG_HOME environment variable",
+			setupFiles: func() {
+				xdgHome := filepath.Join(tmpHome, "myxdg")
+				createFile(filepath.Join(xdgHome, "git", "ignore"))
+				os.Setenv("XDG_CONFIG_HOME", xdgHome)
+			},
+			wantPath:  filepath.Join(tmpHome, "myxdg", "git", "ignore"),
+			wantFound: true,
+		},
+		{
+			name: "falls back to legacy ~/.gitignore",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".gitignore"))
+			},
+			wantPath:  filepath.Join(tmpHome, ".gitignore"),
+			wantFound: true,
+		},
+		{
+			name: "falls back to macOS legacy ~/.gitignore_global",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".gitignore_global"))
+			},
+			wantPath:  filepath.Join(tmpHome, ".gitignore_global"),
+			wantFound: true,
+		},
+		{
+			name:       "returns not found when no files exist",
+			setupFiles: func() {},
+			wantPath:   "",
+			wantFound:  false,
+		},
+		{
+			name: "prefers git config over XDG default",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".config", "git", "ignore"))
+				createFile(filepath.Join(tmpHome, ".gitignore_global"))
+			},
+			mockGitCmd: true,
+			gitOutput:  filepath.Join(tmpHome, ".gitignore_global"),
+			wantPath:   filepath.Join(tmpHome, ".gitignore_global"),
+			wantFound:  true,
+		},
+		{
+			name: "skips git config if file does not exist and falls back to XDG",
+			setupFiles: func() {
+				createFile(filepath.Join(tmpHome, ".config", "git", "ignore"))
+			},
+			mockGitCmd: true,
+			gitOutput:  filepath.Join(tmpHome, "nonexistent", "ignore"),
+			wantPath:   filepath.Join(tmpHome, ".config", "git", "ignore"),
+			wantFound:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// Clean up any leftover files and env from previous tests
+			os.RemoveAll(filepath.Join(tmpHome, ".config"))
+			os.RemoveAll(filepath.Join(tmpHome, "myxdg"))
+			os.Remove(filepath.Join(tmpHome, ".gitignore"))
+			os.Remove(filepath.Join(tmpHome, ".gitignore_global"))
+			os.Remove(filepath.Join(tmpHome, "custom"))
+			if originalXDG == "" {
+				os.Unsetenv("XDG_CONFIG_HOME")
+			} else {
+				os.Setenv("XDG_CONFIG_HOME", originalXDG)
+			}
+
+			// Setup test files
+			tc.setupFiles()
+
+			// Mock git command if needed
+			if tc.mockGitCmd {
+				// Save original
+				originalPath := os.Getenv("PATH")
+				defer os.Setenv("PATH", originalPath)
+
+				// Create temp dir for mock git
+				mockBin, err := os.MkdirTemp("", "mock-git-bin")
+				if err != nil {
+					t.Fatalf("Failed to create mock bin dir: %v", err)
+				}
+				defer os.RemoveAll(mockBin)
+
+				// Create mock git script
+				mockGit := filepath.Join(mockBin, "git")
+				script := fmt.Sprintf("#!/bin/bash\necho '%s'\n", tc.gitOutput)
+				if err := os.WriteFile(mockGit, []byte(script), 0755); err != nil {
+					t.Fatalf("Failed to create mock git: %v", err)
+				}
+
+				os.Setenv("PATH", mockBin+string(os.PathListSeparator)+originalPath)
+			} else {
+				// Ensure no git in PATH to trigger fallback
+				originalPath := os.Getenv("PATH")
+				defer os.Setenv("PATH", originalPath)
+				// Remove git from PATH by setting to a directory without it
+				emptyPath, err := os.MkdirTemp("", "empty-path")
+				if err != nil {
+					t.Fatalf("Failed to create empty path dir: %v", err)
+				}
+				defer os.RemoveAll(emptyPath)
+				os.Setenv("PATH", emptyPath)
+			}
+
+			path, found := getGlobalGitIgnorePath()
+			if found != tc.wantFound {
+				t.Errorf("found = %v, want %v", found, tc.wantFound)
+			}
+			if path != tc.wantPath {
+				t.Errorf("path = %q, want %q", path, tc.wantPath)
+			}
+		})
+	}
+}
+
+// TestFormatVolumePath tests the formatVolumePath function.
+func TestFormatVolumePath(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{"normal path unchanged", "/home/user/.gitignore", "/home/user/.gitignore"},
+		{"tilde unchanged", "~/gitignore", "~/gitignore"},
+		{"spaces quoted", "/home/user/my files/.gitignore", `"/home/user/my files/.gitignore"`},
+		{"colon quoted", "/home/user:1000/gitignore", `"/home/user:1000/gitignore"`},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := formatVolumePath(tc.path)
+			if got != tc.want {
+				t.Errorf("formatVolumePath(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
 	}
 }
