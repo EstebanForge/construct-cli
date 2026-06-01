@@ -1457,11 +1457,10 @@ func TestGetGlobalGitIgnorePath(t *testing.T) {
 			os.Remove(filepath.Join(tmpHome, ".gitignore"))
 			os.Remove(filepath.Join(tmpHome, ".gitignore_global"))
 			os.Remove(filepath.Join(tmpHome, "custom"))
-			if originalXDG == "" {
-				os.Unsetenv("XDG_CONFIG_HOME")
-			} else {
-				os.Setenv("XDG_CONFIG_HOME", originalXDG)
-			}
+			// Always clear XDG_CONFIG_HOME so the function falls back to
+			// $HOME/.config. Subtests that need a custom value set it in
+			// setupFiles (after this cleanup runs).
+			os.Unsetenv("XDG_CONFIG_HOME")
 
 			// Setup test files
 			tc.setupFiles()
