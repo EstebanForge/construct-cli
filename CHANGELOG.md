@@ -2,6 +2,14 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.0 -->
+## [1.9.0] - 2026-06-02
+
+### Changed
+- **Smart Migration Rebuilds**: Container image rebuilds are now gated by per-template hash tracking. Version bumps that only change Go code (no template changes) skip the rebuild entirely, reducing update time from ~2 minutes to ~2 seconds. Templates are classified into tiers: image-baked (Dockerfile, entrypoint.sh, etc.) trigger a full rebuild; runtime-only (docker-compose.yml, agent-patch.sh) trigger a deferred restart; no changes means no rebuild.
+
+<!-- RELEASE:END 1.9.0 -->
+
 <!-- RELEASE:START 1.8.14 -->
 ## [1.8.14] - 2026-06-02
 
