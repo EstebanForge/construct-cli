@@ -1100,7 +1100,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxSuffix)
-			fmt.Println("✓ Global gitignore mounted from:", gitIgnorePath)
 		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
@@ -1117,7 +1116,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
 				formatVolumePath(gitIgnorePath))
-			fmt.Println("✓ Global gitignore mounted from:", gitIgnorePath)
 		}
 	}
 
