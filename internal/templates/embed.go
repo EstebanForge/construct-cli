@@ -67,3 +67,24 @@ var Osascript string
 //
 //go:embed AGENTS.md
 var GlobalAgentsRules string
+
+// ImageTierTemplates lists templates that are COPY'd into the Docker image.
+// Changes require a full image rebuild (markImageForRebuild).
+// Key is the filename used in the container directory.
+var ImageTierTemplates = map[string]string{
+	"Dockerfile":            Dockerfile,
+	"entrypoint.sh":         Entrypoint,
+	"update-all.sh":         UpdateAll,
+	"network-filter.sh":     NetworkFilter,
+	"clipper":               Clipper,
+	"clipboard-x11-sync.sh": ClipboardX11Sync,
+	"osascript":             Osascript,
+}
+
+// SoftTierTemplates lists templates that affect container runtime but are
+// not image-baked. Changes trigger SetRebuildRequired (deferred rebuild).
+var SoftTierTemplates = map[string]string{
+	"docker-compose.yml": DockerCompose,
+	"agent-patch.sh":     AgentPatch,
+	"entrypoint-hash.sh": EntrypointHash,
+}

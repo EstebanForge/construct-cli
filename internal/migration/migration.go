@@ -4,12 +4,14 @@ package migration
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -21,7 +23,25 @@ import (
 
 const versionFile = ".version"
 const packagesTemplateHashFile = ".packages_template_hash"
-const entrypointTemplateHashFile = ".entrypoint_template_hash"
+const templateHashesFile = ".template_hashes"
+
+// Template tier classification for rebuild decisions.
+//
+// Image-tier templates are COPY'd into the Docker image and require a full
+// image rebuild (markImageForRebuild) when changed.
+//
+// Soft-tier templates affect container runtime but are not image-baked;
+// changes trigger SetRebuildRequired (deferred rebuild on next run).
+var imageTierTemplates = templates.ImageTierTemplates
+var softTierTemplates = templates.SoftTierTemplates
+
+// templateDiff describes which template tiers changed.
+type templateDiff struct {
+	ImageChanged      bool     // Any image-tier template changed
+	SoftChanged       bool     // Any soft-tier template changed
+	EntrypointChanged bool     // entrypoint.sh specifically changed
+	ChangedNames      []string // Human-readable names of changed templates
+}
 
 var attemptedOwnershipFix bool
 var runOwnershipFixFn = runOwnershipFix
@@ -67,8 +87,23 @@ func NeedsMigration() bool {
 	}
 
 	// 2. Template changes trigger migration even if version is same
-	if packagesTemplateChanged() || entrypointTemplateChanged() {
+	if packagesTemplateChanged() {
 		return true
+	}
+
+	// 3. Per-template hash check (image-tier and soft-tier)
+	stored := loadTemplateHashes()
+	if stored == nil {
+		// No hash file - check if this is a pre-hash upgrade
+		if isPreHashUpgrade() {
+			return true
+		}
+		// Fresh install - no migration needed
+	} else {
+		diff := diffTemplates(stored)
+		if diff.ImageChanged || diff.SoftChanged {
+			return true
+		}
 	}
 
 	return false
@@ -83,12 +118,6 @@ func compareVersions(v1, v2 string) int {
 // getPackagesTemplateHash returns SHA256 hash of the embedded packages template
 func getPackagesTemplateHash() string {
 	hash := sha256.Sum256([]byte(templates.Packages))
-	return hex.EncodeToString(hash[:])
-}
-
-// getEntrypointTemplateHash returns SHA256 hash of the embedded entrypoint template
-func getEntrypointTemplateHash() string {
-	hash := sha256.Sum256([]byte(templates.Entrypoint))
 	return hex.EncodeToString(hash[:])
 }
 
@@ -116,28 +145,98 @@ func savePackagesTemplateHash() error {
 	return os.WriteFile(hashPath, []byte(getPackagesTemplateHash()+"\n"), 0644)
 }
 
-// entrypointTemplateChanged checks if embedded entrypoint template differs from last applied
-func entrypointTemplateChanged() bool {
-	hashPath := filepath.Join(config.GetConfigDir(), entrypointTemplateHashFile)
-
-	storedHash, err := os.ReadFile(hashPath)
-	if err != nil {
-		// No hash file - if entrypoint.sh exists, assume template changed
-		containerDir := filepath.Join(config.GetConfigDir(), "container")
-		entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
-		if _, err := os.Stat(entrypointPath); err == nil {
-			return true
-		}
-		return false
-	}
-
-	return strings.TrimSpace(string(storedHash)) != getEntrypointTemplateHash()
+// hashTemplate computes SHA256 hex digest for a template string.
+func hashTemplate(content string) string {
+	h := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(h[:])
 }
 
-// saveEntrypointTemplateHash stores the current entrypoint template hash
-func saveEntrypointTemplateHash() error {
-	hashPath := filepath.Join(config.GetConfigDir(), entrypointTemplateHashFile)
-	return os.WriteFile(hashPath, []byte(getEntrypointTemplateHash()+"\n"), 0644)
+// computeTemplateHashes builds a sorted map of filename→hash for all tracked templates.
+func computeTemplateHashes() map[string]string {
+	hashes := make(map[string]string)
+	for name, content := range imageTierTemplates {
+		hashes[name] = hashTemplate(content)
+	}
+	for name, content := range softTierTemplates {
+		hashes[name] = hashTemplate(content)
+	}
+	return hashes
+}
+
+// loadTemplateHashes reads the stored per-template hashes from disk.
+// Returns nil if the file does not exist (first install or pre-hash upgrade).
+func loadTemplateHashes() map[string]string {
+	path := filepath.Join(config.GetConfigDir(), templateHashesFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var hashes map[string]string
+	if err := json.Unmarshal(data, &hashes); err != nil {
+		return nil
+	}
+	return hashes
+}
+
+// saveTemplateHashes writes the per-template hashes to disk as JSON.
+func saveTemplateHashes(hashes map[string]string) error {
+	data, err := json.MarshalIndent(hashes, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal template hashes: %w", err)
+	}
+	path := filepath.Join(config.GetConfigDir(), templateHashesFile)
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
+// diffTemplates compares current embedded templates against stored hashes
+// and returns which tiers changed along with the specific template names.
+func diffTemplates(stored map[string]string) templateDiff {
+	current := computeTemplateHashes()
+	var diff templateDiff
+
+	for name, currentHash := range current {
+		storedHash, exists := stored[name]
+		if !exists || storedHash != currentHash {
+			diff.ChangedNames = append(diff.ChangedNames, name)
+		}
+	}
+
+	if len(diff.ChangedNames) == 0 {
+		return diff
+	}
+
+	sort.Strings(diff.ChangedNames)
+
+	// Classify into tiers
+	for _, name := range diff.ChangedNames {
+		if _, isImage := imageTierTemplates[name]; isImage {
+			diff.ImageChanged = true
+			if name == "entrypoint.sh" {
+				diff.EntrypointChanged = true
+			}
+		}
+		if _, isSoft := softTierTemplates[name]; isSoft {
+			diff.SoftChanged = true
+		}
+	}
+
+	return diff
+}
+
+// isPreHashUpgrade returns true when templates exist on disk but no hash file
+// has been written yet (upgrade from a version before per-template hashing).
+func isPreHashUpgrade() bool {
+	hashPath := filepath.Join(config.GetConfigDir(), templateHashesFile)
+	if _, err := os.Stat(hashPath); err == nil {
+		return false // Hash file exists
+	}
+	// Hash file missing - check if templates exist on disk
+	containerDir := filepath.Join(config.GetConfigDir(), "container")
+	entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
+	if _, err := os.Stat(entrypointPath); err == nil {
+		return true // Templates exist but no hash file
+	}
+	return false // Fresh install
 }
 
 // RunMigrations performs all necessary migrations
@@ -148,7 +247,26 @@ func RunMigrations() error {
 		installed = "0.3.0"
 	}
 	current := constants.Version
-	entrypointChanged := entrypointTemplateChanged()
+
+	// Determine template changes BEFORE writing files
+	stored := loadTemplateHashes()
+	preHashUpgrade := stored == nil && isPreHashUpgrade()
+	var diff templateDiff
+	if stored != nil {
+		diff = diffTemplates(stored)
+	}
+	// Pre-hash upgrade: treat as all tiers changed (conservative)
+	if preHashUpgrade {
+		diff = templateDiff{ImageChanged: true, SoftChanged: true, EntrypointChanged: true}
+		// Add all template names as changed for messaging
+		for name := range imageTierTemplates {
+			diff.ChangedNames = append(diff.ChangedNames, name)
+		}
+		for name := range softTierTemplates {
+			diff.ChangedNames = append(diff.ChangedNames, name)
+		}
+		sort.Strings(diff.ChangedNames)
+	}
 
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Upgrading configuration: %s → %s", installed, current))
@@ -160,16 +278,55 @@ func RunMigrations() error {
 	if err := updateContainerTemplates(); err != nil {
 		return fmt.Errorf("failed to update container templates: %w", err)
 	}
-	if err := saveEntrypointTemplateHash(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to save entrypoint template hash: %v\n", err)
-	}
-	if entrypointChanged {
-		if err := config.SetRebuildRequired("entrypoint template changed"); err != nil {
+
+	// 2. Tier-based rebuild decisions
+	if diff.ImageChanged {
+		// Image-tier templates changed: full rebuild required
+		if len(diff.ChangedNames) > 0 {
+			msg := fmt.Sprintf("%s changed, rebuild required", strings.Join(diff.ChangedNames, ", "))
+			if ui.GumAvailable() {
+				fmt.Printf("%s  → %s%s\n", ui.ColorYellow, msg, ui.ColorReset)
+			} else {
+				fmt.Printf("  → %s\n", msg)
+			}
+		}
+		markImageForRebuild()
+	} else if diff.SoftChanged {
+		// Soft-tier only: deferred rebuild on next run
+		var softNames []string
+		for _, name := range diff.ChangedNames {
+			if _, ok := softTierTemplates[name]; ok {
+				softNames = append(softNames, name)
+			}
+		}
+		if len(softNames) > 0 {
+			msg := fmt.Sprintf("%s changed, restart on next run", strings.Join(softNames, ", "))
+			if ui.GumAvailable() {
+				fmt.Printf("%s  → %s%s\n", ui.ColorGrey, msg, ui.ColorReset)
+			} else {
+				fmt.Printf("  → %s\n", msg)
+			}
+		}
+		if err := config.SetRebuildRequired(strings.Join(softNames, ", ") + " changed"); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
+		}
+	} else {
+		// No template changes at all
+		if ui.GumAvailable() {
+			fmt.Printf("%s  → No template changes, skipping rebuild%s\n", ui.ColorGrey, ui.ColorReset)
+		} else {
+			fmt.Println("  → No template changes, skipping rebuild")
 		}
 	}
 
-	// 2. Merge packages.toml only if template structure changed
+	// 3. Gate entrypoint hash/force on actual entrypoint change
+	if diff.EntrypointChanged {
+		clearEntrypointHash()
+		clearOverrideHash()
+		forceEntrypointRun()
+	}
+
+	// 4. Merge packages.toml only if template structure changed
 	if packagesTemplateChanged() {
 		if err := mergePackagesFile(); err != nil {
 			return fmt.Errorf("failed to merge packages file: %w", err)
@@ -177,6 +334,8 @@ func RunMigrations() error {
 		if err := savePackagesTemplateHash(); err != nil {
 			return fmt.Errorf("failed to save packages template hash: %w", err)
 		}
+		// Packages changed: force entrypoint re-run for package install
+		forceEntrypointRun()
 	} else {
 		if ui.GumAvailable() {
 			fmt.Printf("%s  → Packages structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
@@ -185,28 +344,36 @@ func RunMigrations() error {
 		}
 	}
 
-	// 3. Regenerate topgrade config (depends on packages.toml)
+	// 5. Regenerate topgrade config (depends on packages.toml)
 	regenerateTopgradeConfig()
 
-	// 4. Mark image for rebuild
-	markImageForRebuild()
+	// 6. Save template hashes LAST (after all operations succeed)
+	if err := saveTemplateHashes(computeTemplateHashes()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save template hashes: %v\n", err)
+	}
 
-	// 5. Force entrypoint setup to rerun on next container start.
-	clearEntrypointHash()
-	clearOverrideHash()
-	forceEntrypointRun()
+	// 7. Clean up legacy per-file hash files
+	cleanupLegacyHashFiles()
 
-	// 6. Update installed version
+	// 8. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
 
 	if ui.GumAvailable() {
 		ui.GumSuccess("Migration complete!")
-		fmt.Printf("%s  Note: Container image will rebuild on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+		if diff.ImageChanged {
+			fmt.Printf("%s  Note: Container image will rebuild on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+		} else if diff.SoftChanged {
+			fmt.Printf("%s  Note: Container will restart with updated config on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+		}
 	} else {
 		fmt.Println("✓ Migration complete!")
-		fmt.Println("  Note: Container image will rebuild on next agent run")
+		if diff.ImageChanged {
+			fmt.Println("  Note: Container image will rebuild on next agent run")
+		} else if diff.SoftChanged {
+			fmt.Println("  Note: Container will restart with updated config on next agent run")
+		}
 	}
 
 	return nil
@@ -446,6 +613,18 @@ func forceEntrypointRun() {
 	if err := os.WriteFile(forcePath, []byte("1\n"), 0644); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to write entrypoint flag: %v\n", err)
 		warnConfigPermission(err)
+	}
+}
+
+// cleanupLegacyHashFiles removes old per-file hash files that have been
+// replaced by the unified .template_hashes JSON file.
+func cleanupLegacyHashFiles() {
+	legacyFiles := []string{".entrypoint_template_hash"}
+	for _, name := range legacyFiles {
+		path := filepath.Join(config.GetConfigDir(), name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to remove legacy %s: %v\n", name, err)
+		}
 	}
 }
 
@@ -756,10 +935,10 @@ func ForceRefresh() error {
 	fmt.Println()
 	if ui.GumAvailable() {
 		ui.GumSuccess("Refreshing configuration and templates from binary")
-		fmt.Printf("%sThis will update config, templates, and mark The Construct image to be rebuild%s\n", ui.ColorGrey, ui.ColorReset)
+		fmt.Printf("%sThis will update config, templates, and rebuild the container image%s\n", ui.ColorGrey, ui.ColorReset)
 	} else {
 		fmt.Println("✓ Refreshing configuration and templates from binary")
-		fmt.Println("  This will update config, templates, and mark The Construct image to be rebuild")
+		fmt.Println("  This will update config, templates, and rebuild the container image")
 	}
 	fmt.Println()
 
@@ -779,7 +958,7 @@ func ForceRefresh() error {
 	// 3. Regenerate topgrade config
 	regenerateTopgradeConfig()
 
-	// 4. Mark image for rebuild
+	// 4. Force full rebuild (user explicitly requested refresh)
 	markImageForRebuild()
 
 	// 5. Force entrypoint setup to rerun on next container start.
@@ -787,7 +966,15 @@ func ForceRefresh() error {
 	clearOverrideHash()
 	forceEntrypointRun()
 
-	// 6. Update installed version
+	// 6. Save template hashes (after all operations succeed)
+	if err := saveTemplateHashes(computeTemplateHashes()); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to save template hashes: %v\n", err)
+	}
+
+	// 7. Clean up legacy hash files
+	cleanupLegacyHashFiles()
+
+	// 8. Update installed version
 	if err := SetInstalledVersion(constants.Version); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}

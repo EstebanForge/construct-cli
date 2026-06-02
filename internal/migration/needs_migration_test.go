@@ -1,6 +1,7 @@
 package migration
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -52,31 +53,33 @@ func TestNeedsMigration(t *testing.T) {
 		t.Error("Restored version should not need migration")
 	}
 
-	// 3. Entrypoint Hash Mismatch
-	hashPath := filepath.Join(config.GetConfigDir(), ".entrypoint_template_hash")
-	if err := os.WriteFile(hashPath, []byte("badhash\n"), 0644); err != nil {
-		t.Fatalf("Failed to write bad hash: %v", err)
+	// 3. Template hash mismatch (image-tier)
+	hashPath := filepath.Join(config.GetConfigDir(), templateHashesFile)
+	badHashes := map[string]string{"entrypoint.sh": "badhash"}
+	badData, _ := json.Marshal(badHashes)
+	if err := os.WriteFile(hashPath, badData, 0644); err != nil {
+		t.Fatalf("Failed to write bad template hashes: %v", err)
 	}
 	if !NeedsMigration() {
-		t.Error("Mismatched entrypoint hash should trigger migration")
+		t.Error("Mismatched template hash should trigger migration")
 	}
 
-	// 4. Entrypoint Hash Missing
+	// 4. Template hash file missing (pre-hash upgrade)
 	if err := os.Remove(hashPath); err != nil {
 		t.Fatalf("Failed to remove hash file: %v", err)
 	}
-	// entrypoint.sh still exists from Init
+	// entrypoint.sh exists from Init
 	if !NeedsMigration() {
-		t.Error("Missing entrypoint hash (with existing file) should trigger migration")
+		t.Error("Missing hash file with existing templates should trigger migration")
 	}
 
-	// 5. Entrypoint File Missing (and hash missing)
+	// 5. Template hash file missing AND templates missing (fresh install)
 	containerDir := filepath.Join(config.GetConfigDir(), "container")
 	entrypointPath := filepath.Join(containerDir, "entrypoint.sh")
 	if err := os.Remove(entrypointPath); err != nil {
 		t.Fatalf("Failed to remove entrypoint file: %v", err)
 	}
 	if NeedsMigration() {
-		t.Error("Missing entrypoint file AND hash should NOT trigger migration (config.Init handles this)")
+		t.Error("Missing templates AND hash should NOT trigger migration (fresh install)")
 	}
 }

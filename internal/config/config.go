@@ -4,6 +4,7 @@ package config
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -412,9 +413,8 @@ func Init() error {
 	pkgHash := sha256.Sum256([]byte(templates.Packages))
 	SetPackagesTemplateHash(hex.EncodeToString(pkgHash[:]))
 
-	// Set initial entrypoint template hash
-	epHash := sha256.Sum256([]byte(templates.Entrypoint))
-	SetEntrypointTemplateHash(hex.EncodeToString(epHash[:]))
+	// Set initial per-template hashes (used by migration system)
+	SetInitialTemplateHashes()
 
 	return nil
 }
@@ -436,11 +436,28 @@ func SetPackagesTemplateHash(hash string) {
 	}
 }
 
-// SetEntrypointTemplateHash writes the SHA256 hash of the entrypoint template
-func SetEntrypointTemplateHash(hash string) {
-	hashPath := filepath.Join(GetConfigDir(), ".entrypoint_template_hash")
-	if err := os.WriteFile(hashPath, []byte(hash+"\n"), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to write entrypoint template hash: %v\n", err)
+// SetInitialTemplateHashes writes the per-template hash file for a fresh install.
+// Single source of truth: template tier lists live in the templates package.
+func SetInitialTemplateHashes() {
+	all := make(map[string]string)
+	for name, content := range templates.ImageTierTemplates {
+		h := sha256.Sum256([]byte(content))
+		all[name] = hex.EncodeToString(h[:])
+	}
+	for name, content := range templates.SoftTierTemplates {
+		h := sha256.Sum256([]byte(content))
+		all[name] = hex.EncodeToString(h[:])
+	}
+
+	data, err := json.MarshalIndent(all, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to marshal template hashes: %v\n", err)
+		return
+	}
+
+	hashPath := filepath.Join(GetConfigDir(), ".template_hashes")
+	if err := os.WriteFile(hashPath, append(data, '\n'), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to write template hashes: %v\n", err)
 	}
 }
 
