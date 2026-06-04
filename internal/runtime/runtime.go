@@ -852,7 +852,6 @@ type overrideInputs struct {
 	GitName        string // Git user.name config
 	GitEmail       string // Git user.email config
 	ProjectPath    string // Project mount path
-	SSHAuthSock    string // SSH agent socket path
 	ForwardSSH     bool   // SSH agent forwarding enabled
 	PropagateGit   bool   // Git identity propagation enabled
 	DaemonMulti    bool   // Multi-path daemon mounts enabled
@@ -876,7 +875,6 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "gitname:%s", inputs.GitName)
 	writeHashString(h, "gitemail:%s", inputs.GitEmail)
 	writeHashString(h, "project:%s", inputs.ProjectPath)
-	writeHashString(h, "sshsock:%s", inputs.SSHAuthSock)
 	writeHashString(h, "forwardssh:%v", inputs.ForwardSSH)
 	writeHashString(h, "propagategit:%v", inputs.PropagateGit)
 	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
@@ -994,7 +992,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		GitName:        gitName,
 		GitEmail:       gitEmail,
 		ProjectPath:    projectPath,
-		SSHAuthSock:    sshAuthSock,
 		ForwardSSH:     forwardSSH,
 		PropagateGit:   propagateGit,
 		DaemonMulti:    cfg != nil && cfg.Daemon.MultiPathsEnabled,
@@ -1120,15 +1117,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	// SSH Agent Forwarding
-	forwardAgent := forwardSSH
-	sshSockPath := sshAuthSock
-	if forwardAgent && sshSockPath != "" {
-		if runtime.GOOS == "linux" {
-			// Standard Linux socket mounting
-			fmt.Fprintf(&override, "      - %s:/ssh-agent%s\n", sshSockPath, selinuxSuffix)
-			fmt.Println("✓ SSH Agent forwarding configured")
-		}
-		// On macOS, we use a TCP bridge handled in agent/runner.go and entrypoint.sh
+	// Both macOS and Linux now use the TCP bridge approach.
+	// The CLI starts a TCP listener on the host that proxies to SSH_AUTH_SOCK,
+	// and the entrypoint creates a socat unix proxy inside the container.
+	// This handles dynamic-path agents (Bitwarden) that recycle socket paths.
+	if forwardSSH && sshAuthSock != "" {
+		fmt.Println("✓ SSH Agent forwarding configured (TCP bridge)")
 	}
 
 	// Linux: ensure host.docker.internal resolves (required for host_service_env)
@@ -1157,12 +1151,8 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		}
 	}
 
-	if forwardAgent && sshSockPath != "" {
-		if runtime.GOOS == "linux" {
-			override.WriteString("      - SSH_AUTH_SOCK=/ssh-agent\n")
-		}
-		// On macOS, SSH_AUTH_SOCK is set in entrypoint.sh via the TCP bridge
-	}
+	// SSH_AUTH_SOCK is set inside the container by entrypoint.sh via the TCP bridge.
+	// No compose-level env var needed for either platform.
 
 	// Host service env: rewrite localhost/127.0.0.1 → host.docker.internal
 	if cfg != nil {

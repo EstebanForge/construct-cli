@@ -114,8 +114,11 @@ func (e *RuntimeEngine) Prepare() error {
 		}
 	}
 
-	// 6. Platform Bridges (macOS SSH Agent Forwarding)
-	if stdruntime.GOOS == "darwin" && e.cfg.Sandbox.ForwardSSHAgent {
+	// 6. Platform Bridges (SSH Agent Forwarding)
+	// TCP bridge works on both macOS and Linux.
+	// On macOS: Docker Desktop routes 127.0.0.1 into containers.
+	// On Linux: bridge binds 0.0.0.0, containers reach it via host.docker.internal.
+	if e.cfg.Sandbox.ForwardSSHAgent {
 		if os.Getenv("SSH_AUTH_SOCK") != "" {
 			bridge, err := StartSSHBridge()
 			if err == nil {
@@ -433,9 +436,16 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		env.SetEnvVar(&envVars, "CONSTRUCT_FILE_PASTE_AGENTS", constants.FileBasedPasteAgents)
 	}
 
-	// On Linux, we set SSH_AUTH_SOCK to the container mount point /ssh-agent
-	if stdruntime.GOOS == "linux" {
-		env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", "/ssh-agent")
+	// SSH bridge: restart socat proxy inside the container and inject proxy env.
+	// The socat from the original entrypoint may be pointing to a stale port
+	// (from a previous session's bridge). We must restart it with the current port.
+	if e.sshBridge != nil {
+		execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, containerName)
+		if err := e.ensureDaemonSSHProxy(containerName, e.sshBridge.Port, execUser); err == nil {
+			_ = e.waitForDaemonSSHProxy(containerName, execUser) //nolint:errcheck
+			env.SetEnvVar(&envVars, "CONSTRUCT_SSH_BRIDGE_PORT", fmt.Sprintf("%d", e.sshBridge.Port))
+			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", daemonSSHProxySock)
+		}
 	}
 
 	// Ensure Construct home and path
@@ -528,11 +538,8 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 		appendAgentSpecificRunFlags(runFlags, e.args[0], clipboardPatchValue)
 	}
 
-	for _, ev := range e.osEnv {
-		if strings.HasPrefix(ev, "CONSTRUCT_SSH_BRIDGE_PORT=") {
-			*runFlags = append(*runFlags, "-e", ev)
-			break
-		}
+	if e.sshBridge != nil {
+		*runFlags = append(*runFlags, "-e", fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port))
 	}
 
 	if e.loginForward {
@@ -678,10 +685,6 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 		env.SetEnvVar(&envVars, "COLORTERM", colorterm)
 	} else {
 		env.SetEnvVar(&envVars, "COLORTERM", "truecolor")
-	}
-
-	if stdruntime.GOOS == "linux" {
-		env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", "/ssh-agent")
 	}
 
 	return envVars
@@ -1033,9 +1036,6 @@ func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, o
 // already sets --user construct on macOS, and appendExecUserRunFlags for Linux host-uid.
 
 func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, execUser string) (*SSHBridge, []string, error) {
-	if stdruntime.GOOS != "darwin" {
-		return nil, nil, nil
-	}
 	if cfg == nil || !cfg.Sandbox.ForwardSSHAgent {
 		return nil, nil, nil
 	}
