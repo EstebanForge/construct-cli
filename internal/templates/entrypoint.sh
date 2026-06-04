@@ -90,6 +90,7 @@ if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
     PROXY_SOCK="$HOME/.ssh/agent.sock"
     mkdir -p "$HOME/.ssh" 2>/dev/null || true
     chmod 700 "$HOME/.ssh" 2>/dev/null || true
+    pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" || true
     rm -f "$PROXY_SOCK"
     socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
     export SSH_AUTH_SOCK="$PROXY_SOCK"
