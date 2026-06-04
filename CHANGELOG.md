@@ -9,6 +9,9 @@ All notable changes to Construct CLI will be documented in this file.
 - **Cross-Platform SSH Agent Bridge**: Replaced macOS-only SSH agent forwarding with a TCP bridge that works on both macOS and Linux. On macOS the bridge binds `127.0.0.1` (Docker Desktop routes it); on Linux it binds `0.0.0.0` so containers reach it via `host.docker.internal`. Removed direct `SSH_AUTH_SOCK` socket mounts and permission-fixing logic from entrypoint and compose overrides.
 - **Dynamic SSH Agent Socket Re-reading**: The TCP bridge now re-reads `SSH_AUTH_SOCK` per connection, with up to 3 retry attempts (100ms backoff). Handles agents like Bitwarden that recycle socket paths on vault lock/unlock.
 - **Daemon SSH Proxy Restart**: Running containers now get their socat proxy restarted with the current bridge port on each `exec`, preventing stale-port failures across sessions.
+
+### Fixed
+- **NPM Package Setup Failures**: Added `--force` flag to global npm package installs and upgrades during construct provisioning. Prevents setup crashes caused by pre-existing symlink conflicts (e.g. `EEXIST` conflicts during `@kilocode/cli` installation) and cascading `tar TAR_ENTRY_ERROR ENOENT` extraction errors (which blocked the installation of the `pi` package).
 <!-- RELEASE:END 1.8.15 -->
 
 <!-- RELEASE:START 1.9.0 -->

@@ -358,7 +358,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	if len(c.Npm.Packages) > 0 {
 		script += "echo 'Installing NPM packages...'\n"
 		for _, pkg := range c.Npm.Packages {
-			script += "npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
+			script += "npm install -g --force " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n"
 		}
 		script += "\n\n"
 	}
