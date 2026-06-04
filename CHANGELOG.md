@@ -12,6 +12,7 @@ All notable changes to Construct CLI will be documented in this file.
 
 ### Fixed
 - **NPM Package Setup Failures**: Added `--force` flag to global npm package installs and upgrades during construct provisioning. Prevents setup crashes caused by pre-existing symlink conflicts (e.g. `EEXIST` conflicts during `@kilocode/cli` installation) and cascading `tar TAR_ENTRY_ERROR ENOENT` extraction errors (which blocked the installation of the `pi` package).
+- **SSH Agent Proxy Leak**: Added `pkill` cleanup commands in container provisioning and execution engines to terminate stale background `socat` socket listeners before binding new instances, preventing orphaned process accumulation and routing failures across sessions.
 <!-- RELEASE:END 1.8.15 -->
 
 <!-- RELEASE:START 1.9.0 -->
