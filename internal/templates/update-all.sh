@@ -102,7 +102,7 @@ if command -v npm &> /dev/null; then
     npm_pkgs=$(npm ls -g --depth=0 --json 2>/dev/null | jq -r '.dependencies // {} | keys[] | select(. != "npm")' 2>/dev/null || true)
     if [ -n "$npm_pkgs" ]; then
         for pkg in $npm_pkgs; do
-            npm install -g "$pkg@latest" || echo "⚠️  Failed to upgrade $pkg"
+            npm install -g --force "$pkg@latest" || echo "⚠️  Failed to upgrade $pkg"
         done
     else
         echo "  No npm global packages found to upgrade"
