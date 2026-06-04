@@ -32,12 +32,6 @@ if [ "$(id -u)" = "0" ]; then
         chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
     fi
 
-    # Fix SSH socket permissions
-    if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
-        chown "$RUN_AS_CHOWN" "$SSH_AUTH_SOCK" 2>/dev/null || true
-        chmod 666 "$SSH_AUTH_SOCK" 2>/dev/null || true
-    fi
-
     # Clipboard tool symlinks (these are set up in Dockerfile but may need refresh)
     ln -sf /usr/local/bin/clipper /usr/bin/xclip 2>/dev/null || true
     ln -sf /usr/local/bin/clipper /usr/bin/xsel 2>/dev/null || true
@@ -88,11 +82,6 @@ else
             sudo chown -R "$(id -u):$(id -g)" /home/linuxbrew/.linuxbrew 2>/dev/null || true
         fi
 
-        # Fix SSH socket permissions
-        if [ -n "$SSH_AUTH_SOCK" ] && [ -e "$SSH_AUTH_SOCK" ]; then
-            sudo chown "$(id -u):$(id -g)" "$SSH_AUTH_SOCK" 2>/dev/null || true
-            chmod 666 "$SSH_AUTH_SOCK" 2>/dev/null || true
-        fi
     fi
 fi
 
