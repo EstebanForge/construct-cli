@@ -2,6 +2,11 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.8.15 -->
+## [1.8.15] - 2026-06-03
+
+<!-- RELEASE:END 1.8.15 -->
+
 <!-- RELEASE:START 1.9.0 -->
 ## [1.9.0] - 2026-06-02
 
