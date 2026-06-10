@@ -50,6 +50,7 @@ Global Flags:
   construct sys self-update        # Update construct itself to the latest version
   construct sys set-password       # Change the password for the construct user in container
   construct sys shell              # Interactive shell with all agents inside Construct
+  construct sys exec -- <command>  # Run a single command inside a running Construct container
   construct sys ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
   construct sys update             # Update agents and packages to latest versions inside Construct
   construct sys check-update       # Check if an update is available for The Construct
@@ -99,6 +100,7 @@ Commands:
   self-update        # Update construct itself to the latest version
   set-password       # Change the password for the construct user in container
   shell              # Interactive shell with all agents inside Construct
+  exec -- <command>  # Run a single command inside a running Construct container
   ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
   update             # Update agents and packages to latest versions inside Construct
   check-update       # Check if an update is available for The Construct

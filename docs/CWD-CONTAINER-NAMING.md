@@ -122,20 +122,22 @@ func cwdContainerName(cwd string) string {
 
 | File | Verdict | Reason |
 |---|---|---|
-| `internal/runtime/runtime.go` | No change | All functions accept `containerName` as a parameter; none construct it |
+| `internal/runtime/runtime.go` | **Changed** | Now exports `CwdContainerName()` — the canonical implementation. Agent package delegates to it. Also exports `ExecNonInteractiveStream()` for `sys exec` command. |
 | `internal/templates/docker-compose.yml` | No change | Service name is `construct-box`; container name is set dynamically via `--name` flag in `runNewContainer()` |
 | `internal/agent/runner.go` | No change | `RunWithArgs` → `Execute()` → picks up CWD-derived name automatically |
-| `cmd/construct/main.go` | No change | `ct sys shell` calls `agent.RunWithArgs([]string{}, "")` which flows through `Execute()` |
+| `cmd/construct/main.go` | **Changed** | Added `sys exec` command routing. `ct sys shell` calls `agent.RunWithArgs([]string{}, "")` which flows through `Execute()` |
 | `internal/sys/ops.go` | No change | `sys update`, `sys doctor`, etc. bypass `Execute()` entirely; use `compose run` with no `--name` flag |
 | All other `"construct-cli"` occurrences in `internal/` | No change | Every other match is a config directory path (`~/.config/construct-cli/`), not a container name |
 
 ---
 
-## New Utility: `cwdContainerName`
+## New Utility: `CwdContainerName`
 
-**Location:** `internal/agent/engine.go`, package-level, unexported.
+**Location:** `internal/runtime/runtime.go`, package-level, exported.
 
-**Signature:** `func cwdContainerName(cwd string) string`
+**Signature:** `func CwdContainerName(cwd string) string`
+
+The function was moved from `internal/agent/engine.go` (where it was unexported `cwdContainerName`) to the `runtime` package so it can be used by both the agent engine and `sys exec` command. The agent package delegates via `runtime.CwdContainerName(cwd)`.
 
 **Algorithm:**
 1. `sha256.Sum256([]byte(cwd))` → `[32]byte`

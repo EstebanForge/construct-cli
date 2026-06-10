@@ -206,6 +206,7 @@ make cross-compile   # all platforms
 - `sys packages --install`: Regenerate/install user packages into the running container.
 - `sys agents-md`: Manage global instruction files (rules) per agent.
 - `sys config --migrate`: Refresh templates/config to match the running binary.
+- `sys exec -- <command>`: Run a single command inside a running Construct container (non-interactive, no TTY). Designed for LLM agents that need to execute commands inside the container without attaching to a shell.
 - `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
 - `sys config --restore`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
@@ -481,11 +482,16 @@ if isDaemonStale(containerRuntime, daemonName) {
 3. **Daemon exec path:** `execViaDaemon()` function in `internal/agent/runner.go` detects running daemon, verifies freshness, starts clipboard server, and uses `ExecInteractive()` for agent execution.
 
 4. **Interactive exec:** `ExecInteractive()` function in `internal/runtime/runtime.go` provides stdin/stdout/stderr passthrough for interactive agent sessions.
+5. **Non-interactive exec:** `ExecNonInteractiveStream()` function in `internal/runtime/runtime.go` provides stdout/stderr streaming without TTY allocation for headless command execution (`construct sys exec`). Returns the container process exit code.
+6. **CWD container naming:** `CwdContainerName()` function in `internal/runtime/runtime.go` generates deterministic container names from the working directory. Shared between agent and sys packages.
+7. **Daemon name constant:** `DaemonName` constant in `internal/constants/constants.go` is the canonical source for the daemon container name. Used by both agent engine and sys exec.
 
 **Files changed:**
 - `internal/migration/migration.go` - Added daemon to container cleanup list
-- `internal/runtime/runtime.go` - Added `ExecInteractive()`, `GetContainerImageID()`, `GetImageID()`, `IsContainerStale()`
+- `internal/runtime/runtime.go` - Added `ExecInteractive()`, `ExecNonInteractiveStream()`, `GetContainerImageID()`, `GetImageID()`, `IsContainerStale()`, `CwdContainerName()`
 - `internal/agent/runner.go` - Added `execViaDaemon()` and daemon detection in `runWithProviderEnv()`
+- `internal/sys/exec.go` - Added `ExecCommand()` for non-interactive container command execution
+- `internal/constants/constants.go` - Added `DaemonName` constant
 - `internal/runtime/runtime_test.go` - Added tests for new functions
 
 ---

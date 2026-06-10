@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.0 -->
+## [1.9.0] - 2026-06-10
+
+### Added
+- **Non-interactive Container Exec**: New `construct sys exec -- <command>` command allows running a single command inside a running Construct container without attaching to an interactive shell. Designed for LLM agents operating in headless environments that need to execute commands inside the container and capture output. Streams stdout/stderr separately to the host, returns the container process exit code. Supports both daemon and CWD-scoped containers. Requires a running container (start with `construct sys shell` or `construct sys daemon start`).
+- **Daemon Name Constant**: Canonical `DaemonName` constant in `internal/constants/constants.go` replaces scattered string literals across agent engine and sys packages.
+- **Container Naming Export**: `CwdContainerName()` moved from `internal/agent` (unexported) to `internal/runtime` (exported) for cross-package reuse.
+- **Non-interactive Exec Primitive**: `ExecNonInteractiveStream()` in `internal/runtime/runtime.go` executes commands in running containers without TTY allocation, streaming stdout/stderr separately, returning real exit codes.
+
+### Changed
+- `MapDaemonWorkdir` and `ReadKeyringEnv` exported from agent package for reuse by `sys exec`.
+- **Smart Migration Rebuilds**: Container image rebuilds are now gated by per-template hash tracking. Version bumps that only change Go code (no template changes) skip the rebuild entirely, reducing update time from ~2 minutes to ~2 seconds. Templates are classified into tiers: image-baked (Dockerfile, entrypoint.sh, etc.) trigger a full rebuild; runtime-only (docker-compose.yml, agent-patch.sh) trigger a deferred restart; no changes means no rebuild.
+
+<!-- RELEASE:END 1.9.0 -->
+
 <!-- RELEASE:START 1.8.15 -->
 ## [1.8.15] - 2026-06-03
 
@@ -14,14 +29,6 @@ All notable changes to Construct CLI will be documented in this file.
 - **NPM Package Setup Failures**: Added `--force` flag to global npm package installs and upgrades during construct provisioning. Prevents setup crashes caused by pre-existing symlink conflicts (e.g. `EEXIST` conflicts during `@kilocode/cli` installation) and cascading `tar TAR_ENTRY_ERROR ENOENT` extraction errors (which blocked the installation of the `pi` package).
 - **SSH Agent Proxy Leak**: Added `pkill` cleanup commands in container provisioning and execution engines to terminate stale background `socat` socket listeners before binding new instances, preventing orphaned process accumulation and routing failures across sessions.
 <!-- RELEASE:END 1.8.15 -->
-
-<!-- RELEASE:START 1.9.0 -->
-## [1.9.0] - 2026-06-02
-
-### Changed
-- **Smart Migration Rebuilds**: Container image rebuilds are now gated by per-template hash tracking. Version bumps that only change Go code (no template changes) skip the rebuild entirely, reducing update time from ~2 minutes to ~2 seconds. Templates are classified into tiers: image-baked (Dockerfile, entrypoint.sh, etc.) trigger a full rebuild; runtime-only (docker-compose.yml, agent-patch.sh) trigger a deferred restart; no changes means no rebuild.
-
-<!-- RELEASE:END 1.9.0 -->
 
 <!-- RELEASE:START 1.8.14 -->
 ## [1.8.14] - 2026-06-02
