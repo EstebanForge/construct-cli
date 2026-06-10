@@ -1608,6 +1608,60 @@ func ExecInteractiveAsUser(containerRuntime, containerName string, cmdArgs []str
 	return 0, nil
 }
 
+// ExecNonInteractiveStream executes a command in a running container without TTY
+// allocation. Stdout and stderr are streamed separately to the host streams.
+// Returns the container process exit code.
+func ExecNonInteractiveStream(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir, user string) (int, error) {
+	var cmd *exec.Cmd
+
+	capacity := 1 + 2*(len(envVars)+1) + len(cmdArgs)
+	if workdir != "" {
+		capacity += 2
+	}
+	if user != "" {
+		capacity += 2
+	}
+	args := make([]string, 0, capacity)
+	args = append(args, "exec")
+
+	if workdir != "" {
+		args = append(args, "-w", workdir)
+	}
+
+	if user != "" {
+		args = append(args, "-u", user)
+	}
+
+	for _, env := range envVars {
+		args = append(args, "-e", env)
+	}
+
+	args = append(args, containerName)
+	args = append(args, cmdArgs...)
+
+	switch containerRuntime {
+	case "docker", "container":
+		cmd = exec.Command("docker", args...)
+	case "podman":
+		cmd = exec.Command("podman", args...)
+	default:
+		return 1, fmt.Errorf("unsupported runtime: %s", containerRuntime)
+	}
+
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return exitErr.ExitCode(), nil
+		}
+		return 1, fmt.Errorf("failed to exec in container: %w", err)
+	}
+
+	return 0, nil
+}
+
 // GetContainerWorkingDir returns the configured working directory for a container.
 func GetContainerWorkingDir(containerRuntime, containerName string) (string, error) {
 	var cmd *exec.Cmd
@@ -1713,7 +1767,15 @@ func IsContainerStale(containerRuntime, containerName, imageName string) bool {
 	return containerImageID != currentImageID
 }
 
-// GetContainerState checks the state of a container
+// CwdContainerName returns a deterministic container name derived from the
+// working directory. Same CWD always produces the same name, different CWDs
+// produce independent names, eliminating the singleton conflict.
+func CwdContainerName(cwd string) string {
+	sum := sha256.Sum256([]byte(cwd))
+	return fmt.Sprintf("construct-cli-%s", hex.EncodeToString(sum[:4]))
+}
+
+// GetContainerState checks the state of a container.
 func GetContainerState(containerRuntime, containerName string) ContainerState {
 	if !ContainerExists(containerRuntime, containerName) {
 		return ContainerStateMissing

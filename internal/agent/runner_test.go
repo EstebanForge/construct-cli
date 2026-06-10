@@ -1047,7 +1047,7 @@ func TestMapDaemonWorkdir(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := mapDaemonWorkdir(tt.cwd, tt.mountSource, mountDest)
+			got, ok := MapDaemonWorkdir(tt.cwd, tt.mountSource, mountDest)
 			if ok != tt.wantOK {
 				t.Fatalf("Expected ok=%v, got %v", tt.wantOK, ok)
 			}
@@ -1399,7 +1399,7 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/tmp/dbus-XYZ789
 			t.Fatal(err)
 		}
 
-		result := readKeyringEnv()
+		result := ReadKeyringEnv()
 		if result["GNOME_KEYRING_CONTROL"] != "/home/construct/.cache/keyring-ABC123" {
 			t.Errorf("expected GNOME_KEYRING_CONTROL, got %v", result)
 		}
@@ -1418,7 +1418,7 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/baz
 			t.Fatal(err)
 		}
 
-		result := readKeyringEnv()
+		result := ReadKeyringEnv()
 		if _, ok := result["UNKNOWN_VAR"]; ok {
 			t.Error("should not include unknown keys")
 		}
@@ -1429,7 +1429,7 @@ DBUS_SESSION_BUS_ADDRESS=unix:path=/baz
 
 	t.Run("returns empty when file missing", func(t *testing.T) {
 		os.Remove(filepath.Join(containerHome, ".construct-keyring-env"))
-		result := readKeyringEnv()
+		result := ReadKeyringEnv()
 		if len(result) != 0 {
 			t.Errorf("expected empty, got %v", result)
 		}

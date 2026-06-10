@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -140,7 +138,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	baseArgs := e.args
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
 
-	daemonName := "construct-cli-daemon"
+	daemonName := constants.DaemonName
 	daemonState := runtime.GetContainerState(e.containerRuntime, daemonName)
 
 	// 1. Try Daemon Path
@@ -264,7 +262,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 		}
 
 		var ok bool
-		workdir, ok = mapDaemonWorkdir(e.cwd, mountSource, daemonWorkdir)
+		workdir, ok = MapDaemonWorkdir(e.cwd, mountSource, daemonWorkdir)
 		if !ok {
 			e.warnDaemonMountFallback()
 			return false, 0, nil
@@ -929,18 +927,18 @@ func applyConstructPath(osEnv *[]string) {
 	// to ~/.construct-keyring-env inside the container home (bind-mounted from host).
 	// Without these vars, agents like agy cannot reach the keyring daemon and
 	// fall back to browser OAuth on every run.
-	keyringEnv := readKeyringEnv()
+	keyringEnv := ReadKeyringEnv()
 	for k, v := range keyringEnv {
 		env.SetEnvVar(osEnv, k, v)
 	}
 }
 
-// readKeyringEnv reads the keyring env file from the Construct config directory.
+// ReadKeyringEnv reads the keyring env file from the Construct config directory.
 // The entrypoint writes GNOME_KEYRING_CONTROL and DBUS_SESSION_BUS_ADDRESS
 // to .construct-keyring-env inside the container home (bind-mounted from host).
 // Without these vars, agents like agy cannot reach the keyring daemon and
 // fall back to browser OAuth on every run.
-func readKeyringEnv() map[string]string {
+func ReadKeyringEnv() map[string]string {
 	result := make(map[string]string)
 	envFile := filepath.Join(config.GetConfigDir(), "home", ".construct-keyring-env")
 	data, err := os.ReadFile(envFile)
@@ -965,7 +963,8 @@ func readKeyringEnv() map[string]string {
 	return result
 }
 
-func mapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
+// MapDaemonWorkdir maps a host CWD to a container workdir using the mount source/dest pair.
+func MapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
 	rel, err := filepath.Rel(filepath.Clean(mountSource), filepath.Clean(cwd))
 	if err != nil {
 		return "", false
@@ -1012,8 +1011,7 @@ func execInRunningContainer(args []string, cfg *config.Config, containerRuntime 
 // working directory. Same CWD always produces the same name, different CWDs
 // produce independent names, eliminating the singleton conflict.
 func cwdContainerName(cwd string) string {
-	sum := sha256.Sum256([]byte(cwd))
-	return fmt.Sprintf("construct-cli-%s", hex.EncodeToString(sum[:4]))
+	return runtime.CwdContainerName(cwd)
 }
 
 func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, osEnv []string, cbServer *clipboard.Server, mergedProviderEnv []string, loginForward bool, loginPorts []int) []string {

@@ -172,6 +172,7 @@ All settings explained:
 construct --help              # Show all commands
 construct sys doctor           # System health check
 construct sys config           # Edit configuration
+construct sys exec -- <cmd>    # Run command inside container
 ```
 
 ### Documentation

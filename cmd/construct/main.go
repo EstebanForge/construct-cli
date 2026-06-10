@@ -170,6 +170,16 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "shell":
 		// Shell is just running with empty args (entrypoint defaults to shell)
 		agent.RunWithArgs([]string{}, "")
+	case "exec":
+		// Non-interactive command execution inside running container
+		execArgs := parseExecArgs(args[1:])
+		if len(execArgs) == 0 {
+			fmt.Fprintf(os.Stderr, "Usage: construct sys exec -- <command> [args...]\n")
+			fmt.Fprintf(os.Stderr, "Run a command inside a running Construct container.\n")
+			os.Exit(1)
+		}
+		exitCode := sys.ExecCommand(cfg, execArgs)
+		os.Exit(exitCode)
 	case "aliases":
 		handleAliasesCommand(args[1:])
 	case "version":
@@ -476,6 +486,21 @@ func handleDaemonCommand(args []string) {
 	}
 }
 
+// parseExecArgs splits args after "exec" on the first "--" separator.
+// Returns everything after "--" as the command to run inside the container.
+// Returns nil if no "--" is found or nothing follows it.
+func parseExecArgs(args []string) []string {
+	for i, arg := range args {
+		if arg == "--" {
+			if i+1 < len(args) {
+				return args[i+1:]
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 func shouldRunMigration(args []string) bool {
 	if len(args) == 0 {
 		return false
@@ -487,7 +512,7 @@ func shouldRunMigration(args []string) bool {
 			return false
 		}
 		switch args[1] {
-		case "init", "rebuild", "update", "reset", "shell", "aliases", "version", "help",
+		case "init", "rebuild", "update", "reset", "shell", "exec", "aliases", "version", "help",
 			"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
 			"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
 			return args[1] != "self-update" && args[1] != "rebuild"

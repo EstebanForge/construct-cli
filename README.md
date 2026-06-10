@@ -125,6 +125,7 @@ construct sys init              # First-time setup
 construct sys doctor           # Health check
 construct sys config           # Edit configuration
 construct sys update           # Update agents
+construct sys exec -- <cmd>    # Run command inside running container
 construct sys reset            # Reset everything
 
 # Agent commands
