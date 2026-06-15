@@ -189,6 +189,13 @@ fi
 export PATH
 export CONSTRUCT_PATH="$PATH"
 
+# Casks are macOS-only; on Linux the homebrew/cask tap only breaks `brew upgrade`
+# (arch-conditional sha256 resolves to nil, e.g. Casks/0/0-ad). Untap defensively
+# so manual topgrade/brew runs are safe too. Idempotent; no-op if already untapped.
+if [ "$(uname -s)" = "Linux" ] && command -v brew >/dev/null 2>&1; then
+    brew untap homebrew/cask >/dev/null 2>&1 || true
+fi
+
 construct_profile="$HOME/.construct-path.sh"
 cat > "$construct_profile" <<EOF
 # construct-managed: true

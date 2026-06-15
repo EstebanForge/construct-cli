@@ -135,6 +135,18 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "npm config set prefix \"$HOME/.npm-global\"") {
 		t.Error("update-all.sh should configure npm global prefix before npm updates")
 	}
+	// Casks are macOS-only; on Linux the homebrew/cask tap crashes `brew upgrade`
+	// (arch-conditional sha256 resolves to nil, e.g. Casks/0/0-ad). Both update
+	// scripts must untap it defensively on Linux.
+	if !strings.Contains(UpdateAll, "brew untap homebrew/cask") {
+		t.Error("update-all.sh should untap homebrew/cask on Linux to avoid sha256:nil crash")
+	}
+	if !strings.Contains(UpdateAll, "\"$(uname -s)\" = \"Linux\"") {
+		t.Error("update-all.sh cask untap should be guarded to Linux")
+	}
+	if !strings.Contains(Entrypoint, "brew untap homebrew/cask") {
+		t.Error("entrypoint.sh should untap homebrew/cask on Linux so manual topgrade runs are safe")
+	}
 	// Test agent patch template
 	if AgentPatch == "" {
 		t.Error("agent-patch.sh template is empty")
