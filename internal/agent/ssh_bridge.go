@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net"
@@ -20,22 +21,50 @@ type SSHBridge struct {
 	wg       sync.WaitGroup
 }
 
+// sshBridgePortBase/Span define the deterministic port band. It sits below the
+// Linux ephemeral range (32768+) to reduce collisions with OS-allocated ports; a
+// bind failure falls back to an ephemeral port in StartSSHBridge.
+const (
+	sshBridgePortBase = 38500
+	sshBridgePortSpan = 10000
+)
+
+// sshBridgePortForSeed derives a stable TCP port from a seed (typically the box
+// container name). The same box always maps to the same port so a stale socat
+// baked into the container at creation keeps pointing at the right host port
+// across CLI invocations, instead of aging out as the random host port changes.
+func sshBridgePortForSeed(seed string) int {
+	h := sha256.Sum256([]byte(seed))
+	v := int(h[0])<<8 | int(h[1])
+	return sshBridgePortBase + v%sshBridgePortSpan
+}
+
 // StartSSHBridge starts a local TCP server that proxies to the local SSH agent.
+// The port is derived deterministically from seed so it is stable per box across
+// invocations; if that port is already in use it falls back to an ephemeral port
+// (correctness is still guaranteed by the per-exec socat restart).
 // On macOS it binds 127.0.0.1 (Docker Desktop handles routing).
 // On Linux it binds 0.0.0.0 so containers can reach it via host.docker.internal.
-func StartSSHBridge() (*SSHBridge, error) {
+func StartSSHBridge(seed string) (*SSHBridge, error) {
 	if os.Getenv("SSH_AUTH_SOCK") == "" {
 		return nil, fmt.Errorf("SSH_AUTH_SOCK not set on host")
 	}
 
-	bindAddr := "127.0.0.1:0"
-	if runtime.GOOS == "linux" {
-		bindAddr = "0.0.0.0:0"
+	bindAddr := func(port int) string {
+		if runtime.GOOS == "linux" {
+			return fmt.Sprintf("0.0.0.0:%d", port)
+		}
+		return fmt.Sprintf("127.0.0.1:%d", port)
 	}
 
-	l, err := net.Listen("tcp", bindAddr)
+	port := sshBridgePortForSeed(seed)
+	l, err := net.Listen("tcp", bindAddr(port))
 	if err != nil {
-		return nil, fmt.Errorf("failed to start SSH bridge listener: %w", err)
+		ui.LogDebug("SSH bridge: deterministic port %d unavailable (%v); using ephemeral", port, err)
+		l, err = net.Listen("tcp", bindAddr(0))
+		if err != nil {
+			return nil, fmt.Errorf("failed to start SSH bridge listener: %w", err)
+		}
 	}
 
 	bridge := &SSHBridge{
