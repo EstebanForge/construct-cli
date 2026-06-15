@@ -1090,7 +1090,7 @@ func TestCheckSSHAgent(t *testing.T) {
 			} else {
 				cfg = &config.Config{Sandbox: config.SandboxConfig{ForwardSSHAgent: false}}
 			}
-			execCombinedOutput = func(name string, args ...string) ([]byte, error) {
+			execCombinedOutput = func(name string, _ ...string) ([]byte, error) {
 				if name == "ssh-add" {
 					return tc.sshAddOut, tc.sshAddErr
 				}
