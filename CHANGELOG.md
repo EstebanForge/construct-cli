@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.3 -->
+## [1.9.3] - 2026-06-15
+
+### Added
+- **SSH Agent Reachability Check in `sys doctor`**: The existing "SSH Agent" check only verified `SSH_AUTH_SOCK` was set, which a stale/recycled socket (e.g. Bitwarden/1Password after lock) passes while every in-container `ssh`/`git` op fails silently. The check now probes the agent directly via `ssh-add -l` and reports reachable (with key count), reachable-but-no-keys, not-reachable, or unknown (ssh-add missing). Extracted into a unit-tested `checkSSHAgent` helper.
+<!-- RELEASE:END 1.9.3 -->
+
 <!-- RELEASE:START 1.9.2 -->
 ## [1.9.2] - 2026-06-15
 
