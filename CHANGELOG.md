@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.2 -->
+## [1.9.2] - 2026-06-15
+
+### Fixed
+- **SSH Agent Bridge Silently Failed on Stale Port**: The in-container `socat` SSH-agent proxy (started by `entrypoint.sh` at container creation) baked the host bridge port into its argv. The host bridge (`StartSSHBridge`) bound a random ephemeral port that changed across CLI invocations, so the stale `socat` kept pointing at a dead host port and every `ssh`/`git` op failed with "communication with agent failed". The v1.8.15 "restart `socat` on each exec" fix did not actually work: `ensureDaemonSSHProxy` backgrounds `socat` (returns near-instantly, almost never errors) and both exec sites **discarded** the result of `waitForDaemonSSHProxy` (gated on `if err == nil`). The liveness probe was `test -S` (socket file exists), which a leftover socket or stale `socat` passes. Now both exec sites check and log both errors, and the probe is a real `UNIX-CONNECT` (socket actually accepting connections).
+
+### Changed
+- **Deterministic SSH Bridge Port per Box**: `StartSSHBridge` now derives a stable TCP port from the box identity (hash of the container name) instead of an ephemeral random port, with fallback to ephemeral on bind failure. The same box now maps to the same host port across invocations, so a stale `socat` baked at container creation keeps pointing at the right port instead of aging out. Band sits below the Linux ephemeral range (32768+) to reduce OS collisions. Correctness is still guaranteed by the per-exec `socat` restart regardless of port strategy.
+<!-- RELEASE:END 1.9.2 -->
+
 <!-- RELEASE:START 1.9.1 -->
 ## [1.9.1] - 2026-06-15
 

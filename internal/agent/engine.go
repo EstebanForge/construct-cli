@@ -118,7 +118,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// On Linux: bridge binds 0.0.0.0, containers reach it via host.docker.internal.
 	if e.cfg.Sandbox.ForwardSSHAgent {
 		if os.Getenv("SSH_AUTH_SOCK") != "" {
-			bridge, err := StartSSHBridge()
+			bridge, err := StartSSHBridge(cwdContainerName(e.cwd))
 			if err == nil {
 				e.sshBridge = bridge
 			}
@@ -273,8 +273,11 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, daemonName)
 	var bridgeEnv []string
 	if e.sshBridge != nil {
-		if err := e.ensureDaemonSSHProxy(daemonName, e.sshBridge.Port, execUser); err == nil {
-			_ = e.waitForDaemonSSHProxy(daemonName, execUser) //nolint:errcheck
+		if err := e.ensureDaemonSSHProxy(daemonName, e.sshBridge.Port, execUser); err != nil {
+			fmt.Printf("⚠️  SSH agent proxy restart failed (daemon): %v\n", err)
+		} else if err := e.waitForDaemonSSHProxy(daemonName, execUser); err != nil {
+			fmt.Printf("⚠️  SSH agent proxy not ready (daemon): %v\n", err)
+		} else {
 			bridgeEnv = []string{
 				fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port),
 				"SSH_AUTH_SOCK=" + daemonSSHProxySock,
@@ -439,8 +442,11 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	// (from a previous session's bridge). We must restart it with the current port.
 	if e.sshBridge != nil {
 		execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, containerName)
-		if err := e.ensureDaemonSSHProxy(containerName, e.sshBridge.Port, execUser); err == nil {
-			_ = e.waitForDaemonSSHProxy(containerName, execUser) //nolint:errcheck
+		if err := e.ensureDaemonSSHProxy(containerName, e.sshBridge.Port, execUser); err != nil {
+			fmt.Printf("⚠️  SSH agent proxy restart failed: %v\n", err)
+		} else if err := e.waitForDaemonSSHProxy(containerName, execUser); err != nil {
+			fmt.Printf("⚠️  SSH agent proxy not ready: %v\n", err)
+		} else {
 			env.SetEnvVar(&envVars, "CONSTRUCT_SSH_BRIDGE_PORT", fmt.Sprintf("%d", e.sshBridge.Port))
 			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", daemonSSHProxySock)
 		}
@@ -584,7 +590,9 @@ func (e *RuntimeEngine) waitForDaemonSSHProxy(daemonName, execUser string) error
 }
 
 func (e *RuntimeEngine) checkDaemonSSHProxy(daemonName, execUser string) error {
-	cmdArgs := []string{"bash", "-lc", `test -S "` + daemonSSHProxySock + `"`}
+	// Probe that the socket is actually accepting connections. test -S only checks
+	// the file exists, which passes for a leftover socket or a stale/dead socat.
+	cmdArgs := []string{"bash", "-lc", `command -v socat >/dev/null || exit 1; socat -u OPEN:/dev/null UNIX-CONNECT:"` + daemonSSHProxySock + `"`}
 	_, err := runtime.ExecInContainerWithEnv(e.containerRuntime, daemonName, cmdArgs, nil, execUser)
 	return err
 }
@@ -1041,7 +1049,7 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 		return nil, nil, nil
 	}
 
-	bridge, err := StartSSHBridge()
+	bridge, err := StartSSHBridge(daemonName)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1071,7 +1079,9 @@ func ensureDaemonSSHProxy(containerRuntime, daemonName string, port int, execUse
 
 func waitForDaemonSSHProxy(containerRuntime, daemonName, execUser string) error {
 	for i := 0; i < 10; i++ {
-		cmdArgs := []string{"bash", "-lc", `test -S "` + daemonSSHProxySock + `"`}
+		// Probe that the socket is actually accepting connections. test -S only
+		// checks the file exists, which passes for a leftover socket or stale socat.
+		cmdArgs := []string{"bash", "-lc", `command -v socat >/dev/null || exit 1; socat -u OPEN:/dev/null UNIX-CONNECT:"` + daemonSSHProxySock + `"`}
 		if _, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, nil, execUser); err == nil {
 			return nil
 		}
