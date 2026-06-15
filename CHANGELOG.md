@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.1 -->
+## [1.9.1] - 2026-06-15
+
+### Fixed
+- **Topgrade Brew Step Crash on Linux**: The `homebrew/cask` tap (auto-tapped under `HOMEBREW_NO_INSTALL_FROM_API` mode) breaks `brew upgrade` on Linux because casks use arch-conditional `sha256 arm:/intel:` that resolves to nil on non-macOS systems (e.g. `Casks/0/0-ad`), aborting the whole update run and stalling all formula upgrades. Both `update-all.sh` and `entrypoint.sh` now defensively untap `homebrew/cask` on Linux (idempotent). Casks are macOS-only and non-functional on the Linux box.
+<!-- RELEASE:END 1.9.1 -->
+
 <!-- RELEASE:START 1.9.0 -->
 ## [1.9.0] - 2026-06-10
 

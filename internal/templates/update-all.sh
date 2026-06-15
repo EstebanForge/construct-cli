@@ -48,6 +48,14 @@ echo ""
 
 eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" || true
 
+# Casks are macOS-only (.app into /Applications). On Linux the homebrew/cask tap
+# only breaks `brew upgrade`: arch-conditional sha256 (arm:/intel:) resolves to
+# nil for non-macOS systems, aborting the run (e.g. Casks/0/0-ad). Untap defensively.
+# Runtime may re-tap it (HOMEBREW_NO_INSTALL_FROM_API mode), so clear each update.
+if [ "$(uname -s)" = "Linux" ] && command -v brew >/dev/null 2>&1; then
+    brew untap homebrew/cask >/dev/null 2>&1 || true
+fi
+
 # Sudo detection: use empty string if root, test if sudo works, otherwise skip
 if [ "$(id -u)" = "0" ]; then
     SUDO=""
