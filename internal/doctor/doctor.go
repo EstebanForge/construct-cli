@@ -702,24 +702,7 @@ func Run(args ...string) {
 	checks = append(checks, imageCheck)
 
 	// 13. SSH Agent Check
-	sshCheck := CheckResult{Name: "SSH Agent"}
-	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
-		sshCheck.Status = CheckStatusSkipped
-		sshCheck.Message = "SSH Agent forwarding disabled"
-		sshCheck.Suggestion = "Enable 'forward_ssh_agent' in config.toml to use SSH keys"
-	} else {
-		sshSock := os.Getenv("SSH_AUTH_SOCK")
-		if sshSock != "" {
-			sshCheck.Status = CheckStatusOK
-			sshCheck.Message = "SSH Agent detected"
-			sshCheck.Details = []string{fmt.Sprintf("Socket: %s", sshSock)}
-		} else {
-			sshCheck.Status = CheckStatusWarning
-			sshCheck.Message = "SSH Agent not found"
-			sshCheck.Suggestion = "Start ssh-agent and run 'ssh-add' to use SSH keys securely in the container"
-		}
-	}
-	checks = append(checks, sshCheck)
+	checks = append(checks, checkSSHAgent(cfg))
 
 	// 14. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Construct SSH Keys"}
@@ -1074,6 +1057,74 @@ func extractComposeNetworkNames(output string) []string {
 		names = append(names, name)
 	}
 	return names
+}
+
+// checkSSHAgent verifies the host SSH agent is configured AND actually
+// reachable. A set SSH_AUTH_SOCK is not enough: agents like Bitwarden/
+// 1Password recycle the socket on lock/unlock, and a stale socket passes an
+// env-only check while every in-container ssh/git op fails silently. We probe
+// the agent directly, because the bridge can only forward a reachable agent.
+// ssh-add -l exits: 0 = identities listed, 1 = reachable but no identities,
+// 2 = cannot contact the agent.
+func checkSSHAgent(cfg *config.Config) CheckResult {
+	check := CheckResult{Name: "SSH Agent"}
+	if cfg != nil && !cfg.Sandbox.ForwardSSHAgent {
+		check.Status = CheckStatusSkipped
+		check.Message = "SSH Agent forwarding disabled"
+		check.Suggestion = "Enable 'forward_ssh_agent' in config.toml to use SSH keys"
+		return check
+	}
+	sshSock := os.Getenv("SSH_AUTH_SOCK")
+	if sshSock == "" {
+		check.Status = CheckStatusWarning
+		check.Message = "SSH Agent not found"
+		check.Suggestion = "Start ssh-agent and run 'ssh-add' to use SSH keys securely in the container"
+		return check
+	}
+	check.Details = []string{fmt.Sprintf("Socket: %s", sshSock)}
+	out, err := execCombinedOutput("ssh-add", "-l")
+	code, isExit := sshAddExitCode(err)
+	switch {
+	case err == nil:
+		check.Status = CheckStatusOK
+		check.Message = "SSH Agent reachable"
+		check.Details = append(check.Details, fmt.Sprintf("Keys loaded: %d", countSSHAddIdentities(string(out))))
+	case isExit && code == 1:
+		check.Status = CheckStatusOK
+		check.Message = "SSH Agent reachable (no keys loaded)"
+	case isExit && code == 2:
+		check.Status = CheckStatusWarning
+		check.Message = "SSH Agent not reachable"
+		check.Details = append(check.Details, "ssh-add -l: cannot contact agent")
+		check.Suggestion = "Restart/unlock your SSH agent (e.g. unlock Bitwarden/1Password, or eval $(ssh-agent) && ssh-add)"
+	default:
+		check.Status = CheckStatusWarning
+		check.Message = "SSH Agent reachability unknown"
+		check.Details = append(check.Details, "ssh-add not available or failed to run")
+		check.Suggestion = "Install openssh-client and run 'ssh-add -l' to verify the agent"
+	}
+	return check
+}
+
+// sshAddExitCode reports the process exit code from an ssh-add error and whether
+// it is a process-exit error. A non-exit error means ssh-add was not found.
+func sshAddExitCode(err error) (code int, isExit bool) {
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return exitErr.ExitCode(), true
+	}
+	return 0, false
+}
+
+// countSSHAddIdentities counts identity lines in `ssh-add -l` output (one per
+// loaded key). Empty output yields 0.
+func countSSHAddIdentities(output string) int {
+	n := 0
+	for _, line := range strings.Split(output, "\n") {
+		if strings.TrimSpace(line) != "" {
+			n++
+		}
+	}
+	return n
 }
 
 func printCheckResult(check CheckResult) {

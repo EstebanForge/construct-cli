@@ -995,3 +995,139 @@ func TestDoctorComposeEnvIncludesRuntimeIdentityOnLinux(t *testing.T) {
 		t.Fatalf("expected CONSTRUCT_USERNS_REMAP in env, got: %v", env)
 	}
 }
+
+// exitErrForCode produces a genuine *exec.ExitError with the given exit code,
+// so sshAddExitCode's type assertion matches real ssh-add behavior.
+func exitErrForCode(t *testing.T, code int) error {
+	t.Helper()
+	err := exec.Command("sh", "-c", fmt.Sprintf("exit %d", code)).Run()
+	if err == nil {
+		t.Fatalf("expected non-zero exit %d", code)
+	}
+	return err
+}
+
+func TestCheckSSHAgent(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/fake-agent.sock")
+
+	cases := []struct {
+		name       string
+		forwarding bool
+		haveSock   bool
+		sshAddOut  []byte
+		sshAddErr  error
+		wantStatus CheckStatus
+		wantMsg    string
+		wantDetail string // empty = don't assert
+	}{
+		{
+			name:       "forwarding disabled",
+			forwarding: false,
+			wantStatus: CheckStatusSkipped,
+			wantMsg:    "SSH Agent forwarding disabled",
+		},
+		{
+			name:       "no socket set",
+			forwarding: true,
+			haveSock:   false,
+			wantStatus: CheckStatusWarning,
+			wantMsg:    "SSH Agent not found",
+		},
+		{
+			name:       "reachable with keys",
+			forwarding: true,
+			haveSock:   true,
+			sshAddOut:  []byte("2048 SHA256:aaa one (RSA)\n256 SHA256:bbb two (ED25519)\n"),
+			sshAddErr:  nil,
+			wantStatus: CheckStatusOK,
+			wantMsg:    "SSH Agent reachable",
+			wantDetail: "Keys loaded: 2",
+		},
+		{
+			name:       "reachable but no keys",
+			forwarding: true,
+			haveSock:   true,
+			sshAddOut:  []byte("The agent has no identities.\n"),
+			sshAddErr:  exitErrForCode(t, 1),
+			wantStatus: CheckStatusOK,
+			wantMsg:    "SSH Agent reachable (no keys loaded)",
+		},
+		{
+			name:       "agent not reachable",
+			forwarding: true,
+			haveSock:   true,
+			sshAddOut:  []byte("Error connecting to agent: Connection refused\n"),
+			sshAddErr:  exitErrForCode(t, 2),
+			wantStatus: CheckStatusWarning,
+			wantMsg:    "SSH Agent not reachable",
+			wantDetail: "cannot contact agent",
+		},
+		{
+			name:       "ssh-add missing",
+			forwarding: true,
+			haveSock:   true,
+			sshAddOut:  nil,
+			sshAddErr:  fmt.Errorf("exec: ssh-add: executable file not found in $PATH"),
+			wantStatus: CheckStatusWarning,
+			wantMsg:    "SSH Agent reachability unknown",
+			wantDetail: "ssh-add not available",
+		},
+	}
+
+	origExec := execCombinedOutput
+	t.Cleanup(func() { execCombinedOutput = origExec })
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.haveSock {
+				t.Setenv("SSH_AUTH_SOCK", "/tmp/fake-agent.sock")
+			} else {
+				t.Setenv("SSH_AUTH_SOCK", "")
+			}
+			var cfg *config.Config
+			if tc.forwarding {
+				cfg = &config.Config{Sandbox: config.SandboxConfig{ForwardSSHAgent: true}}
+			} else {
+				cfg = &config.Config{Sandbox: config.SandboxConfig{ForwardSSHAgent: false}}
+			}
+			execCombinedOutput = func(name string, args ...string) ([]byte, error) {
+				if name == "ssh-add" {
+					return tc.sshAddOut, tc.sshAddErr
+				}
+				return nil, fmt.Errorf("unexpected command: %s", name)
+			}
+
+			got := checkSSHAgent(cfg)
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status: got %q want %q", got.Status, tc.wantStatus)
+			}
+			if got.Message != tc.wantMsg {
+				t.Fatalf("message: got %q want %q", got.Message, tc.wantMsg)
+			}
+			if tc.wantDetail != "" {
+				found := false
+				for _, d := range got.Details {
+					if strings.Contains(d, tc.wantDetail) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					t.Fatalf("missing detail %q in %v", tc.wantDetail, got.Details)
+				}
+			}
+		})
+	}
+}
+
+func TestCountSSHAddIdentities(t *testing.T) {
+	if n := countSSHAddIdentities(""); n != 0 {
+		t.Fatalf("empty: got %d want 0", n)
+	}
+	if n := countSSHAddIdentities("2048 SHA256:a (RSA)\n256 SHA256:b (ED25519)\n"); n != 2 {
+		t.Fatalf("two keys: got %d want 2", n)
+	}
+	if n := countSSHAddIdentities("\n  \n"); n != 0 {
+		t.Fatalf("blank lines: got %d want 0", n)
+	}
+}
