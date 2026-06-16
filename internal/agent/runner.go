@@ -3,11 +3,13 @@ package agent
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -259,7 +261,50 @@ func getImageEntrypointHash(containerRuntime, configPath string) (string, error)
 	return fields[0], nil
 }
 
+// errSetupLockBusy signals that another construct instance is already running setup.
+// Two concurrent `docker compose run` setups share the same home bind-mount and
+// deadlock on npm's shared global cache/lock; acquireSetupLock serializes them.
+var errSetupLockBusy = errors.New("setup already in progress")
+
+// acquireSetupLock takes a non-blocking exclusive lock on the setup lockfile.
+// The lock is released when the returned file is closed (also auto-released by
+// the OS on process exit, so no manual cleanup is needed on crash). Returns
+// (nil, errSetupLockBusy) if another setup already holds the lock.
+func acquireSetupLock() (*os.File, error) {
+	lockPath := filepath.Join(config.GetConfigDir(), "setup.lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return nil, fmt.Errorf("open setup lock: %w", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if cerr := f.Close(); cerr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to close setup lock file: %v\n", cerr)
+		}
+		return nil, errSetupLockBusy
+	}
+	return f, nil
+}
+
 func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
+	// Serialize setup: a second concurrent setup on the shared home bind-mount
+	// deadlocks npm's global cache/lock. Refuse to start if one is in progress.
+	lockFile, lockErr := acquireSetupLock()
+	if errors.Is(lockErr, errSetupLockBusy) {
+		fmt.Println("ℹ️  Setup is already running in another instance. Wait for it to finish, then retry.")
+		return lockErr
+	}
+	if lockErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not acquire setup lock: %v\n", lockErr)
+		// Non-fatal: proceed without the lock rather than blocking the user.
+	}
+	if lockFile != nil {
+		defer func() {
+			if cerr := lockFile.Close(); cerr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to close setup lock file: %v\n", cerr)
+			}
+		}()
+	}
+
 	logFile, err := config.CreateLogFile("setup")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create log file: %v\n", err)

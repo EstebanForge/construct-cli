@@ -2,28 +2,20 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-<!-- RELEASE:START 1.9.3 -->
-## [1.9.3] - 2026-06-15
-
-### Added
-- **SSH Agent Reachability Check in `sys doctor`**: The existing "SSH Agent" check only verified `SSH_AUTH_SOCK` was set, which a stale/recycled socket (e.g. Bitwarden/1Password after lock) passes while every in-container `ssh`/`git` op fails silently. The check now probes the agent directly via `ssh-add -l` and reports reachable (with key count), reachable-but-no-keys, not-reachable, or unknown (ssh-add missing). Extracted into a unit-tested `checkSSHAgent` helper.
-<!-- RELEASE:END 1.9.3 -->
-
-<!-- RELEASE:START 1.9.2 -->
-## [1.9.2] - 2026-06-15
-
-### Fixed
-- **SSH Agent Bridge Silently Failed on Stale Port**: The in-container `socat` SSH-agent proxy (started by `entrypoint.sh` at container creation) baked the host bridge port into its argv. The host bridge (`StartSSHBridge`) bound a random ephemeral port that changed across CLI invocations, so the stale `socat` kept pointing at a dead host port and every `ssh`/`git` op failed with "communication with agent failed". The v1.8.15 "restart `socat` on each exec" fix did not actually work: `ensureDaemonSSHProxy` backgrounds `socat` (returns near-instantly, almost never errors) and both exec sites **discarded** the result of `waitForDaemonSSHProxy` (gated on `if err == nil`). The liveness probe was `test -S` (socket file exists), which a leftover socket or stale `socat` passes. Now both exec sites check and log both errors, and the probe is a real `UNIX-CONNECT` (socket actually accepting connections).
-
-### Changed
-- **Deterministic SSH Bridge Port per Box**: `StartSSHBridge` now derives a stable TCP port from the box identity (hash of the container name) instead of an ephemeral random port, with fallback to ephemeral on bind failure. The same box now maps to the same host port across invocations, so a stale `socat` baked at container creation keeps pointing at the right port instead of aging out. Band sits below the Linux ephemeral range (32768+) to reduce OS collisions. Correctness is still guaranteed by the per-exec `socat` restart regardless of port strategy.
-<!-- RELEASE:END 1.9.2 -->
-
 <!-- RELEASE:START 1.9.1 -->
 ## [1.9.1] - 2026-06-15
 
+### Added
+- **SSH Agent Reachability Check in `sys doctor`**: The existing "SSH Agent" check only verified `SSH_AUTH_SOCK` was set, which a stale/recycled socket (e.g. Bitwarden/1Password after lock) passes while every in-container `ssh`/`git` op fails silently. The check now probes the agent directly via `ssh-add -l` and reports reachable (with key count), reachable-but-no-keys, not-reachable, or unknown (ssh-add missing). Extracted into a unit-tested `checkSSHAgent` helper.
+
 ### Fixed
+- **Concurrent Setup Deadlock**: Two `docker compose run` setups running at once (e.g. a user retrying because setup looked stuck) share the same home bind-mount and both write into npm's shared global `node_modules` + cache, deadlocking on npm's cache/lock and hanging indefinitely. Setup now takes a non-blocking exclusive `flock` on `~/.config/construct-cli/setup.lock` before spawning the compose run; a second instance refuses to start and tells the user to wait. The lock auto-releases on process exit, so no manual cleanup is needed after a crash.
+- **Redundant npm Reinstalls During Setup**: Every `npm install -g` in the generated setup script used `--force`, re-fetching and re-linking all global packages on every setup run. This made setup slow enough to look stuck (the trigger for the retry that caused the deadlock above). `--force` is dropped from the setup path so npm skips packages already at the target version. `update-all.sh` still uses `--force` for explicit `@latest` upgrades (intentional).
+- **SSH Agent Bridge Silently Failed on Stale Port**: The in-container `socat` SSH-agent proxy (started by `entrypoint.sh` at container creation) baked the host bridge port into its argv. The host bridge (`StartSSHBridge`) bound a random ephemeral port that changed across CLI invocations, so the stale `socat` kept pointing at a dead host port and every `ssh`/`git` op failed with "communication with agent failed". The v1.8.15 "restart `socat` on each exec" fix did not actually work: `ensureDaemonSSHProxy` backgrounds `socat` (returns near-instantly, almost never errors) and both exec sites **discarded** the result of `waitForDaemonSSHProxy` (gated on `if err == nil`). The liveness probe was `test -S` (socket file exists), which a leftover socket or stale `socat` passes. Now both exec sites check and log both errors, and the probe is a real `UNIX-CONNECT` (socket actually accepting connections).
 - **Topgrade Brew Step Crash on Linux**: The `homebrew/cask` tap (auto-tapped under `HOMEBREW_NO_INSTALL_FROM_API` mode) breaks `brew upgrade` on Linux because casks use arch-conditional `sha256 arm:/intel:` that resolves to nil on non-macOS systems (e.g. `Casks/0/0-ad`), aborting the whole update run and stalling all formula upgrades. Both `update-all.sh` and `entrypoint.sh` now defensively untap `homebrew/cask` on Linux (idempotent). Casks are macOS-only and non-functional on the Linux box.
+
+### Changed
+- **Deterministic SSH Bridge Port per Box**: `StartSSHBridge` now derives a stable TCP port from the box identity (hash of the container name) instead of an ephemeral random port, with fallback to ephemeral on bind failure. The same box now maps to the same host port across invocations, so a stale `socat` baked at container creation keeps pointing at the right port instead of aging out. Band sits below the Linux ephemeral range (32768+) to reduce OS collisions. Correctness is still guaranteed by the per-exec `socat` restart regardless of port strategy.
 <!-- RELEASE:END 1.9.1 -->
 
 <!-- RELEASE:START 1.9.0 -->
