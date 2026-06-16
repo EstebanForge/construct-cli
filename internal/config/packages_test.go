@@ -153,10 +153,10 @@ func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 		t.Error("Script should install bun packages individually with failure guards")
 	}
 
-	if !strings.Contains(script, "npm install -g --force @github/copilot || echo") {
+	if !strings.Contains(script, "npm install -g @github/copilot || echo") {
 		t.Error("Script should install npm packages individually with failure guards")
 	}
-	if !strings.Contains(script, "npm install -g --force cline || echo") {
+	if !strings.Contains(script, "npm install -g cline || echo") {
 		t.Error("Script should include all npm packages as separate guarded commands")
 	}
 }
