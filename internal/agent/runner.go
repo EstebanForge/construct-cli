@@ -269,18 +269,29 @@ var errSetupLockBusy = errors.New("setup already in progress")
 // acquireSetupLock takes a non-blocking exclusive lock on the setup lockfile.
 // The lock is released when the returned file is closed (also auto-released by
 // the OS on process exit, so no manual cleanup is needed on crash). Returns
-// (nil, errSetupLockBusy) if another setup already holds the lock.
+// (nil, errSetupLockBusy) if another setup already holds the lock; any other
+// error (e.g. a bad file descriptor) is wrapped and returned distinctly.
+//
+// Platform note: syscall.Flock is only available on unix (darwin/linux/freebsd).
+// Construct only ships for darwin and linux today (see release workflow); adding
+// another GOOS will require a build-tag split for this function.
 func acquireSetupLock() (*os.File, error) {
 	lockPath := filepath.Join(config.GetConfigDir(), "setup.lock")
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("open setup lock: %w", err)
 	}
+	// LOCK_NB makes a contended lock fail immediately with EWOULDBLOCK instead of
+	// blocking. Only that error means "another setup holds the lock"; anything else
+	// is a genuine failure and must not be misreported as a concurrent setup.
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		if cerr := f.Close(); cerr != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to close setup lock file: %v\n", cerr)
 		}
-		return nil, errSetupLockBusy
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, errSetupLockBusy
+		}
+		return nil, fmt.Errorf("acquire setup lock: %w", err)
 	}
 	return f, nil
 }

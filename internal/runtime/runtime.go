@@ -791,6 +791,34 @@ func UsesUserNamespaceRemap(containerRuntime string) bool {
 		((containerRuntime == "docker" || containerRuntime == "container") && dockerUsesUserNamespaceRemap())
 }
 
+// ResolveExecUser returns the user (and optional group) to exec as inside a
+// running container. Containers run as root (USER construct is commented out in
+// the Dockerfile for entrypoint permission-fixing); without an explicit user,
+// docker exec inherits root, which makes agents like Claude reject flags such as
+// --dangerously-skip-permissions. So we default to "construct" everywhere except
+// the one case where mapping to the host user is wanted and safe.
+//
+// Only the "docker" runtime path remaps the UID; the "container" alias routes to
+// the docker binary but does not need remapping. On Linux with ExecAsHostUser
+// enabled, no userns-remap, and a non-root host, it returns "hostUID:hostGID" so
+// the process owns the bind-mounted files.
+func ResolveExecUser(cfg *config.Config, containerRuntime string) string {
+	if containerRuntime != "docker" || runtime.GOOS != "linux" {
+		return "construct"
+	}
+	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
+		return "construct"
+	}
+	if UsesUserNamespaceRemap(containerRuntime) {
+		return "construct"
+	}
+	uid := os.Getuid()
+	if uid == 0 {
+		return "construct"
+	}
+	return fmt.Sprintf("%d:%d", uid, os.Getgid())
+}
+
 func podmanIsRootless() bool {
 	if _, err := exec.LookPath("podman"); err != nil {
 		return false

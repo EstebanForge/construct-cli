@@ -49,17 +49,3 @@ func TestBuildExecEnvContainsRequiredVars(t *testing.T) {
 		t.Fatal("buildExecEnv missing CONSTRUCT_PATH")
 	}
 }
-
-func TestResolveExecUserDefault(t *testing.T) {
-	user := resolveExecUser(nil, "docker")
-	if user != "construct" {
-		t.Fatalf("expected 'construct', got %q", user)
-	}
-}
-
-func TestResolveExecUserPodman(t *testing.T) {
-	user := resolveExecUser(nil, "podman")
-	if user != "construct" {
-		t.Fatalf("expected 'construct' for podman, got %q", user)
-	}
-}

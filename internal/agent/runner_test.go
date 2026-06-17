@@ -889,40 +889,6 @@ func TestAppendExecUserRunFlags(t *testing.T) {
 	}
 }
 
-func TestResolveExecUserForRunningContainerFallbacks(t *testing.T) {
-	cfg := &config.Config{
-		Sandbox: config.SandboxConfig{ExecAsHostUser: true},
-	}
-
-	if stdruntime.GOOS != "linux" {
-		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
-			t.Fatalf("expected construct user on non-linux, got %q", got)
-		}
-		return
-	}
-
-	if os.Getuid() == 0 {
-		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
-			t.Fatalf("expected construct user when running as root, got %q", got)
-		}
-		return
-	}
-
-	if runtime.UsesUserNamespaceRemap("docker") {
-		if got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon"); got != "construct" {
-			t.Fatalf("expected construct user in userns-remap mode, got %q", got)
-		}
-		return
-	}
-
-	// Non-root on Linux with ExecAsHostUser and no userns-remap: should return host uid:gid
-	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-	got := resolveExecUserForRunningContainer(cfg, "docker", "construct-cli-daemon")
-	if got != expectedUser {
-		t.Fatalf("expected host uid:gid %q, got %q", expectedUser, got)
-	}
-}
-
 // TestDaemonName verifies daemon container name constant
 func TestDaemonName(t *testing.T) {
 	expectedDaemonName := "construct-cli-daemon"

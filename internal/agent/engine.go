@@ -270,7 +270,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	}
 
 	// Setup SSH Bridge Proxy if needed
-	execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, daemonName)
+	execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
 	var bridgeEnv []string
 	if e.sshBridge != nil {
 		if err := e.ensureDaemonSSHProxy(daemonName, e.sshBridge.Port, execUser); err != nil {
@@ -441,7 +441,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	// The socat from the original entrypoint may be pointing to a stale port
 	// (from a previous session's bridge). We must restart it with the current port.
 	if e.sshBridge != nil {
-		execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, containerName)
+		execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
 		if err := e.ensureDaemonSSHProxy(containerName, e.sshBridge.Port, execUser); err != nil {
 			fmt.Printf("⚠️  SSH agent proxy restart failed: %v\n", err)
 		} else if err := e.waitForDaemonSSHProxy(containerName, execUser); err != nil {
@@ -456,7 +456,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
-	execUser := resolveExecUserForRunningContainer(e.cfg, e.containerRuntime, containerName)
+	execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
 	envVars = e.sec.MaskEnv(envVars)
 
 	return execInteractiveAsUserFn(e.containerRuntime, containerName, args, envVars, "", execUser)
@@ -849,29 +849,6 @@ func shouldEnableYolo(agent string, cfg *config.Config) bool {
 		}
 	}
 	return false
-}
-
-func resolveExecUserForRunningContainer(cfg *config.Config, containerRuntime, _ string) string {
-	if containerRuntime != "docker" || stdruntime.GOOS != "linux" {
-		// Daemon runs as root (USER construct is commented out in Dockerfile for
-		// entrypoint permission-fixing). Without an explicit user, docker exec inherits
-		// root — which causes agents like Claude to reject flags like
-		// --dangerously-skip-permissions. Default to "construct" on non-Linux.
-		return "construct"
-	}
-	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
-		return "construct"
-	}
-	if runtime.UsesUserNamespaceRemap(containerRuntime) {
-		return "construct"
-	}
-
-	uid := os.Getuid()
-	if uid == 0 {
-		return "construct"
-	}
-
-	return fmt.Sprintf("%d:%d", uid, os.Getgid())
 }
 
 func shouldEnableLoginForward(args []string) (bool, []int) {

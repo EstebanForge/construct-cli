@@ -1525,3 +1525,55 @@ func TestFormatVolumePath(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveExecUserFallbacks covers the default-to-"construct" branches and the
+// Linux host-UID remap path. It is the single canonical test for ResolveExecUser;
+// the agent and sys packages previously held near-duplicate copies that are now
+// removed in favor of this one.
+func TestResolveExecUserFallbacks(t *testing.T) {
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{ExecAsHostUser: true},
+	}
+
+	// Non-Linux or non-docker: always "construct".
+	if got := ResolveExecUser(cfg, "podman"); got != "construct" {
+		t.Fatalf("podman: expected construct, got %q", got)
+	}
+	if got := ResolveExecUser(cfg, "container"); got != "construct" {
+		t.Fatalf("container alias: expected construct, got %q", got)
+	}
+	if got := ResolveExecUser(nil, "docker"); got != "construct" {
+		t.Fatalf("nil cfg: expected construct, got %q", got)
+	}
+	if got := ResolveExecUser(&config.Config{}, "docker"); got != "construct" {
+		t.Fatalf("ExecAsHostUser=false: expected construct, got %q", got)
+	}
+
+	// On non-Linux the docker path also short-circuits to "construct".
+	if stdruntime.GOOS != "linux" {
+		if got := ResolveExecUser(cfg, "docker"); got != "construct" {
+			t.Fatalf("non-linux docker: expected construct, got %q", got)
+		}
+		return
+	}
+
+	if os.Getuid() == 0 {
+		if got := ResolveExecUser(cfg, "docker"); got != "construct" {
+			t.Fatalf("root: expected construct, got %q", got)
+		}
+		return
+	}
+
+	if UsesUserNamespaceRemap("docker") {
+		if got := ResolveExecUser(cfg, "docker"); got != "construct" {
+			t.Fatalf("userns-remap: expected construct, got %q", got)
+		}
+		return
+	}
+
+	// Non-root on Linux with ExecAsHostUser and no userns-remap: host uid:gid.
+	expectedUser := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+	if got := ResolveExecUser(cfg, "docker"); got != expectedUser {
+		t.Fatalf("expected host uid:gid %q, got %q", expectedUser, got)
+	}
+}

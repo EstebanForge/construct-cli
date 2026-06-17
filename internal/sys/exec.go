@@ -3,7 +3,6 @@ package sys
 import (
 	"fmt"
 	"os"
-	stdruntime "runtime"
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -41,7 +40,7 @@ func ExecCommand(cfg *config.Config, cmdArgs []string) int {
 	osEnv := buildExecEnv()
 
 	// Determine exec user.
-	execUser := resolveExecUser(cfg, containerRuntime)
+	execUser := runtime.ResolveExecUser(cfg, containerRuntime)
 
 	exitCode, err := runtime.ExecNonInteractiveStream(
 		containerRuntime, containerName, cmdArgs, osEnv, workdir, execUser,
@@ -145,25 +144,4 @@ func buildExecEnv() []string {
 	}
 
 	return envVars
-}
-
-// resolveExecUser returns the user to exec as inside the container.
-// Note: matches agent.resolveExecUserForRunningContainer which only handles
-// "docker" for the UID-mapping path. The "container" runtime alias routes to
-// the docker binary but does not need UID remapping (same as engine.go).
-func resolveExecUser(cfg *config.Config, containerRuntime string) string {
-	if containerRuntime != "docker" || stdruntime.GOOS != "linux" {
-		return "construct"
-	}
-	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
-		return "construct"
-	}
-	if runtime.UsesUserNamespaceRemap(containerRuntime) {
-		return "construct"
-	}
-	uid := os.Getuid()
-	if uid == 0 {
-		return "construct"
-	}
-	return fmt.Sprintf("%d:%d", uid, os.Getgid())
 }
