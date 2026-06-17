@@ -21,9 +21,13 @@ type SSHBridge struct {
 	wg       sync.WaitGroup
 }
 
-// sshBridgePortBase/Span define the deterministic port band. It sits below the
-// Linux ephemeral range (32768+) to reduce collisions with OS-allocated ports; a
-// bind failure falls back to an ephemeral port in StartSSHBridge.
+// sshBridgePortBase/Span define a deterministic port band used to give each
+// box a stable host port across CLI invocations (so a socat baked into the
+// container at creation keeps pointing at the right port). The band lives inside
+// the Linux ephemeral range (default 32768-60999), so it can collide with an
+// OS-allocated port; StartSSHBridge handles that by falling back to an
+// OS-assigned ephemeral port on bind failure (correctness is still guaranteed by
+// the per-exec socat restart).
 const (
 	sshBridgePortBase = 38500
 	sshBridgePortSpan = 10000
