@@ -533,7 +533,7 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 
 	config += "[commands]\n"
 	config += "\"Claude Code\" = \"if command -v claude &> /dev/null; then claude update || true; fi\"\n"
-	config += "\"Pi Coding Agent\" = \"if command -v pi &> /dev/null; then pi update || true; fi\"\n"
+	config += "\"Pi Coding Agent\" = \"if command -v pi &> /dev/null; then pi update --all || true; fi\"\n"
 	config += "\"Antigravity Agent\" = \"if command -v agy &> /dev/null; then agy update || true; fi\"\n"
 
 	return config

@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.3 -->
+## [1.9.3] - 2026-06-18
+
+### Fixed
+- **Pi Update No Longer Updates Extensions**: Pi changed the bare `pi update` to update only pi (self), with `pi update --all` required to update pi and its extensions together. Construct's system update (`ct sys update`) was still calling bare `pi update`, so pi extensions were silently no longer updated on each run. All three invocation sites now use `pi update --all`: the generated topgrade config (`packages.go`), the static `topgrade.toml` template, and the manual `update-all.sh` fallback.
+<!-- RELEASE:END 1.9.3 -->
+
 <!-- RELEASE:START 1.9.2 -->
 ## [1.9.2] - 2026-06-18
 

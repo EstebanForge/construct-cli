@@ -87,7 +87,7 @@ else
 
     echo "Updating Pi Coding Agent..."
     if command -v pi &> /dev/null; then
-        pi update || true
+        pi update --all || true
     fi
 
     echo "Updating Antigravity Agent..."
