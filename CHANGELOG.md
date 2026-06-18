@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.2 -->
+## [1.9.2] - 2026-06-18
+
+### Removed
+- **Worktrunk**: Removed `worktrunk` from the default Cargo install list (`packages.toml`). Upstream `worktrunk 0.59.0` fails to build from a registry tarball (`cargo install`) because its `vergen-gitcl` build script cannot compute `VERGEN_GIT_DESCRIBE` outside a git worktree, and `src/cli/mod.rs` uses a hard compile-time `env!("VERGEN_GIT_DESCRIBE")`. The Topgrade/Cargo update step aborted on every update run. The historical 0.11.1 addition entry is retained for accuracy.
+<!-- RELEASE:END 1.9.2 -->
+
 <!-- RELEASE:START 1.9.1 -->
 ## [1.9.1] - 2026-06-15
 
