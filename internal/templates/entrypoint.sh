@@ -245,7 +245,9 @@ export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
 export NODE_NO_WARNINGS=1
 export CGO_ENABLED="${CGO_ENABLED:-1}"
 
-# Ensure SSH config prioritizes standard key names unless user provided one.
+# Generate a container-appropriate SSH config: forwarded-agent indirection when
+# present, IdentityFile only for keys that exist on disk, and optional per-host
+# identity pinning. Skipped when the user sets '# construct-managed: false'.
 ensure_ssh_config() {
     local ssh_dir="$HOME/.ssh"
     local ssh_config="$ssh_dir/config"
@@ -265,19 +267,83 @@ ensure_ssh_config() {
         cp "$ssh_config" "${ssh_config}.backup" 2>/dev/null || true
     fi
 
-    # Write new config
+    # Header. We deliberately do NOT set IdentityAgent: that would override
+    # SSH_AUTH_SOCK, but Construct gives each concurrent session its own agent
+    # socket via SSH_AUTH_SOCK (per-session proxy, see engine.go). ssh uses
+    # SSH_AUTH_SOCK by default, so honoring it keeps parallel sessions isolated.
     cat > "$ssh_config" <<'EOF'
 # construct-managed: true
 # Set to 'false' above to prevent Construct from updating this file.
 # If you customize this file, set construct-managed to false to preserve your changes.
 
 Host *
-  IdentityAgent ~/.ssh/agent.sock
   PubkeyAcceptedAlgorithms +ssh-rsa
-  IdentityFile ~/.ssh/default
-  IdentityFile ~/.ssh/personal
-  # IdentitiesOnly not set - will try all keys in agent then fall back to physical keys
 EOF
+
+    # Physical-key users: list IdentityFile only for private keys that exist on
+    # disk. Listing phantom paths makes agents wrongly report "no SSH key", so
+    # we never write a path for a file that is not there. Standard-named keys
+    # (id_*) are auto-tried by ssh, but listing them here is harmless and also
+    # covers custom names construct historically supported.
+    local key
+    for key in id_ed25519 id_ecdsa id_rsa default personal; do
+        if [ -f "$ssh_dir/$key" ]; then
+            echo "  IdentityFile ~/.ssh/$key" >> "$ssh_config"
+        fi
+    done
+
+    # Pin one identity per host to avoid "Too many authentication failures"
+    # (sshd MaxAuthTries) when many keys are available. Driven by config
+    # (sandbox.ssh_pin_identities) passed as CONSTRUCT_SSH_PIN_IDENTITIES, a
+    # comma-separated list. Each entry is either:
+    #   host=keyname             pin keyname for host (Host == HostName)
+    #   alias=hostname=keyname   pin keyname for an alias (e.g. two accounts on
+    #                            one service: use "git@github-work:..." remotes)
+    # When ~/.ssh/<keyname>.pub exists it selects the matching forwarded-agent
+    # key (signed via SSH_AUTH_SOCK); otherwise the physical key ~/.ssh/<keyname>
+    # is used. Entries with no matching file are skipped (Host * rules apply).
+    if [ -n "$CONSTRUCT_SSH_PIN_IDENTITIES" ]; then
+        local pair host hostname keyname rest old_ifs="$IFS"
+        IFS=','
+        # shellcheck disable=SC2086
+        set -- $CONSTRUCT_SSH_PIN_IDENTITIES
+        IFS="$old_ifs"
+        for pair in "$@"; do
+            host="${pair%%=*}"
+            rest="${pair#*=}"
+            case "$rest" in
+                *=*)
+                    hostname="${rest%%=*}"
+                    keyname="${rest#*=}"
+                    ;;
+                *)
+                    hostname="$host"
+                    keyname="$rest"
+                    ;;
+            esac
+            [ -n "$host" ] && [ -n "$hostname" ] && [ -n "$keyname" ] && [ "$keyname" != "$host" ] || continue
+            if [ -f "$ssh_dir/$keyname.pub" ]; then
+                {
+                    echo ""
+                    echo "Host $host"
+                    echo "  HostName $hostname"
+                    echo "  IdentityFile ~/.ssh/$keyname.pub"
+                    echo "  IdentitiesOnly yes"
+                } >> "$ssh_config"
+            elif [ -f "$ssh_dir/$keyname" ]; then
+                {
+                    echo ""
+                    echo "Host $host"
+                    echo "  HostName $hostname"
+                    echo "  IdentityFile ~/.ssh/$keyname"
+                    echo "  IdentitiesOnly yes"
+                } >> "$ssh_config"
+            else
+                echo "construct: ssh pin for '$host' skipped (no ~/.ssh/$keyname or ~/.ssh/$keyname.pub)" >&2
+            fi
+        done
+    fi
+
     chmod 600 "$ssh_config"
 }
 ensure_ssh_config

@@ -7,9 +7,11 @@ import (
 	"net"
 	"os"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -41,6 +43,26 @@ func sshBridgePortForSeed(seed string) int {
 	h := sha256.Sum256([]byte(seed))
 	v := int(h[0])<<8 | int(h[1])
 	return sshBridgePortBase + v%sshBridgePortSpan
+}
+
+// sshPinIdentitiesEnv serializes cfg.Sandbox.SSHPinIdentities into the
+// comma-separated host=keyname form consumed by entrypoint.sh
+// (CONSTRUCT_SSH_PIN_IDENTITIES). Malformed entries (empty, missing '=', or
+// containing the ',' separator) are dropped. Returns "" when nothing valid is
+// configured, so callers can skip injecting the env var entirely.
+func sshPinIdentitiesEnv(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	valid := make([]string, 0, len(cfg.Sandbox.SSHPinIdentities))
+	for _, entry := range cfg.Sandbox.SSHPinIdentities {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || strings.Contains(entry, ",") || !strings.Contains(entry, "=") {
+			continue
+		}
+		valid = append(valid, entry)
+	}
+	return strings.Join(valid, ",")
 }
 
 // StartSSHBridge starts a local TCP server that proxies to the local SSH agent.

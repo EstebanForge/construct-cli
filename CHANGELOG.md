@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.9.4 -->
+## [1.9.4] - 2026-06-20
+
+### Added
+- **SSH Identity Pinning (`ssh_pin_identities`)**: New `[sandbox]` config option that pins one SSH identity per host to avoid `Too many authentication failures` when the forwarded agent holds many keys. Two entry forms: `"host=keyname"` (simple) and `"alias=hostname=keyname"` (multi-account on same service). Pinned identities are serialized into `CONSTRUCT_SSH_PIN_IDENTITIES` and consumed by `ensure_ssh_config()` in the container entrypoint, which emits `IdentitiesOnly yes` + the named key for each configured host.
+- **Per-Session SSH Proxy Sockets**: Each `construct` process now uses its own socat socket (`/home/construct/.ssh/agent.<pid>.sock`) rather than a shared `/home/construct/.ssh/agent.sock`. Concurrent sessions sharing one daemon no longer overwrite each other's agent proxy. `Teardown()` cleans up only the calling session's socket.
+- **SSH Bridge Regression Tests**: Table-driven tests for `sshPinIdentitiesEnv` (10 cases including malformed-entry guards), `sshProxySockForPID` (distinct PIDs, stable same PID, exact path), bridge no-agent guard, full proxy integration, and Bitwarden vault lock/unlock recycle case.
+- **Entrypoint `ensure_ssh_config` Bash Tests**: New `internal/templates/entrypoint_ssh_config_test.go` extracts and executes the real `ensure_ssh_config` shell function in an isolated `HOME`. Seven cases: no hardcoded `IdentityAgent`, physical-keys-only, agent pin with `.pub`, alias three-field form, physical-key fallback, pin skipped when key missing, opt-out (`# construct-managed: false`) respected.
+
+### Fixed
+- **SSH Agent Forwarding in Container**: `ensure_ssh_config()` no longer emits phantom `IdentityFile` paths for keys that do not exist on disk, eliminating false "no SSH key" reports from agents. Hardcoded `~/.ssh/default` and `~/.ssh/personal` are only emitted when the files are actually present.
+- **`IdentityAgent` Override Removed**: The `Host *` block no longer writes `IdentityAgent ~/.ssh/agent.sock`, which was overriding the per-session `SSH_AUTH_SOCK` env var and routing all agent requests to whichever session last wrote that socket. SSH now uses `SSH_AUTH_SOCK` directly, injected per-session by the engine.
+- **Error Context on SSH Proxy Helpers (Go Mistakes #49)**: Both `ensureDaemonSSHProxy` and `waitForDaemonSSHProxy` now wrap errors with `%w`, including container name, socket path, and port, enabling `errors.Is`/`errors.As` unwrapping and actionable messages in multi-session scenarios.
+<!-- RELEASE:END 1.9.4 -->
+
 <!-- RELEASE:START 1.9.3 -->
 ## [1.9.3] - 2026-06-18
 

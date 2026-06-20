@@ -50,7 +50,8 @@ type SandboxConfig struct {
 	Shell                  string   `toml:"shell"`
 	ClipboardHost          string   `toml:"clipboard_host"`
 	SelinuxLabels          string   `toml:"selinux_labels"`
-	HostServiceEnv         []string `toml:"host_service_env"` // ENV=http://localhost:port, rewritten to host.docker.internal
+	HostServiceEnv         []string `toml:"host_service_env"`   // ENV=http://localhost:port, rewritten to host.docker.internal
+	SSHPinIdentities       []string `toml:"ssh_pin_identities"` // host=keyname entries; pin one SSH identity per host to avoid sshd MaxAuthTries when the agent holds many keys
 }
 
 // NetworkConfig holds network allow/block settings.
