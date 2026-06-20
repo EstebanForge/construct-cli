@@ -24,7 +24,15 @@ import (
 const defaultLoginForwardPorts = "1455,8085"
 const loginForwardListenOffset = 10000
 const loginBridgeFlagFile = ".login_bridge"
-const daemonSSHProxySock = "/home/construct/.ssh/agent.sock"
+
+// sshProxySockForPID returns the per-session SSH agent proxy socket path inside
+// the container. Concurrent sessions share one daemon but each construct process
+// has a distinct PID, so each gets its own socket + socat. This stops a new
+// session from repointing (and a finishing session from tearing down) the socat
+// another live session depends on.
+func sshProxySockForPID(pid int) string {
+	return fmt.Sprintf("/home/construct/.ssh/agent.%d.sock", pid)
+}
 
 var startClipboardServerFn = clipboard.StartServer
 var execInteractiveAsUserFn = runtime.ExecInteractiveAsUser
@@ -46,6 +54,11 @@ type RuntimeEngine struct {
 	loginPorts   []int
 	osEnv        []string
 	cwd          string
+
+	// Per-session SSH agent proxy state (set when the bridge is established).
+	sshProxySock      string // socket path inside the container
+	sshProxyContainer string // container running our socat (for Teardown cleanup)
+	sshProxyUser      string // exec user for Teardown cleanup
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -121,6 +134,7 @@ func (e *RuntimeEngine) Prepare() error {
 			bridge, err := StartSSHBridge(cwdContainerName(e.cwd))
 			if err == nil {
 				e.sshBridge = bridge
+				e.sshProxySock = sshProxySockForPID(os.Getpid())
 			}
 		}
 	}
@@ -194,6 +208,10 @@ func (e *RuntimeEngine) Execute() (int, error) {
 // Teardown cleans up resources used by the engine.
 func (e *RuntimeEngine) Teardown() {
 	if e.sshBridge != nil {
+		// Remove our per-session socat/socket before tearing down the host
+		// bridge, so a finishing session never leaves a dead proxy behind for
+		// the long-lived daemon (other live sessions keep their own).
+		e.cleanupDaemonSSHProxy()
 		e.sshBridge.Stop()
 	}
 	if e.cbServer != nil {
@@ -278,9 +296,11 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 		} else if err := e.waitForDaemonSSHProxy(daemonName, execUser); err != nil {
 			fmt.Printf("⚠️  SSH agent proxy not ready (daemon): %v\n", err)
 		} else {
+			e.sshProxyContainer = daemonName
+			e.sshProxyUser = execUser
 			bridgeEnv = []string{
 				fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port),
-				"SSH_AUTH_SOCK=" + daemonSSHProxySock,
+				"SSH_AUTH_SOCK=" + e.sshProxySock,
 			}
 			fmt.Println("✓ Started SSH Agent proxy (daemon)")
 		}
@@ -366,7 +386,13 @@ func (e *RuntimeEngine) startDaemonBackground(daemonName string) bool {
 	osEnv = runtime.AppendRuntimeIdentityEnv(osEnv, e.containerRuntime)
 	applyConstructPath(&osEnv)
 
-	cmd, err := runtime.BuildComposeCommand(e.containerRuntime, e.configPath, "run", []string{"-d", "--rm", "--name", daemonName, "construct-box"})
+	daemonRunFlags := []string{"-d", "--rm", "--name", daemonName}
+	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
+		daemonRunFlags = append(daemonRunFlags, "-e", "CONSTRUCT_SSH_PIN_IDENTITIES="+pins)
+	}
+	daemonRunFlags = append(daemonRunFlags, "construct-box")
+
+	cmd, err := runtime.BuildComposeCommand(e.containerRuntime, e.configPath, "run", daemonRunFlags)
 	if err != nil {
 		return false
 	}
@@ -447,8 +473,10 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		} else if err := e.waitForDaemonSSHProxy(containerName, execUser); err != nil {
 			fmt.Printf("⚠️  SSH agent proxy not ready: %v\n", err)
 		} else {
+			e.sshProxyContainer = containerName
+			e.sshProxyUser = execUser
 			env.SetEnvVar(&envVars, "CONSTRUCT_SSH_BRIDGE_PORT", fmt.Sprintf("%d", e.sshBridge.Port))
-			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", daemonSSHProxySock)
+			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", e.sshProxySock)
 		}
 	}
 
@@ -546,6 +574,10 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 		*runFlags = append(*runFlags, "-e", fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port))
 	}
 
+	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
+		*runFlags = append(*runFlags, "-e", "CONSTRUCT_SSH_PIN_IDENTITIES="+pins)
+	}
+
 	if e.loginForward {
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD=1")
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_LOGIN_FORWARD_PORTS="+formatPorts(e.loginPorts))
@@ -573,28 +605,21 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 }
 
 func (e *RuntimeEngine) ensureDaemonSSHProxy(daemonName string, port int, execUser string) error {
-	envVars := []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)}
-	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + daemonSSHProxySock + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
-	_, err := runtime.ExecInContainerWithEnv(e.containerRuntime, daemonName, cmdArgs, envVars, execUser)
-	return err
+	return ensureDaemonSSHProxy(e.containerRuntime, daemonName, e.sshProxySock, port, execUser)
 }
 
 func (e *RuntimeEngine) waitForDaemonSSHProxy(daemonName, execUser string) error {
-	for i := 0; i < 10; i++ {
-		if err := e.checkDaemonSSHProxy(daemonName, execUser); err == nil {
-			return nil
-		}
-		time.Sleep(150 * time.Millisecond)
-	}
-	return fmt.Errorf("SSH agent proxy not ready")
+	return waitForDaemonSSHProxy(e.containerRuntime, daemonName, e.sshProxySock, execUser)
 }
 
-func (e *RuntimeEngine) checkDaemonSSHProxy(daemonName, execUser string) error {
-	// Probe that the socket is actually accepting connections. test -S only checks
-	// the file exists, which passes for a leftover socket or a stale/dead socat.
-	cmdArgs := []string{"bash", "-lc", `command -v socat >/dev/null || exit 1; socat -u OPEN:/dev/null UNIX-CONNECT:"` + daemonSSHProxySock + `"`}
-	_, err := runtime.ExecInContainerWithEnv(e.containerRuntime, daemonName, cmdArgs, nil, execUser)
-	return err
+// cleanupDaemonSSHProxy stops this session's socat and removes its socket so a
+// long-lived daemon does not accumulate dead proxies. Best-effort.
+func (e *RuntimeEngine) cleanupDaemonSSHProxy() {
+	if e.sshProxyContainer == "" || e.sshProxySock == "" {
+		return
+	}
+	cmdArgs := []string{"bash", "-lc", `pkill -f "socat UNIX-LISTEN:` + e.sshProxySock + `" 2>/dev/null || true; rm -f "` + e.sshProxySock + `" 2>/dev/null || true`}
+	_, _ = runtime.ExecInContainerWithEnv(e.containerRuntime, e.sshProxyContainer, cmdArgs, nil, e.sshProxyUser) //nolint:errcheck
 }
 
 func (e *RuntimeEngine) promptForAttachOrRestart() (string, error) {
@@ -1031,38 +1056,41 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 		return nil, nil, err
 	}
 
-	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, bridge.Port, execUser); err != nil {
+	sock := sshProxySockForPID(os.Getpid())
+	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, sock, bridge.Port, execUser); err != nil {
 		bridge.Stop()
 		return nil, nil, err
 	}
-	if err := waitForDaemonSSHProxy(containerRuntime, daemonName, execUser); err != nil {
+	if err := waitForDaemonSSHProxy(containerRuntime, daemonName, sock, execUser); err != nil {
 		bridge.Stop()
 		return nil, nil, err
 	}
 
 	envVars := []string{
 		fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", bridge.Port),
-		"SSH_AUTH_SOCK=" + daemonSSHProxySock,
+		"SSH_AUTH_SOCK=" + sock,
 	}
 	return bridge, envVars, nil
 }
 
-func ensureDaemonSSHProxy(containerRuntime, daemonName string, port int, execUser string) error {
+func ensureDaemonSSHProxy(containerRuntime, daemonName, sockPath string, port int, execUser string) error {
 	envVars := []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)}
-	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + daemonSSHProxySock + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
-	_, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser)
-	return err
+	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
+	if _, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser); err != nil {
+		return fmt.Errorf("start ssh proxy socat on %s (socket %s, port %d): %w", daemonName, sockPath, port, err)
+	}
+	return nil
 }
 
-func waitForDaemonSSHProxy(containerRuntime, daemonName, execUser string) error {
+func waitForDaemonSSHProxy(containerRuntime, daemonName, sockPath, execUser string) error {
 	for i := 0; i < 10; i++ {
 		// Probe that the socket is actually accepting connections. test -S only
 		// checks the file exists, which passes for a leftover socket or stale socat.
-		cmdArgs := []string{"bash", "-lc", `command -v socat >/dev/null || exit 1; socat -u OPEN:/dev/null UNIX-CONNECT:"` + daemonSSHProxySock + `"`}
+		cmdArgs := []string{"bash", "-lc", `command -v socat >/dev/null || exit 1; socat -u OPEN:/dev/null UNIX-CONNECT:"` + sockPath + `"`}
 		if _, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, nil, execUser); err == nil {
 			return nil
 		}
 		time.Sleep(150 * time.Millisecond)
 	}
-	return fmt.Errorf("SSH agent proxy not ready")
+	return fmt.Errorf("ssh agent proxy on %s (socket %s) not accepting connections after retries", daemonName, sockPath)
 }

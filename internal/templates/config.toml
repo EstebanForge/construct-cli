@@ -26,6 +26,26 @@ mount_home = false
 # Forward host SSH agent into the container (default: true)
 forward_ssh_agent = true
 
+# Pin SSH identities per host (default: none). Accepts MORE THAN ONE entry.
+# When the forwarded agent holds many keys, ssh offers all of them and the
+# server can reject the connection with "Too many authentication failures"
+# (sshd MaxAuthTries) before the right key is tried. Pinning forces ssh to offer
+# only the named key for that host.
+# keyname is a file in the container ~/.ssh:
+#   - with a forwarded agent, drop ~/.ssh/<keyname>.pub (the public key) to
+#     select the matching agent key
+#   - without an agent, ~/.ssh/<keyname> (the private key file) is used
+# Two entry forms:
+#   "host=keyname"            pin keyname for host
+#   "alias=hostname=keyname"  pin keyname for an alias (same service, many
+#                             accounts); use the alias in your remote URL
+# Examples:
+#   # One key per service:
+#   ssh_pin_identities = ["github.com=github", "gitlab.com=work"]
+#   # Two GitHub accounts (remotes: git@github-work:... / git@github-personal:...):
+#   ssh_pin_identities = ["github-work=github.com=work", "github-personal=github.com=personal"]
+ssh_pin_identities = []
+
 # Sync host git name/email into container (default: true)
 propagate_git_identity = true
 
