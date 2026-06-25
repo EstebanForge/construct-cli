@@ -22,7 +22,7 @@ jobs:
       is_prerelease: ${{ steps.resolve_version.outputs.is_prerelease }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
