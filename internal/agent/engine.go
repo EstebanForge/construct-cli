@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	stdruntime "runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
+	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/security"
@@ -50,6 +52,7 @@ type RuntimeEngine struct {
 	prepared     bool
 	sshBridge    *SSHBridge
 	cbServer     *clipboard.Server
+	execServer   *hostexec.Server
 	loginForward bool
 	loginPorts   []int
 	osEnv        []string
@@ -122,6 +125,32 @@ func (e *RuntimeEngine) Prepare() error {
 	} else {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
 			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
+		}
+	}
+
+	// 5.1 Host Exec Bridge
+	// Started only when the user has declared host_binaries; otherwise the
+	// feature is inert (zero attack surface). The bridge resolves each binary
+	// on the host up front (fail closed) and reconciles per-binary symlinks in
+	// the host-mounted ~/.local/bin so the agent can discover them on PATH.
+	if e.cfg != nil && len(e.cfg.Sandbox.HostBinaries) > 0 {
+		execHost := clipboardHost // reuse the resolved host.docker.internal / override
+		timeout := hostexec.DefaultTimeout
+		if t := resolveHostExecTimeout(); t > 0 {
+			timeout = t
+		}
+		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: host exec bridge not started: %v\n", err)
+		} else {
+			e.execServer = srv
+			// Reconcile symlinks host-side (no docker exec; ~/.local/bin is bind-mounted).
+			homeDir := filepath.Join(e.configPath, "home")
+			if res, rerr := hostexec.ReconcileShims(homeDir, e.cfg.Sandbox.HostBinaries); rerr != nil {
+				fmt.Fprintf(os.Stderr, "Warning: host exec shim reconcile failed: %v\n", rerr)
+			} else if len(res.Created) > 0 || len(res.Removed) > 0 {
+				fmt.Printf("⚠ host exec enabled: %s\n", strings.Join(e.cfg.Sandbox.HostBinaries, ", "))
+			}
 		}
 	}
 
@@ -205,6 +234,20 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	return e.runNewContainer(containerName, mergedProviderEnv)
 }
 
+// resolveHostExecTimeout reads CONSTRUCT_HOST_EXEC_TIMEOUT (seconds); 0 / unset
+// / invalid falls back to 0, which the caller treats as the package default.
+func resolveHostExecTimeout() time.Duration {
+	v := os.Getenv("CONSTRUCT_HOST_EXEC_TIMEOUT")
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || n <= 0 {
+		return 0
+	}
+	return time.Duration(n) * time.Second
+}
+
 // Teardown cleans up resources used by the engine.
 func (e *RuntimeEngine) Teardown() {
 	if e.sshBridge != nil {
@@ -216,6 +259,9 @@ func (e *RuntimeEngine) Teardown() {
 	}
 	if e.cbServer != nil {
 		e.cbServer.Stop()
+	}
+	if e.execServer != nil {
+		e.execServer.Stop()
 	}
 	if e.sec != nil {
 		e.sec.Close() //nolint:errcheck
@@ -306,7 +352,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 		}
 	}
 
-	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.cfg)
+	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
 	for _, bev := range bridgeEnv {
 		parts := strings.SplitN(bev, "=", 2)
 		if len(parts) == 2 {
@@ -463,6 +509,12 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		env.SetEnvVar(&envVars, "CONSTRUCT_FILE_PASTE_AGENTS", constants.FileBasedPasteAgents)
 	}
 
+	if e.execServer != nil {
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_EXEC_URL", e.execServer.URL)
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_EXEC_TOKEN", e.execServer.Token)
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_BINARIES", strings.Join(e.cfg.Sandbox.HostBinaries, ","))
+	}
+
 	// SSH bridge: restart socat proxy inside the container and inject proxy env.
 	// The socat from the original entrypoint may be pointing to a stale port
 	// (from a previous session's bridge). We must restart it with the current port.
@@ -539,6 +591,12 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_CLIPBOARD_URL="+e.cbServer.URL)
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_CLIPBOARD_TOKEN="+e.cbServer.Token)
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_FILE_PASTE_AGENTS="+constants.FileBasedPasteAgents)
+	}
+
+	if e.execServer != nil {
+		*runFlags = append(*runFlags, "-e", "CONSTRUCT_HOST_EXEC_URL="+e.execServer.URL)
+		*runFlags = append(*runFlags, "-e", "CONSTRUCT_HOST_EXEC_TOKEN="+e.execServer.Token)
+		*runFlags = append(*runFlags, "-e", "CONSTRUCT_HOST_BINARIES="+strings.Join(e.cfg.Sandbox.HostBinaries, ","))
 	}
 
 	clipboardPatchValue := "1"
@@ -680,13 +738,19 @@ func (e *RuntimeEngine) warnDaemonMountFallback() {
 	fmt.Println("Tip: Enable multi-root daemon mounts in config for always-fast starts.")
 }
 
-func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server, cfg *config.Config) []string {
+func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server, execServer *hostexec.Server, cfg *config.Config) []string {
 	envVars := providerEnv
 
 	if cbServer != nil {
 		env.SetEnvVar(&envVars, "CONSTRUCT_CLIPBOARD_URL", cbServer.URL)
 		env.SetEnvVar(&envVars, "CONSTRUCT_CLIPBOARD_TOKEN", cbServer.Token)
 		env.SetEnvVar(&envVars, "CONSTRUCT_FILE_PASTE_AGENTS", constants.FileBasedPasteAgents)
+	}
+
+	if execServer != nil && cfg != nil && len(cfg.Sandbox.HostBinaries) > 0 {
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_EXEC_URL", execServer.URL)
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_EXEC_TOKEN", execServer.Token)
+		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_BINARIES", strings.Join(cfg.Sandbox.HostBinaries, ","))
 	}
 
 	clipboardPatchValue := "1"
@@ -1001,6 +1065,8 @@ func appendAgentSpecificDaemonEnv(envVars *[]string, agentName string) {
 // Compatibility wrapper for existing unit tests.
 // NOTE: Hardcodes "construct-cli" (pre-CWD-naming) because runner_test.go:505
 // asserts this exact value. Production code uses cwdContainerName(e.cwd).
+// test-only: bypasses Prepare(); do not call from production (host-exec env
+// injection assumes Prepare() ran and the bridge is on e.execServer).
 func execInRunningContainer(args []string, cfg *config.Config, containerRuntime string, providerEnv []string) (int, error) {
 	e := NewRuntimeEngine(cfg, args, containerRuntime, "", providerEnv)
 	// Manual setup since we're bypassing Prepare()
@@ -1024,6 +1090,8 @@ func cwdContainerName(cwd string) string {
 	return runtime.CwdContainerName(cwd)
 }
 
+// test-only: bypasses Prepare(); do not call from production (host-exec env
+// injection assumes Prepare() ran and the bridge is on e.execServer).
 func buildRunFlags(args []string, cfg *config.Config, containerRuntime string, osEnv []string, cbServer *clipboard.Server, mergedProviderEnv []string, loginForward bool, loginPorts []int) []string {
 	e := &RuntimeEngine{
 		cfg:              cfg,

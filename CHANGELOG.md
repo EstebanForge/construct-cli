@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.10.0 -->
+## [1.10.0] - 2026-07-03
+
+### Added
+- **Host Exec Bridge (`host_binaries`)**: New `[sandbox]` config option that lets the agent invoke selected host-only binaries from inside the container, where they actually execute on the host machine (not in the sandbox). The agent sees them on PATH and calls them normally; a shim transparently proxies each call to a host-side bridge that runs the real binary as your host user and streams stdout/stderr back with exit codes preserved.
+  - **Config**: `[sandbox] host_binaries = ["wicket"]`. Off when empty (no bridge starts, zero attack surface).
+  - **Security model**: each listed binary runs on the host with **full container-controlled argv**. The bridge is token-gated (per-session 32-byte bearer, `X-Construct-Exec-Token`), allowlist-pinned (unknown `argv[0]` fails closed with 403), and resolves each binary to an absolute host path at startup (no per-request `exec.LookPath`, no PATH-poisoning). **Only list binaries you trust with container-controlled argv** — declaring e.g. `docker` grants effective host root to the agent. A startup banner (`⚠ host exec enabled: …`) confirms when active; see `docs/HOST-EXEC.md` for the full threat model.
+  - **No interactive TTY by design**: there is no controlling terminal; pipe stdin (one-shot) works, interactive prompts do not. Pass `--no-interactive`/`--json`/`--yes` flags where the listed binary offers them. Future TTY support, if ever needed, is an HTTP-upgrade transport on the same bridge (not a socat rebuild).
+  - **Daemon-safe**: symlinks are reconciled host-side in `Prepare()` (no `docker exec`), so toggling the list takes effect on the next `construct` invocation without a daemon restart. Requires `construct build` after first enabling (the shim is baked into the image).
+  - **Per-call timeout**: 30-minute hard cap (override via `CONSTRUCT_HOST_EXEC_TIMEOUT`); bridge-initiated kills surface as exit code `124` (the `timeout(1)` convention).
+  - **Audit log**: every invocation is recorded at `~/.config/construct-cli/logs/host_exec.log` (timestamp, argv, resolved path, exit code, duration). `construct sys doctor` warns on misconfig (listed binary missing on host PATH, stale shim manifest, shim not yet baked into the image).
+<!-- RELEASE:END 1.10.0 -->
+
 <!-- RELEASE:START 1.9.4 -->
 ## [1.9.4] - 2026-06-20
 

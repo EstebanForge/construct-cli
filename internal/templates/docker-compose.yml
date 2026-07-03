@@ -38,6 +38,12 @@ services:
       - CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID:-}
       - CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP:-0}
       - CGO_ENABLED=1
+      # Host exec bridge (see docs/HOST-EXEC.md). Defaults empty so the file
+      # stays valid when the feature is off; real values are injected per-exec
+      # via -e flags by the engine.
+      - CONSTRUCT_HOST_EXEC_URL=${CONSTRUCT_HOST_EXEC_URL:-}
+      - CONSTRUCT_HOST_EXEC_TOKEN=${CONSTRUCT_HOST_EXEC_TOKEN:-}
+      - CONSTRUCT_HOST_BINARIES=${CONSTRUCT_HOST_BINARIES:-}
       - PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/home/construct/.volta/bin:/home/construct/.local/share/pnpm:/home/construct/.yarn/bin:/home/construct/.config/yarn/global/node_modules/.bin:/home/construct/go/bin:/home/construct/.composer/vendor/bin:/home/construct/.config/composer/vendor/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - LD_LIBRARY_PATH=/home/linuxbrew/.linuxbrew/lib
 

@@ -128,6 +128,12 @@ var stdinIsTTY = func() bool {
 	return (info.Mode() & os.ModeCharDevice) != 0
 }
 
+// constructHomeDir returns the host-side path that bind-mounts into /home/construct
+// (<configPath>/home), or "" if it cannot be determined.
+func constructHomeDir() string {
+	return filepath.Join(config.GetConfigDir(), "home")
+}
+
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
 	fmt.Println()
@@ -781,6 +787,50 @@ func Run(args ...string) {
 		}
 	}
 	checks = append(checks, clipboardCheck)
+
+	// Host Exec Bridge check
+	if cfg != nil && len(cfg.Sandbox.HostBinaries) > 0 {
+		hostExecCheck := CheckResult{Name: "Host Exec Bridge"}
+		hostExecCheck.Details = append(hostExecCheck.Details, fmt.Sprintf("Allowlisted: %s", strings.Join(cfg.Sandbox.HostBinaries, ", ")))
+		// Verify each listed binary resolves on the host PATH.
+		missing := []string{}
+		for _, name := range cfg.Sandbox.HostBinaries {
+			if _, err := exec.LookPath(name); err != nil {
+				missing = append(missing, name)
+			}
+		}
+		switch {
+		case len(missing) > 0:
+			hostExecCheck.Status = CheckStatusWarning
+			hostExecCheck.Message = fmt.Sprintf("not found on host PATH: %s", strings.Join(missing, ", "))
+			hostExecCheck.Suggestion = "Install the binary on the host, or remove it from [sandbox].host_binaries"
+		default:
+			hostExecCheck.Status = CheckStatusOK
+			hostExecCheck.Message = "Configured binaries resolve on host PATH"
+		}
+		// Warn about stale manifest entries (shims in ~/.local/bin that the manifest
+		// claims but which are no longer in the config). Read-only: no auto-fix.
+		if homeDir := constructHomeDir(); homeDir != "" {
+			manifest := filepath.Join(homeDir, ".local", "bin", ".construct_host_exec_shims")
+			if data, err := os.ReadFile(manifest); err == nil {
+				declared := map[string]bool{}
+				for _, n := range cfg.Sandbox.HostBinaries {
+					declared[strings.TrimSpace(n)] = true
+				}
+				var stale []string
+				for _, line := range strings.Split(string(data), "\n") {
+					name := strings.TrimSpace(line)
+					if name != "" && !declared[name] {
+						stale = append(stale, name)
+					}
+				}
+				if len(stale) > 0 {
+					hostExecCheck.Details = append(hostExecCheck.Details, fmt.Sprintf("Stale manifest entries: %s (will be cleaned on next run)", strings.Join(stale, ", ")))
+				}
+			}
+		}
+		checks = append(checks, hostExecCheck)
+	}
 
 	// Print Report
 	for _, check := range checks {

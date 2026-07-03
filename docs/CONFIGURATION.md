@@ -180,6 +180,22 @@ env_passthrough_prefixes = [
 - Prefix matching: `CNSTR_*` passes all vars with that prefix
 - Useful for API keys and custom configuration
 
+### Host Exec Bridge (Proxy Binaries to the Host)
+
+Run selected binaries on the **host machine** when the agent invokes them from inside the sandbox, instead of in the container. The agent sees them on PATH and calls them normally; a shim proxies each call to a host-side bridge that runs the real binary as your host user.
+
+```toml
+[sandbox]
+host_binaries = ["wicket"]
+```
+
+**⚠ Security**: each listed binary runs on the host with **full container-controlled argv**. Only list binaries you trust with that. Declaring `docker` grants effective host root to the agent; `aws`/`kubectl` likewise. The bridge is token-gated and allowlist-pinned, but argv is not filtered.
+
+- **Off when empty** (default). No bridge starts, zero attack surface.
+- Requires `construct build` after first enabling, so the container shim is baked into the image.
+- Non-interactive only: no controlling terminal/PTY. Pipe stdin (one-shot) works; interactive prompts do not. Pass `--no-interactive`/`--json`/`--yes` flags where available.
+- A startup banner (`⚠ host exec enabled: ...`) confirms when active.
+- Full details: [Host Exec Bridge](HOST-EXEC.md).
 ## Network Settings
 
 ### Network Modes

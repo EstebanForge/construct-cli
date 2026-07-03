@@ -7,6 +7,7 @@ Complete documentation for The Construct CLI.
 - [Installation](INSTALLATION.md) - Get started with Construct
 - [Configuration](CONFIGURATION.md) - Configure all settings
 - [Security](SECURITY.md) - Security features and best practices
+- [Host Exec Bridge](HOST-EXEC.md) - Proxy host-only binaries into the sandbox
 - [README](../README.md) - Project overview and quick start
 
 ## Getting Started

@@ -26,7 +26,7 @@ env_passthrough = ["CONTEXT7_API_KEY"]
 env_passthrough_prefixes = ["CNSTR_"]
 shell = "/bin/bash"
 clipboard_host = "host.orbstack.internal"
-
+host_binaries = ["wicket"]
 [network]
 mode = "strict"
 allowed_domains = ["*.anthropic.com", "*.openai.com"]
@@ -92,6 +92,9 @@ clipboard_image_patch = false
 	// Test clipboard
 	if config.Sandbox.ClipboardHost != "host.orbstack.internal" {
 		t.Errorf("Expected clipboard host 'host.orbstack.internal', got '%s'", config.Sandbox.ClipboardHost)
+	}
+	if len(config.Sandbox.HostBinaries) != 1 || config.Sandbox.HostBinaries[0] != "wicket" {
+		t.Errorf("Expected host_binaries [wicket], got %v", config.Sandbox.HostBinaries)
 	}
 
 	// Test agents
