@@ -121,8 +121,12 @@ packages = [
   # AI Agents
   "EstebanForge/tap/mcp-cli-ent",
   "EstebanForge/tap/md-over-here",
-  # PHP Extensions (using direct tap format - replace @8.5 with your PHP version)
+  # PHP Extensions (one pcov per installed PHP version; only the matching one loads per runtime)
+  "shivammathur/extensions/pcov@8.2",
+  "shivammathur/extensions/pcov@8.3",
+  "shivammathur/extensions/pcov@8.4",
   "shivammathur/extensions/pcov@8.5",
+  "shivammathur/extensions/pcov@8.6",
 ]
 
 # Rust tools installed via Cargo
