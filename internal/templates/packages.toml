@@ -15,7 +15,9 @@ packages = [
 [brew]
 taps = [
   "shivammathur/extensions",  # PHP extensions (required for pcov)
+  "shivammathur/php",  # PHP versions (php@8.x)
   "EstebanForge/tap",
+  "wilmoore/formulae",
 ]
 packages = [
   # Core utilities
@@ -105,8 +107,13 @@ packages = [
   "neovim",
   "gulp-cli",
   "ffmpeg",
-  "php",
+  "php@8.2",
+  "php@8.3",
+  "php@8.4",
+  "php@8.5",
+  "php@8.6",
   "wp-cli",
+  "wilmoore/formulae/php-version",
   "tailwindcss",
   "uv",
   "pipx",
