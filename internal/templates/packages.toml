@@ -17,7 +17,6 @@ taps = [
   "shivammathur/extensions",  # PHP extensions (required for pcov)
   "shivammathur/php",  # PHP versions (php@8.x)
   "EstebanForge/tap",
-  "wilmoore/formulae",
 ]
 packages = [
   # Core utilities
@@ -113,7 +112,6 @@ packages = [
   "php@8.5",
   "php@8.6",
   "wp-cli",
-  "wilmoore/formulae/php-version",
   "tailwindcss",
   "uv",
   "pipx",
