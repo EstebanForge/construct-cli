@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# construct-host-exec — generic shim that proxies a host-binary invocation to
+# the Construct host exec bridge. Installed once at /usr/local/bin/construct-host-exec
+# and symlinked once per allowlisted binary (e.g. ~/.local/bin/wicket → this
+# file). At runtime, basename(os.Args[0]) tells the shim which host binary to
+# request; the bridge resolves and runs it on the host and streams output back
+# as JSONL frames. See docs/HOST-EXEC.md.
+#
+# Lifecycle:
+#   - reads stdin fully (the bridge is request/response, not duplex: the whole
+#     stdin blob ships up front; live interactive input is unsupported by design)
+#   - POSTs {argv, stdin} to $CONSTRUCT_HOST_EXEC_URL/exec with the bearer token
+#   - streams JSONL frames back through curl (-N disables curl buffering so
+#     frames flush as they arrive), decoding stdout/stderr/exit inline
+#   - exits with the bridge-reported code; 126 if the bridge is unreachable
+#
+# IMPORTANT: the JSONL parse loop uses process substitution (< <(...)) rather
+# than a pipe so it runs in the CURRENT shell and the exit code parsed from the
+# {"type":"exit"} frame survives to the final `exit`. A pipe variant would run
+# the loop in a subshell and silently lose the exit code.
+
+set -u
+
+URL="${CONSTRUCT_HOST_EXEC_URL:-}"
+TOKEN="${CONSTRUCT_HOST_EXEC_TOKEN:-}"
+NAME="$(basename "$0")"
+
+if [[ -z "$URL" || -z "$TOKEN" ]]; then
+    echo "${NAME}: host exec bridge not configured (CONSTRUCT_HOST_EXEC_URL/TOKEN unset)." >&2
+    echo "${NAME}: this binary is proxied to the host; start it via 'construct <agent>'." >&2
+    exit 126
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+    echo "${NAME}: jq is required to talk to the host exec bridge but was not found." >&2
+    exit 126
+fi
+
+# Read all of stdin once (the bridge expects it up front, base64-encoded).
+STDIN_B64=""
+if [[ ! -t 0 ]]; then
+    STDIN_B64="$(base64 | tr -d '\n')"
+fi
+
+# Build the request payload safely with jq. --args consumes the remaining CLI
+# args (argv[1..]) as a JSON array; we prepend $NAME (argv[0]) via a leading
+# '--" so the whole argv is byte-safe (quotes/spaces/newlines/unicode cannot
+# break the payload — no manual NUL-splitting, which loses embedded newlines).
+PAYLOAD="$(jq -nc --arg stdin "$STDIN_B64" --args '{argv: $ARGS.positional, stdin: $stdin}' -- "$NAME" "$@")"
+
+# Stream JSONL frames as they arrive. We bind curl's stdout to fd 3 via
+# process substitution and capture its PID so we can read its real exit code
+# afterwards: `$?` after a `while ... done < <(cmd)` loop reflects the loop's
+# exit, not curl's, so the unreachable branch would never fire otherwise.
+exit_code=""
+exec 3< <(curl -sS -N \
+            -H "X-Construct-Exec-Token: ${TOKEN}" \
+            -H "Content-Type: application/json" \
+            --data-binary "$PAYLOAD" \
+            "$URL/exec")
+curl_pid=$!
+while IFS= read -r line <&3; do
+    case "$line" in
+        '{"type":"stdout"'*)
+            printf '%s' "$line" | jq -r '.data' 2>/dev/null | base64 -d 2>/dev/null
+            ;;
+        '{"type":"stderr"'*)
+            printf '%s' "$line" | jq -r '.data' 2>/dev/null | base64 -d >&2 2>/dev/null
+            ;;
+        '{"type":"exit"'*)
+            exit_code="$(printf '%s' "$line" | jq -r '.code' 2>/dev/null)"
+            ;;
+    esac
+done
+exec 3<&-
+# Curl exits non-zero on connection failure (curl also writes its own message
+# to stderr). Wait on the PID to read its TRUE exit, not the loop's.
+wait "$curl_pid" 2>/dev/null
+curl_rc=$?
+
+# exit_code may be empty if the bridge is unreachable, the connection dropped
+# mid-stream, or curl failed before any exit frame arrived. All collapse to the
+# same "backend unreachable" 126 (the shim binary exists, but the host backend
+# didn't deliver a result — distinct from 127 "command not found").
+if [[ -z "$exit_code" ]]; then
+    echo "${NAME}: host exec bridge unreachable or connection dropped: $URL" >&2
+    echo "${NAME}: see ~/.config/construct-cli/logs/host_exec.log on the host." >&2
+    exit 126
+fi
+exit "$exit_code"

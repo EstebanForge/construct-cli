@@ -63,6 +63,12 @@ var ClipboardX11Sync string
 //go:embed osascript
 var Osascript string
 
+// ConstructHostExec is the embedded content of the host-exec shim, the generic
+// proxy client symlinked as each allowlisted binary (busybox pattern).
+//
+//go:embed construct-host-exec
+var ConstructHostExec string
+
 // GlobalAgentsRules is the embedded content of the global AGENTS.md rules template.
 //
 //go:embed AGENTS.md
@@ -71,6 +77,11 @@ var GlobalAgentsRules string
 // ImageTierTemplates lists templates that are COPY'd into the Docker image.
 // Changes require a full image rebuild (markImageForRebuild).
 // Key is the filename used in the container directory.
+//
+// These two maps (ImageTierTemplates + SoftTierTemplates) are the single
+// source of truth for container templates. internal/migration/migration.go
+// merges them into its `containerFiles` map on every rebuild, so adding a
+// new entry here automatically flows into `ct sys rebuild`.
 var ImageTierTemplates = map[string]string{
 	"Dockerfile":            Dockerfile,
 	"entrypoint.sh":         Entrypoint,
@@ -79,10 +90,12 @@ var ImageTierTemplates = map[string]string{
 	"clipper":               Clipper,
 	"clipboard-x11-sync.sh": ClipboardX11Sync,
 	"osascript":             Osascript,
+	"construct-host-exec":   ConstructHostExec,
 }
 
 // SoftTierTemplates lists templates that affect container runtime but are
 // not image-baked. Changes trigger SetRebuildRequired (deferred rebuild).
+// Same source-of-truth contract as ImageTierTemplates.
 var SoftTierTemplates = map[string]string{
 	"docker-compose.yml": DockerCompose,
 	"agent-patch.sh":     AgentPatch,

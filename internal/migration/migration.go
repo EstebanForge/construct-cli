@@ -389,18 +389,18 @@ func updateContainerTemplates() error {
 		fmt.Println("→ Updating container templates...")
 	}
 
-	// Container templates (safe to replace - no user modifications expected)
-	containerFiles := map[string]string{
-		"Dockerfile":            templates.Dockerfile,
-		"docker-compose.yml":    templates.DockerCompose,
-		"entrypoint.sh":         templates.Entrypoint,
-		"entrypoint-hash.sh":    templates.EntrypointHash,
-		"update-all.sh":         templates.UpdateAll,
-		"agent-patch.sh":        templates.AgentPatch,
-		"network-filter.sh":     templates.NetworkFilter,
-		"clipper":               templates.Clipper,
-		"clipboard-x11-sync.sh": templates.ClipboardX11Sync,
-		"osascript":             templates.Osascript,
+	// Container templates (safe to replace - no user modifications expected).
+	//
+	// Merged from templates.ImageTierTemplates + templates.SoftTierTemplates so
+	// embed.go is the single source of truth: adding a new template there flows
+	// here automatically, no risk of a stale hand-curated list drifting out of
+	// sync with the Dockerfile COPYs.
+	containerFiles := make(map[string]string, len(templates.ImageTierTemplates)+len(templates.SoftTierTemplates))
+	for k, v := range templates.ImageTierTemplates {
+		containerFiles[k] = v
+	}
+	for k, v := range templates.SoftTierTemplates {
+		containerFiles[k] = v
 	}
 
 	// Ensure directory exists
@@ -469,7 +469,7 @@ func updateContainerTemplates() error {
 	for filename, content := range containerFiles {
 		path := filepath.Join(containerDir, filename)
 		perm := os.FileMode(0644)
-		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" {
+		if strings.HasSuffix(filename, ".sh") || filename == "clipper" || filename == "osascript" || filename == "construct-host-exec" {
 			perm = 0755
 		}
 		if err := writeTemplateFile(path, []byte(content), perm); err != nil {

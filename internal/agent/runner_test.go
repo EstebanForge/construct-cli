@@ -14,6 +14,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
+	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 )
@@ -777,6 +778,7 @@ func TestBuildDaemonExecEnvPassesGenericPassthroughEnv(t *testing.T) {
 		[]string{"CONTEXT7_API_KEY=ctx-value", "GITHUB_TOKEN=gh-value"},
 		nil,
 		nil,
+		nil,
 	)
 
 	if !containsEnv(envVars, "CONTEXT7_API_KEY=ctx-value") {
@@ -800,12 +802,67 @@ func TestBuildDaemonExecEnvSSHAuthSock(t *testing.T) {
 		[]string{},
 		nil,
 		nil,
+		nil,
 	)
 
 	// Since we can't easily mock stdruntime.GOOS without refactoring,
 	// we just ensure the env vars are generated.
 	if len(envVars) == 0 {
 		t.Error("expected environment variables, got none")
+	}
+}
+
+// TestBuildDaemonExecEnvHostExecInjection verifies the host-exec bridge env
+// vars are injected only when both a server and a non-empty host_binaries list
+// are present (Phase D5 wiring test).
+func TestBuildDaemonExecEnvHostExecInjection(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Sandbox.HostBinaries = []string{"wicket"}
+	srv := &hostexec.Server{URL: "http://host.docker.internal:9999", Token: "abc"}
+
+	envVars := buildDaemonExecEnv(
+		[]string{"claude"},
+		[]string{},
+		nil,
+		srv,
+		cfg,
+	)
+
+	for _, want := range []string{
+		"CONSTRUCT_HOST_EXEC_URL=http://host.docker.internal:9999",
+		"CONSTRUCT_HOST_EXEC_TOKEN=abc",
+		"CONSTRUCT_HOST_BINARIES=wicket",
+	} {
+		if !containsEnv(envVars, want) {
+			t.Errorf("missing %q in %v", want, envVars)
+		}
+	}
+}
+
+// TestBuildDaemonExecEnvHostExecDisabledWhenServerNil asserts no host-exec env leaks
+// when the bridge isn't running (feature off / Prepare didn't start one).
+func TestBuildDaemonExecEnvHostExecDisabledWhenServerNil(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Sandbox.HostBinaries = []string{"wicket"}
+
+	envVars := buildDaemonExecEnv(
+		[]string{"claude"},
+		[]string{},
+		nil,
+		nil,
+		cfg,
+	)
+
+	for _, forbidden := range []string{
+		"CONSTRUCT_HOST_EXEC_URL=",
+		"CONSTRUCT_HOST_EXEC_TOKEN=",
+		"CONSTRUCT_HOST_BINARIES=",
+	} {
+		for _, e := range envVars {
+			if strings.HasPrefix(e, forbidden) {
+				t.Errorf("host-exec env leaked when server nil: %q", e)
+			}
+		}
 	}
 }
 

@@ -64,8 +64,22 @@ allow_custom_compose_override = false
 # Purpose: preserve host file ownership for files written by agents.
 # This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.
 # If host UID is not present in container /etc/passwd, Construct keeps host UID:GID mapping and forces HOME=/home/construct.
+# Run agent exec sessions as host UID:GID on Linux Docker (default: true)
+# Purpose: preserve host file ownership for files written by agents.
+# This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.
+# If host UID is not present in container /etc/passwd, Construct keeps host UID:GID mapping and forces HOME=/home/construct.
 exec_as_host_user = true
 
+# Binaries the agent can invoke that actually run on the HOST machine instead of in-container.
+# The agent sees them on PATH and calls them normally; a shim proxies each call to a host-side
+# bridge that runs the real binary as your host user and streams stdout/stderr back.
+#
+# WARNING: each listed binary runs on the host with FULL container-controlled argv. Only list
+# binaries you trust with that. Declaring e.g. "docker" grants effective host root to the agent;
+# "aws"/"kubectl" likewise. The bridge is token-gated and allowlist-pinned, but argv is not filtered.
+# Off when empty (feature disabled, no bridge started). Requires `construct build` after first set
+# so the container shim is baked into the image. See docs/HOST-EXEC.md.
+# host_binaries = ["wicket"]
 # Explicit host env vars to pass through into Construct unchanged.
 # Default passthroughs cover common CLI/tool auth use cases.
 env_passthrough = [

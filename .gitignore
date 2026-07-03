@@ -7,6 +7,7 @@ cx
 construct-*
 *.exe
 !internal/templates/powershell.exe
+!internal/templates/construct-host-exec
 *.dll
 *.so
 *.dylib
