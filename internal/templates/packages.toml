@@ -196,4 +196,8 @@ commands = [
   "curl -fsSL https://opencode.ai/install | bash",
   "if [ -x \"$HOME/.phpvm/bin/phpvm\" ]; then echo \"phpvm already installed\"; else curl -o- https://raw.githubusercontent.com/Thavarshan/phpvm/main/install.sh | bash; fi",
   "if [ -x \"$HOME/.local/bin/agy\" ]; then echo \"Antigravity already installed\"; else curl -fsSL https://antigravity.google/cli/install.sh | bash; fi",
+  # Obscura: Rust headless browser engine for AI agents (V8 + CDP, Puppeteer/Playwright/MCP).
+  # Binary on PATH only, NOT an agent (no agent.go/memories.go registration). Keep worker next to binary.
+  # Linux-only tarball (Construct sandboxes are Debian). Pinned to v0.1.9; bump deliberately when a new release is vetted.
+  "if [ -x \"$HOME/.local/bin/obscura\" ]; then echo \"Obscura already installed\"; else case \"$(uname -m)\" in aarch64|arm64) ARCH=aarch64;; *) ARCH=x86_64;; esac; curl -fsSL -o /tmp/obscura.tar.gz \"https://github.com/h4ckf0r0day/obscura/releases/download/v0.1.9/obscura-${ARCH}-linux.tar.gz\" && mkdir -p \"$HOME/.local/bin\" && tar xzf /tmp/obscura.tar.gz -C \"$HOME/.local/bin\" obscura obscura-worker && chmod +x \"$HOME/.local/bin/obscura\" \"$HOME/.local/bin/obscura-worker\" && rm -f /tmp/obscura.tar.gz && echo \"Obscura installed\"; fi",
 ]
