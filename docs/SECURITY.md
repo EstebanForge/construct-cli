@@ -68,6 +68,22 @@ exec_as_host_user = true
 - Better integration with host permissions
 - Prevents root-owned files in project
 
+### Seccomp Relaxation (Headless Browsers)
+
+**Default:** Docker applies a seccomp filter (mode 2) to every container, blocking syscalls the kernel profile doesn't whitelist.
+
+**Problem:** Headless browser automation tools (Chrome/Chromium via `agent-browser`, Playwright, CDP extensions) need syscalls the default profile blocks (`clone3` with namespace flags, `seccomp(2)` BPF install, `ptrace` for the browser's own sandbox). Result: every persistent browser launch dies with `Trace/breakpoint trap` (SIGTRAP).
+
+**Opt-in fix:**
+```toml
+[sandbox]
+disable_seccomp = true
+```
+
+This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct build` to regenerate the image/override and restart the container.
+
+**Tradeoff:** `seccomp:unconfined` removes a kernel-level syscall-restriction layer. It is a deliberate security reduction, scoped to users who run browsers in-container. Default-off preserves isolation for everyone else. An alternative is a Chrome-tailored seccomp JSON profile (whitelist only the needed syscalls) if you need tighter control than full unconfined.
+
 ## Secret Redaction
 
 ### Overview

@@ -596,6 +596,25 @@ func TestHashOverrideInputsIncludesAllowCustomOverride(t *testing.T) {
 	}
 }
 
+func TestHashOverrideInputsIncludesDisableSeccomp(t *testing.T) {
+	base := overrideInputs{
+		Version:     "1.0.0",
+		Runtime:     "docker",
+		UID:         1000,
+		GID:         1000,
+		NetworkMode: "bridge",
+		ProjectPath: "/projects/test",
+	}
+	disabled := base
+	disabled.DisableSeccomp = true
+
+	baseHash := hashOverrideInputs(base)
+	disabledHash := hashOverrideInputs(disabled)
+	if baseHash == disabledHash {
+		t.Fatalf("expected different override hashes when disable_seccomp changes, got %s", baseHash)
+	}
+}
+
 func TestOverrideHasUserMapping(t *testing.T) {
 	tmpDir := t.TempDir()
 	containerDir := filepath.Join(tmpDir, "container")
@@ -739,6 +758,114 @@ func TestGenerateDockerComposeOverrideKeepsUserMappingWhenNonRootStrictEnabled(t
 	}
 	if !strings.Contains(contentStr, "CONSTRUCT_NON_ROOT_STRICT=1") {
 		t.Fatalf("expected strict mode marker in override env, got: %s", contentStr)
+	}
+}
+
+func TestGenerateDockerComposeOverrideEmitsSeccompUnconfinedWhenEnabled(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\ndisable_seccomp = true\n"
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+		"config.toml":           configToml,
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+	}
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("failed to write %s: %v", file, err)
+		}
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	contentStr := string(content)
+	if !strings.Contains(contentStr, "seccomp:unconfined") {
+		t.Fatalf("expected seccomp:unconfined in override when disable_seccomp enabled, got: %s", contentStr)
+	}
+	if !strings.Contains(contentStr, "security_opt:") {
+		t.Fatalf("expected security_opt section in override, got: %s", contentStr)
+	}
+}
+
+func TestGenerateDockerComposeOverrideOmitsSeccompByDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		t.Fatalf("failed to create container dir: %v", err)
+	}
+
+	configToml := "[runtime]\nengine = \"docker\"\n\n[sandbox]\n"
+	requiredFiles := map[string]string{
+		"Dockerfile":            "FROM alpine\n",
+		"packages.toml":         "[npm]\npackages = []\n",
+		"config.toml":           configToml,
+		"docker-compose.yml":    "version: '3'\n",
+		"entrypoint.sh":         "#!/bin/bash\n",
+		"update-all.sh":         "#!/bin/bash\n",
+		"network-filter.sh":     "#!/bin/bash\n",
+		"clipper":               "binary\n",
+		"clipboard-x11-sync.sh": "#!/bin/bash\n",
+		"osascript":             "binary\n",
+	}
+	for file, content := range requiredFiles {
+		path := filepath.Join(containerDir, file)
+		if file == "config.toml" || file == "packages.toml" {
+			path = filepath.Join(configDir, file)
+		}
+		perm := os.FileMode(0644)
+		if filepath.Ext(path) == ".sh" {
+			perm = 0755
+		}
+		if err := os.WriteFile(path, []byte(content), perm); err != nil {
+			t.Fatalf("failed to write %s: %v", file, err)
+		}
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("failed to read override: %v", err)
+	}
+	if strings.Contains(string(content), "seccomp") {
+		t.Fatalf("did not expect seccomp in default override, got: %s", string(content))
 	}
 }
 

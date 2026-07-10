@@ -44,6 +44,7 @@ type SandboxConfig struct {
 	PropagateGitIdentity   bool     `toml:"propagate_git_identity"`
 	NonRootStrict          bool     `toml:"non_root_strict"`
 	AllowCustomOverride    bool     `toml:"allow_custom_compose_override"`
+	DisableSeccomp         bool     `toml:"disable_seccomp"`
 	ExecAsHostUser         bool     `toml:"exec_as_host_user"`
 	EnvPassthrough         []string `toml:"env_passthrough"`
 	EnvPassthroughPrefixes []string `toml:"env_passthrough_prefixes"`
