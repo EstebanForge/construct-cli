@@ -58,6 +58,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, "allow_custom_compose_override = false") {
 		t.Error("config.toml template should include allow_custom_compose_override with default false")
 	}
+	if !strings.Contains(Config, "disable_seccomp = false") {
+		t.Error("config.toml template should include disable_seccomp with default false")
+	}
 	if !strings.Contains(Config, "exec_as_host_user = true") {
 		t.Error("config.toml template should include exec_as_host_user with default true")
 	}

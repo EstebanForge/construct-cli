@@ -268,6 +268,12 @@ func Run(args ...string) {
 	} else {
 		envCheck.Details = append(envCheck.Details, "allow_custom_compose_override: disabled")
 	}
+	if cfg != nil && cfg.Sandbox.DisableSeccomp {
+		envCheck.Details = append(envCheck.Details, "disable_seccomp: enabled")
+		envCheck.Details = append(envCheck.Details, "Security: container seccomp filter is OFF (required for headless browser automation; reduces kernel-level isolation)")
+	} else {
+		envCheck.Details = append(envCheck.Details, "disable_seccomp: disabled")
+	}
 	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
 		envCheck.Details = append(envCheck.Details, "exec_as_host_user: enabled")
 	} else {

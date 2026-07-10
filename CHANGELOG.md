@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.11.0 -->
+## [1.11.0] - 2026-07-10
+
+### Added
+- **Seccomp Relaxation (`disable_seccomp`)**: New `[sandbox]` config option that emits `security_opt: [seccomp:unconfined]` in the generated `docker-compose.override.yml`, enabling headless browser automation inside the container. Docker's default seccomp filter blocks syscalls Chrome/Chromium's multi-process CDP backend needs (`clone3` with namespace flags, `seccomp(2)` BPF install, `ptrace`), causing every persistent browser launch (agent-browser, Playwright, CDP extensions) to die with `Trace/breakpoint trap`. Default-off; opt in with `[sandbox] disable_seccomp = true`. The toggle is hash-tracked so flipping it regenerates the override, and `construct sys doctor` surfaces when it is enabled (with a security note). Requires `construct build` + container restart to take effect. See `docs/SECURITY.md` for the tradeoff (removes a kernel-level syscall-restriction layer).
+<!-- RELEASE:END 1.11.0 -->
+
 <!-- RELEASE:START 1.10.0 -->
 ## [1.10.0] - 2026-07-03
 

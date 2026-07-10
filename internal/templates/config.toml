@@ -60,6 +60,17 @@ non_root_strict = false
 # Use only if you intentionally maintain your own override behavior.
 allow_custom_compose_override = false
 
+# Disable the container seccomp filter (default: false)
+# Enables headless browser automation (Chrome/Chromium via agent-browser, Playwright,
+# CDP). Docker's default seccomp profile blocks syscalls these tools need
+# (clone3 with namespace flags, seccomp BPF install, ptrace), causing browser
+# launches to crash. Opt-in only; removing seccomp reduces a kernel-level
+# isolation layer. See docs/SECURITY.md for the tradeoff.
+# NOTE: this flag is auto-managed. If you also set allow_custom_compose_override = true
+# and hand-edit security_opt in docker-compose.override.yml, toggling this flag
+# (or any other hash input) regenerates the override and overwrites your manual entry.
+disable_seccomp = false
+
 # Run agent exec sessions as host UID:GID on Linux Docker (default: true)
 # Purpose: preserve host file ownership for files written by agents.
 # This applies to exec paths (daemon + attach), while keeping startup root-bootstrap intact.

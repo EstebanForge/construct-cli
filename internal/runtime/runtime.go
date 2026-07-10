@@ -875,6 +875,7 @@ type overrideInputs struct {
 	GID            int    // Host group ID (Linux only)
 	UsernsRemap    bool   // Whether runtime remaps container users away from host IDs
 	AllowCustom    bool   // Whether custom compose override behavior is allowed
+	DisableSeccomp bool   // Whether seccomp is disabled (for headless browser automation)
 	SELinuxEnabled bool   // SELinux status
 	NetworkMode    string // Network isolation mode
 	GitName        string // Git user.name config
@@ -898,6 +899,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "gid:%d", inputs.GID)
 	writeHashString(h, "userns_remap:%v", inputs.UsernsRemap)
 	writeHashString(h, "allow_custom_override:%v", inputs.AllowCustom)
+	writeHashString(h, "disable_seccomp:%v", inputs.DisableSeccomp)
 	writeHashString(h, "selinux:%v", inputs.SELinuxEnabled)
 	writeHashString(h, "network:%s", inputs.NetworkMode)
 	writeHashString(h, "gitname:%s", inputs.GitName)
@@ -1015,6 +1017,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		GID:            hostGID,
 		UsernsRemap:    usernsRemap,
 		AllowCustom:    allowCustomOverride,
+		DisableSeccomp: cfg != nil && cfg.Sandbox.DisableSeccomp,
 		SELinuxEnabled: selinuxEnabled,
 		NetworkMode:    networkMode,
 		GitName:        gitName,
@@ -1077,6 +1080,17 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Println("Warning: Using /projects as fallback container working directory")
 	}
 	fmt.Fprintf(&override, "    working_dir: %s\n", workingDir)
+
+	// Seccomp relaxation for headless browser automation (Chrome/Chromium).
+	// Docker's default seccomp profile blocks syscalls Chrome's multi-process CDP
+	// backend needs (clone3 with namespace flags, seccomp BPF install, ptrace),
+	// causing persistent browser launches to die with SIGTRAP. Opt-in only; see
+	// docs/SECURITY.md for the tradeoff.
+	if inputs.DisableSeccomp {
+		override.WriteString("    security_opt:\n")
+		override.WriteString("      - seccomp:unconfined\n")
+		fmt.Println("\u2713 Seccomp disabled (allows Chrome/Chromium headless automation)")
+	}
 
 	nonRootStrict := cfg != nil && cfg.Sandbox.NonRootStrict
 	// Linux-specific user mapping behavior:
