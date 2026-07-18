@@ -62,6 +62,12 @@ type RuntimeEngine struct {
 	sshProxySock      string // socket path inside the container
 	sshProxyContainer string // container running our socat (for Teardown cleanup)
 	sshProxyUser      string // exec user for Teardown cleanup
+
+	// Per-session Herdr bridge state (set when launched from a Herdr pane).
+	herdrBridge         *HerdrBridge
+	herdrProxySock      string // in-container unix socket path
+	herdrProxyContainer string // container running our socat (for Teardown)
+	herdrProxyUser      string // exec user for Teardown cleanup
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -94,6 +100,12 @@ func (e *RuntimeEngine) Prepare() error {
 	if err := e.ensureAgentRuntimeDirs(); err != nil {
 		return err
 	}
+
+	// 2.0.1 Mirror host-side integration files (e.g. Herdr's agent state
+	// reporter) into the construct home. Host tools install these into the
+	// host agent dir; the container has an isolated home, so they must be
+	// copied across to take effect. Best-effort; never blocks the run.
+	syncAgentIntegrations(e.args, e.configPath)
 
 	// 2.1 Write Global Agent Instructions (AGENTS.md)
 	globalAgentsMD := filepath.Join(e.configPath, "home", "AGENTS.md")
@@ -165,6 +177,21 @@ func (e *RuntimeEngine) Prepare() error {
 				e.sshBridge = bridge
 				e.sshProxySock = sshProxySockForPID(os.Getpid())
 			}
+		}
+	}
+
+	// 6.1 Herdr Bridge (only when launched from a Herdr pane). The host Herdr
+	// socket is AF_UNIX and unreachable from a container via bind-mount, so a
+	// host TCP listener proxies to it and an in-container socat bridges back.
+	// This lets per-agent integrations (e.g. pi's herdr-agent-state.ts) report
+	// turn-level state, producing the idle/working status panel natively.
+	if socket := os.Getenv("HERDR_SOCKET_PATH"); socket != "" {
+		bridge, err := StartHerdrBridge(cwdContainerName(e.cwd), socket)
+		if err == nil {
+			e.herdrBridge = bridge
+			e.herdrProxySock = herdrProxySockForPID(os.Getpid())
+		} else {
+			ui.LogDebug("Herdr bridge not started: %v", err)
 		}
 	}
 
@@ -256,6 +283,10 @@ func (e *RuntimeEngine) Teardown() {
 		// the long-lived daemon (other live sessions keep their own).
 		e.cleanupDaemonSSHProxy()
 		e.sshBridge.Stop()
+	}
+	if e.herdrBridge != nil {
+		e.cleanupDaemonHerdrProxy()
+		e.herdrBridge.Stop()
 	}
 	if e.cbServer != nil {
 		e.cbServer.Stop()
@@ -349,6 +380,20 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 				"SSH_AUTH_SOCK=" + e.sshProxySock,
 			}
 			fmt.Println("✓ Started SSH Agent proxy (daemon)")
+		}
+	}
+
+	// Setup Herdr Bridge Proxy if launched from a Herdr pane.
+	if e.herdrBridge != nil {
+		if err := ensureDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
+			fmt.Printf("⚠️  Herdr proxy restart failed (daemon): %v\n", err)
+		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, execUser); err != nil {
+			fmt.Printf("⚠️  Herdr proxy not ready (daemon): %v\n", err)
+		} else {
+			e.herdrProxyContainer = daemonName
+			e.herdrProxyUser = execUser
+			bridgeEnv = append(bridgeEnv, e.herdrExecEnv()...)
+			fmt.Println("✓ Started Herdr proxy (daemon)")
 		}
 	}
 
@@ -532,6 +577,25 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		}
 	}
 
+	// Herdr bridge proxy (only when launched from a Herdr pane).
+	if e.herdrBridge != nil {
+		execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
+		if err := ensureDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
+			fmt.Printf("⚠️  Herdr proxy restart failed: %v\n", err)
+		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, execUser); err != nil {
+			fmt.Printf("⚠️  Herdr proxy not ready: %v\n", err)
+		} else {
+			e.herdrProxyContainer = containerName
+			e.herdrProxyUser = execUser
+			for _, hv := range e.herdrExecEnv() {
+				parts := strings.SplitN(hv, "=", 2)
+				if len(parts) == 2 {
+					env.SetEnvVar(&envVars, parts[0], parts[1])
+				}
+			}
+		}
+	}
+
 	// Ensure Construct home and path
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
@@ -678,6 +742,16 @@ func (e *RuntimeEngine) cleanupDaemonSSHProxy() {
 	}
 	cmdArgs := []string{"bash", "-lc", `pkill -f "socat UNIX-LISTEN:` + e.sshProxySock + `" 2>/dev/null || true; rm -f "` + e.sshProxySock + `" 2>/dev/null || true`}
 	_, _ = runtime.ExecInContainerWithEnv(e.containerRuntime, e.sshProxyContainer, cmdArgs, nil, e.sshProxyUser) //nolint:errcheck
+}
+
+// cleanupDaemonHerdrProxy stops this session's Herdr socat and removes its
+// socket so a long-lived daemon does not accumulate dead proxies. Best-effort.
+func (e *RuntimeEngine) cleanupDaemonHerdrProxy() {
+	if e.herdrProxyContainer == "" || e.herdrProxySock == "" {
+		return
+	}
+	cmdArgs := []string{"bash", "-lc", `pkill -f "socat UNIX-LISTEN:` + e.herdrProxySock + `" 2>/dev/null || true; rm -f "` + e.herdrProxySock + `" 2>/dev/null || true`}
+	_, _ = runtime.ExecInContainerWithEnv(e.containerRuntime, e.herdrProxyContainer, cmdArgs, nil, e.herdrProxyUser) //nolint:errcheck
 }
 
 func (e *RuntimeEngine) promptForAttachOrRestart() (string, error) {
