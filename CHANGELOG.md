@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.12.0 -->
+## [1.12.0] - 2026-07-17
+
+### Added
+- **Herdr Integration Bridge**: When `construct` is launched from a Herdr pane, per-agent Herdr integrations now fire inside the container, producing the turn-level idle/working status panel natively (green checkmark when the agent is ready, spinner when working). Previously the agent ran in an isolated container PID namespace invisible to Herdr's host-side foreground-job detection, leaving a permanent spinner.
+  - **Integration file sync** (`internal/agent/integration_sync.go`): mirrors host-side integration files into the construct home per agent slug. Currently syncs `herdr-agent-state.ts` for pi from `$PI_CODING_AGENT_DIR/agent/extensions/` (or `~/.pi/agent/extensions/`) to the container's `~/.pi/agent/extensions/`. SHA-256 content compare: copies only when missing or different, so Herdr-side updates propagate on the next run; identical files are skipped (mtime preserved). Per-agent registry; other agents can be added later. Best-effort; never blocks the run.
+  - **Herdr socket bridge** (`internal/agent/herdr_bridge.go`): the host Herdr API socket is AF_UNIX and unreachable from a container via bind-mount (Docker Desktop surfaces a regular file, not a live socket — `Connection refused`). A host TCP listener proxies each connection to the unix socket, and a per-session in-container `socat` (runtime-launched via `docker exec`, no image rebuild) bridges back to `host.docker.internal:<port>`. Mirrors the existing SSH agent bridge: deterministic port band `48600`-`58599` (no SSH overlap) with ephemeral fallback, macOS binds `127.0.0.1` / Linux `0.0.0.0`, per-PID socket `/tmp/herdr-agent.<pid>.sock`, cleaned up in `Teardown()`.
+  - **Env forwarding**: injects `HERDR_ENV=1`, `HERDR_PANE_ID` (forwarded verbatim from the host pane shell), and `HERDR_SOCKET_PATH` (repointed at the in-container proxy socket) into the exec env. These three are the gate Herdr's integrations check (`enabled()` returns false without all three). Active on the daemon and attach paths; `runNewContainer` (compose run with no daemon) is intentionally not covered since the in-container socat does not exist there.
+<!-- RELEASE:END 1.12.0 -->
+
 <!-- RELEASE:START 1.11.0 -->
 ## [1.11.0] - 2026-07-10
 
