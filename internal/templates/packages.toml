@@ -161,6 +161,17 @@ packages = [
   "hunkdiff",
 ]
 
+# Pi extension packages (installed via `pi install`, NOT global npm).
+# Sources use pi's syntax: npm:name, git:github.com/user/repo, url, or local path.
+# pi manages its own local tree (~/.pi/agent/npm) and settings.json atomically;
+# pi install is idempotent so re-running `ct sys packages --install` is safe.
+[pi]
+packages = [
+  # "npm:@estebanforge/pi-agentmemory",
+  # "npm:pi-unified-exec",
+  # "git:github.com/jnsahaj/pi-agent-browser-screenshot",
+]
+
 # Python packages
 [pip]
 packages = [

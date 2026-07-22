@@ -296,3 +296,71 @@ packages = ["htop"]
 		t.Error("Expected error for invalid TOML, got nil")
 	}
 }
+
+func TestPiConfigParsing(t *testing.T) {
+	testConfig := `
+[pi]
+packages = ["npm:@estebanforge/pi-agentmemory", "git:github.com/jnsahaj/pi-agent-browser-screenshot"]
+`
+	var config PackagesConfig
+	if err := toml.Unmarshal([]byte(testConfig), &config); err != nil {
+		t.Fatalf("Failed to parse [pi] section: %v", err)
+	}
+
+	want := []string{
+		"npm:@estebanforge/pi-agentmemory",
+		"git:github.com/jnsahaj/pi-agent-browser-screenshot",
+	}
+	if got := len(config.Pi.Packages); got != len(want) {
+		t.Fatalf("Expected %d Pi packages, got %d", len(want), got)
+	}
+
+	cases := make([]struct {
+		idx  int
+		want string
+	}, len(want))
+	for i, w := range want {
+		cases[i] = struct {
+			idx  int
+			want string
+		}{idx: i, want: w}
+	}
+	for _, tc := range cases {
+		if got := config.Pi.Packages[tc.idx]; got != tc.want {
+			t.Errorf("Pi package[%d] = %q; want %q", tc.idx, got, tc.want)
+		}
+	}
+}
+
+func TestGenerateInstallScriptWithPiPackages(t *testing.T) {
+	config := &PackagesConfig{
+		Pi: PiConfig{
+			Packages: []string{"npm:pi-unified-exec", "git:github.com/user/repo"},
+		},
+	}
+	script := config.GenerateInstallScript()
+
+	if !strings.Contains(script, "Installing Pi extension packages") {
+		t.Error("Script should contain Pi packages section")
+	}
+	if !strings.Contains(script, "if command -v pi &> /dev/null; then") {
+		t.Error("Script should guard the Pi block with a `command -v pi` check")
+	}
+	// Each source is passed verbatim to `pi install`.
+	if !strings.Contains(script, "pi install npm:pi-unified-exec") {
+		t.Error("Script should invoke `pi install` with the npm source verbatim")
+	}
+	if !strings.Contains(script, "pi install git:github.com/user/repo") {
+		t.Error("Script should invoke `pi install` with the git source verbatim")
+	}
+	// The guard's else branch must warn when `pi` is absent so a missing binary
+	// is surfaced rather than silently dropping configured extensions.
+	if !strings.Contains(script, "pi not found; skipping Pi packages") {
+		t.Error("Script should emit the 'pi not found; skipping Pi packages' else-branch warning")
+	}
+	// No Pi packages configured => no Pi block emitted at all.
+	empty := (&PackagesConfig{}).GenerateInstallScript()
+	if strings.Contains(empty, "Installing Pi extension packages") {
+		t.Error("Script should not emit a Pi section when no Pi packages are configured")
+	}
+}
