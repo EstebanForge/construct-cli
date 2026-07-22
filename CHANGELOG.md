@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.12.1 -->
+## [1.12.1] - 2026-07-22
+
+### Added
+- **Pi Extension Package Support**: New `[pi]` config section lets you install pi coding-agent extensions through Construct's generated setup script instead of hand-running `pi install`. Sources use pi's own install syntax (`npm:name`, `git:github.com/user/repo`, `url`, or a local path) and are passed verbatim to `pi install`, which manages `~/.pi/agent/npm` and `settings.json` atomically and is idempotent, so re-running `ct sys packages --install` is safe. The block runs after the `[npm]` step so `pi` is already on PATH, and it is guarded by `command -v pi`: if pi is absent the configured extensions are skipped with a warning rather than aborting the whole install. Each package is isolated (`|| echo`), so one bad extension does not take down the rest. `internal/templates/packages.toml` ships the section empty with commented examples so you opt in by uncommenting. Tests cover TOML parsing (table-driven), script generation, verbatim source passing, the empty-config no-op, and the missing-binary guard branch.
+
+### Changed
+- **Script generators now use `strings.Builder`**: `GenerateInstallScript` and `GenerateTopgradeConfig` (in `internal/config/packages.go`) stopped concatenating with `+=` in loops and switched to `strings.Builder`, with `fmt.Fprintf` for the quoted-list entries. Same generated output, less allocation churn. Side benefit: the `config` local in `GenerateTopgradeConfig` no longer shadows the package name.
+<!-- RELEASE:END 1.12.1 -->
+
 <!-- RELEASE:START 1.12.0 -->
 ## [1.12.0] - 2026-07-17
 
