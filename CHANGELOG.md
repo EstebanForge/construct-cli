@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.12.2 -->
+## [1.12.2] - 2026-07-22
+
+### Fixed
+- **Host exec shim no longer deadlocks on open-but-empty stdin**: `construct-host-exec` blocked forever when launched with stdin as an open pipe that never sent data and never closed (no EOF), which is exactly the condition created by non-interactive launchers like `pi-unified-exec` that hold stdin open for the session lifetime. The old bare `base64` read sat waiting for bytes or EOF that never arrived, so every proxied host binary (e.g. `wicket config servers --json`) hung with zero output under such launchers while working fine in a human's interactive terminal. The fix is a hybrid read: a non-blocking `read -t 0` peek first (returns success only when data or EOF is immediately available), and if nothing is pending the read is skipped entirely, the common case for flag-only CLIs. Only when data or EOF is actually waiting does the shim consume stdin, bounded by `head -c 1048576` (1 MiB cap, forces EOF after N bytes or on real EOF so `base64` always flushes and closes) and `timeout 5` as defense-in-depth against slow trickle feeds. If either bound fires, the shim now emits a stderr warning attributing the truncation to itself instead of surfacing it later as a confusing bridge-side parse error. The bridge contract (stdin ships up front, base64-encoded, live interactive input still unsupported by design) is unchanged. Regression tests cover the open-empty pipe case (asserts sub-3s return, was an infinite hang) and the over-cap truncation warning.
+<!-- RELEASE:END 1.12.2 -->
+
 <!-- RELEASE:START 1.12.1 -->
 ## [1.12.1] - 2026-07-22
 
