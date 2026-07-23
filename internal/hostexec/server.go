@@ -268,9 +268,15 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	go drain(stdout, "stdout")
 	go drain(stderr, "stderr")
 
+	// Drain both pipes to EOF BEFORE cmd.Wait(). os/exec closes the pipe FDs
+	// during Wait; a Read racing that close returns "file already closed"
+	// mid-buffer and drops output. The StdoutPipe docs mandate this order
+	// ("incorrect to call Wait before all reads from the pipe have completed").
+	// Safe against deadlocks: drains consume output as the child produces it,
+	// and ctx's kill(-pgid) closes the write ends on timeout/disconnect.
+	drainWg.Wait()
 	werr := cmd.Wait()
 	close(doneCh)
-	drainWg.Wait()
 
 	// Determine exit code. A ctx error (timeout/disconnect) => synthesized 124
 	// so the shim/agent see a recognizable code; otherwise the real status.
