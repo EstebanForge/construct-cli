@@ -265,6 +265,86 @@ func TestShimStreamsCarriageReturnProgress(t *testing.T) {
 	}
 }
 
+func TestShimDoesNotDeadlockOnOpenEmptyPipe(t *testing.T) {
+	// Regression for the pi-unified-exec deadlock: when stdin is an open pipe
+	// that never sends data and never closes, the old bare `base64` read
+	// blocked forever (no EOF). This launches the shim with stdin wired to a
+	// pipe whose write end we keep open for the whole run and asserts it
+	// returns quickly (the non-blocking peek must skip the read entirely) with
+	// the bridge's exit code instead of hanging.
+	//
+	// The previous bounded-read fix (timeout 5) would have passed this too, but
+	// only after waiting the full 5s timeout on every run — the hybrid peek
+	// fix must return near-instantly, which the <3s assertion below enforces.
+	linkPath, _ := withShimLinked(t, "wicket")
+	frames := []frame{
+		{Type: "stdout", Data: base64.StdEncoding.EncodeToString([]byte("ok\n"))},
+		{Type: "exit", Code: intPtr(0)},
+	}
+	srv := stubBridge(t, "tok", frames)
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	// Keep the write end open for the whole test so the pipe never sends EOF
+	// while the shim is running — mirroring an interactive launcher that holds
+	// stdin open. Direct cleanup, no goroutine needed.
+	t.Cleanup(func() { w.Close() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, linkPath, "--version")
+	cmd.Stdin = r
+	cmd.Env = []string{
+		"CONSTRUCT_HOST_EXEC_URL=" + srv.URL,
+		"CONSTRUCT_HOST_EXEC_TOKEN=tok",
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+	}
+	var out strings.Builder
+	cmd.Stdout = &out
+
+	start := time.Now()
+	err = cmd.Run()
+	elapsed := time.Since(start)
+	if elapsed > 3*time.Second {
+		t.Fatalf("shim took %s on open-empty stdin; non-blocking peek should skip the read", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("shim failed after %s: %v out=%q", elapsed, err, out.String())
+	}
+	if out.String() != "ok\n" {
+		t.Fatalf("stdout=%q want ok\n", out.String())
+	}
+}
+
+func TestShimWarnsOnStdinOverByteCap(t *testing.T) {
+	// The 1 MiB byte cap truncates silently by design; the shim MUST emit a
+	// stderr warning so truncation is attributable to the shim, not surfaced
+	// later as a confusing bridge-side parse error.
+	linkPath, _ := withShimLinked(t, "wicket")
+	frames := []frame{
+		{Type: "exit", Code: intPtr(0)},
+	}
+	srv := stubBridge(t, "tok", frames)
+
+	// 2 MiB of 'x' — well over the 1 MiB cap.
+	oversized := strings.Repeat("x", 2*1024*1024)
+
+	_, errb, code := runShim(t, linkPath, map[string]string{
+		"CONSTRUCT_HOST_EXEC_URL":   srv.URL,
+		"CONSTRUCT_HOST_EXEC_TOKEN": "tok",
+	}, nil, []byte(oversized))
+	if code != 0 {
+		t.Fatalf("code=%d want 0 (truncation is not fatal) stderr=%s", code, errb)
+	}
+	if !strings.Contains(errb, "truncated") {
+		t.Fatalf("stderr should warn about truncation: %q", errb)
+	}
+}
+
 func intPtr(i int) *int { return &i }
 
 // silence unused (fmt/io imported for future use in this harness)
