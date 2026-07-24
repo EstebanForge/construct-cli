@@ -355,6 +355,50 @@ func TestGetProjectMountPath(t *testing.T) {
 	}
 }
 
+func TestGetQmdModelsPath(t *testing.T) {
+	// Isolate from the real host HOME / XDG_CACHE_HOME so the test is deterministic.
+	origHome := os.Getenv("HOME")
+	origXDG := os.Getenv("XDG_CACHE_HOME")
+	defer func() {
+		os.Setenv("HOME", origHome)
+		os.Setenv("XDG_CACHE_HOME", origXDG)
+	}()
+
+	tmpHome := t.TempDir()
+	os.Setenv("HOME", tmpHome)
+	os.Setenv("XDG_CACHE_HOME", "")
+
+	// 1. Not found when the directory does not exist.
+	if _, found := getQmdModelsPath(); found {
+		t.Errorf("expected getQmdModelsPath to be false for an absent cache dir")
+	}
+
+	// 2. Found via ~/.cache/qmd/models when HOME is set.
+	hostModels := filepath.Join(tmpHome, ".cache", "qmd", "models")
+	if err := os.MkdirAll(hostModels, 0o755); err != nil {
+		t.Fatalf("failed to create models dir: %v", err)
+	}
+	got, found := getQmdModelsPath()
+	if !found {
+		t.Fatalf("expected getQmdModelsPath to find %s", hostModels)
+	}
+	if got != hostModels {
+		t.Errorf("expected %s, got %s", hostModels, got)
+	}
+
+	// 3. XDG_CACHE_HOME takes precedence over $HOME/.cache.
+	xdgCache := t.TempDir()
+	os.Setenv("XDG_CACHE_HOME", xdgCache)
+	xdgModels := filepath.Join(xdgCache, "qmd", "models")
+	if err := os.MkdirAll(xdgModels, 0o755); err != nil {
+		t.Fatalf("failed to create xdg models dir: %v", err)
+	}
+	got, found = getQmdModelsPath()
+	if !found || got != xdgModels {
+		t.Errorf("expected XDG path %s (found=%v), got %s", xdgModels, found, got)
+	}
+}
+
 func containsEnvWithPrefix(env []string, prefix string) bool {
 	for _, entry := range env {
 		if strings.HasPrefix(entry, prefix) {

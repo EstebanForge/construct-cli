@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.13.0 -->
+## [1.13.0] - 2026-07-24
+
+### Added
+- **Host qmd model cache is now reused inside the sandbox**: when the host has a qmd GGUF model cache at `$XDG_CACHE_HOME/qmd/models` (or `~/.cache/qmd/models` by default), Construct bind-mounts it into the container at `/home/construct/.cache/qmd/models` so the qmd semantic-search backend reuses the already-downloaded models (~1.5 GB) instead of re-fetching them on every container recreate. The mount is read-write so models qmd fetches lazily later (the reranker and query-expansion GGUFs pull on first `qmd query`) write back to the shared host cache and become one-time. It is added only when the host directory exists (no config flag, no effect when absent), is resolved the same way qmd resolves its own cache (`$XDG_CACHE_HOME` first, then `$HOME/.cache`), and is hash-tracked in `overrideInputs` so `docker-compose.override.yml` regenerates when the directory appears or disappears. Mirrors the existing conditional gitignore mount. Documented in `docs/ARCHITECTURE-DESIGN.md` and `docs/CONFIGURATION.md`; `AGENTS.md` gains a contributor note on the conditional-mount pattern for future additions.
+
+### Fixed
+- **`construct sys daemon restart` no longer fails on Docker Desktop**: the daemon could fail to restart with a bare "exit status 1" that swallowed docker's actual error. The root cause was two-fold. `CleanupExitedContainer` ran a plain `docker rm`, which races on macOS where a freshly stopped container can briefly resist removal while Docker Desktop tears down host bind-mounts (extra bind-mounts, including the new qmd cache mount, widen the window). And `Start()`/`Restart()` downgraded that cleanup failure to a warning and then ran `docker compose run --name`, which hit a name conflict with the not-yet-removed container. Fixes: `CleanupExitedContainer` now uses `docker rm -f` (force, safe because the daemon has no dependent containers); cleanup failure in `Start()` now aborts instead of warn-and-continue; and `Restart()` no longer duplicates the exited-container cleanup, delegating it to `Start()` as the single owner of that logic. End-to-end verified: `construct sys daemon restart` exits 0 and the qmd mount survives the restart.
+- **Daemon start and cleanup errors now surface docker's stderr**: `Start()`, `StopContainer`, and `CleanupExitedContainer` switched from `cmd.Run()` to `cmd.CombinedOutput()` and include the captured output in the error, so a failed daemon start prints docker/compose's real reason instead of an opaque "exit status 1". This is what made the restart failure above diagnosable instead of a guessing game.
+<!-- RELEASE:END 1.13.0 -->
+
 <!-- RELEASE:START 1.12.2 -->
 ## [1.12.2] - 2026-07-22
 
