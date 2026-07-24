@@ -138,6 +138,15 @@ mount_home = false
 - Useful for workflows requiring home directory access
 - Security implication: Agent can read your files
 
+### Automatic Host Mounts
+
+Independent of `mount_home`, Construct adds a few host→container bind-mounts automatically when the host path exists (no configuration needed):
+
+- **Global gitignore** → `/home/construct/.config/git/ignore` (read-only), so agents inherit your host ignore rules.
+- **qmd model cache** (`~/.cache/qmd/models`) → `/home/construct/.cache/qmd/models` (read-write), so the qmd semantic-search backend reuses already-downloaded GGUF models (~1.5GB) instead of re-fetching them per container. Read-write lets any lazily-fetched model write back to the shared host cache.
+
+These are skipped silently when the host path is absent.
+
 ### SSH Agent Forwarding
 
 ```toml

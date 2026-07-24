@@ -886,6 +886,7 @@ type overrideInputs struct {
 	DaemonMulti    bool   // Multi-path daemon mounts enabled
 	DaemonMounts   string // Hash of normalized mount paths
 	GitIgnorePath  string // Host global gitignore path (empty if not found)
+	QmdModelsPath  string // Host qmd model cache path (empty if not found)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -910,6 +911,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
+	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1028,6 +1030,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		DaemonMulti:    cfg != nil && cfg.Daemon.MultiPathsEnabled,
 		DaemonMounts:   daemonMounts.Hash,
 		GitIgnorePath:  func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
+		QmdModelsPath:  func() string { p, _ := getQmdModelsPath(); return p }(),
 	}
 
 	// Check if override needs regeneration
@@ -1140,6 +1143,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxSuffix)
 		}
+		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		if qmdModelsPath, found := getQmdModelsPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models%s\n",
+				formatVolumePath(qmdModelsPath), selinuxSuffix)
+		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		for _, mount := range daemonMounts.Mounts {
@@ -1155,6 +1163,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
 				formatVolumePath(gitIgnorePath))
+		}
+		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		if qmdModelsPath, found := getQmdModelsPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models\n",
+				formatVolumePath(qmdModelsPath))
 		}
 	}
 
@@ -1878,15 +1891,21 @@ func CleanupExitedContainer(containerRuntime, containerName string) error {
 
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "rm", containerName)
+		cmd = exec.Command("docker", "rm", "-f", containerName)
 	case "podman":
-		cmd = exec.Command("podman", "rm", containerName)
+		cmd = exec.Command("podman", "rm", "-f", containerName)
 	default:
 		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to remove container: %w", err)
+	// Force-remove (docker rm -f) so a freshly stopped container can be removed
+	// even while Docker Desktop is still tearing down host bind-mounts, which
+	// can briefly make a plain `docker rm` fail. Capture combined output so any
+	// removal failure surfaces the daemon's actual error instead of a bare
+	// "exit status 1".
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to remove container: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
 	return nil
@@ -1925,8 +1944,9 @@ func StopContainer(containerRuntime, containerName string) error {
 		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
 
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to stop container: %w", err)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to stop container: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 
 	return nil
@@ -2004,6 +2024,34 @@ func getGlobalGitIgnorePath() (string, bool) {
 	}
 
 	return "", false
+}
+
+// getQmdModelsPath returns the host path to qmd's downloaded GGUF model cache.
+// qmd stores models under $XDG_CACHE_HOME/qmd/models (or ~/.cache/qmd/models by
+// default). When the directory exists on the host we bind-mount it into the
+// sandbox so qmd reuses the already-downloaded models (~1.5GB) instead of
+// re-fetching them on every container recreate.
+//
+// Returns the path and true if the directory exists; empty string and false otherwise.
+func getQmdModelsPath() (string, bool) {
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
+		homeDir := os.Getenv("HOME")
+		if homeDir == "" {
+			fallback, err := os.UserHomeDir()
+			if err != nil {
+				return "", false
+			}
+			homeDir = fallback
+		}
+		cacheHome = filepath.Join(homeDir, ".cache")
+	}
+	qmdModels := filepath.Join(cacheHome, "qmd", "models")
+	info, err := os.Stat(qmdModels)
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return qmdModels, true
 }
 
 // formatVolumePath quotes a path for use in docker-compose volume mounts.

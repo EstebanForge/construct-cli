@@ -29,6 +29,11 @@
 - `internal/templates/docker-compose.yml`
 - `internal/templates/Dockerfile`
 
+## Conditional Host Mounts
+- `internal/runtime/runtime.go` (`GenerateDockerComposeOverride`) adds host→container bind-mounts that activate only when the host path exists (no config flag): host global gitignore → `/home/construct/.config/git/ignore:ro` (`getGlobalGitIgnorePath`), and host qmd GGUF model cache `~/.cache/qmd/models` → `/home/construct/.cache/qmd/models` (`getQmdModelsPath`, RW so lazily-fetched reranker/generation models write back to the shared host cache).
+- Every conditional mount must also be added to the `overrideInputs` struct and `hashOverrideInputs`, or `docker-compose.override.yml` will not regenerate when the host path appears/disappears.
+- To add a new auto-mount: write a `getXPath() (string, bool)` helper (resolve `$HOME`/XDG, `os.Stat` + `IsDir`), add the field + hash line, and append the mount in BOTH the `linux` and `darwin` volume blocks (linux carries `selinuxSuffix`, darwin omits it).
+
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases

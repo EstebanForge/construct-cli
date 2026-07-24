@@ -97,6 +97,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Ephemeral runs: host project directory → `/projects/<folder_name>`. Each CWD gets its own container (`construct-cli-<hash>`) derived from `sha256(cwd)[:8]`.
   - Daemon runs with `daemon.multi_paths_enabled = true`: host paths mount under deterministic roots at `/workspaces/<hash>/...` and the runtime maps the current host `cwd` into that tree.
   - Host config/agents mount under `~/.config/construct-cli/agents-config/<agent>/` and `~/.config/construct-cli/home/`.
+  - Conditional host caches mount only when present on the host (no config flag): the host global gitignore → `/home/construct/.config/git/ignore:ro`, and the qmd GGUF model cache (`$XDG_CACHE_HOME/qmd/models` or `~/.cache/qmd/models`) → `/home/construct/.cache/qmd/models` so the qmd semantic-search backend reuses already-downloaded models (~1.5GB) instead of re-fetching them on every container recreate.
 - **Isolation**: Each agent run is isolated within its container; only the active project/workspace mount (`/projects/...` or `/workspaces/...`) bridges host project files.
 - **SSH agent forwarding**: Linux mounts the host socket directly; macOS uses a TCP bridge exposed to the container.
 - **Network modes**:

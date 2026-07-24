@@ -35,7 +35,8 @@ func Start() {
 	case runtime.ContainerStateExited:
 		ui.GumInfo("Removing stopped daemon container...")
 		if err := runtime.CleanupExitedContainer(containerRuntime, containerName); err != nil {
-			ui.GumWarning(fmt.Sprintf("Failed to cleanup: %v", err))
+			ui.GumError(fmt.Sprintf("Failed to cleanup stopped container: %v", err))
+			os.Exit(1)
 		}
 	}
 
@@ -79,8 +80,11 @@ func Start() {
 	cmd.Dir = config.GetContainerDir()
 	cmd.Env = env
 
-	if err := cmd.Run(); err != nil {
-		ui.GumError(fmt.Sprintf("Failed to start daemon: %v", err))
+	// Capture combined output so docker/compose failures surface their actual
+	// error message instead of a bare "exit status 1".
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to start daemon: %v\n%s", err, strings.TrimSpace(string(out))))
 		os.Exit(1)
 	}
 
@@ -145,10 +149,7 @@ func Restart() {
 		Start()
 		return
 	case runtime.ContainerStateExited:
-		ui.GumInfo("Daemon is stopped, cleaning up and starting...")
-		if err := runtime.CleanupExitedContainer(containerRuntime, containerName); err != nil {
-			ui.GumWarning(fmt.Sprintf("Failed to cleanup: %v", err))
-		}
+		ui.GumInfo("Daemon is stopped, starting...")
 		Start()
 		return
 	}
