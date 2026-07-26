@@ -69,16 +69,20 @@ func TestEmbeddedTemplates(t *testing.T) {
 	}
 	defaultPassthroughKeys := []string{
 		`"GITHUB_TOKEN"`,
-		`"ANTIGRAVITY_API_KEY"`,
+		`"CONTEXT7_API_KEY"`,
+		`"BRAVE_API_KEY"`,
 		`"OPENAI_API_KEY"`,
 		`"ANTHROPIC_API_KEY"`,
+		`"GEMINI_API_KEY"`,
+		`"ANTIGRAVITY_API_KEY"`,
 		`"QWEN_API_KEY"`,
+		`"DEEPSEEK_API_KEY"`,
 		`"MINIMAX_API_KEY"`,
 		`"KIMI_API_KEY"`,
 		`"ZAI_API_KEY"`,
 		`"MIMO_API_KEY"`,
 		`"OPENCODE_API_KEY"`,
-		`"CONTEXT7_API_KEY"`,
+		`"PI_CACHE_RETENTION"`,
 	}
 	for _, key := range defaultPassthroughKeys {
 		if !strings.Contains(Config, key) {
