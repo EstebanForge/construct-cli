@@ -116,6 +116,12 @@ env_passthrough = [
 # Explicit env_passthrough values win if both sources target the same inside key.
 env_passthrough_prefixes = ["CNSTR_"]
 
+# Terminal-identity markers (KITTY_WINDOW_ID, GHOSTTY_RESOURCES_DIR, TERM_PROGRAM)
+# are forwarded automatically so in-container TUIs and pi extensions can detect
+# the outer terminal (e.g. kitty-graphics inline image rendering). TERM itself
+# is NOT forwarded by default to avoid terminfo mismatches; add it here and
+# install ncurses-term/kitty-terminfo in the image if you need it.
+
 # SELinux mount labels on Linux: "auto" | "enabled" | "disabled"
 selinux_labels = "auto"
 
@@ -131,6 +137,17 @@ clipboard_host = "host.docker.internal"
 host_service_env = [
     # "AGENTMEMORY_URL=http://localhost:3111",
 ]
+
+# Container loopback ports relayed to host.docker.internal (same port both sides).
+# Chromium hardcodes *.localhost and localhost to 127.0.0.1 (RFC 6761), bypassing
+# /etc/hosts and DNS, so a DNS-layer fix cannot reach host dev sites from a browser.
+# These socat forwards listen on the container's 127.0.0.1 and blindly relay TCP to
+# host.docker.internal, preserving the HTTP Host header and TLS SNI so host vhost
+# routers (valet/Hyperpress) and certs see the real hostname. HTTP and HTTPS on the
+# standard ports work out of the box; add non-standard ports (e.g. 3000) as needed.
+# Linux caveat: host services must bind 0.0.0.0/bridge (not 127.0.0.1-only) to be
+# reachable via host-gateway. Empty list disables the feature (no NET_BIND_SERVICE cap).
+host_loopback_ports = [80, 443]
 
 # Agent Behavior
 [agents]

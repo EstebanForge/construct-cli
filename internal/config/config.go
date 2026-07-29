@@ -51,9 +51,10 @@ type SandboxConfig struct {
 	Shell                  string   `toml:"shell"`
 	ClipboardHost          string   `toml:"clipboard_host"`
 	SelinuxLabels          string   `toml:"selinux_labels"`
-	HostServiceEnv         []string `toml:"host_service_env"`   // ENV=http://localhost:port, rewritten to host.docker.internal
-	SSHPinIdentities       []string `toml:"ssh_pin_identities"` // host=keyname entries; pin one SSH identity per host to avoid sshd MaxAuthTries when the agent holds many keys
-	HostBinaries           []string `toml:"host_binaries"`      // binaries proxied to the host instead of run in-container; see docs/HOST-EXEC.md
+	HostServiceEnv         []string `toml:"host_service_env"`    // ENV=http://localhost:port, rewritten to host.docker.internal
+	HostLoopbackPorts      []int    `toml:"host_loopback_ports"` // container 127.0.0.1 ports relayed to host.docker.internal (Chromium-hardcoded *.localhost/localhost traffic)
+	SSHPinIdentities       []string `toml:"ssh_pin_identities"`  // host=keyname entries; pin one SSH identity per host to avoid sshd MaxAuthTries when the agent holds many keys
+	HostBinaries           []string `toml:"host_binaries"`       // binaries proxied to the host instead of run in-container; see docs/HOST-EXEC.md
 }
 
 // NetworkConfig holds network allow/block settings.
@@ -139,6 +140,7 @@ func DefaultConfig() Config {
 			Shell:                  "/bin/bash",
 			ClipboardHost:          "host.docker.internal",
 			SelinuxLabels:          "auto",
+			HostLoopbackPorts:      []int{80, 443},
 		},
 		Network: NetworkConfig{
 			Mode: "permissive",

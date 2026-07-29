@@ -9,8 +9,12 @@ RUN useradd -m -s /bin/bash construct && \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \
     libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
-    gnome-keyring libsecret-1-0 dbus-x11 xdg-utils && \
+    gnome-keyring libsecret-1-0 dbus-x11 xdg-utils libcap2-bin && \
     rm -rf /var/lib/apt/lists/*
+    # NOTE: libcap2-bin provides the `setcap` binary used at runtime by
+    # entrypoint.sh to grant socat the privileged-port bind cap. The file cap is
+    # applied in the entrypoint (as root), NOT here: BuildKit's default sandbox
+    # blocks file-capability writes during `docker build`.
 
 # Allow construct user to run privileged commands without password
 # Include chown for Podman rootless permission fixes

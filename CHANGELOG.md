@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.14.0 -->
+## [1.14.0] - 2026-07-28
+
+### Added
+- **Host loopback forwarding lets headless browsers reach host dev sites**: agent-browser's Chromium runs inside the sandbox, but Chromium hardcodes `localhost` and `*.localhost` to `127.0.0.1` (RFC 6761), bypassing `/etc/hosts`, DNS, `dnsmasq`, and `--host-resolver-rules`. So a headless browser could not reach host dev servers like `http://hyperpress.localhost`, even though non-browser tools (curl, git, MCP) reached them fine. The fix is blind TCP relays on the container's `127.0.0.1` that forward to `host.docker.internal`, launched by `entrypoint.sh` (socat, next to the SSH bridge). Blind relay preserves the HTTP Host header and TLS SNI, so host vhost routers (valet, Hyperpress) and certs see the real hostname. Configured via `[sandbox] host_loopback_ports` (list of ints, default `[80, 443]`, same port both sides). Emitting `CONSTRUCT_LOOPBACK_PORTS` into `docker-compose.override.yml` also adds `cap_add: NET_BIND_SERVICE` (consolidated with strict-mode `NET_ADMIN` into one `cap_add:` block) so the non-root construct user's socat can bind privileged ports. The port list is hash-tracked in `overrideInputs`, so changing it regenerates the override; an empty list disables the feature and drops the cap. Platform caveat: on Linux the host-gateway is the bridge IP, so host services must bind `0.0.0.0`/bridge (not `127.0.0.1`-only) to be reachable; macOS host-gateway already routes to host `127.0.0.1`.
+- **Terminal identity markers now forward into the sandbox**: `KITTY_WINDOW_ID`, `GHOSTTY_RESOURCES_DIR`, and `TERM_PROGRAM` are passed into the container as `-e` flags on both launch paths (direct `compose run` and the daemon `compose run -d`, so `docker exec` sessions inherit them) so in-container TUIs and pi extensions can detect the outer terminal and do the right thing (kitty-graphics inline image rendering, etc.). `TERM` itself is intentionally NOT forwarded by default to avoid terminfo mismatches (forwarding `xterm-kitty` into a container without kitty-terminfo breaks ncurses apps like less/vim/btop); the identity vars are enough for detection. Users who need `TERM` can add it to `env_passthrough` and install `ncurses-term`/`kitty-terminfo` in the image.
+
+### Fixed
+- **`construct build` no longer fails on the socat file cap**: the Dockerfile ran `setcap cap_net_bind_service+ep /usr/bin/socat` at build time, but BuildKit's default sandbox blocks file-capability writes during `docker build` and aborts with `Invalid file 'setcap' for capability operation` (granting it needs the `security.insecure` entitlement, which `docker compose build` does not enable by default). The file cap is now applied at runtime: `entrypoint.sh` runs the same `setcap` as root in its startup block, before the `gosu` drop to the construct user. It is idempotent and best-effort, and the cap persists on the overlay for the container's lifetime, so the non-root socat still binds `80`/`443` via the file cap plus the `NET_BIND_SERVICE` bounding set (both still required). `libcap2-bin` (which provides the `setcap` binary) stays installed in the image.
+<!-- RELEASE:END 1.14.0 -->
+
 <!-- RELEASE:START 1.13.0 -->
 ## [1.13.0] - 2026-07-24
 

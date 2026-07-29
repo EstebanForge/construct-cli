@@ -465,6 +465,74 @@ func TestGenerateDockerComposeOverride(t *testing.T) {
 	}
 }
 
+func TestGenerateDockerComposeOverrideLoopbackForwardsDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	for _, d := range []string{containerDir, filepath.Join(configDir, "templates")} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	// No host_loopback_ports in config -> DefaultConfig() applies ([80, 443]).
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[runtime]\nengine = \"docker\"\n\n[sandbox]\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("read override: %v", err)
+	}
+	s := string(content)
+	if !strings.Contains(s, "CONSTRUCT_LOOPBACK_PORTS=80,443") {
+		t.Fatalf("expected default CONSTRUCT_LOOPBACK_PORTS=80,443 in override, got: %s", s)
+	}
+	if !strings.Contains(s, "- NET_BIND_SERVICE") {
+		t.Fatalf("expected cap_add NET_BIND_SERVICE in default override, got: %s", s)
+	}
+}
+
+func TestGenerateDockerComposeOverrideLoopbackDisabledWhenEmpty(t *testing.T) {
+	tmpDir := t.TempDir()
+	origHome := os.Getenv("HOME")
+	os.Setenv("HOME", tmpDir)
+	defer os.Setenv("HOME", origHome)
+
+	configDir := filepath.Join(tmpDir, ".config", "construct-cli")
+	containerDir := filepath.Join(configDir, "container")
+	for _, d := range []string{containerDir, filepath.Join(configDir, "templates")} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	// Explicit empty list disables the feature.
+	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte("[runtime]\nengine = \"docker\"\n\n[sandbox]\nhost_loopback_ports = []\n"), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if err := GenerateDockerComposeOverride(configDir, "/projects/test", "bridge", "docker"); err != nil {
+		t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+	}
+	content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+	if err != nil {
+		t.Fatalf("read override: %v", err)
+	}
+	s := string(content)
+	if strings.Contains(s, "CONSTRUCT_LOOPBACK_PORTS=") {
+		t.Fatalf("expected no CONSTRUCT_LOOPBACK_PORTS when list empty, got: %s", s)
+	}
+	if strings.Contains(s, "NET_BIND_SERVICE") {
+		t.Fatalf("expected no NET_BIND_SERVICE cap when list empty, got: %s", s)
+	}
+}
+
 func TestGenerateDockerComposeOverridePodmanUserMappingDependsOnUsernsMode(t *testing.T) {
 	if stdruntime.GOOS != "linux" {
 		t.Skip("Linux-specific podman user mapping behavior")

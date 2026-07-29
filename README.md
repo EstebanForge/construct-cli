@@ -18,6 +18,8 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent
 - **Full Clipboard Bridge**: Text and image pasting support for Claude, Copilot, Antigravity, Qwen, Pi, and OMP
 - **Agent Browser**: Headless browser automation CLI for AI agents
+- **Host Loopback Browsing**: Headless browser agents reach host dev sites served on `localhost`/`*.localhost` via automatic TCP relays to the host
+- **Terminal Identity Forwarding**: kitty and Ghostty terminal markers pass into the sandbox so TUIs and pi extensions render inline images correctly
 - **User-Defined Packages**: Customize your sandbox with apt, brew, bun, npm, or pip packages
 - **Parallel Workflows**: Git worktree management for parallel AI agent workflows
 

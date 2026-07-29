@@ -60,6 +60,15 @@ if [ "$(id -u)" = "0" ]; then
         }' /etc/profile 2>/dev/null || true
     fi
 
+    # Grant socat the file cap to bind privileged ports (<1024) as the non-root
+    # construct user (host-loopback forwarders, below). Applied at runtime, not
+    # build time, because BuildKit's sandbox blocks file-cap writes in `docker
+    # build`. Idempotent + best-effort. Needs cap_add: NET_BIND_SERVICE
+    # (docker-compose.override.yml, bounding set) to take effect at exec.
+    if [ -n "${CONSTRUCT_LOOPBACK_PORTS:-}" ] && command -v setcap >/dev/null 2>&1 && [ -x /usr/bin/socat ]; then
+        setcap cap_net_bind_service+ep /usr/bin/socat 2>/dev/null || true
+    fi
+
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
     # In remapped-userns mode keep namespace root to avoid host ownership drift.
@@ -95,6 +104,25 @@ if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
     socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
     export SSH_AUTH_SOCK="$PROXY_SOCK"
     echo "✓ Started SSH Agent proxy"
+fi
+
+# Host loopback forwarders: relay container 127.0.0.1:<port> to host.docker.internal:<port>.
+# Chromium hardcodes *.localhost and localhost to 127.0.0.1 (RFC 6761), bypassing
+# /etc/hosts and DNS, so these blind TCP relays are the only way for a headless
+# browser (agent-browser) to reach host dev sites like http://hyperpress.localhost.
+# Blind relay preserves the HTTP Host header and TLS SNI, so host vhost routers
+# and certs see the real hostname. Ports come from [sandbox] host_loopback_ports.
+if [ -n "$CONSTRUCT_LOOPBACK_PORTS" ] && command -v socat >/dev/null 2>&1; then
+    IFS=',' read -ra _loop_ports <<< "$CONSTRUCT_LOOPBACK_PORTS"
+    for _port in "${_loop_ports[@]}"; do
+        [ -n "$_port" ] || continue
+        case "$_port" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        # Best-effort: a failed bind (port in use / cap missing) must not abort entrypoint.
+        socat TCP-LISTEN:"$_port",fork,bind=127.0.0.1,reuseaddr TCP:host.docker.internal:"$_port" >/tmp/loopback-"$_port".log 2>&1 &
+    done
+    echo "✓ Started host loopback forwarders on 127.0.0.1: $CONSTRUCT_LOOPBACK_PORTS"
 fi
 
 # Start gnome-keyring-daemon for persistent secret storage (used by agy and other agents).

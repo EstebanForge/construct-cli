@@ -205,6 +205,29 @@ host_binaries = ["wicket"]
 - Non-interactive only: no controlling terminal/PTY. Pipe stdin (one-shot) works; interactive prompts do not. Pass `--no-interactive`/`--json`/`--yes` flags where available.
 - A startup banner (`⚠ host exec enabled: ...`) confirms when active.
 - Full details: [Host Exec Bridge](HOST-EXEC.md).
+
+### Terminal Identity Forwarding (Automatic)
+
+Host terminal-identity markers (`KITTY_WINDOW_ID`, `GHOSTTY_RESOURCES_DIR`, `TERM_PROGRAM`) are forwarded into the container automatically so in-container TUIs and pi extensions can detect the outer terminal (for example, kitty-graphics inline image rendering). No config is needed; it applies on both the direct run and daemon paths.
+
+`TERM` is intentionally **not** forwarded, because forwarding e.g. `xterm-kitty` into a container that lacks the matching terminfo breaks ncurses apps (less, vim, btop). If you need it, add `TERM` to `env_passthrough` and install `ncurses-term` (or `kitty-terminfo`) in the image.
+
+### Host Loopback Forwarding (Browser -> Host Dev Sites)
+
+Chromium hardcodes `localhost` and `*.localhost` to `127.0.0.1` (RFC 6761), bypassing `/etc/hosts`, DNS, `dnsmasq`, and `--host-resolver-rules`. A DNS-layer fix therefore cannot let a **headless browser** (agent-browser) reach host dev servers like `http://hyperpress.localhost`, even though non-browser tools (curl, git, MCP) reach them fine. Construct relays those connections instead.
+
+```toml
+[sandbox]
+host_loopback_ports = [80, 443]  # default; same port both sides
+```
+
+For each listed port, `entrypoint.sh` starts a blind TCP relay on the container's `127.0.0.1:<port>` that forwards to `host.docker.internal:<port>`. Blind relay preserves the HTTP Host header and TLS SNI, so host vhost routers (valet, Hyperpress) and certs see the real hostname. The container is granted `cap_add: NET_BIND_SERVICE` so the non-root user's socat can bind ports below 1024 (the file cap is applied at runtime as root in the entrypoint, since BuildKit blocks file-cap writes at build time).
+
+- **Default** `[80, 443]` covers `http://` and `https://` on the standard ports.
+- Add non-standard ports (e.g. `3000`) as needed.
+- **Empty list disables** the feature (no relay, no `NET_BIND_SERVICE` cap).
+- **Linux caveat**: the host-gateway is the bridge IP, so host services must bind `0.0.0.0`/bridge (not `127.0.0.1`-only) to be reachable. macOS host-gateway already routes to host `127.0.0.1`.
+
 ## Network Settings
 
 ### Network Modes
