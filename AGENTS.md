@@ -34,6 +34,22 @@
 - Every conditional mount must also be added to the `overrideInputs` struct and `hashOverrideInputs`, or `docker-compose.override.yml` will not regenerate when the host path appears/disappears.
 - To add a new auto-mount: write a `getXPath() (string, bool)` helper (resolve `$HOME`/XDG, `os.Stat` + `IsDir`), add the field + hash line, and append the mount in BOTH the `linux` and `darwin` volume blocks (linux carries `selinuxSuffix`, darwin omits it).
 
+## Terminal Identity Forwarding
+- `internal/agent/engine.go` (`terminalIdentityEnvFlags`) auto-forwards host terminal-identity markers (`KITTY_WINDOW_ID`, `GHOSTTY_RESOURCES_DIR`, `TERM_PROGRAM`) into the container as `-e` flags so in-container TUIs / pi extensions can detect the outer terminal (kitty-graphics inline images, etc.).
+- Wired into BOTH launch paths: `e.buildRunFlags` (direct `compose run`) and `startDaemonBackground` (daemon `compose run -d`, so `docker exec` sessions inherit it).
+- `TERM` is intentionally NOT forwarded (terminfo mismatch risk; identity vars suffice for detection). Users who need it: add `TERM` to `env_passthrough` and install `ncurses-term`/`kitty-terminfo` in the image.
+
+## Host Loopback Forwarding (browser → host dev sites)
+- Chromium hardcodes `localhost` and `*.localhost` to `127.0.0.1` (RFC 6761), bypassing `/etc/hosts`, DNS, `dnsmasq`, and `--host-resolver-rules`. So DNS-layer fixes (extra_hosts, host_aliases) CANNOT make a headless browser (agent-browser) reach host dev sites like `http://hyperpress.localhost`. They only help non-browser tools (curl/git/MCP).
+- Solution: blind TCP relays on the container's `127.0.0.1` → `host.docker.internal`, launched by `internal/templates/entrypoint.sh` (socat, next to the SSH bridge). Blind relay preserves HTTP Host header + TLS SNI, so host vhost routers and certs see the real hostname.
+- Config: `[sandbox] host_loopback_ports` (list of ints, default `[80, 443]`). Same port both sides. Add non-standard ports (e.g. `3000`) as needed. Empty list disables.
+- Plumbing:
+  - `internal/config/config.go` — `HostLoopbackPorts` field + default.
+  - `internal/runtime/runtime.go` (`GenerateDockerComposeOverride`) — emits `CONSTRUCT_LOOPBACK_PORTS` env + `cap_add: NET_BIND_SERVICE` (consolidated with strict-mode `NET_ADMIN` via a `caps` slice — never write two `cap_add:` blocks). `LoopbackPorts` is part of `overrideInputs`/`hashOverrideInputs` so changing the list regenerates the override.
+  - `internal/templates/Dockerfile` — installs `libcap2-bin` (provides the `setcap` binary). The file cap is **not** applied at build time: BuildKit's default sandbox blocks file-capability writes during `docker build` (`Invalid file 'setcap' for capability operation`). Instead, `internal/templates/entrypoint.sh` runs `setcap cap_net_bind_service+ep /usr/bin/socat` as root in its startup block before dropping to the construct user (idempotent + best-effort). The file cap still needs the cap in the bounding set, hence `cap_add` too — both required.
+- Platform caveat: macOS host-gateway routes to host `127.0.0.1` (reaches loopback-bound dev servers). Linux host-gateway is the bridge IP — host services must bind `0.0.0.0`/bridge, not `127.0.0.1`-only.
+- `localhost` itself is NOT remapped (would shadow `127.0.0.1 localhost` or break in-container loopback services). For host `localhost` services, the relay on port 80/443 covers `http://localhost`/`https://localhost`; for other host-loopback use cases prefer `host.docker.internal`.
+
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases

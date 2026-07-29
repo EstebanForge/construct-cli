@@ -887,6 +887,7 @@ type overrideInputs struct {
 	DaemonMounts   string // Hash of normalized mount paths
 	GitIgnorePath  string // Host global gitignore path (empty if not found)
 	QmdModelsPath  string // Host qmd model cache path (empty if not found)
+	LoopbackPorts  string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -912,6 +913,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
 	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
+	writeHashString(h, "loopbackports:%s", inputs.LoopbackPorts)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1031,6 +1033,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		DaemonMounts:   daemonMounts.Hash,
 		GitIgnorePath:  func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
 		QmdModelsPath:  func() string { p, _ := getQmdModelsPath(); return p }(),
+		LoopbackPorts:  loopbackPortsString(cfg),
 	}
 
 	// Check if override needs regeneration
@@ -1093,6 +1096,17 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		override.WriteString("    security_opt:\n")
 		override.WriteString("      - seccomp:unconfined\n")
 		fmt.Println("\u2713 Seccomp disabled (allows Chrome/Chromium headless automation)")
+	}
+
+	// Linux capabilities to grant the container. NET_BIND_SERVICE lets the socat
+	// loopback forwarders (entrypoint.sh) bind privileged ports (<1024) as the
+	// non-root construct user — socat carries a file cap applied at runtime as
+	// root by entrypoint.sh (not at build time; BuildKit blocks that). strict
+	// mode appends NET_ADMIN for the iptables firewall. Emitted once below
+	// to avoid duplicate cap_add: keys.
+	var caps []string
+	if inputs.LoopbackPorts != "" {
+		caps = append(caps, "NET_BIND_SERVICE")
 	}
 
 	nonRootStrict := cfg != nil && cfg.Sandbox.NonRootStrict
@@ -1222,6 +1236,13 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		}
 	}
 
+	// Loopback forward ports: consumed by entrypoint.sh to spawn socat relays
+	// (container 127.0.0.1:<port> -> host.docker.internal:<port>) so Chromium's
+	// hardcoded *.localhost/localhost traffic can reach host dev sites.
+	if inputs.LoopbackPorts != "" {
+		fmt.Fprintf(&override, "      - CONSTRUCT_LOOPBACK_PORTS=%s\n", inputs.LoopbackPorts)
+	}
+
 	// Network isolation mode
 	switch networkMode {
 	case "offline":
@@ -1230,12 +1251,18 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	case "strict":
 		override.WriteString("    networks:\n")
 		override.WriteString("      - construct-net\n")
-		override.WriteString("    cap_add:\n")
-		override.WriteString("      - NET_ADMIN\n")
+		caps = append(caps, "NET_ADMIN")
 		fmt.Println("✓ Network isolation: strict (allowlist mode)")
 
 		// Add network definition for strict mode
 		override.WriteString("\nnetworks:\n  construct-net:\n    name: construct-net\n    driver: bridge\n")
+	}
+
+	if len(caps) > 0 {
+		override.WriteString("    cap_add:\n")
+		for _, c := range caps {
+			fmt.Fprintf(&override, "      - %s\n", c)
+		}
 	}
 
 	// Write override file
@@ -2052,6 +2079,22 @@ func getQmdModelsPath() (string, bool) {
 		return "", false
 	}
 	return qmdModels, true
+}
+
+// loopbackPortsString joins cfg.Sandbox.HostLoopbackPorts into a comma-separated
+// string for the override hash and CONSTRUCT_LOOPBACK_PORTS env var. Returns ""
+// when unset, which disables the socat relays and the NET_BIND_SERVICE cap.
+func loopbackPortsString(cfg *config.Config) string {
+	if cfg == nil || len(cfg.Sandbox.HostLoopbackPorts) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(cfg.Sandbox.HostLoopbackPorts))
+	for _, p := range cfg.Sandbox.HostLoopbackPorts {
+		if p > 0 {
+			parts = append(parts, strconv.Itoa(p))
+		}
+	}
+	return strings.Join(parts, ",")
 }
 
 // formatVolumePath quotes a path for use in docker-compose volume mounts.

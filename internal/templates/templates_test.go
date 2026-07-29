@@ -92,6 +92,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Config, `env_passthrough_prefixes = ["CNSTR_"]`) {
 		t.Error("config.toml template should include default env_passthrough_prefixes for CNSTR_")
 	}
+	if !strings.Contains(Config, "host_loopback_ports = [80, 443]") {
+		t.Error("config.toml template should include default host_loopback_ports = [80, 443]")
+	}
 	if !strings.Contains(Config, "update_channel = \"stable\"") {
 		t.Error("config.toml template should include update_channel with default stable")
 	}

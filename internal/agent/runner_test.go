@@ -770,6 +770,50 @@ func TestBuildRunFlagsIncludesGenericPassthroughEnv(t *testing.T) {
 	}
 }
 
+func TestBuildRunFlagsForwardsTerminalIdentityEnv(t *testing.T) {
+	t.Setenv("COLORTERM", "truecolor")
+	t.Setenv("KITTY_WINDOW_ID", "123")
+	t.Setenv("TERM_PROGRAM", "ghostty")
+	// Force-unset so the test does not depend on the host shell (e.g. a Ghostty terminal).
+	t.Setenv("GHOSTTY_RESOURCES_DIR", "")
+
+	cfg := &config.Config{
+		Sandbox: config.SandboxConfig{ExecAsHostUser: false},
+		Agents:  config.AgentsConfig{ClipboardImagePatch: true},
+	}
+
+	runFlags := buildRunFlags(
+		[]string{"claude"},
+		cfg,
+		"docker",
+		[]string{"PATH=" + env.BuildConstructPath("/home/construct")},
+		nil,
+		nil,
+		false,
+		nil,
+	)
+
+	if !hasRunFlagEnv(runFlags, "KITTY_WINDOW_ID=123") {
+		t.Fatalf("expected run flags to forward KITTY_WINDOW_ID, got %v", runFlags)
+	}
+	if !hasRunFlagEnv(runFlags, "TERM_PROGRAM=ghostty") {
+		t.Fatalf("expected run flags to forward TERM_PROGRAM, got %v", runFlags)
+	}
+	if hasRunFlagEnv(runFlags, "GHOSTTY_RESOURCES_DIR=") || containsEnv(runFlags, "GHOSTTY_RESOURCES_DIR") {
+		t.Fatalf("unset GHOSTTY_RESOURCES_DIR must not be forwarded, got %v", runFlags)
+	}
+}
+
+func TestTerminalIdentityEnvFlagsOmitsUnset(t *testing.T) {
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("GHOSTTY_RESOURCES_DIR", "")
+	t.Setenv("TERM_PROGRAM", "")
+
+	if flags := terminalIdentityEnvFlags(); len(flags) != 0 {
+		t.Fatalf("expected no flags when identity vars unset, got %v", flags)
+	}
+}
+
 func TestBuildDaemonExecEnvPassesGenericPassthroughEnv(t *testing.T) {
 	t.Setenv("COLORTERM", "truecolor")
 

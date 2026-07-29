@@ -231,6 +231,9 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	if len(cfg.Sandbox.EnvPassthroughPrefixes) != 1 || cfg.Sandbox.EnvPassthroughPrefixes[0] != "CNSTR_" {
 		t.Errorf("Expected default env_passthrough_prefixes to contain CNSTR_, got %v", cfg.Sandbox.EnvPassthroughPrefixes)
 	}
+	if len(cfg.Sandbox.HostLoopbackPorts) != 2 || cfg.Sandbox.HostLoopbackPorts[0] != 80 || cfg.Sandbox.HostLoopbackPorts[1] != 443 {
+		t.Errorf("Expected default host_loopback_ports to be [80 443], got %v", cfg.Sandbox.HostLoopbackPorts)
+	}
 	if cfg.Sandbox.AllowCustomOverride {
 		t.Error("Expected default allow_custom_compose_override to be false")
 	}

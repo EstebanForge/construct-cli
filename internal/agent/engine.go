@@ -481,6 +481,9 @@ func (e *RuntimeEngine) startDaemonBackground(daemonName string) bool {
 	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
 		daemonRunFlags = append(daemonRunFlags, "-e", "CONSTRUCT_SSH_PIN_IDENTITIES="+pins)
 	}
+	// Forward host terminal-identity markers so the long-lived daemon container (and
+	// any docker exec sessions inheriting its env) can detect the outer terminal.
+	daemonRunFlags = append(daemonRunFlags, terminalIdentityEnvFlags()...)
 	daemonRunFlags = append(daemonRunFlags, "construct-box")
 
 	cmd, err := runtime.BuildComposeCommand(e.containerRuntime, e.configPath, "run", daemonRunFlags)
@@ -637,6 +640,31 @@ func (e *RuntimeEngine) runNewContainer(containerName string, providerEnv []stri
 	return 0, nil
 }
 
+// terminalIdentityEnvKeys are host terminal-identity markers forwarded into the
+// container so in-container TUIs (pi kitty-graphics extensions, etc.) can detect
+// the outer terminal across the container boundary. TERM is intentionally
+// excluded: forwarding e.g. xterm-kitty into a container lacking kitty-terminfo
+// breaks ncurses apps (less/vim/btop). Detection does not require TERM because
+// these identity vars cover kitty (KITTY_WINDOW_ID) and Ghostty
+// (GHOSTTY_RESOURCES_DIR / TERM_PROGRAM) directly.
+var terminalIdentityEnvKeys = []string{
+	"KITTY_WINDOW_ID",
+	"GHOSTTY_RESOURCES_DIR",
+	"TERM_PROGRAM",
+}
+
+// terminalIdentityEnvFlags returns -e flag pairs for any host terminal-identity
+// env vars that are set, suitable for appending to a docker/compose run argv.
+func terminalIdentityEnvFlags() []string {
+	flags := make([]string, 0, len(terminalIdentityEnvKeys)*2)
+	for _, k := range terminalIdentityEnvKeys {
+		if v := os.Getenv(k); v != "" {
+			flags = append(flags, "-e", k+"="+v)
+		}
+	}
+	return flags
+}
+
 func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) {
 	*runFlags = append(*runFlags, "--rm")
 	if stdruntime.GOOS == "darwin" {
@@ -686,6 +714,10 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 	} else {
 		*runFlags = append(*runFlags, "-e", "COLORTERM=truecolor")
 	}
+
+	// Forward host terminal-identity markers so in-container TUIs/extensions can
+	// detect the outer terminal (kitty-graphics inline images, etc.).
+	*runFlags = append(*runFlags, terminalIdentityEnvFlags()...)
 
 	if len(e.args) > 0 {
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_AGENT_NAME="+e.args[0])
