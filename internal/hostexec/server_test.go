@@ -63,7 +63,7 @@ func readFrames(t *testing.T, body io.Reader) []frame {
 func newBridge(t *testing.T, binaries []string, timeout time.Duration) *Server {
 	t.Helper()
 	// 127.0.0.1 works on all platforms for in-process tests.
-	s, err := StartServer("127.0.0.1", binaries, timeout)
+	s, err := StartServer("127.0.0.1", binaries, timeout, "", "")
 	if err != nil {
 		t.Fatalf("StartServer: %v", err)
 	}
@@ -73,9 +73,18 @@ func newBridge(t *testing.T, binaries []string, timeout time.Duration) *Server {
 
 func doExec(t *testing.T, s *Server, token string, argv []string, stdin []byte) *http.Response {
 	t.Helper()
+	return doExecCwd(t, s, token, argv, stdin, "")
+}
+
+// doExecCwd is like doExec but also sets the container cwd on the request, so a
+// bridge configured with project-mount roots translates it and runs the child
+// in the matching host directory.
+func doExecCwd(t *testing.T, s *Server, token string, argv []string, stdin []byte, cwd string) *http.Response {
+	t.Helper()
 	body, _ := json.Marshal(execRequest{
 		Argv:  argv,
 		Stdin: base64.StdEncoding.EncodeToString(stdin),
+		Cwd:   cwd,
 	})
 	req, err := http.NewRequest(http.MethodPost, s.URL+"/exec", bytes.NewReader(body))
 	if err != nil {
@@ -93,7 +102,7 @@ func doExec(t *testing.T, s *Server, token string, argv []string, stdin []byte) 
 }
 
 func TestStartServerMissingBinaryFails(t *testing.T) {
-	_, err := StartServer("127.0.0.1", []string{"definitely-not-a-real-binary-xyz"}, time.Minute)
+	_, err := StartServer("127.0.0.1", []string{"definitely-not-a-real-binary-xyz"}, time.Minute, "", "")
 	if err == nil {
 		t.Fatal("expected error for missing host binary")
 	}
@@ -293,6 +302,98 @@ func TestConcurrentBridgeStartsIndependent(t *testing.T) {
 			t.Fatalf("cross-bridge token should fail: got %d", resp.StatusCode)
 		}
 	})
+}
+
+func TestExecRunsInTranslatedCwd(t *testing.T) {
+	// Stub prints its working dir; the bridge must run it in the host path that
+	// corresponds to the container cwd the shim sent.
+	_, dir := stubBin(t, "wicket", `pwd`)
+	hostRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		hostRoot = t.TempDir()
+	}
+	sub := filepath.Join(hostRoot, "proj")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	const containerRoot = "/__container_root__"
+	withPath(t, dir, func() {
+		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, containerRoot, hostRoot)
+		if err != nil {
+			t.Fatalf("StartServer: %v", err)
+		}
+		t.Cleanup(s.Stop)
+		resp := doExecCwd(t, s, s.Token, []string{"wicket"}, nil, filepath.Join(containerRoot, "proj"))
+		defer resp.Body.Close()
+		var stdout []byte
+		for _, f := range readFrames(t, resp.Body) {
+			if f.Type == "stdout" {
+				b, _ := base64.StdEncoding.DecodeString(f.Data)
+				stdout = append(stdout, b...)
+			}
+		}
+		if got := strings.TrimSpace(string(stdout)); got != sub {
+			t.Fatalf("ran in %q, want %q", got, sub)
+		}
+	})
+}
+
+func TestExecFallsBackWhenCwdOutsideMount(t *testing.T) {
+	// A cwd outside the project mount is rejected: the child must NOT run in the
+	// attacker-chosen dir. It inherits the daemon cwd instead. The exact
+	// inherited dir is brittle (depends on the test runner cwd), so assert the
+	// negative: the rejected path is never used as the working directory.
+	_, dir := stubBin(t, "wicket", `pwd`)
+	hostRoot, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		hostRoot = t.TempDir()
+	}
+	const containerRoot = "/__container_root__"
+	withPath(t, dir, func() {
+		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, containerRoot, hostRoot)
+		if err != nil {
+			t.Fatalf("StartServer: %v", err)
+		}
+		t.Cleanup(s.Stop)
+		resp := doExecCwd(t, s, s.Token, []string{"wicket"}, nil, "/etc")
+		defer resp.Body.Close()
+		var stdout []byte
+		for _, f := range readFrames(t, resp.Body) {
+			if f.Type == "stdout" {
+				b, _ := base64.StdEncoding.DecodeString(f.Data)
+				stdout = append(stdout, b...)
+			}
+		}
+		if got := strings.TrimSpace(string(stdout)); got == "/etc" {
+			t.Fatal("child ran in rejected cwd /etc; should have inherited the daemon cwd")
+		}
+	})
+}
+
+func TestResolveHostCwd(t *testing.T) {
+	s := &Server{containerRoot: "/ctr", hostRoot: "/host"}
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"/ctr/proj", "/host/proj", true},
+		{"/ctr", "/host", true},
+		{"/ctr/a/b", "/host/a/b", true},
+		{"/ctr/../etc", "", false}, // escape resolves outside the mount
+		{"/etc/passwd", "", false}, // outside the mount
+		{"", "", false},            // empty cwd
+	}
+	for _, c := range cases {
+		got, ok := s.resolveHostCwd(c.in)
+		if ok != c.ok || got != c.want {
+			t.Errorf("resolveHostCwd(%q) = (%q,%v); want (%q,%v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+	// Roots unset -> never translate (caller inherits the daemon cwd).
+	if _, ok := (&Server{}).resolveHostCwd("/ctr/proj"); ok {
+		t.Error("expected ok=false when roots are unset")
+	}
 }
 
 // itoa avoids importing strconv just for one call.
