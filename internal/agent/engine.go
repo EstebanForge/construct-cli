@@ -151,7 +151,7 @@ func (e *RuntimeEngine) Prepare() error {
 		if t := resolveHostExecTimeout(); t > 0 {
 			timeout = t
 		}
-		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout)
+		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout, runtime.GetProjectMountPath(), e.cwd)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: host exec bridge not started: %v\n", err)
 		} else {

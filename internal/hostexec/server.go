@@ -13,7 +13,9 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -44,15 +46,22 @@ type Server struct {
 	URL      string
 	timeout  time.Duration
 	resolved map[string]string // name -> absolute host path
-	listener net.Listener
-	wg       sync.WaitGroup
-	writeMu  sync.Mutex // serializes ResponseWriter frame writes
+	// containerRoot/hostRoot map the project mount so a container cwd sent by
+	// the shim can be translated to the matching host path and used as the
+	// child's working directory. Empty (feature off / misconfigured) means the
+	// child inherits the daemon cwd (pre-cwd-propagation behavior).
+	containerRoot string
+	hostRoot      string
+	listener      net.Listener
+	wg            sync.WaitGroup
+	writeMu       sync.Mutex // serializes ResponseWriter frame writes
 }
 
 // execRequest is the JSON body the shim POSTs.
 type execRequest struct {
 	Argv  []string `json:"argv"`
-	Stdin string   `json:"stdin"` // base64-encoded bytes
+	Stdin string   `json:"stdin"`         // base64-encoded bytes
+	Cwd   string   `json:"cwd,omitempty"` // container path; translated to host and used as the child's working dir
 }
 
 // frame is one streamed JSONL line.
@@ -71,7 +80,7 @@ type frame struct {
 // bindAddr follows the SSH bridge split: macOS binds loopback (Docker Desktop
 // routes host.docker.internal there), Linux binds 0.0.0.0 so the container can
 // reach us. The per-session token (D4) is what makes the 0.0.0.0 bind safe.
-func StartServer(host string, binaries []string, timeout time.Duration) (*Server, error) {
+func StartServer(host string, binaries []string, timeout time.Duration, containerRoot string, hostRoot string) (*Server, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -114,12 +123,14 @@ func StartServer(host string, binaries []string, timeout time.Duration) (*Server
 	}
 
 	s := &Server{
-		Port:     port,
-		Token:    token,
-		URL:      fmt.Sprintf("http://%s:%d", host, port),
-		timeout:  timeout,
-		resolved: resolved,
-		listener: listener,
+		Port:          port,
+		Token:         token,
+		URL:           fmt.Sprintf("http://%s:%d", host, port),
+		timeout:       timeout,
+		resolved:      resolved,
+		containerRoot: filepath.Clean(containerRoot),
+		hostRoot:      filepath.Clean(hostRoot),
+		listener:      listener,
 	}
 
 	mux := http.NewServeMux()
@@ -198,6 +209,13 @@ func (s *Server) handleExec(w http.ResponseWriter, r *http.Request) {
 	cmd := exec.CommandContext(ctx, absPath, req.Argv[1:]...)
 	// Own process group so kill(-pgid) reaches descendants.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Translate the container cwd (sent by the shim as $PWD) to the host path
+	// and run the child there, so cwd-aware CLIs (e.g. `wicket wp`) resolve the
+	// project the agent is actually in. Falls back to inheriting this daemon's
+	// cwd when no cwd was sent or it is outside the project mount.
+	if hostCwd, ok := s.resolveHostCwd(req.Cwd); ok {
+		cmd.Dir = hostCwd
+	}
 	// Wire stdin from the (fully-buffered) bytes the shim sent up front.
 	cmd.Stdin = bytesReader(stdinBytes)
 	stdout, err := cmd.StdoutPipe()
@@ -324,6 +342,40 @@ func logf(format string, args ...any) {
 	if n := len(format); n > 0 && format[n-1] != '\n' {
 		_, _ = fmt.Fprintln(f) //nolint:errcheck
 	}
+}
+
+// pathWithin reports whether target is root itself or a descendant of root,
+// after cleaning both. It constrains the propagated cwd to the project mount so
+// the agent cannot point the host binary at arbitrary host paths.
+func pathWithin(root, target string) bool {
+	if root == "" || target == "" {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(target))
+	if err != nil {
+		return false
+	}
+	// Rel returns ".." or "../..." for anything outside root; "." for root itself.
+	return !strings.HasPrefix(rel, "..")
+}
+
+// resolveHostCwd translates a container path (the shim's $PWD) to the matching
+// host path under the project mount and validates it stays under hostRoot.
+// Returns ok=false when no translation is possible (empty cwd, roots unset, or
+// the path is outside the project mount), so the caller inherits the daemon cwd.
+func (s *Server) resolveHostCwd(containerCwd string) (string, bool) {
+	if containerCwd == "" || s.containerRoot == "" || s.hostRoot == "" {
+		return "", false
+	}
+	rel, err := filepath.Rel(s.containerRoot, filepath.Clean(containerCwd))
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", false // not inside the project mount
+	}
+	hostCwd := filepath.Join(s.hostRoot, rel)
+	if !pathWithin(s.hostRoot, hostCwd) {
+		return "", false
+	}
+	return hostCwd, true
 }
 
 // bytesReader returns a non-nil io.Reader even for empty input, so cmd.Stdin

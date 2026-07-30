@@ -80,7 +80,9 @@ fi
 # args (argv[1..]) as a JSON array; we prepend $NAME (argv[0]) via a leading
 # '--" so the whole argv is byte-safe (quotes/spaces/newlines/unicode cannot
 # break the payload — no manual NUL-splitting, which loses embedded newlines).
-PAYLOAD="$(jq -nc --arg stdin "$STDIN_B64" --args '{argv: $ARGS.positional, stdin: $stdin}' -- "$NAME" "$@")"
+# $PWD is the agent's container cwd; the bridge translates it to the matching
+# host path so cwd-aware host CLIs run in the project the agent is in.
+PAYLOAD="$(jq -nc --arg stdin "$STDIN_B64" --arg cwd "$PWD" --args '{argv: $ARGS.positional, stdin: $stdin, cwd: $cwd}' -- "$NAME" "$@")"
 
 # Stream JSONL frames as they arrive. We bind curl's stdout to fd 3 via
 # process substitution and capture its PID so we can read its real exit code

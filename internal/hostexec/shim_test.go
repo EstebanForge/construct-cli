@@ -345,6 +345,46 @@ func TestShimWarnsOnStdinOverByteCap(t *testing.T) {
 	}
 }
 
+func TestShimSendsContainerCwd(t *testing.T) {
+	// The shim must put its working directory (the agent's cwd) on the request
+	// as `cwd` so the bridge can translate it to the matching host path.
+	linkPath, _ := withShimLinked(t, "wicket")
+	var gotBody execRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("/exec", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		exit := 0
+		b, _ := json.Marshal(frame{Type: "exit", Code: &exit})
+		b = append(b, '\n')
+		_, _ = w.Write(b)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	work, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		work = t.TempDir()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, linkPath, "arg")
+	cmd.Dir = work // bash sets $PWD to this; the shim forwards it.
+	cmd.Env = []string{
+		"CONSTRUCT_HOST_EXEC_URL=" + srv.URL,
+		"CONSTRUCT_HOST_EXEC_TOKEN=tok",
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+	}
+	var errb strings.Builder
+	cmd.Stderr = &errb
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("shim run: %v stderr=%s", err, errb.String())
+	}
+	if gotBody.Cwd != work {
+		t.Fatalf("payload cwd=%q want %q", gotBody.Cwd, work)
+	}
+}
+
 func intPtr(i int) *int { return &i }
 
 // silence unused (fmt/io imported for future use in this harness)

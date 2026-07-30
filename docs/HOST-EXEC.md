@@ -69,7 +69,7 @@ Injected into the container per-session (and per `docker exec`):
 The shim POSTs JSON to `/exec`:
 
 ```json
-{"argv":["wicket","--version"],"stdin":"<base64>"}
+{"argv":["wicket","--version"],"stdin":"<base64>","cwd":"/workspaces/project/sub"}
 ```
 
 The response is a stream of newline-delimited JSON chunks:
@@ -83,6 +83,13 @@ The response is a stream of newline-delimited JSON chunks:
 - Each `stdout`/`stderr` frame corresponds to **one read from the child's pipe**, base64-encoded (binary-safe; handles `\r` progress bars). Order within each stream is preserved; order between stdout and stderr is best-effort.
 - `exit` carries the real exit code, or `124` if the bridge killed the child (timeout or client disconnect).
 - `401` = bad/missing token. `403` = `argv[0]` not in the allowlist.
+
+`cwd` is the container path of the agent's working directory (`$PWD`). The
+bridge translates it to the matching host path via the project mount
+(`${PWD}:${CONSTRUCT_PROJECT_PATH}`) and runs the child there, so cwd-aware
+CLIs (e.g. `wicket wp`) resolve the project the agent is actually in. A `cwd`
+that is empty, unset, or outside the project mount is rejected and the child
+inherits the daemon cwd (the pre-cwd-propagation behavior).
 
 ---
 
@@ -122,6 +129,7 @@ Audit log on the host: `~/.config/construct-cli/logs/host_exec.log` (always-on; 
 - **Token**: prevents unrelated local processes / adjacent containers from calling the bridge.
 - **Allowlist**: prevents the container from running arbitrary *unlisted* host commands.
 - **Resolve-once**: binaries are resolved to absolute paths at `Prepare()` time, preventing PATH/argv manipulation from redirecting a listed name at request time.
+- **cwd constrained to the project mount**: the bridge translates the container `cwd` to a host path and rejects anything that is not at or under the host project root, so the agent cannot point a listed binary at arbitrary host directories. Rejected/empty `cwd` falls back to inheriting the daemon cwd.
 - **Token-in-env implication**: any process inside the container can read `CONSTRUCT_HOST_EXEC_TOKEN`/`URL` from its own env and call the bridge directly with arbitrary argv. The shim provides no additional security boundary over a compromised dependency just hitting the HTTP endpoint. (Per-binary token scoping was considered and rejected: it doesn't help, since all env vars are readable by the same process.)
 - **Execution identity**: resolved binaries run as the **host user running `construct`**, not root and not the container's `construct` user. Files they write on shared bind-mounted paths are owned by the host user; the container may need to read/edit them (same situation as `propagate_git_identity`).
 - **NOT defended**: what a listed binary does with its argv. If the user lists `docker`, the agent can `docker run --privileged` and own the host. The startup banner and docs make this explicit. Accepted residual risk.
@@ -136,6 +144,7 @@ Audit log on the host: `~/.config/construct-cli/logs/host_exec.log` (always-on; 
 - **No Windows host support.**
 - **30-minute hard cap** per call (override via `CONSTRUCT_HOST_EXEC_TIMEOUT`).
 - **Linux bind is `0.0.0.0`** so the container can reach the host; the per-session token is what makes this safe.
+- **cwd translation covers the project mount only.** A `cwd` under the home mount (`/home/construct`) or other bind mounts is not translated; the child inherits the daemon cwd in that case.
 
 ---
 
