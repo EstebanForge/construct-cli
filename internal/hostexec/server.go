@@ -37,6 +37,14 @@ const exitCodeKill = 124
 // tokenHeader is the bearer-header a request must carry to authenticate.
 const tokenHeader = "X-Construct-Exec-Token"
 
+// PathMap pairs a container mount point with its host source, used to translate
+// the shim's container $PWD to the matching host working directory across every
+// bind mount construct created (project mount + daemon multi-path mounts).
+type PathMap struct {
+	Container string
+	Host      string
+}
+
 // Server is the host-side exec bridge: an HTTP server that runs a fixed,
 // allowlisted set of host binaries on behalf of the container and streams
 // their stdout/stderr back as line-framed JSON.
@@ -46,15 +54,15 @@ type Server struct {
 	URL      string
 	timeout  time.Duration
 	resolved map[string]string // name -> absolute host path
-	// containerRoot/hostRoot map the project mount so a container cwd sent by
-	// the shim can be translated to the matching host path and used as the
-	// child's working directory. Empty (feature off / misconfigured) means the
-	// child inherits the daemon cwd (pre-cwd-propagation behavior).
-	containerRoot string
-	hostRoot      string
-	listener      net.Listener
-	wg            sync.WaitGroup
-	writeMu       sync.Mutex // serializes ResponseWriter frame writes
+	// pathMaps translate a container cwd (the shim's $PWD) to the matching host
+	// path across every bind mount construct created (project + daemon
+	// multi-path). The child runs there so cwd-aware CLIs resolve the project
+	// the agent is in. A cwd that matches no map (or escapes) is rejected and
+	// the child inherits the daemon cwd.
+	pathMaps []PathMap
+	listener net.Listener
+	wg       sync.WaitGroup
+	writeMu  sync.Mutex // serializes ResponseWriter frame writes
 }
 
 // execRequest is the JSON body the shim POSTs.
@@ -80,7 +88,7 @@ type frame struct {
 // bindAddr follows the SSH bridge split: macOS binds loopback (Docker Desktop
 // routes host.docker.internal there), Linux binds 0.0.0.0 so the container can
 // reach us. The per-session token (D4) is what makes the 0.0.0.0 bind safe.
-func StartServer(host string, binaries []string, timeout time.Duration, containerRoot string, hostRoot string) (*Server, error) {
+func StartServer(host string, binaries []string, timeout time.Duration, pathMaps []PathMap) (*Server, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -123,14 +131,13 @@ func StartServer(host string, binaries []string, timeout time.Duration, containe
 	}
 
 	s := &Server{
-		Port:          port,
-		Token:         token,
-		URL:           fmt.Sprintf("http://%s:%d", host, port),
-		timeout:       timeout,
-		resolved:      resolved,
-		containerRoot: filepath.Clean(containerRoot),
-		hostRoot:      filepath.Clean(hostRoot),
-		listener:      listener,
+		Port:     port,
+		Token:    token,
+		URL:      fmt.Sprintf("http://%s:%d", host, port),
+		timeout:  timeout,
+		resolved: resolved,
+		pathMaps: cleanPathMaps(pathMaps),
+		listener: listener,
 	}
 
 	mux := http.NewServeMux()
@@ -345,8 +352,8 @@ func logf(format string, args ...any) {
 }
 
 // pathWithin reports whether target is root itself or a descendant of root,
-// after cleaning both. It constrains the propagated cwd to the project mount so
-// the agent cannot point the host binary at arbitrary host paths.
+// after cleaning both. It constrains the propagated cwd to a known mount so the
+// agent cannot point the host binary at arbitrary host paths.
 func pathWithin(root, target string) bool {
 	if root == "" || target == "" {
 		return false
@@ -360,22 +367,50 @@ func pathWithin(root, target string) bool {
 }
 
 // resolveHostCwd translates a container path (the shim's $PWD) to the matching
-// host path under the project mount and validates it stays under hostRoot.
-// Returns ok=false when no translation is possible (empty cwd, roots unset, or
-// the path is outside the project mount), so the caller inherits the daemon cwd.
+// host path by trying each configured mount map (project mount + daemon
+// multi-path mounts). Returns ok=false when no map matches or the result
+// escapes, so the caller inherits the daemon cwd.
 func (s *Server) resolveHostCwd(containerCwd string) (string, bool) {
-	if containerCwd == "" || s.containerRoot == "" || s.hostRoot == "" {
+	if containerCwd == "" {
 		return "", false
 	}
-	rel, err := filepath.Rel(s.containerRoot, filepath.Clean(containerCwd))
-	if err != nil || strings.HasPrefix(rel, "..") {
-		return "", false // not inside the project mount
+	cc := filepath.Clean(containerCwd)
+	for _, m := range s.pathMaps {
+		rel, err := filepath.Rel(m.Container, cc)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue // not inside this mount
+		}
+		hostCwd := filepath.Join(m.Host, rel)
+		if pathWithin(m.Host, hostCwd) {
+			return hostCwd, true
+		}
 	}
-	hostCwd := filepath.Join(s.hostRoot, rel)
-	if !pathWithin(s.hostRoot, hostCwd) {
-		return "", false
+	return "", false
+}
+
+// cleanPathMaps normalizes a PathMap list: cleans both sides, drops entries
+// missing either side, and dedupes by (container, host). Input order is kept so
+// callers can put the most-likely mount first.
+func cleanPathMaps(in []PathMap) []PathMap {
+	if len(in) == 0 {
+		return nil
 	}
-	return hostCwd, true
+	seen := make(map[string]struct{}, len(in))
+	out := make([]PathMap, 0, len(in))
+	for _, m := range in {
+		c := filepath.Clean(m.Container)
+		h := filepath.Clean(m.Host)
+		if c == "" || c == "." || h == "" || h == "." {
+			continue
+		}
+		key := c + "\x00" + h
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, PathMap{Container: c, Host: h})
+	}
+	return out
 }
 
 // bytesReader returns a non-nil io.Reader even for empty input, so cmd.Stdin
