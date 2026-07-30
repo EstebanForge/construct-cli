@@ -63,7 +63,7 @@ func readFrames(t *testing.T, body io.Reader) []frame {
 func newBridge(t *testing.T, binaries []string, timeout time.Duration) *Server {
 	t.Helper()
 	// 127.0.0.1 works on all platforms for in-process tests.
-	s, err := StartServer("127.0.0.1", binaries, timeout, "", "")
+	s, err := StartServer("127.0.0.1", binaries, timeout, nil)
 	if err != nil {
 		t.Fatalf("StartServer: %v", err)
 	}
@@ -102,7 +102,7 @@ func doExecCwd(t *testing.T, s *Server, token string, argv []string, stdin []byt
 }
 
 func TestStartServerMissingBinaryFails(t *testing.T) {
-	_, err := StartServer("127.0.0.1", []string{"definitely-not-a-real-binary-xyz"}, time.Minute, "", "")
+	_, err := StartServer("127.0.0.1", []string{"definitely-not-a-real-binary-xyz"}, time.Minute, nil)
 	if err == nil {
 		t.Fatal("expected error for missing host binary")
 	}
@@ -318,7 +318,7 @@ func TestExecRunsInTranslatedCwd(t *testing.T) {
 	}
 	const containerRoot = "/__container_root__"
 	withPath(t, dir, func() {
-		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, containerRoot, hostRoot)
+		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, []PathMap{{containerRoot, hostRoot}})
 		if err != nil {
 			t.Fatalf("StartServer: %v", err)
 		}
@@ -350,7 +350,7 @@ func TestExecFallsBackWhenCwdOutsideMount(t *testing.T) {
 	}
 	const containerRoot = "/__container_root__"
 	withPath(t, dir, func() {
-		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, containerRoot, hostRoot)
+		s, err := StartServer("127.0.0.1", []string{"wicket"}, time.Minute, []PathMap{{containerRoot, hostRoot}})
 		if err != nil {
 			t.Fatalf("StartServer: %v", err)
 		}
@@ -371,7 +371,7 @@ func TestExecFallsBackWhenCwdOutsideMount(t *testing.T) {
 }
 
 func TestResolveHostCwd(t *testing.T) {
-	s := &Server{containerRoot: "/ctr", hostRoot: "/host"}
+	s := &Server{pathMaps: []PathMap{{"/ctr", "/host"}, {"/ws", "/home/user/dev"}}}
 	cases := []struct {
 		in   string
 		want string
@@ -380,6 +380,7 @@ func TestResolveHostCwd(t *testing.T) {
 		{"/ctr/proj", "/host/proj", true},
 		{"/ctr", "/host", true},
 		{"/ctr/a/b", "/host/a/b", true},
+		{"/ws/Wicket/oba", "/home/user/dev/Wicket/oba", true},
 		{"/ctr/../etc", "", false}, // escape resolves outside the mount
 		{"/etc/passwd", "", false}, // outside the mount
 		{"", "", false},            // empty cwd
@@ -390,9 +391,9 @@ func TestResolveHostCwd(t *testing.T) {
 			t.Errorf("resolveHostCwd(%q) = (%q,%v); want (%q,%v)", c.in, got, ok, c.want, c.ok)
 		}
 	}
-	// Roots unset -> never translate (caller inherits the daemon cwd).
+	// No maps configured -> never translate (caller inherits the daemon cwd).
 	if _, ok := (&Server{}).resolveHostCwd("/ctr/proj"); ok {
-		t.Error("expected ok=false when roots are unset")
+		t.Error("expected ok=false when no path maps are configured")
 	}
 }
 

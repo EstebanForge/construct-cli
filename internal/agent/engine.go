@@ -151,7 +151,13 @@ func (e *RuntimeEngine) Prepare() error {
 		if t := resolveHostExecTimeout(); t > 0 {
 			timeout = t
 		}
-		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout, runtime.GetProjectMountPath(), e.cwd)
+		pathMaps := []hostexec.PathMap{{Container: runtime.GetProjectMountPath(), Host: e.cwd}}
+		if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {
+			for _, m := range dm.Mounts {
+				pathMaps = append(pathMaps, hostexec.PathMap{Container: m.ContainerPath, Host: m.HostPath})
+			}
+		}
+		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout, pathMaps)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: host exec bridge not started: %v\n", err)
 		} else {
