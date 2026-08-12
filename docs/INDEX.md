@@ -8,6 +8,7 @@ Complete documentation for The Construct CLI.
 - [Configuration](CONFIGURATION.md) - Configure all settings
 - [Security](SECURITY.md) - Security features and best practices
 - [Host Exec Bridge](HOST-EXEC.md) - Proxy host-only binaries into the sandbox
+- [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [README](../README.md) - Project overview and quick start
 
 ## Getting Started
@@ -161,6 +162,7 @@ All settings explained:
 | [**Providers**](PROVIDERS.md) | Custom Claude API endpoints |
 | [**Packages**](PACKAGES.md) | User-defined package management |
 | [**Architecture**](ARCHITECTURE-DESIGN.md) | Technical design and internals |
+| [**Services & Integrations**](SERVICES.md) | Recipes for wiring services (agentmemory, Slack, Asana, providers) |
 | [**Clipboard**](CLIPBOARD.md) | Clipboard integration details |
 | [**Development**](DEVELOPMENT.md) | Contributing and development |
 | [**Contributing**](CONTRIBUTING.md) | Contribution guidelines |

@@ -189,6 +189,43 @@ env_passthrough_prefixes = [
 - Prefix matching: `CNSTR_*` passes all vars with that prefix
 - Useful for API keys and custom configuration
 
+### Host Service Bridging (`host_service_env`)
+
+Inject an environment variable whose value points at a service reachable from the sandbox, with automatic rewriting of host-loopback addresses to the container gateway.
+
+```toml
+[sandbox]
+host_service_env = [
+    "AGENTMEMORY_URL=http://192.168.10.250:3111",
+]
+```
+
+**Format:** `VAR_NAME=URL`. Each entry becomes a line in the generated `docker-compose.override.yml` `environment:` block.
+
+**Rewrite rule:** `localhost` and `127.0.0.1` in the value are replaced with `host.docker.internal` (the container gateway that routes back to the host). Any other host (a LAN IP, a DNS name, a hostname) passes through **unchanged**.
+
+**When to use this instead of `env_passthrough`.** `env_passthrough` forwards the host env value verbatim. That is wrong for a service URL when the host value uses a name that does not resolve inside the container. Example: the host may reach a NAS via `AGENTMEMORY_URL=http://whitebox:3111`, where `whitebox` is a host-side mDNS name. That name does not resolve inside the sandbox, so passthrough would inject a URL the agent cannot reach. `host_service_env` lets you declare a container-routable address (the raw LAN IP) that differs from the host's hostname form. Rules of thumb:
+
+- **Secrets / tokens** -> `env_passthrough` (the value is host-independent; you want it hot).
+- **Service URLs that already resolve inside the sandbox** -> either mechanism works.
+- **Service URLs using a host-only name** -> `host_service_env` with a container-routable address.
+
+**⚠ Lifecycle: cold, not hot.** This is the common trap. `env_passthrough` vars are injected as `-e` flags at **every agent launch**, so they self-heal on each run. `host_service_env` vars are written into the compose `environment:` block and baked into the daemon container **only at container creation**. Editing `host_service_env` regenerates the override file, but a running `construct-cli-daemon` container keeps the environment it was created with. A changed value will not take effect until the container is recreated:
+
+```bash
+construct sys daemon restart   # StopContainer removes it, Start() does compose run -d -> fresh container
+```
+
+Verify the live value after restart:
+
+```bash
+docker exec construct-cli-daemon printenv AGENTMEMORY_URL
+```
+
+**Symptom of a stale `host_service_env` value.** An agent reports a service as unreachable or "off", and its effective URL is the extension's fallback default (commonly `http://host.docker.internal:<port>`), not the value in your config. That means the container predates the current override. Run `construct sys daemon restart`.
+
+For copy-paste recipes wiring real services into the sandbox (agentmemory on a LAN/NAS, Asana, Slack, Jira/Confluence, Context7, Brave, Claude-compatible provider aliases), see [Services & Integrations](SERVICES.md).
+
 ### Host Exec Bridge (Proxy Binaries to the Host)
 
 Run selected binaries on the **host machine** when the agent invokes them from inside the sandbox, instead of in the container. The agent sees them on PATH and calls them normally; a shim proxies each call to a host-side bridge that runs the real binary as your host user.

@@ -133,6 +133,11 @@ clipboard_host = "host.docker.internal"
 
 # Host service environment variables (injected into container, localhost → host.docker.internal)
 # Format: "VAR_NAME=http://localhost:PORT" — localhost/127.0.0.1 is auto-rewritten to host.docker.internal.
+# Other hosts (LAN IP, DNS name) pass through unchanged; use a container-routable address when
+# the host value is a host-only name (e.g. mDNS) that does not resolve inside the sandbox.
+# Unlike env_passthrough (injected per agent launch), these are baked into the daemon container
+# at creation. Changing a value requires `construct sys daemon restart` to take effect.
+# See docs/CONFIGURATION.md -> Host Service Bridging.
 # Uncomment to bridge host services into the sandbox.
 host_service_env = [
     # "AGENTMEMORY_URL=http://localhost:3111",
