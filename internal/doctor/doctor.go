@@ -334,6 +334,11 @@ func Run(args ...string) {
 	}
 	checks = append(checks, runtimeCheck)
 
+	// 4.1 VM Backend Check (msb only; docs/VMs.md Step 6)
+	if cfg != nil && cfg.Runtime.Backend == "msb" {
+		checks = append(checks, msbBackendCheck())
+	}
+
 	if fixRequested && runtimeName != "" {
 		overrideFixCheck := CheckResult{Name: "Compose Override Fix"}
 		fixed, details, skipped, err := fixComposeOverride(runtimeName, cfg)
@@ -844,6 +849,60 @@ func Run(args ...string) {
 	}
 
 	fmt.Println()
+}
+
+// msbBackendCheck verifies the microsandbox backend prerequisites
+// (docs/VMs.md §7 Step 6): binary + version, hardware virtualization,
+// construct image loaded, packages volume present. Fail-closed flavor:
+// every missing piece is an error with a fix suggestion.
+func msbBackendCheck() CheckResult {
+	check := CheckResult{Name: "VM Backend (microsandbox)"}
+	if _, err := exec.LookPath("msb"); err != nil {
+		check.Status = CheckStatusError
+		check.Message = "msb binary not found"
+		check.Suggestion = "Install microsandbox: curl -fsSL https://msb.sh | sh"
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = "Found msb"
+	if out, err := exec.Command("msb", "--version").Output(); err == nil {
+		check.Details = append(check.Details, fmt.Sprintf("Version: %s", strings.TrimSpace(string(out))))
+	}
+
+	// Hardware virtualization: KVM on Linux, Hypervisor.framework on macOS.
+	switch runtime.GOOS {
+	case "darwin":
+		if runtime.GOARCH != "arm64" {
+			check.Details = append(check.Details, "Warning: Intel Macs are unsupported by msb; use the docker backend")
+		}
+		if _, err := os.Stat("/System/Library/Frameworks/Hypervisor.framework"); err != nil {
+			check.Details = append(check.Details, "Hypervisor.framework not found")
+		}
+	case "linux":
+		if _, err := os.Stat("/dev/kvm"); err != nil {
+			check.Status = CheckStatusError
+			check.Message = "/dev/kvm missing (KVM required)"
+			check.Suggestion = "Enable VT-x/AMD-V in firmware and load the kvm module"
+			return check
+		}
+	}
+
+	msbRun := func(args ...string) bool {
+		cmd := exec.Command("msb", args...)
+		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
+		return cmd.Run() == nil
+	}
+	if msbRun("image", "inspect", "construct-box:latest") {
+		check.Details = append(check.Details, "Image construct-box:latest loaded")
+	} else {
+		check.Details = append(check.Details, "Image construct-box:latest not loaded (loaded on first construct run)")
+	}
+	if msbRun("volume", "inspect", "construct-packages") {
+		check.Details = append(check.Details, "Volume construct-packages present")
+	} else {
+		check.Details = append(check.Details, "Volume construct-packages missing (created on first construct run)")
+	}
+	return check
 }
 
 func runtimeVersion(runtimeName string) string {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -12,50 +13,32 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
 
-// Msb volume names (docs/VMs.md §5-6): packages carries /home/linuxbrew
-// (brew/npm state, chown cost — must be disk-backed so the fresh-root-disk
-// chown never repeats), home carries ~/.config/construct-cli/home.
-const (
-	msbVolumePackages = "construct-packages"
-	msbVolumeHome     = "construct-home"
+// msbHomeMountDest is the guest path of the host construct home bind.
+// /home/construct binds the host ~/.config/construct-cli/home directly,
+// matching Docker's compose, so installed agent binaries persist on the
+// host and AreAgentsInstalled() keeps working unchanged.
+//
+// /home/linuxbrew is deliberately NOT volume-backed: msb does not copy
+// image content into an empty named volume on first mount (Docker does),
+// so a fresh volume shadows the image's linuxbrew entirely. Instead, brew
+// state persists in the sandbox root disk: sandboxes are named, kept
+// across runs (stopped, not removed), and stop/start preserves the root
+// disk (verified 2026-08-19).
+const msbHomeMountDest = "/home/construct"
 
-	// msbPackagesVolumeSizeMiB sizes the disk-backed packages volume. msb
-	// requires an explicit size for disk volumes; 20 GiB covers linuxbrew +
-	// npm/bun/cargo agent state with headroom (the container image alone is
-	// 3.4 GiB before any agent install).
-	msbPackagesVolumeSizeMiB = 20 * 1024
-)
-
-// EnsureMsbVolumes creates the named volumes the msb backend needs,
-// idempotently. Packages is disk-backed (ext4) per §7.1; home is
-// dir-backed (small files, host-accessible).
-func EnsureMsbVolumes(ctx context.Context) error {
-	if _, err := msb.GetVolume(ctx, msbVolumePackages); err != nil {
-		// missing -> create (disk-backed: chown cost, §7.1)
-		if _, err := msb.CreateVolume(ctx, msbVolumePackages,
-			msb.WithVolumeKind(msb.VolumeKindDisk),
-			msb.WithVolumeSize(msbPackagesVolumeSizeMiB)); err != nil {
-			return fmt.Errorf("create msb volume %s: %w", msbVolumePackages, err)
-		}
-	}
-
-	if _, err := msb.GetVolume(ctx, msbVolumeHome); err == nil {
-		return nil
-	}
-	if _, err := msb.CreateVolume(ctx, msbVolumeHome, msb.WithVolumeKind(msb.VolumeKindDir)); err != nil {
-		return fmt.Errorf("create msb volume %s: %w", msbVolumeHome, err)
-	}
-	return nil
-}
+// EnsureMsbVolumes is kept for API compatibility; the packages volume was
+// removed (it shadowed the image's linuxbrew — msb has no Docker-style
+// copy-image-content-into-empty-volume behavior). No named volumes remain.
+func EnsureMsbVolumes(_ context.Context) error { return nil }
 
 // msbSandboxMounts maps the construct mount layout onto msb MountConfig:
-// packages volume -> /home/linuxbrew, home volume -> /home/construct,
-// project dir bind -> /workspace, plus conditional auto-mounts
-// (global gitignore, qmd models) when their host paths exist.
+// host construct home -> /home/construct (direct bind, Docker-parity),
+// project dir bind -> /workspace, plus conditional auto-mounts (qmd models)
+// when the host path exists. linuxbrew stays on the sandbox root disk.
 func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
-	mounts := map[string]msb.MountConfig{
-		"/home/linuxbrew/.linuxbrew": msb.Mount.Named(msbVolumePackages, msb.MountOptions{}),
-		"/home/construct":            msb.Mount.Named(msbVolumeHome, msb.MountOptions{}),
+	mounts := map[string]msb.MountConfig{}
+	if home := msbHostConstructHome(); home != "" {
+		mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{})
 	}
 
 	if projectDir != "" {
@@ -71,6 +54,19 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 		mounts[m.Dest] = msb.Mount.Bind(m.Src, msb.MountOptions{Readonly: m.Readonly})
 	}
 	return mounts
+}
+
+// msbHostConstructHome resolves the host construct home dir
+// (~/.config/construct-cli/home), symlink-resolved for msb's literal-path
+// binds. Empty means unavailable; /home/construct then falls back to the
+// image's baked-in skeleton.
+func msbHostConstructHome() string {
+	p := filepath.Join(config.GetConfigDir(), "home")
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return ""
+	}
+	return resolved
 }
 
 // conditionalAutoMounts mirrors GenerateDockerComposeOverride's host-exists
@@ -164,6 +160,9 @@ type MsbRunSpec struct {
 	Network      *msb.NetworkConfig
 	Env          map[string]string
 	HostAliasEnv string // CONSTRUCT_HOST_ALIAS value for the entrypoint
+	Cmd          []string // workload; empty = sleep infinity (persistent sandbox)
+	CPUs         uint8    // 0 = msb default (1)
+	MemoryMiB    uint32   // 0 = msb default (512)
 }
 
 // BuildMsbRunSpec assembles the sandbox spec from config and project dir.
@@ -202,10 +201,22 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		msb.WithMounts(spec.Mounts),
 		msb.WithNetwork(spec.Network),
 		msb.WithEnv(spec.Env),
-		// The image CMD (/bin/bash) exits immediately without a TTY; Docker's
-		// compose keeps it alive via stdin_open+tty, which msb has no equivalent
-		// for. Keep the sandbox (and its entrypoint) alive with a no-op workload.
-		msb.WithCmd("sleep", "infinity"),
+	}
+	// The image CMD (/bin/bash) exits immediately without a TTY; Docker's
+	// compose keeps it alive via stdin_open+tty, which msb has no equivalent
+	// for. Persistent sandboxes default to a no-op workload; one-shot specs
+	// (agent install) pass their own Cmd and stop when it exits.
+	cmd := spec.Cmd
+	oneShot := len(cmd) > 0 // explicit workload: run it to completion
+	if len(cmd) == 0 {
+		cmd = []string{"sleep", "infinity"}
+	}
+	opts = append(opts, msb.WithCmd(cmd...))
+	if spec.CPUs > 0 {
+		opts = append(opts, msb.WithCPUs(spec.CPUs))
+	}
+	if spec.MemoryMiB > 0 {
+		opts = append(opts, msb.WithMemory(spec.MemoryMiB))
 	}
 	sb, err := msb.CreateSandbox(ctx, spec.Name, opts...)
 	if err != nil {
@@ -214,7 +225,76 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 	if err := msbSeedAutoFiles(ctx, sb); err != nil {
 		return nil, err
 	}
+	if oneShot {
+		// SDK contract: WithCmd/WithEntrypoint only configure the default
+		// workload — the SDK never auto-runs it at create (the msb CLI does
+		// that wiring for `msb run`). One-shot specs block on it here and
+		// surface the entrypoint's exit code.
+		out, err := sb.ExecDefault(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("default workload: %w", err)
+		}
+		if code := out.ExitCode(); code != 0 {
+			return nil, fmt.Errorf("default workload exited with code %d — run `msb logs %s` for details", code, spec.Name)
+		}
+		return sb, nil
+	}
+	// Persistent sandbox: run the default workload (entrypoint + sleep
+	// infinity) in the background; it dies with the sandbox on stop.
+	go func() {
+		_, _ = sb.ExecDefault(context.Background()) //nolint:errcheck // workload result surfaced via sandbox logs
+	}()
 	return sb, nil
+}
+
+// MsbInstallAgents runs the one-shot first-run agent install inside a
+// sandbox (msb analog of InstallAgentsAfterBuild): boot with the default
+// entrypoint and a trivial command, wait for it to exit, verify exit code.
+// The entrypoint performs the actual install (marker-gated, entrypoint.sh).
+// The generated install script is (re)written into the mounted home first —
+// PrepareBackendAgnostic owns this on the normal path; MsbInstallAgents
+// regenerates it so a stale/empty script cannot silently skip the install.
+func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
+	if err := EnsureMsbVolumes(ctx); err != nil {
+		return fmt.Errorf("msb agent install: %w", err)
+	}
+	if err := NewMsbBackend().EnsureImage(cfg); err != nil {
+		return fmt.Errorf("msb agent install: %w", err)
+	}
+	if err := writeMsbInstallScript(); err != nil {
+		return fmt.Errorf("msb agent install: %w", err)
+	}
+
+	name := "construct-msb-install"
+	m := NewMsbBackend()
+	if err := m.Cleanup(ctx, name); err != nil {
+		return fmt.Errorf("msb agent install (stale sandbox): %w", err)
+	}
+
+	spec := BuildMsbRunSpec(cfg, name, "", nil)
+	spec.Name = name
+	spec.Cmd = []string{"echo", "Installation complete"}
+	// CreateMsbSandbox blocks on the one-shot default workload (the
+	// entrypoint's install) and fails on a non-zero exit code.
+	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
+		return err
+	}
+	return nil
+}
+
+// writeMsbInstallScript regenerates install_user_packages.sh inside the
+// mounted construct home (same content PrepareBackendAgnostic writes).
+func writeMsbInstallScript() error {
+	pkgs, err := config.LoadPackages()
+	if err != nil {
+		return fmt.Errorf("load packages config: %w", err)
+	}
+	containerDir := filepath.Join(config.GetConfigDir(), "home", ".config", "construct-cli", "container")
+	if err := os.MkdirAll(containerDir, 0o755); err != nil {
+		return err
+	}
+	scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
+	return os.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0o755)
 }
 
 // msbSeedAutoFiles copies file-sized conditional auto-mounts (global
