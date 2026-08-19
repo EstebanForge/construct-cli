@@ -32,6 +32,7 @@ type Config struct {
 // RuntimeConfig holds container runtime settings.
 type RuntimeConfig struct {
 	Engine              string `toml:"engine"`
+	Backend             string `toml:"backend"` // docker (default) | msb (microsandbox; fails closed if not installed)
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
 	UpdateChannel       string `toml:"update_channel"`        // stable|beta
@@ -108,6 +109,7 @@ func DefaultConfig() Config {
 	return Config{
 		Runtime: RuntimeConfig{
 			Engine:              "auto",
+			Backend:             "docker",
 			AutoUpdateCheck:     true,
 			UpdateCheckInterval: 86400,
 			UpdateChannel:       "stable",

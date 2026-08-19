@@ -234,10 +234,11 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 - [-] Six callers updated: not needed — `Prepare` keeps its signature, all callers (daemon, runner ×2, ops ×2, password) unchanged. The msb backend (Step 6) calls `PrepareBackendAgnostic` only
 - [x] Gate: Docker path byte-identical output (compose files unchanged for same inputs; all runtime/daemon/agent/sys tests green, `make check` green, conformance green)
 
-**Step 6 — MVP msb backend (experimental, opt-in).**
+**Step 6 — MVP msb backend (experimental, opt-in). IN PROGRESS.**
 
-- [ ] `backend_msb.go` on `sdk/go`; `[runtime] backend = "msb"`, fail closed with install hint (§4.3). No fallback
-- [ ] Image path automated: build → `docker save` → `msb load` (later `msb pull` from ghcr, Step 8)
+- [ ] `backend_msb.go` on the msb Go SDK; `[runtime] backend = "msb"`, fail closed with install hint (§4.3). No fallback — SKELETON LANDED 2026-08-19: `backend_msb.go` implements the Backend interface (exec with exit-code fidelity via SDK ExecOutput, state mapping, stop/cleanup, list, image save→load transition) with `ErrMsbUnsupported` stubs for inspect/stream/staleness; `DetectBackend(cfg)` is the fail-closed factory; config key `[runtime] backend` added (default "docker"). SDK import path correction: `github.com/superradcompany/microsandbox/sdk/go` (module moved; nested module, own tags, `go get github.com/superradcompany/microsandbox/sdk/go@v0.6.10`) — the plan's `sdk/go` under the old org path no longer resolves
+- [ ] Wire `DetectBackend` into the entry paths (runner, daemon) — not yet called outside tests
+- [ ] Image path automated: build → `docker save` → `msb load` (implemented in EnsureImage, unverified against a live msb)
 - [ ] Disk-backed named volume for `/home/linuxbrew` (mandatory: chown cost, §7.1) + volume equivalents for packages/home (`~/.config/construct-cli/home`)
 - [ ] Mounts: project dir, home, conditional auto-mounts (`--mount-file` for gitignore/qmd)
 - [ ] Network: permissive = `--net public`; strict = in-guest filter via SDK exec as construct user (msb policy layer default OFF until stacking verified, §9); offline = `--no-net`
