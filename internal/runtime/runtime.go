@@ -517,8 +517,12 @@ func GetCheckImageCommand(containerRuntime string) []string {
 // - Generates docker-compose override for OS-specific settings and network isolation
 // Prepare runs the full setup for the Docker/container backend: the
 // backend-agnostic half plus the Docker-specific half (config perms,
-// custom network, compose override).
+// custom network, compose override). Fails closed on non-Docker backends
+// (§4.3): every container-touching entry path funnels through here.
 func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
+	if err := ValidateBackendSelected(cfg); err != nil {
+		return err
+	}
 	if err := PrepareDockerSpecific(cfg, containerRuntime, configPath); err != nil {
 		return err
 	}

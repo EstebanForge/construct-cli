@@ -23,6 +23,11 @@ func ExecCommand(cfg *config.Config, cmdArgs []string) int {
 		return 1
 	}
 
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
 	containerRuntime := runtime.DetectRuntime(func() string {
 		if cfg != nil {
 			return cfg.Runtime.Engine

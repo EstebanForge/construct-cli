@@ -105,6 +105,10 @@ func Stop() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
+		os.Exit(1)
+	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	containerName := "construct-cli-daemon"
 
@@ -142,6 +146,10 @@ func Restart() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
+		os.Exit(1)
+	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	containerName := "construct-cli-daemon"
 
@@ -173,6 +181,10 @@ func Attach() {
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
 		os.Exit(1)
 	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
@@ -216,6 +228,10 @@ func Status() {
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
 		os.Exit(1)
 	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
