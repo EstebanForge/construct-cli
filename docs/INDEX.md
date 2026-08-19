@@ -159,6 +159,7 @@ All settings explained:
 | [**Configuration**](CONFIGURATION.md) | Complete configuration reference |
 | [**Security**](SECURITY.md) | Security features and best practices |
 | [**Hide Secrets**](HIDE-SECRETS.md) | Secret redaction user guide |
+| [**VM Backend**](VMs.md) | Opt-in microVM isolation plan and status (experimental) |
 | [**Providers**](PROVIDERS.md) | Custom Claude API endpoints |
 | [**Packages**](PACKAGES.md) | User-defined package management |
 | [**Architecture**](ARCHITECTURE-DESIGN.md) | Technical design and internals |

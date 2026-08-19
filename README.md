@@ -106,6 +106,7 @@ construct sys doctor
 | Topic | Description |
 |-------|-------------|
 | [**Hide Secrets Mode**](docs/HIDE-SECRETS.md) | Prevent agents from seeing raw secrets (experimental) |
+| [**VM Backend**](docs/VMs.md) | Opt-in microVM isolation via microsandbox (experimental) |
 | [**Providers**](docs/PROVIDERS.md) | Configure custom Claude API endpoints |
 | [**Packages**](docs/PACKAGES.md) | User-defined package management |
 | [**Architecture**](docs/ARCHITECTURE-DESIGN.md) | Technical design and internals |
@@ -149,6 +150,7 @@ construct --help               # Show all commands
 - ✅ Ephemeral containers (clean slate every run)
 - ✅ No path escape (agents stay in project root)
 - ✅ Secret redaction (experimental) - [see docs](docs/HIDE-SECRETS.md)
+- ✅ Optional microVM isolation (experimental, `backend = "msb"`) - [see docs](docs/VMs.md)
 
 **Build integrity:**
 - ✅ Automated CI/CD builds via GitHub Actions
