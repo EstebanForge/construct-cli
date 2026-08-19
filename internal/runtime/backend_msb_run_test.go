@@ -17,11 +17,11 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if spec.Image != "construct-box:latest" {
 		t.Errorf("Image = %q", spec.Image)
 	}
-	if spec.Mounts["/home/linuxbrew/.linuxbrew"].Named != msbVolumePackages {
-		t.Errorf("packages mount missing: %+v", spec.Mounts["/home/linuxbrew/.linuxbrew"])
+	if mounts := spec.Mounts; mounts["/home/linuxbrew/.linuxbrew"].Named != "" {
+		t.Error("linuxbrew must not be volume-backed (shadows image brew)")
 	}
-	if spec.Mounts["/home/construct"].Named != msbVolumeHome {
-		t.Errorf("home mount missing: %+v", spec.Mounts["/home/construct"])
+	if mounts := spec.Mounts; mounts[msbHomeMountDest].Bind == "" {
+		t.Errorf("home bind mount missing: %+v", mounts[msbHomeMountDest])
 	}
 	if spec.Mounts["/workspace"].Bind != "/tmp/proj" {
 		t.Errorf("project mount missing: %+v", spec.Mounts["/workspace"])
