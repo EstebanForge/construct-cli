@@ -515,7 +515,20 @@ func GetCheckImageCommand(containerRuntime string) []string {
 // Prepare ensures the runtime environment is ready
 // - Creates custom network for strict mode if needed
 // - Generates docker-compose override for OS-specific settings and network isolation
+// Prepare runs the full setup for the Docker/container backend: the
+// backend-agnostic half plus the Docker-specific half (config perms,
+// custom network, compose override).
 func Prepare(cfg *config.Config, containerRuntime string, configPath string) error {
+	if err := PrepareDockerSpecific(cfg, containerRuntime, configPath); err != nil {
+		return err
+	}
+	return PrepareBackendAgnostic(cfg, configPath)
+}
+
+// PrepareDockerSpecific holds the Docker/container-only setup half: config
+// directory permissions (Linux/WSL bind-mount ownership), the strict-mode
+// custom network, and the docker-compose override generation.
+func PrepareDockerSpecific(cfg *config.Config, containerRuntime string, configPath string) error {
 	// Fix config directory permissions if needed (Linux/WSL only)
 	if err := ensureConfigPermissions(configPath, containerRuntime); err != nil {
 		return err
@@ -528,6 +541,20 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 		}
 	}
 
+	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
+	projectPath := GetProjectMountPath()
+	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode, containerRuntime); err != nil {
+		return fmt.Errorf("failed to generate docker-compose override: %w", err)
+	}
+	return nil
+}
+
+// PrepareBackendAgnostic holds the backend-independent setup half: mounted
+// helper templates, the user-packages install script, and the topgrade
+// config. Every backend (Docker, msb) runs this unchanged.
+func PrepareBackendAgnostic(cfg *config.Config, configPath string) error {
+	_ = cfg // reserved for backend-specific package needs; none today
+
 	containerDir := config.GetContainerDir()
 	if err := os.MkdirAll(containerDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
@@ -535,12 +562,6 @@ func Prepare(cfg *config.Config, containerRuntime string, configPath string) err
 	}
 	if err := ensureMountedTemplateFiles(configPath); err != nil {
 		return fmt.Errorf("failed to prepare mounted helper templates: %w", err)
-	}
-
-	// Generate OS-specific docker-compose override (Linux UID/GID, SELinux, Network)
-	projectPath := GetProjectMountPath()
-	if err := GenerateDockerComposeOverride(configPath, projectPath, cfg.Network.Mode, containerRuntime); err != nil {
-		return fmt.Errorf("failed to generate docker-compose override: %w", err)
 	}
 
 	// Load user packages config and generate installation script

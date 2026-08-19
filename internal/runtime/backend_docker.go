@@ -1,7 +1,3 @@
-// Package runtime: DockerBackend implements Backend over the existing
-// Docker/Podman container primitives (Step 4, docs/VMs.md §7). Pure
-// delegation: the package-level functions keep their signatures and
-// behavior; this file adds the Backend facade only.
 package runtime
 
 import (
@@ -28,15 +24,18 @@ func NewDockerBackend(rt string) (*DockerBackend, error) {
 	}
 }
 
+// Name returns the container runtime binary name this backend drives.
 func (d *DockerBackend) Name() string { return d.rt }
 
-func (d *DockerBackend) Available(ctx context.Context) (bool, error) {
+// Available reports whether the container runtime is running.
+func (d *DockerBackend) Available(_ context.Context) (bool, error) {
 	return IsRuntimeRunning(d.rt), nil
 }
 
 // EnsureImage delegates to BuildImage, which reports build failure itself
 // (existing behavior; it does not return a status). The msb backend must
 // return a real error here instead.
+// EnsureImage delegates to BuildImage for the construct image.
 func (d *DockerBackend) EnsureImage(cfg *config.Config) error {
 	BuildImage(cfg)
 	return nil
@@ -46,7 +45,8 @@ func (d *DockerBackend) EnsureImage(cfg *config.Config) error {
 // failures (including 126/127) surface through the error string from
 // ExecInContainerWithEnv; code is 0 on success, 1 on error, matching the
 // current callers' handling of the underlying function.
-func (d *DockerBackend) Exec(ctx context.Context, opts ExecOptions) (string, int, error) {
+// Exec runs a command in a live container and returns combined output plus exit code.
+func (d *DockerBackend) Exec(_ context.Context, opts ExecOptions) (string, int, error) {
 	out, err := ExecInContainerWithEnv(d.rt, opts.Name, opts.Command, opts.Env, opts.User)
 	if err != nil {
 		return out, 1, err
@@ -54,42 +54,52 @@ func (d *DockerBackend) Exec(ctx context.Context, opts ExecOptions) (string, int
 	return out, 0, nil
 }
 
-func (d *DockerBackend) ExecStream(ctx context.Context, opts ExecOptions) (int, error) {
+// ExecStream runs a command with streamed stdio and returns the exit code.
+func (d *DockerBackend) ExecStream(_ context.Context, opts ExecOptions) (int, error) {
 	return ExecNonInteractiveStream(d.rt, opts.Name, opts.Command, opts.Env, opts.Workdir, opts.User)
 }
 
-func (d *DockerBackend) State(ctx context.Context, name string) (ContainerState, error) {
+// State reports the lifecycle state of the named container.
+func (d *DockerBackend) State(_ context.Context, name string) (ContainerState, error) {
 	return GetContainerState(d.rt, name), nil
 }
 
-func (d *DockerBackend) WorkingDir(ctx context.Context, name string) (string, error) {
+// WorkingDir inspects the container default working directory.
+func (d *DockerBackend) WorkingDir(_ context.Context, name string) (string, error) {
 	return GetContainerWorkingDir(d.rt, name)
 }
 
-func (d *DockerBackend) MountSource(ctx context.Context, name, destination string) (string, error) {
+// MountSource resolves the host-side source path of a mounted destination.
+func (d *DockerBackend) MountSource(_ context.Context, name, destination string) (string, error) {
 	return GetContainerMountSource(d.rt, name, destination)
 }
 
-func (d *DockerBackend) Label(ctx context.Context, name, key string) (string, error) {
+// Label reads a label from the container.
+func (d *DockerBackend) Label(_ context.Context, name, key string) (string, error) {
 	return GetContainerLabel(d.rt, name, key)
 }
 
-func (d *DockerBackend) ListByPrefix(ctx context.Context, prefix string) []string {
+// ListByPrefix lists container names matching a prefix.
+func (d *DockerBackend) ListByPrefix(_ context.Context, prefix string) []string {
 	return ListContainersByPrefix(d.rt, prefix)
 }
 
-func (d *DockerBackend) IsStale(ctx context.Context, name, imageName string) bool {
+// IsStale reports whether the container image differs from the current local image.
+func (d *DockerBackend) IsStale(_ context.Context, name, imageName string) bool {
 	return IsContainerStale(d.rt, name, imageName)
 }
 
-func (d *DockerBackend) Stop(ctx context.Context, name string) error {
+// Stop terminates a running container.
+func (d *DockerBackend) Stop(_ context.Context, name string) error {
 	return StopContainer(d.rt, name)
 }
 
-func (d *DockerBackend) Cleanup(ctx context.Context, name string) error {
+// Cleanup removes a non-running container.
+func (d *DockerBackend) Cleanup(_ context.Context, name string) error {
 	return CleanupExitedContainer(d.rt, name)
 }
 
+// CheckImageCommand returns the command verifying the local image exists.
 func (d *DockerBackend) CheckImageCommand() []string {
 	return GetCheckImageCommand(d.rt)
 }
