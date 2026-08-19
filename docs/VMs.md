@@ -1,6 +1,6 @@
 # VM Backend Plan (microsandbox) — rev 2
 
-Status: planning document, revised after peer review against the codebase. Target: opt-in second isolation backend using [microsandbox](https://github.com/microsandbox/microsandbox) (msb) microVMs, alongside the existing Docker/Podman/container backend.
+Status: active implementation (Steps 1-6 complete; Step 7 in progress — the run path is live: `backend = "msb"` executes agents inside a persistent microsandbox daemon, live-verified 2026-08-19). Rev 2 was revised after peer review against the codebase. Target: opt-in second isolation backend using [microsandbox](https://github.com/microsandbox/microsandbox) (msb) microVMs, alongside the existing Docker/Podman/container backend.
 
 Rev 2 changes from rev 1: reordered (spikes before refactor), interface sized to the real primitive surface, exit codes and RunOptions gaps fixed, guest→host transport promoted to project gate, `engine` fail-open corrected to fail-closed `backend` key, dynamic network updates corrected (they survive), ghcr section corrected (agents are not in the image), effort estimates raised to realistic.
 
@@ -248,7 +248,7 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 - [x] Entrypoint overrides: update-all.sh, install bash, sha256 verify (`runner.go:251`) via SDK entrypoint/cmd options — DONE 2026-08-19: `MsbRunSpec.Entrypoint` (empty = keep image entrypoint) maps to `msb.WithEntrypoint` in `CreateMsbSandbox`; msb rejects empty overrides so the option is passed only when set. Engine-side callers land with the Step 7 run-path wiring
 - [x] Doctor: msb check set (binary, libkrunfw, HVF/KVM presence, image loaded, volumes present); Docker checks behind backend dispatch (`internal/doctor/doctor.go:227-406`) — DONE 2026-08-19: `msbBackendCheck` probes binary/version, daemon reachability (`msb list`), image loaded, platform (Intel-mac warning, HVF framework, /dev/kvm), and delegates libkrunfw/root-clone checks to `msb doctor`. Volume probe dropped (packages volume removed). Backend dispatch: `backend = "msb"` blanks `runtimeName` after the Runtime Check so every container-runtime check (compose network/fixes, image fixes, daemon container state) takes its skipped branch
 - [x] Clear "unsupported in msb yet" errors for daemon + bridges until Step 7 — DONE 2026-08-19: `ValidateBackendSelected` guards runner (Run, RunWithProvider), daemon (Start/Stop/Restart/Attach/Status), sys exec, clipboard-debug, network manager (AddRule/RemoveRule/ShowStatus), and centrally `runtime.Prepare` (sys ops, password, clipboard paths) — bridges reach the host only through these paths, so none can silently fall through to Docker
-- [x] Gate: live install path proven (npm → host home bind). End-to-end `construct claude "echo hi"` requires the run-path wiring (Step 7) and remains blocked.
+- [x] Gate: live install path proven (npm → host home bind). End-to-end `construct claude --version` verified in Step 7 (2026-08-19): agent binary resolves on PATH and reports its version from inside the VM.
 
 **Step 7 — Daemon + bridges + parity. IN PROGRESS.**
 

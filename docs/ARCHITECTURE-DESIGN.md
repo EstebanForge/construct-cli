@@ -106,6 +106,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `permissive`: full egress
   - `strict`: custom `construct-net` bridge + UFW rules; allow/block lists via env
   - `offline`: `network_mode: none`
+- **VM backend (experimental)**: `backend = "msb"` in `[runtime]` selects [microsandbox](https://microsandbox.dev) microVM isolation instead of OCI containers — a separate guest kernel per agent. The runtime layer exposes a `Backend` interface (`internal/runtime/backend.go`: exec, interactive exec, state, mounts, labels, image, lifecycle) with a Docker facade implementation and an msb implementation over the msb Go SDK. `DetectBackend` resolves the configured backend fail-closed (no silent Docker fallback). The msb run path: persistent detached sandbox `construct-cli-daemon` (unlimited idle/max duration), entrypoint readiness marker on tmpfs, first-run agent install inside the VM, image transition via `docker save` → `msb load`. Status, benchmarks, and operational caveats: [docs/VMs.md](VMs.md).
 
 ---
 

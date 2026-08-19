@@ -93,6 +93,7 @@ ANTHROPIC_AUTH_TOKEN = "${ANTHROPIC_API_KEY}"
 ```toml
 [runtime]
 engine = "auto"  # Options: auto, podman, docker, container
+backend = "docker"  # Isolation backend: docker|msb (experimental)
 ```
 
 **Options:**
@@ -105,6 +106,18 @@ engine = "auto"  # Options: auto, podman, docker, container
 1. macOS native container runtime (if available)
 2. Podman
 3. Docker (OrbStack on macOS, then Docker Desktop)
+
+### Isolation Backend
+
+`backend` selects the isolation technology. It fails closed: a configured but
+missing backend is a hard error, never a silent fallback.
+
+- `docker` (default): the OCI container path (Docker/Podman per `engine`).
+- `msb` (experimental): [microsandbox](https://microsandbox.dev) microVMs — a separate guest kernel per agent. Requires `msb` installed (`curl -fsSL https://msb.sh | sh`), Apple Silicon macOS or Linux with KVM, and the construct image built by the Docker path (the first `msb` run transitions it automatically via save/load). Design, status, and limitations: [docs/VMs.md](VMs.md).
+
+Known msb limitations (Step 7 in progress): clipboard/host-exec/SSH bridges
+and strict/offline enforcement inside the VM are not yet wired; daemon
+cold-boot takes several minutes (disk ownership fixes).
 
 ### Update Management
 
