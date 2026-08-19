@@ -128,6 +128,9 @@ func (e *RuntimeEngine) Prepare() error {
 
 	// 5. Clipboard Server
 	clipboardHost := "host.docker.internal"
+	if e.msbBackendSelected() {
+		clipboardHost = msbClipboardHost() // §3.1 transport: host alias from the msb gateway DNS
+	}
 	if e.cfg != nil && e.cfg.Sandbox.ClipboardHost != "" {
 		clipboardHost = e.cfg.Sandbox.ClipboardHost
 	}
@@ -213,6 +216,12 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	baseArgs := e.args
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
+
+	// 0. msb backend dispatch (docs/VMs.md §7 Step 7): persistent sandbox
+	// daemon path replaces the compose/daemon-container paths entirely.
+	if e.msbBackendSelected() {
+		return e.execViaMsbDaemon(baseArgs, mergedProviderEnv)
+	}
 
 	daemonName := constants.DaemonName
 	daemonState := runtime.GetContainerState(e.containerRuntime, daemonName)

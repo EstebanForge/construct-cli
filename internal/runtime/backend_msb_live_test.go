@@ -59,7 +59,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
 	defer func() {
-		_ = sb.RequestStop(ctx) //nolint:errcheck // best-effort teardown
+		_ = sb.RequestStop(ctx)
 		_, _ = sb.WaitUntilStopped(ctx)
 	}()
 
@@ -68,7 +68,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("Exec echo: code=%d out=%q err=%v", code, out, err)
 	}
 
-	out, code, err = m.Exec(ctx, ExecOptions{Name: name, Command: []string{"sh", "-c", "exit 7"}})
+	_, code, err = m.Exec(ctx, ExecOptions{Name: name, Command: []string{"sh", "-c", "exit 7"}})
 	if err != nil || code != 7 {
 		t.Fatalf("exit-code fidelity: code=%d err=%v", code, err)
 	}
@@ -132,7 +132,7 @@ func TestMsbLiveAgentInstall(t *testing.T) {
 	// Fresh home under ~/tmp (durable: t.TempDir is wiped on failure, but
 	// inspecting the home after a timeout is how failures get diagnosed).
 	home := filepath.Join(os.Getenv("HOME"), "tmp", "construct-msb-gate-home")
-	_ = os.RemoveAll(home) //nolint:errcheck // scratch dir, ours
+	_ = os.RemoveAll(home)
 	// Minimal install script: mirrors the entrypoint's first-run shape
 	// (npm prefix, PATH, npm install) without the fragile Bun step.
 	script := `#!/bin/bash

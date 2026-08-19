@@ -29,6 +29,11 @@ type Backend interface {
 	// and returns the workload exit code.
 	ExecStream(ctx context.Context, opts ExecOptions) (int, error)
 
+	// ExecInteractive runs a command with full interactive stdio (TTY when
+	// the host stdin is a terminal) and returns the workload exit code.
+	// This is the path interactive agents run on.
+	ExecInteractive(ctx context.Context, opts ExecOptions) (int, error)
+
 	// State reports the lifecycle state of the named environment.
 	State(ctx context.Context, name string) (ContainerState, error)
 

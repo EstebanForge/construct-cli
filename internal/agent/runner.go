@@ -33,6 +33,12 @@ func RunWithArgs(args []string, networkFlag string) {
 
 	applyNetworkFlag(cfg, networkFlag)
 
+	// msb backend: run path is wired (engine dispatches to the persistent
+	// sandbox); skip the Docker prepare/setup chain (docs/VMs.md §7 Step 7).
+	if cfg.Runtime.Backend == "msb" {
+		os.Exit(runMsbWithArgs(args, cfg, nil))
+	}
+
 	// Fail closed on unsupported isolation backends before any container op
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.LogError(&cerrors.ConstructError{
@@ -134,6 +140,12 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	}
 
 	applyNetworkFlag(cfg, networkFlag)
+
+	// msb backend: run path is wired (engine dispatches to the persistent
+	// sandbox); skip the Docker prepare/setup chain (docs/VMs.md §7 Step 7).
+	if cfg.Runtime.Backend == "msb" {
+		os.Exit(runMsbWithArgs(args, cfg, providerEnv))
+	}
 
 	// Fail closed on unsupported isolation backends before any container op
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
@@ -384,6 +396,29 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 		return fmt.Errorf("environment setup failed: %w", err)
 	}
 	return nil
+}
+
+// runMsbWithArgs runs the agent through the msb backend: backend-agnostic
+// prepare (templates, install script) then the engine, which dispatches to
+// the persistent daemon sandbox. Goose gating matches the Docker path.
+func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int {
+	configPath := config.GetConfigDir()
+	if err := runtime.PrepareBackendAgnostic(cfg, configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Failed to prepare runtime: %v\n", err)
+		return 1
+	}
+	if shouldPromptGooseConfigure(args, configPath) {
+		fmt.Println("Goose CLI needs initial setup.")
+		fmt.Println("Run: ct goose configure")
+		return 1
+	}
+	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv)
+	if isGooseConfigure(args) {
+		if err := markGooseConfigured(configPath); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save Goose configure state: %v\n", err)
+		}
+	}
+	return exitCode
 }
 
 func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) int {

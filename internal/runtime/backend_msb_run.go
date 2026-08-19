@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -162,6 +163,7 @@ type MsbRunSpec struct {
 	HostAliasEnv string   // CONSTRUCT_HOST_ALIAS value for the entrypoint
 	Entrypoint   []string // empty = image entrypoint; override for one-shot flows (update-all, install, sha256 verify)
 	Cmd          []string // workload; empty = sleep infinity (persistent sandbox)
+	Detached     bool     // VM outlives the creating process (daemon sandboxes)
 	CPUs         uint8    // 0 = msb default (1)
 	MemoryMiB    uint32   // 0 = msb default (512)
 }
@@ -213,6 +215,17 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		cmd = []string{"sleep", "infinity"}
 	}
 	opts = append(opts, msb.WithCmd(cmd...))
+	// Daemon semantics: run until explicitly stopped (Docker parity). The
+	// msb default idle timeout reboots the sandbox after inactivity and the
+	// default workload does not re-run on reboot — both kill the daemon model.
+	opts = append(opts, msb.WithMaxDuration(0), msb.WithIdleTimeout(0))
+	if spec.Detached {
+		// Attached sandboxes power down when the creating process exits
+		// ("creator process exited; stopping attached sandbox"); the daemon
+		// must survive the construct invocation that booted it. Callers
+		// release with Detach, never Close (Close stops a detached VM).
+		opts = append(opts, msb.WithDetached())
+	}
 	if len(spec.Entrypoint) > 0 {
 		// Entrypoint override replaces the image entrypoint entirely (msb
 		// rejects an empty override); construct's one-shot flows (update-all,
@@ -252,6 +265,104 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		_, _ = sb.ExecDefault(context.Background()) //nolint:errcheck // workload result surfaced via sandbox logs
 	}()
 	return sb, nil
+}
+
+// msbDaemonName is the persistent sandbox backing the daemon mode under
+// the msb backend (Docker analog: construct-cli-daemon container). Named
+// sandboxes persist across stop/start, so agent installs and brew state on
+// the root disk survive daemon restarts (docs/VMs.md §7.1).
+const msbDaemonName = "construct-cli-daemon"
+
+// EnsureMsbDaemon guarantees the persistent daemon sandbox exists and is
+// running: create when missing, boot when stopped (default workload — the
+// entrypoint + sleep infinity — is re-invoked explicitly; the SDK never
+// auto-runs it, not at create and not at start). Returns the live sandbox.
+func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string) (*msb.Sandbox, error) {
+	m := NewMsbBackend()
+	if err := m.EnsureImage(cfg); err != nil {
+		return nil, err
+	}
+
+	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
+		if h.Status() == msb.SandboxStatusRunning {
+			sb, cerr := h.Connect(ctx)
+			if cerr == nil {
+				// The default workload (entrypoint) does not survive reboots or
+				// relaunch on its own: re-invoke it when the sleep-infinity
+				// keeper is gone (entrypoint is idempotent — markers + probes),
+				// then wait for it to reach the keeper before handing control to
+				// the agent exec (first boot runs installs; needs the window).
+				if out, eerr := sb.Exec(ctx, "test", []string{"-e", msbReadyMarker}); eerr != nil || out == nil || out.ExitCode() != 0 {
+					msbRunDefaultAsync(sb)
+					if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+						return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
+					}
+				}
+				return sb, nil
+			}
+			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
+		}
+		sb, serr := h.StartDetached(ctx)
+		if serr != nil {
+			// Draining (stop in flight): wait it out, then boot.
+			if werr := h.Stop(ctx); werr == nil {
+				sb, serr = h.StartDetached(ctx)
+			}
+		}
+		if serr != nil {
+			return nil, fmt.Errorf("start daemon sandbox: %w", serr)
+		}
+		msbRunDefaultAsync(sb)
+		return sb, nil
+	}
+
+	// Not present: create with the project bind so agent workdirs resolve.
+	// Bridge ports are omitted: host bridges bind random ports at engine run
+	// time, which cannot be baked into boot-time egress rules. Permissive
+	// mode (default-allow) needs no rule; offline/strict bridge egress is
+	// part of the Step 7 bridge wiring (docs/VMs.md §7 Step 7).
+	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil)
+	spec.Detached = true
+	sb, err := CreateMsbSandbox(ctx, spec)
+	if err != nil {
+		return nil, err
+	}
+	// First boot runs the full entrypoint (chown, installs) before the
+	// ready marker; the agent exec must not race it.
+	if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+		return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
+	}
+	return sb, nil
+}
+
+// msbReadyMarker is touched by the entrypoint immediately before exec "$@".
+// It lives on tmpfs: absent on every fresh boot, so its presence proves the
+// entrypoint completed (installs, bridges, PATH) on THIS boot.
+const msbReadyMarker = "/tmp/.construct_entrypoint_ready"
+
+// msbWaitKeeper polls until the entrypoint posts its readiness marker or
+// the timeout elapses.
+func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if out, err := sb.Exec(ctx, "test", []string{"-e", msbReadyMarker}); err == nil && out != nil && out.ExitCode() == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return errors.New("entrypoint did not reach the sleep keeper in time")
+}
+
+// msbRunDefaultAsync runs the default workload (entrypoint + sleep
+// infinity) in the background; it dies with the sandbox on stop.
+func msbRunDefaultAsync(sb *msb.Sandbox) {
+	go func() {
+		_, _ = sb.ExecDefault(context.Background()) //nolint:errcheck // workload result surfaced via sandbox logs
+	}()
 }
 
 // MsbInstallAgents runs the one-shot first-run agent install inside a

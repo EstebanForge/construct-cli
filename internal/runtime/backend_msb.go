@@ -106,12 +106,6 @@ func (m *MsbBackend) Exec(ctx context.Context, opts ExecOptions) (string, int, e
 	return out.Stdout(), out.ExitCode(), nil
 }
 
-// ExecStream runs a command with streamed stdio. Step 6 MVP: unsupported;
-// arrives with daemon parity (Step 7).
-func (m *MsbBackend) ExecStream(_ context.Context, _ ExecOptions) (int, error) {
-	return 1, ErrMsbUnsupported
-}
-
 // State reports the sandbox lifecycle state mapped onto ContainerState.
 func (m *MsbBackend) State(ctx context.Context, name string) (ContainerState, error) {
 	h, err := msb.GetSandbox(ctx, name)
