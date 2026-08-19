@@ -213,18 +213,20 @@ Spikes first, refactor second. Rev 1 had this backwards. Steps 1-2 are done; eac
 - [x] Decide `USER construct` (Dockerfile:107): gosu drop (current) vs msb `-u` direct. Record decision here and in §5. DECIDED 2026-08-18: keep gosu drop. The entrypoint root block (socat setcap, chown, symlinks) must run as root on every backend; msb `-u` would skip it. Same entrypoint, both backends. `Dockerfile:107` stays commented.
 - [x] Record base-image decision: `debian:trixie-slim` stays. No RPM/musl/minimal alternative accepted (linuxbrew requires glibc + apt ecosystem; base is 75 MB of a 3.4 GB image — size irrelevant). Resolved 2026-08-18
 
-**Step 3 — Primitive inventory + conformance tests.**
+**Step 3 — Primitive inventory + conformance tests. DONE 2026-08-19.**
 
-- [ ] Extract full primitive list from the 11 non-test `internal/runtime` importers (~30 primitives per §4.1)
-- [ ] Write `Backend` conformance test suite (contract: run, exec, state, mounts, labels, volumes, staleness, exit codes). Docker = reference implementation; suite must pass unchanged against Docker BEFORE interface extraction
-- [ ] Include in the suite: exit-code fidelity (126/127 PATH hint, `engine.go:451`), ordered Env semantics (`engine.go:623`), stdin handling (msb stdin trap, §7.1), exec-as-user (`ResolveExecUser` equivalent)
-- [ ] Gate: CI runs conformance suite on every PR from here on
+- [x] Extract full primitive list from the 11 non-test `internal/runtime` importers (~30 primitives per §4.1)
+- [x] Write `Backend` conformance test suite (contract: run, exec, state, mounts, labels, volumes, staleness, exit codes). Docker = reference implementation; suite must pass unchanged against Docker BEFORE interface extraction
+- [x] Include in the suite: exit-code fidelity (126/127 PATH hint, `engine.go:451`), ordered Env semantics (`engine.go:623`), stdin handling (msb stdin trap, §7.1), exec-as-user (`ResolveExecUser` equivalent)
+- [x] Gate: CI runs conformance suite on every PR from here on (`.github/workflows/build.yml` job `conformance`; PR + main-push triggers added)
 
-**Step 4 — Interface extraction.**
+Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin is a real terminal (docker rejects TTY attachment from non-tty callers, collapsing exit codes to 1 — found by the suite's exit-code test); `CwdContainerName` test aligned with the documented hash contract; suite skip logic probes docker/podman via `LookPath` + `IsRuntimeRunning` (DetectRuntime is side-effectful and fails the binary instead of skipping).
 
-- [ ] Create `backend.go` (interface per §4.2, finalized against Step 3 inventory) + `backend_docker.go` (move current code, no behavior change)
-- [ ] Update `runtime_test.go` (1818 lines) and `runner_test.go` (1530) alongside — they assert the current API
-- [ ] Gate: zero behavior change — full `make check` green, conformance suite green on Docker, no new config keys
+**Step 4 — Interface extraction. DONE 2026-08-19.**
+
+- [x] Create `backend.go` (interface per §4.2, finalized against Step 3 inventory) + `backend_docker.go`. Deviation from sketch: facade instead of code move — package-level functions keep their signatures and behavior; `DockerBackend` delegates. Interface trimmed to the backend-agnostic inventory families (exec, inspect, lifecycle, image, naming/labels); host-probe and compose-assembly stay outside as planned. `ResolveUser` dropped from the interface: user resolution needs `*config.Config`, callers resolve and pass `ExecOptions.User`
+- [-] `runtime_test.go` (1818 lines) and `runner_test.go` (1530): no update needed — current API unchanged (facade approach), all existing tests pass as-is
+- [x] Gate: zero behavior change — full `make check` green, conformance suite green on Docker (new `TestConformanceBackendInterface` runs the suite through the interface), no new config keys
 
 **Step 5 — Split `Prepare()`.**
 

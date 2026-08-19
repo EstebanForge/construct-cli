@@ -13,6 +13,7 @@ package runtime
 // construct-box:latest to test the real image.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -268,6 +269,37 @@ func TestConformanceCheckImageCommand(t *testing.T) {
 	cmd := exec.Command(probe[0], probe[1:]...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("check-image command %v failed: %v\n%s", probe, err, out)
+	}
+}
+
+func TestConformanceBackendInterface(t *testing.T) {
+	rt := conformanceRuntime(t)
+	startConformanceContainer(t, rt)
+
+	b, err := NewDockerBackend(rt)
+	if err != nil {
+		t.Fatalf("NewDockerBackend: %v", err)
+	}
+	if b.Name() != rt {
+		t.Errorf("Name() = %q, want %q", b.Name(), rt)
+	}
+	ctx := context.Background()
+	if ok, _ := b.Available(ctx); !ok {
+		t.Error("Available() = false, want true")
+	}
+	if st, _ := b.State(ctx, conformanceName); st != ContainerStateRunning {
+		t.Errorf("State() = %v, want %v", st, ContainerStateRunning)
+	}
+	out, code, err := b.Exec(ctx, ExecOptions{Name: conformanceName, Command: []string{"echo", "iface"}})
+	if err != nil || code != 0 {
+		t.Fatalf("Exec() = (%q, %d, %v)", out, code, err)
+	}
+	if !strings.Contains(out, "iface") {
+		t.Errorf("Exec() output = %q, want iface", out)
+	}
+	label, err := b.Label(ctx, conformanceName, DaemonMountsLabelKey)
+	if err != nil || label != "conformance" {
+		t.Errorf("Label() = (%q, %v), want conformance", label, err)
 	}
 }
 
