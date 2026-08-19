@@ -236,3 +236,18 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 		return nil, fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"msb\")", backend)
 	}
 }
+
+// ValidateBackendSelected reports whether the compose-based run path can
+// serve the configured backend. Entry points (runner, daemon, sys) call
+// this before any container operation: backend = "msb" must fail closed
+// with a clear message while the msb run path is still under construction
+// (docs/VMs.md §7 Step 6), never silently fall through to Docker.
+func ValidateBackendSelected(cfg *config.Config) error {
+	if cfg.Runtime.Backend == "" || cfg.Runtime.Backend == "docker" {
+		return nil
+	}
+	if cfg.Runtime.Backend == "msb" {
+		return errors.New("the msb backend is experimental and not yet wired into this command (docs/VMs.md Step 6 in progress). Remove `backend = \"msb\"` from [runtime] to use Docker")
+	}
+	return fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"msb\")", cfg.Runtime.Backend)
+}

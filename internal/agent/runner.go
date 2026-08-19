@@ -33,6 +33,17 @@ func RunWithArgs(args []string, networkFlag string) {
 
 	applyNetworkFlag(cfg, networkFlag)
 
+	// Fail closed on unsupported isolation backends before any container op
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
+			Operation:  "validate runtime backend",
+			Err:        err,
+			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+		})
+		os.Exit(1)
+	}
+
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
 
@@ -123,6 +134,17 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	}
 
 	applyNetworkFlag(cfg, networkFlag)
+
+	// Fail closed on unsupported isolation backends before any container op
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.LogError(&cerrors.ConstructError{
+			Category:   cerrors.ErrorCategoryRuntime,
+			Operation:  "validate runtime backend",
+			Err:        err,
+			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+		})
+		os.Exit(1)
+	}
 
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
