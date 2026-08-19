@@ -59,7 +59,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
 	defer func() {
-		_ = sb.RequestStop(ctx)  //nolint:errcheck // best-effort teardown
+		_ = sb.RequestStop(ctx) //nolint:errcheck // best-effort teardown
 		_, _ = sb.WaitUntilStopped(ctx)
 	}()
 

@@ -220,6 +220,13 @@ func Run(args ...string) {
 	}
 	runtimeName := runtimepkg.DetectRuntime(engine)
 
+	// Backend dispatch (docs/VMs.md §7 Step 6): under the msb backend the
+	// Docker-only checks below are not applicable. runtimeName is blanked
+	// after the Runtime Check so every runtimeName-gated check degrades to
+	// its skipped/not-applicable branch instead of probing a container
+	// runtime the backend does not use.
+	msbBackend := cfg != nil && cfg.Runtime.Backend == "msb"
+
 	// 2. Environment Check
 	envCheck := CheckResult{Name: "Environment"}
 	hostUID := hostID("-u")
@@ -300,7 +307,16 @@ func Run(args ...string) {
 
 	// 4. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
-	if runtimeName != "" {
+	if msbBackend {
+		runtimeCheck.Status = CheckStatusSkipped
+		runtimeCheck.Message = "Not applicable (runtime backend = msb)"
+		runtimeCheck.Details = append(runtimeCheck.Details, "Isolation runs in microsandbox microVMs; see the VM Backend check")
+		checks = append(checks, runtimeCheck)
+
+		// Blank from here on: every downstream container-runtime check keys
+		// off runtimeName and must take its skipped branch under msb.
+		runtimeName = ""
+	} else if runtimeName != "" {
 		runtimeCheck.Status = CheckStatusOK
 		// Add (OrbStack) suffix if OrbStack is running on macOS
 		runtimeDisplay := runtimeName
@@ -413,7 +429,7 @@ func Run(args ...string) {
 		checks = append(checks, networkFixCheck)
 	}
 
-	if fixRequested && runtime.GOOS == "linux" {
+	if fixRequested && runtime.GOOS == "linux" && runtimeName != "" {
 		ownershipFixCheck := CheckResult{Name: "Config Ownership Fix"}
 		fixed, details, err := fixLinuxConfigOwnership(config.GetConfigDir(), runtimeName)
 		if err != nil {
@@ -892,15 +908,27 @@ func msbBackendCheck() CheckResult {
 		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
 		return cmd.Run() == nil
 	}
+	// Daemon reachability: `msb list` needs a reachable daemon (auto-started
+	// on demand by the msb binary or launchd/systemd service).
+	if msbRun("list") {
+		check.Details = append(check.Details, "msb daemon reachable")
+	} else {
+		check.Status = CheckStatusError
+		check.Message = "msb daemon not reachable"
+		check.Suggestion = "Run `msb list` to start the daemon; check ~/.microsandbox logs if it fails"
+		return check
+	}
 	if msbRun("image", "inspect", "construct-box:latest") {
 		check.Details = append(check.Details, "Image construct-box:latest loaded")
 	} else {
 		check.Details = append(check.Details, "Image construct-box:latest not loaded (loaded on first construct run)")
 	}
-	if msbRun("volume", "inspect", "construct-packages") {
-		check.Details = append(check.Details, "Volume construct-packages present")
+	// libkrunfw + host virtualization prerequisites, delegated to msb's own
+	// probe (covers libkrunfw presence, root clone support, arch).
+	if out, err := exec.Command("msb", "doctor").CombinedOutput(); err != nil {
+		check.Details = append(check.Details, fmt.Sprintf("msb doctor reported issues: %s", strings.TrimSpace(string(out))))
 	} else {
-		check.Details = append(check.Details, "Volume construct-packages missing (created on first construct run)")
+		check.Details = append(check.Details, "msb doctor: host setup ready")
 	}
 	return check
 }
