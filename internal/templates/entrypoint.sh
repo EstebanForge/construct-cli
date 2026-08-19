@@ -39,8 +39,15 @@ if [ "$(id -u)" = "0" ]; then
             fi
         fi
 
-        # Fix home directory permissions
-        chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
+        # Fix home directory permissions. Idempotence probe: on microVM
+        # backends the recursive chown goes through a per-file xattr overlay
+        # and takes minutes over a populated home; skip when a stable probe
+        # dir already carries the target ownership (warm home).
+        if [ -d /home/construct/.local ] && [ "$(stat -c '%U:%G' /home/construct/.local 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
+            :
+        else
+            chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
+        fi
     fi
 
     # Clipboard tool symlinks (these are set up in Dockerfile but may need refresh)
@@ -94,11 +101,14 @@ else
     # This handles the case where files were created by root during image build
     # but we're now running as a non-root user
     if command -v sudo >/dev/null 2>&1; then
-        # Fix home directory permissions
-        sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
+        # Idempotence probes (same as the root block): recursive chowns go
+        # through the xattr overlay on microVM backends and take minutes on a
+        # populated home; skip when ownership is already correct.
+        if [ -d /home/construct/.local ] && [ "$(stat -c '%U:%G' /home/construct/.local 2>/dev/null)" != "$(id -un):$(id -gn)" ]; then
+            sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
+        fi
 
-        # Fix Homebrew volume ownership
-        if [ -d /home/linuxbrew/.linuxbrew ]; then
+        if [ -d /home/linuxbrew/.linuxbrew ] && [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%U:%G' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" != "$(id -un):$(id -gn)" ]; then
             sudo chown -R "$(id -u):$(id -g)" /home/linuxbrew/.linuxbrew 2>/dev/null || true
         fi
 
@@ -586,6 +596,11 @@ if [ $# -gt 0 ]; then
         exit 1
     fi
 fi
+
+# Readiness marker: host-side daemon management (msb backend) polls this to
+# know the entrypoint finished — installs done, bridges up, PATH wired —
+# before handing the sandbox to an agent exec.
+touch /tmp/.construct_entrypoint_ready
 
 # Execute the command passed to docker run
 exec "$@"

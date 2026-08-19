@@ -59,6 +59,12 @@ func (d *DockerBackend) ExecStream(_ context.Context, opts ExecOptions) (int, er
 	return ExecNonInteractiveStream(d.rt, opts.Name, opts.Command, opts.Env, opts.Workdir, opts.User)
 }
 
+// ExecInteractive runs a command with interactive stdio (-i, plus -t when
+// host stdin is a terminal) and returns the exit code.
+func (d *DockerBackend) ExecInteractive(_ context.Context, opts ExecOptions) (int, error) {
+	return ExecInteractiveAsUser(d.rt, opts.Name, opts.Command, opts.Env, opts.Workdir, opts.User)
+}
+
 // State reports the lifecycle state of the named container.
 func (d *DockerBackend) State(_ context.Context, name string) (ContainerState, error) {
 	return GetContainerState(d.rt, name), nil

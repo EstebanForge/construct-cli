@@ -2,10 +2,13 @@
 package daemon
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/network"
@@ -13,12 +16,16 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// Start starts a background daemon container
+// Start starts a background daemon container or sandbox
 func Start() {
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
+	}
+	if cfg.Runtime.Backend == "msb" {
+		startMsb(cfg)
+		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
@@ -98,12 +105,105 @@ func Start() {
 	ui.GumInfo("Use Ctrl+P Ctrl+Q to detach without stopping")
 }
 
+// startMsb boots the persistent msb daemon sandbox (docs/VMs.md §7 Step 7).
+func startMsb(cfg *config.Config) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to get working directory: %v", err))
+		os.Exit(1)
+	}
+	ui.GumInfo("Starting daemon sandbox...")
+	sb, err := runtime.EnsureMsbDaemon(context.Background(), cfg, cwd)
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to start msb daemon: %v", err))
+		os.Exit(1)
+	}
+	// Detached sandbox: Detach releases the handle without stopping the VM.
+	_ = sb.Detach(context.Background()) //nolint:errcheck // sandbox keeps running detached
+	ui.GumSuccess("Daemon started")
+	fmt.Println()
+	ui.GumInfo("Use 'construct sys daemon attach' to connect")
+	ui.GumInfo("Use 'construct sys daemon stop' to stop (state persists)")
+}
+
+// stopMsb stops the msb daemon sandbox; the root disk persists. Waits for
+// the stopped state so a subsequent start does not race the draining VM.
+func stopMsb() {
+	ctx := context.Background()
+	h, err := msb.GetSandbox(ctx, "construct-cli-daemon")
+	if err != nil {
+		ui.GumWarning("Daemon is not running")
+		os.Exit(1)
+	}
+	if h.Status() == msb.SandboxStatusStopped {
+		ui.GumInfo("Daemon is already stopped")
+		return
+	}
+	if err := h.Stop(ctx); err != nil {
+		ui.GumError(fmt.Sprintf("Failed to stop msb daemon: %v", err))
+		os.Exit(1)
+	}
+	ui.GumSuccess("Daemon stopped")
+}
+
+// attachMsb opens an interactive shell in the running daemon sandbox.
+func attachMsb(cfg *config.Config) {
+	m := runtime.NewMsbBackend()
+	state, err := m.State(context.Background(), "construct-cli-daemon")
+	if err != nil || state != runtime.ContainerStateRunning {
+		ui.GumWarning("Daemon sandbox is not running")
+		fmt.Println("Use 'construct sys daemon start' to start it")
+		os.Exit(1)
+	}
+	shell := "/bin/bash"
+	if cfg != nil && cfg.Sandbox.Shell != "" {
+		shell = cfg.Sandbox.Shell
+	}
+	code, err := m.ExecInteractive(context.Background(), runtime.ExecOptions{
+		Name:    "construct-cli-daemon",
+		Command: []string{shell},
+		Workdir: "/workspace",
+		User:    "construct",
+	})
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to attach: %v", err))
+		os.Exit(1)
+	}
+	os.Exit(code)
+}
+
+// statusMsb reports the msb daemon sandbox state.
+func statusMsb() {
+	state, err := runtime.NewMsbBackend().State(context.Background(), "construct-cli-daemon")
+	fmt.Println("\n=== Daemon Status (msb) ===")
+	fmt.Println("Sandbox: construct-cli-daemon")
+	if err != nil {
+		fmt.Printf("Status: unknown (%v)\n", err)
+		return
+	}
+	switch state {
+	case runtime.ContainerStateRunning:
+		fmt.Println("Status: Running ✓")
+		fmt.Println("Use 'construct sys daemon attach' to connect")
+	case runtime.ContainerStateExited:
+		fmt.Println("Status: Stopped")
+		fmt.Println("Use 'construct sys daemon start' to start")
+	default:
+		fmt.Println("Status: Not created")
+		fmt.Println("Use 'construct sys daemon start' to create")
+	}
+}
+
 // Stop stops the daemon container
 func Stop() {
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
+	}
+	if cfg.Runtime.Backend == "msb" {
+		stopMsb()
+		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
@@ -146,6 +246,11 @@ func Restart() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
+	if cfg.Runtime.Backend == "msb" {
+		stopMsb()
+		startMsb(cfg)
+		return
+	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
 		os.Exit(1)
@@ -182,6 +287,10 @@ func Attach() {
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
+	}
+	if cfg.Runtime.Backend == "msb" {
+		attachMsb(cfg)
+		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
@@ -229,6 +338,11 @@ func Status() {
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
+	}
+	if cfg.Runtime.Backend == "msb" {
+		statusMsb()
+		ServiceStatus()
+		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
