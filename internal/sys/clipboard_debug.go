@@ -35,6 +35,11 @@ func ClipboardDebug(cfg *config.Config) {
 	fmt.Println()
 	fmt.Println("=== Container clipboard diagnostics ===")
 
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
 	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "exec", []string{

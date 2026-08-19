@@ -65,6 +65,10 @@ func AddRule(target, action string) {
 	ui.GumSuccess("Updated config.toml")
 
 	// 6. Apply to running container if exists
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
+		os.Exit(1)
+	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := ApplyRuleToContainer(containerRuntime, containerName,
@@ -129,6 +133,10 @@ func RemoveRule(target string) {
 	ui.GumSuccess("Removed from config.toml")
 
 	// 4. Remove from running container if exists
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
+		os.Exit(1)
+	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := RemoveRuleFromContainer(containerRuntime, containerName, target); err != nil {
@@ -296,6 +304,10 @@ func ShowStatus() {
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
 		os.Exit(1)
 	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
