@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -136,13 +137,39 @@ func (m *MsbBackend) Stop(ctx context.Context, name string) error {
 	return h.RequestStop(ctx)
 }
 
-// Cleanup removes a stopped sandbox so it can be recreated.
+// Cleanup removes the sandbox so it can be recreated: stop first if still
+// running, wait for the stop to land, then remove.
 func (m *MsbBackend) Cleanup(ctx context.Context, name string) error {
 	h, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return nil // already gone
 	}
-	return h.Remove(ctx)
+	if h.Status() == msb.SandboxStatusRunning {
+		if err := h.Stop(ctx); err != nil {
+			return fmt.Errorf("stop sandbox %s: %w", name, err)
+		}
+	}
+	// Re-resolve until fully stopped: the handle's status is a snapshot and
+	// passes through "draining" before "stopped"; Remove refuses earlier.
+	for i := 0; i < 60; i++ {
+		fresh, err := h.Refresh(ctx)
+		if err != nil {
+			return nil // gone
+		}
+		h = fresh
+		if h.Status() == msb.SandboxStatusStopped {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
+	if err := h.Remove(ctx); err != nil {
+		return fmt.Errorf("remove sandbox %s: %w", name, err)
+	}
+	return nil
 }
 
 // WorkingDir is unsupported until sandbox inspect parity lands (Step 7).

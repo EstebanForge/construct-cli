@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -17,6 +18,12 @@ import (
 const (
 	msbVolumePackages = "construct-packages"
 	msbVolumeHome     = "construct-home"
+
+	// msbPackagesVolumeSizeMiB sizes the disk-backed packages volume. msb
+	// requires an explicit size for disk volumes; 20 GiB covers linuxbrew +
+	// npm/bun/cargo agent state with headroom (the container image alone is
+	// 3.4 GiB before any agent install).
+	msbPackagesVolumeSizeMiB = 20 * 1024
 )
 
 // EnsureMsbVolumes creates the named volumes the msb backend needs,
@@ -25,7 +32,9 @@ const (
 func EnsureMsbVolumes(ctx context.Context) error {
 	if _, err := msb.GetVolume(ctx, msbVolumePackages); err != nil {
 		// missing -> create (disk-backed: chown cost, §7.1)
-		if _, err := msb.CreateVolume(ctx, msbVolumePackages, msb.WithVolumeKind(msb.VolumeKindDisk)); err != nil {
+		if _, err := msb.CreateVolume(ctx, msbVolumePackages,
+			msb.WithVolumeKind(msb.VolumeKindDisk),
+			msb.WithVolumeSize(msbPackagesVolumeSizeMiB)); err != nil {
 			return fmt.Errorf("create msb volume %s: %w", msbVolumePackages, err)
 		}
 	}
@@ -50,6 +59,11 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 	}
 
 	if projectDir != "" {
+		// Resolve host symlinks (macOS /var -> /private/var etc.): msb binds
+		// the literal path and fails with ENOTDIR on unresolved temp paths.
+		if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
+			projectDir = resolved
+		}
 		mounts["/workspace"] = msb.Mount.Bind(projectDir, msb.MountOptions{})
 	}
 
@@ -63,11 +77,14 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 // auto-mounts (AGENTS.md "Conditional Host Mounts"). Returns destination,
 // source, and whether the mount is read-only. The qmd models cache stays RW
 // (lazily-fetched models write back to the shared host cache).
+//
+// NOTE: only directory mounts belong here. msb agentd bind-mounts require the
+// target path to pre-exist in the guest image (v0.6.10: a missing target
+// aborts sandbox start with ENOENT, unlike Docker which auto-creates it).
+// File-sized auto-mounts (global gitignore) are seeded post-boot via
+// msbSeedAutoFiles instead.
 func conditionalAutoMounts() []msbAutoMount {
 	var mounts []msbAutoMount
-	if p, ok := getGlobalGitIgnorePath(); ok {
-		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.config/git/ignore", Src: p, Readonly: true})
-	}
 	if p, ok := getQmdModelsPath(); ok {
 		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: false})
 	}
@@ -185,6 +202,42 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		msb.WithMounts(spec.Mounts),
 		msb.WithNetwork(spec.Network),
 		msb.WithEnv(spec.Env),
+		// The image CMD (/bin/bash) exits immediately without a TTY; Docker's
+		// compose keeps it alive via stdin_open+tty, which msb has no equivalent
+		// for. Keep the sandbox (and its entrypoint) alive with a no-op workload.
+		msb.WithCmd("sleep", "infinity"),
 	}
-	return msb.CreateSandbox(ctx, spec.Name, opts...)
+	sb, err := msb.CreateSandbox(ctx, spec.Name, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("create sandbox: %w", err)
+	}
+	if err := msbSeedAutoFiles(ctx, sb); err != nil {
+		return nil, err
+	}
+	return sb, nil
+}
+
+// msbSeedAutoFiles copies file-sized conditional auto-mounts (global
+// gitignore) into the guest after boot. msb cannot bind-mount single files
+// unless the target already exists in the image (ENOENT kills the sandbox,
+// v0.6.10), so the file is copied instead. The copy is a seed, not a live
+// bind: host edits need a sandbox restart to propagate.
+func msbSeedAutoFiles(ctx context.Context, sb *msb.Sandbox) error {
+	p, ok := getGlobalGitIgnorePath()
+	if !ok {
+		return nil
+	}
+	fs := sb.FS()
+	for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/git"} {
+		if err := fs.Mkdir(ctx, dir); err != nil {
+			// Already-existing dirs are fine; anything else is fatal.
+			if _, statErr := fs.Stat(ctx, dir); statErr != nil {
+				return fmt.Errorf("msb seed %s: %w", dir, err)
+			}
+		}
+	}
+	if err := fs.CopyFromHost(ctx, p, "/home/construct/.config/git/ignore"); err != nil {
+		return fmt.Errorf("msb seed gitignore: %w", err)
+	}
+	return nil
 }
