@@ -55,6 +55,14 @@ func TestBuildMsbRunSpecNetwork(t *testing.T) {
 	}
 }
 
+func TestMsbRunSpecEntrypointDefault(t *testing.T) {
+	cfg := config.DefaultConfig()
+	spec := BuildMsbRunSpec(&cfg, "sb", "", nil)
+	if len(spec.Entrypoint) != 0 {
+		t.Errorf("default spec must keep the image entrypoint, got %v", spec.Entrypoint)
+	}
+}
+
 func hasHostRule(net *msb.NetworkConfig, port string) bool {
 	for _, r := range net.Rules {
 		if r.Destination == "host" && r.Port == port && r.Action == "allow" {

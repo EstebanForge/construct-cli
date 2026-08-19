@@ -159,7 +159,8 @@ type MsbRunSpec struct {
 	Mounts       map[string]msb.MountConfig
 	Network      *msb.NetworkConfig
 	Env          map[string]string
-	HostAliasEnv string // CONSTRUCT_HOST_ALIAS value for the entrypoint
+	HostAliasEnv string   // CONSTRUCT_HOST_ALIAS value for the entrypoint
+	Entrypoint   []string // empty = image entrypoint; override for one-shot flows (update-all, install, sha256 verify)
 	Cmd          []string // workload; empty = sleep infinity (persistent sandbox)
 	CPUs         uint8    // 0 = msb default (1)
 	MemoryMiB    uint32   // 0 = msb default (512)
@@ -212,6 +213,12 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		cmd = []string{"sleep", "infinity"}
 	}
 	opts = append(opts, msb.WithCmd(cmd...))
+	if len(spec.Entrypoint) > 0 {
+		// Entrypoint override replaces the image entrypoint entirely (msb
+		// rejects an empty override); construct's one-shot flows (update-all,
+		// install, sha256 verify) map here, mirroring compose --entrypoint.
+		opts = append(opts, msb.WithEntrypoint(spec.Entrypoint...))
+	}
 	if spec.CPUs > 0 {
 		opts = append(opts, msb.WithCPUs(spec.CPUs))
 	}
