@@ -60,11 +60,40 @@ Implication for section 6: bridge endpoints change from `host.docker.internal` t
 
 ## 4. Backend interface
 
-### 4.1 Primitive inventory first
+### 4.1 Primitive inventory (extracted 2026-08-18, non-test importers)
 
-11 non-test files import `internal/runtime`. Call sites use roughly 30 distinct primitives: `GetContainerState`, `IsContainerStale`, `GetContainerLabel`, `GetContainerWorkingDir`, `GetContainerMountSource`, `ListContainersByPrefix`, `ExecInteractiveAsUser`, `ExecNonInteractiveStream`, `ExecInContainerWithEnv`, `StopContainer`, `CleanupExitedContainer`, `CwdContainerName`, `Prepare`, `BuildImage`, `GetCheckImageCommand`, volume `rm`, `docker attach`, and more.
+11 non-test files import `internal/runtime` (plain `runtime` alias in 8, `runtimepkg` in doctor/password, `containerruntime` in exec). Full call inventory, by call count:
 
-The interface must be designed against that inventory, not against "launch" alone. Conformance test suite (section 7, step 3) defines the contract; both backends must pass it.
+| Primitive | Calls | Family |
+|---|---|---|
+| `DetectRuntime` | 18 | host probe |
+| `GetContainerState` | 12 | inspect |
+| `BuildComposeCommand` | 11 | compose assembly |
+| `ContainerStateRunning/Exited/Missing` | 9+8+5 | state enum |
+| `Prepare` | 6 | setup |
+| `ExecInContainerWithEnv` | 8 | exec |
+| `ResolveExecUser` | 5 | exec |
+| `CleanupExitedContainer` | 6 | lifecycle |
+| `AppendRuntimeIdentityEnv` / `AppendProjectPathEnv` | 5+5 | env assembly |
+| `ResolveDaemonMounts` / `MapDaemonWorkdirFromMounts` | 5+2 | mounts |
+| `GetCheckImageCommand` | 6 | staleness |
+| `StopContainer` | 4 | lifecycle |
+| `IsContainerStale` / `IsContainerRunning` | 2+2 | inspect |
+| `GetContainerWorkingDir` / `GetContainerMountSource` / `GetContainerLabel` | 2 each | inspect |
+| `DaemonMountsLabelKey` | 2 | labels |
+| `CwdContainerName` | 2 | naming |
+| `BuildImage` | 2 | image |
+| `ListContainersByPrefix` | 2 | inspect |
+| `GetProjectMountPath` | 2 | mounts |
+| `ExecNonInteractiveStream` / `ExecInteractiveAsUser` | 1 each | exec |
+| `ContainerState` (type) | 1 | state enum |
+| `UsesUserNamespaceRemap` | 1 | host probe |
+| `IsRuntimeRunning` / `IsOrbStackRunning` | 1 each | host probe |
+| `GenerateDockerComposeOverride` | 1 | compose assembly (Docker-only, stays out of `Backend`) |
+
+Interface grouping: exec (3 fns), inspect (7), lifecycle (3), image/setup (3), mounts (4), env assembly (3), naming/labels (2), state enum + type. Host-probe and compose-assembly families are Docker-specific and stay outside the `Backend` interface; `DaemonMountsLabelKey` moves in as a `Labels` concern.
+
+The conformance test suite (section 7, step 3) defines the contract; both backends must pass it.
 
 ### 4.2 Interface sketch (to be finalized after inventory)
 
@@ -134,7 +163,7 @@ Consequences:
 1. **msb `load` transition path works** (msb loads Docker archives), and the first-run agent install (5-10 min, non-TTY, log capture via `InstallAgentsAfterBuild`, `runtime.go:445`) must work inside the VM. This is part of the MVP, not polish.
 2. **ghcr publish** is still worth doing for the base image, but it removes only the image-build dependency, not the agent-install step. The "Docker-free install" story is Phase 3+ and requires the install flow verified end-to-end on msb. Rev 1's "CI plumbing, not code" claim was wrong.
 
-Guest notes: real kernel, so the entrypoint root block (socat setcap, SSH bridge) runs unmodified. In-guest network filtering works (section 6). UID mapping (`CONSTRUCT_HOST_UID/GID`, userns-remap, SELinux `:z`) is Docker-only dead weight in this path. The `USER construct` question (commented out, `Dockerfile:107`) must be decided explicitly for the guest: gosu drop vs. running as the mapped user.
+Guest notes: real kernel, so the entrypoint root block (socat setcap, SSH bridge) runs unmodified. In-guest network filtering works (section 6). UID mapping (`CONSTRUCT_HOST_UID/GID`, userns-remap, SELinux `:z`) is Docker-only dead weight in this path. `USER construct` (Dockerfile:107) stays commented: the entrypoint root block must run as root on every backend, gosu drops to construct after it — decided 2026-08-18.
 
 ## 6. Feature translation map (corrected)
 
@@ -179,9 +208,9 @@ Spikes first, refactor second. Rev 1 had this backwards. Steps 1-2 are done; eac
 
 **Step 2.5 — Session-derived pre-work (do anytime, benefits both backends).**
 
-- [ ] Entrypoint: idempotence check for `chown -R construct:construct /home/linuxbrew/.linuxbrew` — skip when ownership already correct (probe file ownership, e.g. `bin/brew`). Cheap; removes 100-300s on every fresh VM disk (§7.1). Touches `internal/templates/entrypoint.sh` only; Docker path unaffected (volume already warm)
-- [ ] Entrypoint: introduce a per-backend host alias variable (`CONSTRUCT_HOST_ALIAS`) replacing hard-coded `host.docker.internal` in SSH socat + loopback relays. Docker compose sets `host.docker.internal`; the msb backend sets `host.microsandbox.internal`. Keeps entrypoint backend-agnostic
-- [ ] Decide `USER construct` (Dockerfile:107): gosu drop (current) vs msb `-u` direct. Record decision here and in §5
+- [x] Entrypoint: idempotence check for `chown -R construct:construct /home/linuxbrew/.linuxbrew` — skip when ownership already correct (probe file ownership, e.g. `bin/brew`). Cheap; removes 100-300s on every fresh VM disk (§7.1). Touches `internal/templates/entrypoint.sh` only; Docker path unaffected (volume already warm). DONE 2026-08-18
+- [x] Entrypoint: introduce a per-backend host alias variable (`CONSTRUCT_HOST_ALIAS`) replacing hard-coded `host.docker.internal` in SSH socat + loopback relays. Docker compose sets `host.docker.internal`; the msb backend sets `host.microsandbox.internal`. Keeps entrypoint backend-agnostic. DONE 2026-08-18 (entrypoint defaults to `host.docker.internal`; Docker needs no env change; remaining hard-code in `engine.go:1258` daemon socat is Docker-only and moves with Step 4)
+- [x] Decide `USER construct` (Dockerfile:107): gosu drop (current) vs msb `-u` direct. Record decision here and in §5. DECIDED 2026-08-18: keep gosu drop. The entrypoint root block (socat setcap, chown, symlinks) must run as root on every backend; msb `-u` would skip it. Same entrypoint, both backends. `Dockerfile:107` stays commented.
 - [x] Record base-image decision: `debian:trixie-slim` stays. No RPM/musl/minimal alternative accepted (linuxbrew requires glibc + apt ecosystem; base is 75 MB of a 3.4 GB image — size irrelevant). Resolved 2026-08-18
 
 **Step 3 — Primitive inventory + conformance tests.**

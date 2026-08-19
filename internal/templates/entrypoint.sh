@@ -4,6 +4,11 @@
 
 export DEBIAN_FRONTEND=noninteractive
 
+# Per-backend alias that resolves to the host from inside the sandbox.
+# Docker compose sets host.docker.internal; the msb backend sets
+# host.microsandbox.internal. Used by the SSH bridge and loopback relays.
+CONSTRUCT_HOST_ALIAS="${CONSTRUCT_HOST_ALIAS:-host.docker.internal}"
+
 RUN_AS_USER="construct"
 RUN_AS_CHOWN="construct:construct"
 SKIP_RECURSIVE_CHOWN=0
@@ -23,9 +28,15 @@ fi
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
     if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then
-        # Fix Homebrew volume ownership
+        # Fix Homebrew volume ownership. Idempotence probe: a recursive chown over
+        # a fresh VM disk takes 100-300s (D state); skip it when the tree is
+        # already owned by the runtime user (warm volume).
         if [ -d /home/linuxbrew/.linuxbrew ]; then
-            chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+            if [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%U:%G' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
+                :
+            else
+                chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+            fi
         fi
 
         # Fix home directory permissions
@@ -101,7 +112,7 @@ if [ -n "$CONSTRUCT_SSH_BRIDGE_PORT" ] && command -v socat >/dev/null; then
     chmod 700 "$HOME/.ssh" 2>/dev/null || true
     pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" || true
     rm -f "$PROXY_SOCK"
-    socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
+    socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:"$CONSTRUCT_HOST_ALIAS":"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &
     export SSH_AUTH_SOCK="$PROXY_SOCK"
     echo "✓ Started SSH Agent proxy"
 fi
@@ -120,7 +131,7 @@ if [ -n "$CONSTRUCT_LOOPBACK_PORTS" ] && command -v socat >/dev/null 2>&1; then
             ''|*[!0-9]*) continue ;;
         esac
         # Best-effort: a failed bind (port in use / cap missing) must not abort entrypoint.
-        socat TCP-LISTEN:"$_port",fork,bind=127.0.0.1,reuseaddr TCP:host.docker.internal:"$_port" >/tmp/loopback-"$_port".log 2>&1 &
+        socat TCP-LISTEN:"$_port",fork,bind=127.0.0.1,reuseaddr TCP:"$CONSTRUCT_HOST_ALIAS":"$_port" >/tmp/loopback-"$_port".log 2>&1 &
     done
     echo "✓ Started host loopback forwarders on 127.0.0.1: $CONSTRUCT_LOOPBACK_PORTS"
 fi

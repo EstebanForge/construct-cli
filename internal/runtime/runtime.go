@@ -20,6 +20,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/term"
+
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
@@ -1638,7 +1640,7 @@ func ExecInteractive(containerRuntime, containerName string, cmdArgs []string, e
 func ExecInteractiveAsUser(containerRuntime, containerName string, cmdArgs []string, envVars []string, workdir, user string) (int, error) {
 	var cmd *exec.Cmd
 
-	// Build exec args with -it for interactive + tty
+	// Build exec args with -i (plus -t when stdin is a terminal)
 	// Preallocate capacity for: "exec", "-it", optional "-w", env vars, container name, cmd args
 	capacity := 2 + (2 * len(envVars)) + 1 + len(cmdArgs)
 	if workdir != "" {
@@ -1648,8 +1650,14 @@ func ExecInteractiveAsUser(containerRuntime, containerName string, cmdArgs []str
 		capacity += 2
 	}
 	args := make([]string, 0, capacity)
-	args = append(args, "exec", "-it")
-
+	// -t requires a terminal on stdin; docker refuses "cannot attach stdin
+	// to a TTY-enabled container because stdin is not a terminal" when exec
+	// runs from a non-tty context (CI, scripts, tests). Keep -i always.
+	stdTTY := term.IsTerminal(int(os.Stdin.Fd()))
+	args = append(args, "exec", "-i")
+	if stdTTY {
+		args = append(args, "-t")
+	}
 	if workdir != "" {
 		args = append(args, "-w", workdir)
 	}

@@ -5,6 +5,7 @@ go 1.24
 require (
 	github.com/charmbracelet/gum v0.17.0
 	github.com/pelletier/go-toml/v2 v2.4.3
+	golang.org/x/term v0.32.0
 )
 
 require (
@@ -42,6 +43,5 @@ require (
 	golang.org/x/net v0.40.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
 	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/term v0.32.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 )
