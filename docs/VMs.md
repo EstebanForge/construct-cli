@@ -228,10 +228,11 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 - [-] `runtime_test.go` (1818 lines) and `runner_test.go` (1530): no update needed — current API unchanged (facade approach), all existing tests pass as-is
 - [x] Gate: zero behavior change — full `make check` green, conformance suite green on Docker (new `TestConformanceBackendInterface` runs the suite through the interface), no new config keys
 
-**Step 5 — Split `Prepare()`.**
+**Step 5 — Split `Prepare()`. DONE 2026-08-19.**
 
-- [ ] Separate backend-agnostic half (templates, install script, topgrade) from Docker-only half (compose override, `EnsureCustomNetwork`, sudo chown/config perms). Six callers updated
-- [ ] Gate: Docker path byte-identical output (compose files unchanged for same inputs)
+- [x] Split into exported `PrepareBackendAgnostic(cfg, configPath)` (mounted helper templates, user-packages install script, topgrade config) and `PrepareDockerSpecific(cfg, containerRuntime, configPath)` (config dir permissions, strict-mode `EnsureCustomNetwork`, `GenerateDockerComposeOverride`). `Prepare` remains as the Docker composition of both halves
+- [-] Six callers updated: not needed — `Prepare` keeps its signature, all callers (daemon, runner ×2, ops ×2, password) unchanged. The msb backend (Step 6) calls `PrepareBackendAgnostic` only
+- [x] Gate: Docker path byte-identical output (compose files unchanged for same inputs; all runtime/daemon/agent/sys tests green, `make check` green, conformance green)
 
 **Step 6 — MVP msb backend (experimental, opt-in).**
 

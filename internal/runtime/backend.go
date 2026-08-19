@@ -1,15 +1,3 @@
-// Package runtime: Backend interface for isolation backends.
-//
-// The Backend interface covers the backend-agnostic primitive families from
-// the Step 3 inventory (docs/VMs.md §4.1): exec, inspect, lifecycle,
-// image/setup, mounts, env assembly, naming/labels. Host-probe
-// (DetectRuntime, IsRuntimeRunning) and compose-assembly
-// (BuildComposeCommand, GenerateDockerComposeOverride) families are
-// Docker-specific and stay outside this interface.
-//
-// Docker is the reference implementation (backend_docker.go). The msb
-// microVM backend (Step 6) must pass the same conformance suite
-// (conformance_test.go).
 package runtime
 
 import (
