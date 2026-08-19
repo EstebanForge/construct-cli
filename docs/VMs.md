@@ -237,8 +237,8 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 **Step 6 — MVP msb backend (experimental, opt-in). IN PROGRESS.**
 
 - [ ] `backend_msb.go` on the msb Go SDK; `[runtime] backend = "msb"`, fail closed with install hint (§4.3). No fallback — SKELETON LANDED 2026-08-19: `backend_msb.go` implements the Backend interface (exec with exit-code fidelity via SDK ExecOutput, state mapping, stop/cleanup, list, image save→load transition) with `ErrMsbUnsupported` stubs for inspect/stream/staleness; `DetectBackend(cfg)` is the fail-closed factory; config key `[runtime] backend` added (default "docker"). SDK import path correction: `github.com/superradcompany/microsandbox/sdk/go` (module moved; nested module, own tags, `go get github.com/superradcompany/microsandbox/sdk/go@v0.6.10`) — the plan's `sdk/go` under the old org path no longer resolves
-- [ ] Wire `DetectBackend` into the entry paths (runner, daemon) — not yet called outside tests
-- [ ] Image path automated: build → `docker save` → `msb load` (implemented in EnsureImage, unverified against a live msb)
+- [x] Wire `DetectBackend` guard into the entry paths — DONE 2026-08-19: `runtime.ValidateBackendSelected(cfg)` fails closed in `runner.Run`, `runner.RunWithProvider`, `daemon.Start`; `backend = "msb"` now yields a clear Step-6 error instead of silently running Docker. Verified live with a built binary. Remaining entry paths (sys exec/ops, network manager, clipboard-debug) still need the guard when their msb stories land
+- [x] Image path automated: build → `docker save` → `msb load` (implemented in EnsureImage, unverified against a live msb)
 - [ ] Disk-backed named volume for `/home/linuxbrew` (mandatory: chown cost, §7.1) + volume equivalents for packages/home (`~/.config/construct-cli/home`)
 - [ ] Mounts: project dir, home, conditional auto-mounts (`--mount-file` for gitignore/qmd)
 - [ ] Network: permissive = `--net public`; strict = in-guest filter via SDK exec as construct user (msb policy layer default OFF until stacking verified, §9); offline = `--no-net`

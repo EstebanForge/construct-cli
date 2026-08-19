@@ -25,6 +25,25 @@ func TestDetectBackendFailClosed(t *testing.T) {
 	}
 }
 
+func TestValidateBackendSelected(t *testing.T) {
+	cfg := config.DefaultConfig()
+	if err := ValidateBackendSelected(&cfg); err != nil {
+		t.Fatalf("default backend should validate: %v", err)
+	}
+	cfg.Runtime.Backend = "docker"
+	if err := ValidateBackendSelected(&cfg); err != nil {
+		t.Fatalf("docker backend should validate: %v", err)
+	}
+	cfg.Runtime.Backend = "msb"
+	if err := ValidateBackendSelected(&cfg); err == nil || !strings.Contains(err.Error(), "not yet wired") {
+		t.Fatalf("msb should fail closed during Step 6, got %v", err)
+	}
+	cfg.Runtime.Backend = "bogus"
+	if err := ValidateBackendSelected(&cfg); err == nil {
+		t.Fatal("unknown backend should fail")
+	}
+}
+
 func TestMsbBackendAvailable(t *testing.T) {
 	m := NewMsbBackend()
 	if ok, err := m.Available(context.TODO()); err != nil {

@@ -20,6 +20,10 @@ func Start() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
+	if err := runtime.ValidateBackendSelected(cfg); err != nil {
+		ui.GumError(err.Error())
+		os.Exit(1)
+	}
 	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
 	configPath := config.GetConfigDir()
 	containerName := "construct-cli-daemon"
