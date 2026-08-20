@@ -74,7 +74,7 @@ func AddRule(target, action string) {
 		if err := ApplyRuleToContainer(containerRuntime, containerName,
 			target, action, resolvedIPs); err != nil {
 			ui.GumWarning(fmt.Sprintf("Could not apply to container '%s'", containerName))
-			fmt.Println("   Rule will apply on next container start")
+			ui.InfoLn("   Rule will apply on next container start")
 		} else {
 			ui.GumSuccess(fmt.Sprintf("Applied to container '%s' immediately", containerName))
 		}
@@ -141,7 +141,7 @@ func RemoveRule(target string) {
 	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := RemoveRuleFromContainer(containerRuntime, containerName, target); err != nil {
 			ui.GumWarning(fmt.Sprintf("Could not remove from container '%s'", containerName))
-			fmt.Println("   Rule will be removed on next container start")
+			ui.InfoLn("   Rule will be removed on next container start")
 		} else {
 			ui.GumSuccess(fmt.Sprintf("Removed from container '%s' immediately", containerName))
 		}
@@ -165,14 +165,14 @@ func ListRules() {
 	}
 
 	// Use Gum for beautiful table display
-	fmt.Println()
+	ui.InfoLn()
 	cmd := ui.GetGumCommand("style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Network Configuration")
 	cmd.Stdout = os.Stdout
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
 	}
-	fmt.Println()
+	ui.InfoLn()
 
 	cmd = ui.GetGumCommand("style", "--foreground", "212",
 		fmt.Sprintf("Mode: %s", cfg.Network.Mode))
@@ -180,7 +180,7 @@ func ListRules() {
 	if err := cmd.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to render mode: %v\n", err)
 	}
-	fmt.Println()
+	ui.InfoLn()
 
 	// Allowed Domains
 	if len(cfg.Network.AllowedDomains) > 0 {
@@ -207,7 +207,7 @@ func ListRules() {
 				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed domain: %v\n", err)
 			}
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	// Allowed IPs
@@ -225,7 +225,7 @@ func ListRules() {
 				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed IP: %v\n", err)
 			}
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	// Blocked rules (red)
@@ -252,7 +252,7 @@ func ListRules() {
 				fmt.Fprintf(os.Stderr, "Warning: failed to render blocked IP: %v\n", err)
 			}
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
@@ -263,39 +263,39 @@ func ListRules() {
 
 // ListRulesBasic lists rules without Gum (fallback)
 func ListRulesBasic(cfg *config.Config) {
-	fmt.Println("\n=== Network Configuration ===")
-	fmt.Printf("Mode: %s\n\n", cfg.Network.Mode)
+	ui.InfoLn("\n=== Network Configuration ===")
+	ui.InfoF("Mode: %s\n\n", cfg.Network.Mode)
 
 	if len(cfg.Network.AllowedDomains) > 0 {
-		fmt.Println("Allowed Domains:")
+		ui.InfoLn("Allowed Domains:")
 		for _, domain := range cfg.Network.AllowedDomains {
-			fmt.Printf("  • %s\n", domain)
+			ui.InfoF("  • %s\n", domain)
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	if len(cfg.Network.AllowedIPs) > 0 {
-		fmt.Println("Allowed IPs:")
+		ui.InfoLn("Allowed IPs:")
 		for _, ip := range cfg.Network.AllowedIPs {
-			fmt.Printf("  • %s\n", ip)
+			ui.InfoF("  • %s\n", ip)
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
-		fmt.Println("Blocked:")
+		ui.InfoLn("Blocked:")
 		for _, domain := range cfg.Network.BlockedDomains {
-			fmt.Printf("  • %s\n", domain)
+			ui.InfoF("  • %s\n", domain)
 		}
 		for _, ip := range cfg.Network.BlockedIPs {
-			fmt.Printf("  • %s\n", ip)
+			ui.InfoF("  • %s\n", ip)
 		}
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
 		len(cfg.Network.BlockedDomains) == 0 && len(cfg.Network.BlockedIPs) == 0 {
-		fmt.Println("No network rules configured")
+		ui.InfoLn("No network rules configured")
 	}
 }
 
@@ -315,14 +315,14 @@ func ShowStatus() {
 
 	if len(containers) == 0 {
 		ui.GumWarning("Container is not running")
-		fmt.Println("Start an agent to see active network status")
+		ui.InfoLn("Start an agent to see active network status")
 		os.Exit(1)
 	}
 
 	containerName := containers[0]
 
-	fmt.Println("=== Active UFW Status in Container ===")
-	fmt.Println()
+	ui.InfoLn("=== Active UFW Status in Container ===")
+	ui.InfoLn()
 
 	var cmd *exec.Cmd
 	switch containerRuntime {
@@ -343,7 +343,7 @@ func ShowStatus() {
 // ClearRules clears all network rules with confirmation
 func ClearRules() {
 	if !ui.GumConfirm("Clear ALL network rules?") {
-		fmt.Println("Canceled.")
+		ui.InfoLn("Canceled.")
 		return
 	}
 

@@ -85,7 +85,7 @@ func lookupEnvWithFallback(varName string) (string, bool) {
 	if strings.HasPrefix(varName, "CNSTR_") {
 		if value, exists := os.LookupEnv(strings.TrimPrefix(varName, "CNSTR_")); exists && value != "" {
 			if ui.CurrentLogLevel >= ui.LogLevelDebug {
-				fmt.Printf("Debug: Using fallback env var %s for %s\n", strings.TrimPrefix(varName, "CNSTR_"), varName)
+				ui.InfoF("Debug: Using fallback env var %s for %s\n", strings.TrimPrefix(varName, "CNSTR_"), varName)
 			}
 			return value, true
 		}
@@ -298,7 +298,7 @@ func EnsureConstructPath(env *[]string, homeDir string) {
 	constructPath := BuildConstructPath(homeDir)
 
 	if ui.CurrentLogLevel >= ui.LogLevelDebug {
-		fmt.Printf("Debug: Built PATH: %s\n", constructPath[:150]+"...")
+		ui.InfoF("Debug: Built PATH: %s\n", constructPath[:150]+"...")
 	}
 
 	// Find existing PATH in environment

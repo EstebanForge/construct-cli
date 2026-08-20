@@ -281,12 +281,12 @@ func Load() (*Config, bool, error) {
 	createdNew := false
 	// Run init if any file is missing
 	if configMissing {
-		fmt.Println("Required files missing. Running initialization...")
+		ui.InfoLn("Required files missing. Running initialization...")
 		if err := Init(); err != nil {
 			return nil, false, fmt.Errorf("initialization failed: %w", err)
 		}
 		createdNew = true
-		fmt.Println()
+		ui.InfoLn()
 	}
 
 	// Note: Migration check is handled separately in main.go before config.Load()
@@ -354,7 +354,7 @@ func Init() error {
 			}
 		} else {
 			if !ui.GumAvailable() {
-				fmt.Printf("⊗ Exists:  %s\n", path)
+				ui.InfoF("⊗ Exists:  %s\n", path)
 			}
 		}
 		return nil
@@ -412,8 +412,8 @@ func Init() error {
 			fmt.Fprintf(os.Stderr, "Warning: failed to render config path: %v\n", err)
 		}
 	} else {
-		fmt.Println("\nThe Construct initialized successfully!")
-		fmt.Printf("Config directory: %s\n", configPath)
+		ui.InfoLn("\nThe Construct initialized successfully!")
+		ui.InfoF("Config directory: %s\n", configPath)
 	}
 
 	// Set initial version for new installations
