@@ -310,7 +310,7 @@ jobs:
           git push origin HEAD:main || echo "Failed to push release marker update"
 
   update-tap:
-    needs: release
+    needs: [release, resolve]
     if: ${{ needs.resolve.outputs.is_prerelease != 'true' }}
     runs-on: ubuntu-latest
     steps:
