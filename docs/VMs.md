@@ -1,6 +1,6 @@
 # VM Backend Plan (microsandbox) — rev 2
 
-Status: active implementation (Steps 1-6 complete; Step 7 in progress — the run path is live: `backend = "msb"` executes agents inside a persistent microsandbox daemon, live-verified 2026-08-19). Rev 2 was revised after peer review against the codebase. Target: opt-in second isolation backend using [microsandbox](https://github.com/microsandbox/microsandbox) (msb) microVMs, alongside the existing Docker/Podman/container backend.
+Status: active implementation (Steps 1-6 complete; Step 7 in progress — the run path is live and three of five bridges are E2E-verified: clipboard, host exec, SSH agent, all 2026-08-20 under offline egress). Rev 2 was revised after peer review against the codebase. Target: opt-in second isolation backend using [microsandbox](https://github.com/microsandbox/microsandbox) (msb) microVMs, alongside the existing Docker/Podman/container backend.
 
 Rev 2 changes from rev 1: reordered (spikes before refactor), interface sized to the real primitive surface, exit codes and RunOptions gaps fixed, guest→host transport promoted to project gate, `engine` fail-open corrected to fail-closed `backend` key, dynamic network updates corrected (they survive), ghcr section corrected (agents are not in the image), effort estimates raised to realistic.
 
@@ -234,7 +234,7 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 - [-] Six callers updated: not needed — `Prepare` keeps its signature, all callers (daemon, runner ×2, ops ×2, password) unchanged. The msb backend (Step 6) calls `PrepareBackendAgnostic` only
 - [x] Gate: Docker path byte-identical output (compose files unchanged for same inputs; all runtime/daemon/agent/sys tests green, `make check` green, conformance green)
 
-**Step 6 — MVP msb backend (experimental, opt-in). IN PROGRESS.**
+**Step 6 — MVP msb backend (experimental, opt-in). DONE 2026-08-19.**
 
 - [ ] `backend_msb.go` on the msb Go SDK; `[runtime] backend = "msb"`, fail closed with install hint (§4.3). No fallback — SKELETON LANDED 2026-08-19: `backend_msb.go` implements the Backend interface (exec with exit-code fidelity via SDK ExecOutput, state mapping, stop/cleanup, list, image save→load transition) with `ErrMsbUnsupported` stubs for inspect/stream/staleness; `DetectBackend(cfg)` is the fail-closed factory; config key `[runtime] backend` added (default "docker"). SDK import path correction: `github.com/superradcompany/microsandbox/sdk/go` (module moved; nested module, own tags, `go get github.com/superradcompany/microsandbox/sdk/go@v0.6.10`) — the plan's `sdk/go` under the old org path no longer resolves
 - [x] Wire `DetectBackend` guard into the entry paths — DONE 2026-08-19: `runtime.ValidateBackendSelected(cfg)` fails closed in `runner.Run`, `runner.RunWithProvider`, `daemon.Start`; `backend = "msb"` now yields a clear Step-6 error instead of silently running Docker. Verified live with a built binary. Remaining entry paths (sys exec/ops, network manager, clipboard-debug) still need the guard when their msb stories land
@@ -253,9 +253,9 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 **Step 7 — Daemon + bridges + parity. IN PROGRESS.**
 
 - [x] `StartPersistent`/`Exec`/`Attach` via SDK; benchmark vs ~100ms Docker baseline; record numbers here — DONE 2026-08-19, live-verified on macOS aarch64/HVF: `Backend.ExecInteractive` added to the interface (Docker delegates to `ExecInteractiveAsUser`; msb uses SDK `ExecStream` + `WithExecTTY` + `WithExecStdinPipe`, raw mode + SIGWINCH resize forwarding). Engine `Execute()` dispatches `backend = "msb"` to `execViaMsbDaemon` (persistent sandbox `construct-cli-daemon`, first-run `MsbInstallAgents`, `buildDaemonExecEnv` + `MaskEnv` env contract, exit-code fidelity incl. 126/127 hint). Runner entry points branch to `runMsbWithArgs` (`PrepareBackendAgnostic`, no Docker prepare/setup chain). `sys daemon start/stop/restart/attach/status` all dispatch to the sandbox (attach = interactive shell via ExecInteractive). **Benchmarks**: warm run `construct claude --version` = 0.29-0.38s (Docker daemon baseline ~100ms; acceptable). Cold sandbox create = 6-11 min (chown grind, below); sandbox stop→start = ~6 min (virtiofs ownership overlay resets on reboot → home chown re-runs; daemon persists across construct runs so this is rare — idle timeout and max duration are set to unlimited at create)
-- [ ] Clipboard bridge over `host.microsandbox.internal` + existing token auth (verified §3.1) — PARTIAL: engine already builds `CONSTRUCT_CLIPBOARD_URL` with the msb host alias when backend = msb (bridge servers bind the alias); end-to-end clipboard paste test pending
-- [ ] Host exec bridge: transport done; implement PathMap guest-path→host-path translation per mount — PARTIAL: hostexec server starts with the msb alias and the /workspace PathMap already matches `msbSandboxMounts`' project bind; explicit per-mount translation pending
-- [ ] SSH agent bridge: socat guest→`host.microsandbox.internal:<port>` (alias var from Step 2.5)
+- [x] Clipboard bridge over `host.microsandbox.internal` + existing token auth (verified §3.1) — DONE 2026-08-20, live gate `TestMsbLiveClipboardBridge` (env-gated `CONSTRUCT_MSB_LIVE=1`): 401 without token, 200 with token, public egress blocked, all under offline (deny-by-default) mode. Enabler fix: `msbHostTransportRules` — engine bridges bind random ports per run and the daemon sandbox outlives them, so empty `bridgePorts` now emits a single any-port host-TCP rule (destination scoped to host; token auth protects). Narrow per-port rules retained when ports are known
+- [x] Host exec bridge: transport done; implement PathMap guest-path→host-path translation per mount — DONE 2026-08-20: `runtime.MsbPathMaps(projectDir)` derives guest→host translations from the SAME sources as `msbSandboxMounts` (home, /workspace, auto-mounts; parity unit-tested), engine's hostexec wiring branches on backend to use it. Live gate `TestMsbLiveHostExecBridge`: 401 without token, 200 with token, `/workspace` cwd translated to the host project dir in the exec output (base64 stdout frame), offline egress blocked
+- [x] SSH agent bridge: socat guest→`host.microsandbox.internal:<port>` (alias var from Step 2.5) — DONE 2026-08-20: `msbEnsureSSHProxy`/`msbWaitForSSHProxy` in `engine_msb.go` (same per-session socket + socat script as the Docker path, alias target, SDK exec instead of docker exec); `SSH_AUTH_SOCK` injected into the agent exec env; Teardown `cleanupDaemonSSHProxy` branches to the msb exec path. Live gate `TestMsbLiveSSHAgentBridge` PASS: guest `ssh-add -l` lists the host agent's identities through the proxy under offline egress (test-trap fixed: the test's host-side proxy needed concurrent bidirectional copy, not sequential)
 - [ ] Loopback relays: same alias var; verify under `allow@host` rule
 - [ ] `sys exec` non-interactive stream; login callback ports via published ports (`engine.go:684`)
 - [ ] Verify stacked network enforcement explicitly (in-guest filter × msb policy); document interaction or keep msb layer off
@@ -269,7 +269,7 @@ Fixes landed with the suite: `ExecInteractiveAsUser` passes `-t` only when stdin
 
 ### 7.1 msb operational notes (from Spikes A+B, msb v0.6.10)
 
-Behavior the backend implementation must account for. Verified 2026-08-18 on macOS aarch64/HVF; Step 7 additions verified 2026-08-19.
+Behavior the backend implementation must account for. Verified 2026-08-18 on macOS aarch64/HVF; Step 7 additions verified 2026-08-19/20.
 
 - **Attached sandboxes die with their creator.** `CreateSandbox` without `WithDetached()` powers the VM down when the creating process exits ("creator process exited; stopping attached sandbox" in `msb logs --source system") — and killing the creator also kills in-flight exec sessions' guest processes. Daemon sandboxes MUST use `WithDetached()` + `Detach()` (never `Close()`, which stops a detached VM).
 - **Default lifecycle limits kill daemons.** msb defaults reboots the sandbox after idle inactivity; `WithIdleTimeout(0)` + `WithMaxDuration(0)` (both = unlimited) are set at create for daemon semantics.
@@ -303,7 +303,7 @@ Behavior the backend implementation must account for. Verified 2026-08-18 on mac
 | Daemon + bridges + parity | 4-8 weeks |
 | **Total to usable-experimental** | **~2-3 months** |
 
-Single maintainer, part-time. Both spikes passed 2026-08-18 (§3.1, §7 Step 1); remaining unknown is the first-run agent install inside a VM (Step 6).
+Single maintainer, part-time. Both spikes passed 2026-08-18 (§3.1, §7 Step 1); the first-run agent install gate passed 2026-08-19 (Step 6) and the run path + clipboard/hostexec/SSH bridges are live-verified (Step 7, 2026-08-19/20). Remaining: loopback relays verify, `sys exec` stream + login callback ports, stacked enforcement check, full bridge matrix.
 
 ## 9. Risks
 

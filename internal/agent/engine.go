@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -155,7 +156,14 @@ func (e *RuntimeEngine) Prepare() error {
 			timeout = t
 		}
 		pathMaps := []hostexec.PathMap{{Container: runtime.GetProjectMountPath(), Host: e.cwd}}
-		if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {
+		if e.msbBackendSelected() {
+			// msb mounts differ from Docker compose: derive the translation from
+			// the same source the sandbox mounts use (runtime.MsbPathMaps).
+			pathMaps = pathMaps[:0]
+			for _, pm := range runtime.MsbPathMaps(e.cwd) {
+				pathMaps = append(pathMaps, hostexec.PathMap{Container: pm.Guest, Host: pm.Host})
+			}
+		} else if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {
 			for _, m := range dm.Mounts {
 				pathMaps = append(pathMaps, hostexec.PathMap{Container: m.ContainerPath, Host: m.HostPath})
 			}
@@ -785,6 +793,16 @@ func (e *RuntimeEngine) waitForDaemonSSHProxy(daemonName, execUser string) error
 // long-lived daemon does not accumulate dead proxies. Best-effort.
 func (e *RuntimeEngine) cleanupDaemonSSHProxy() {
 	if e.sshProxyContainer == "" || e.sshProxySock == "" {
+		return
+	}
+	if e.msbBackendSelected() {
+		// Same best-effort teardown through the SDK exec path.
+		script := `pkill -f "socat UNIX-LISTEN:` + e.sshProxySock + `" 2>/dev/null || true; rm -f "` + e.sshProxySock + `" 2>/dev/null || true`
+		_, _, _ = runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{ //nolint:errcheck // best-effort teardown
+			Name:    e.sshProxyContainer,
+			Command: []string{"bash", "-lc", script},
+			User:    "construct",
+		})
 		return
 	}
 	cmdArgs := []string{"bash", "-lc", `pkill -f "socat UNIX-LISTEN:` + e.sshProxySock + `" 2>/dev/null || true; rm -f "` + e.sshProxySock + `" 2>/dev/null || true`}
