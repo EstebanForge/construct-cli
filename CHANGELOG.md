@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.15.0 -->
+## [1.15.0] - 2026-08-20
+
+### Added
+- **`construct sys shims`: real PATH executables that route agents through the sandbox, for tools that spawn agent binaries directly**: shell aliases only exist inside an interactive shell, so orchestrators, IDE extensions, and CI wrappers that resolve an agent binary on PATH or exec it without a shell (Paseo and similar harnesses spawning `pi --mode rpc`) never saw the aliases and ran the bare host binary. `construct sys shims --install` (default dir `~/.local/bin`) writes two executables per supported agent: `<slug>` execs `construct <slug>` with stdin/stdout passed through unchanged (JSONL RPC streams stay clean), and `ns-<slug>` execs the real host binary directly, non-sandboxed (the ns- shell functions from the old alias system, now as files; the real binary is resolved on PATH while skipping the shim dir so it can never resolve to our own shim). Refuses to overwrite files it did not write (`--force` overrides), warns when the shim dir is off-PATH or another binary wins resolution, and `--uninstall` removes only files carrying our marker. `--remove-aliases` performs a standalone cleanup of the legacy managed shell alias block for upgraders who do not want shims.
+
+### Changed
+- **The `construct sys aliases` system is removed**: shell aliases were invisible to non-shell callers, which is the gap shims close. `sys shims --install` migrates existing setups by removing the managed `# construct-cli aliases start/end` block from the shell rc (timestamped backup first; hand-written aliases and functions are never touched). For muscle memory and older instructions, `construct sys aliases --uninstall` still works (deprecation note, removes the block, exit 0) while any other legacy aliases flag prints the replacement commands and exits 1.
+- **All run-path status output now goes to stderr, keeping stdout reserved for the agent's own output**: banners such as `Running in Construct daemon: [...]`, daemon startup, SSH/Herdr proxy notices, rebuild hints, and migration chatter printed to stdout, which corrupts line-delimited JSON streams consumed by harnesses and other non-interactive callers. New `ui.Info/InfoLn/InfoF` helpers carry these messages on `internal/agent` (engine, runner, msb) and `internal/migration`; interactive output is visually unchanged because terminals merge both streams. The interactive attach prompt and explicit CLI output (`construct agents`, help) intentionally remain on stdout. Verified end to end: `pi --mode rpc` through an installed shim returns a pure JSONL stream with zero non-JSON stdout lines.
+<!-- RELEASE:END 1.15.0 -->
+
 <!-- RELEASE:START 1.14.1 -->
 ## [1.14.1] - 2026-07-30
 
