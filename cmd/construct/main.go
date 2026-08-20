@@ -181,7 +181,9 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		exitCode := sys.ExecCommand(cfg, execArgs)
 		os.Exit(exitCode)
 	case "aliases":
-		handleAliasesCommand(args[1:])
+		handleLegacyAliasesCommand(args[1:])
+	case "shims":
+		sys.HandleShimsCommand(args[1:])
 	case "version":
 		ui.PrintVersion()
 	case "help":
@@ -259,54 +261,35 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	}
 }
 
-func handleAliasesCommand(args []string) {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: construct sys aliases --install|--update|--uninstall\n")
-		os.Exit(1)
-	}
+// handleLegacyAliasesCommand keeps the removed `sys aliases` entry point
+// working for upgrades: --uninstall still removes the managed alias block;
+// anything else explains the replacement instead of failing blind.
+func handleLegacyAliasesCommand(args []string) {
+	fmt.Fprintln(os.Stderr, "Note: `construct sys aliases` was replaced by `construct sys shims`.")
 
-	var install bool
-	var updateFlag bool
-	var uninstall bool
-
+	uninstall := false
 	for _, arg := range args {
-		switch arg {
-		case "--install":
-			install = true
-		case "--update":
-			updateFlag = true
-		case "--uninstall":
+		if arg == "--uninstall" {
 			uninstall = true
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown aliases flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Usage: construct sys aliases --install|--update|--uninstall\n")
-			os.Exit(1)
 		}
 	}
 
-	selected := 0
-	if install {
-		selected++
-	}
-	if updateFlag {
-		selected++
-	}
-	if uninstall {
-		selected++
-	}
-
-	if selected != 1 {
-		fmt.Fprintf(os.Stderr, "Specify exactly one of: --install, --update, or --uninstall\n")
+	if !uninstall {
+		fmt.Fprintln(os.Stderr, "To install PATH shims (<slug> sandboxed + ns-<slug> host binary), run: construct sys shims --install")
+		fmt.Fprintln(os.Stderr, "To only remove old shell aliases, run: construct sys shims --remove-aliases")
 		os.Exit(1)
 	}
 
-	if uninstall {
-		sys.UninstallAliases()
-		return
+	removed, configFile, err := sys.RemoveLegacyAliasBlock()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error removing aliases: %v\n", err)
+		os.Exit(1)
 	}
-
-	// --install and --update share the same implementation by design.
-	sys.InstallAliases()
+	if removed {
+		fmt.Printf("\u2713 removed legacy shell alias block from %s (backup created)\n", configFile)
+	} else {
+		fmt.Println("No Construct alias block found; nothing to remove.")
+	}
 }
 
 func handlePackagesCommand(args []string, cfg *config.Config) {
@@ -512,7 +495,7 @@ func shouldRunMigration(args []string) bool {
 			return false
 		}
 		switch args[1] {
-		case "init", "rebuild", "update", "reset", "shell", "exec", "aliases", "version", "help",
+		case "init", "rebuild", "update", "reset", "shell", "exec", "version", "help",
 			"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
 			"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
 			return args[1] != "self-update" && args[1] != "rebuild"

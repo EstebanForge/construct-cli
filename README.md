@@ -64,10 +64,35 @@ construct sys init
 # Run an agent
 construct claude "Help me refactor this function"
 
-# Use host aliases (after installation)
-construct sys aliases --install
+# Use PATH shims (after installation)
+construct sys shims --install
 claude "Debug my API code"  # Now available as short command
 ```
+
+### PATH shims: agents in harnesses and non-shell callers
+
+Shell aliases only exist inside an interactive shell (the old alias system
+was replaced by shims). Tools that manage coding
+agents (orchestrators such as Paseo, IDE extensions, CI wrappers) resolve the
+agent binary on PATH or spawn it directly without a shell, so they never see
+aliases — they run the bare host binary. For users who always want agents
+inside the sandbox, shims also install an `ns-<agent>` executable that runs
+the real host binary directly (non-sandboxed), and installing removes the
+legacy managed alias block from your shell config:
+
+```bash
+construct sys shims --install        # writes real executables (default ~/.local/bin)
+pi --version                          # sandboxed via Construct
+ns-pi --version                       # real host binary, no sandbox
+construct sys shims --list           # show state
+construct sys shims --uninstall      # remove (only touches files it wrote)
+construct sys shims --remove-aliases # only clean up legacy shell aliases
+```
+
+Shims exec `construct <slug>` with all arguments; stdin/stdout pass through
+unchanged, so agents in RPC modes (e.g. `pi --mode rpc`) keep streaming JSON
+on stdout. Harnesses that accept an explicit agent binary (e.g. Paseo's
+`PI_COMMAND`) can also point straight at the shim file.
 
 ## Common Examples
 
@@ -133,7 +158,7 @@ construct sys reset            # Reset everything
 
 # Agent commands
 construct <agent>              # Run an agent (e.g., construct claude, construct agy)
-construct sys aliases          # Manage host aliases
+construct sys shims            # Manage PATH shims (sandboxed + ns-) for agents
 construct sys agents-md        # Manage AGENTS.md rules
 
 # Development

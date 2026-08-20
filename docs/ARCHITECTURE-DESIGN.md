@@ -18,7 +18,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives tool installs (apt, brew, npm, pip, cargo, gems), post-install hooks, and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
-- **Agent rules + aliases**: Global AGENTS.md management, plus host alias installation (sandboxed and ns- for direct host use).
+- **Agent rules + shims**: Global AGENTS.md management, plus PATH shims: `<slug>` routes agents through the sandbox, `ns-<slug>` runs the real host binary.
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Configurable Env Passthrough**: Users can forward exact env vars and prefix-mapped env vars into Construct without editing compose overrides.
@@ -200,9 +200,8 @@ make cross-compile   # all platforms
 ## 8. UX Notes
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
-- `aliases --install`: One-step command to add `claude`, `agy`, etc., and `cc-*` aliases to host shell.
-- `aliases --update`: Reinstall/update host aliases if they already exist.
-- `aliases --uninstall`: Remove Construct alias block from host shell.
+- `shims --install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
+- `shims --uninstall`: Remove previously installed shims (only touches files it wrote).
 - `sys check-update`: Manual command to check for new versions.
 - `sys self-update`: Update the Construct binary itself.
 - `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues.
