@@ -15,24 +15,12 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  resolve:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.resolve_version.outputs.version }}
       is_prerelease: ${{ steps.resolve_version.outputs.is_prerelease }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-          cache-dependency-path: go.sum
-
       - name: Resolve release version
         id: resolve_version
         run: |
@@ -64,77 +52,161 @@ jobs:
             IS_PRERELEASE=false
           fi
 
-          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
-          echo "VERSION_SEMVER=${VERSION}" >> "${GITHUB_ENV}"
-          echo "IS_PRERELEASE=${IS_PRERELEASE}" >> "${GITHUB_ENV}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "is_prerelease=${IS_PRERELEASE}" >> "${GITHUB_OUTPUT}"
 
-      - name: Download dependencies
-        run: go mod download
-
-      - name: Verify dependencies
-        run: go mod verify
-
-      - name: Sync VERSION file with tag
-        run: echo "${{ env.VERSION_SEMVER }}" > VERSION
-
-      - name: Run tests
-        run: make test-ci
-
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
       - name: Run linter
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
           args: --timeout=5m
 
-      - name: Build release artifacts
+  # The microsandbox SDK's FFI bridge is cgo (dlopen-based), so every binary
+  # must be built with CGO_ENABLED=1 on a toolchain that can target it:
+  # native runners per platform, cross-cgo (gcc-aarch64-linux-gnu) for
+  # linux/arm64. Plain GOOS/GOARCH cross builds drop the cgo files and fail
+  # with "build constraints exclude all Go files" in internal/ffi.
+  test-linux-amd64:
+    runs-on: ubuntu-latest
+    needs: resolve
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Run tests
+        run: make test-ci
+      - name: Build linux/amd64
         env:
-          VERSION: ${{ env.VERSION }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          make VERSION="${VERSION}" release
-          ls -la dist/
+          mkdir -p dist
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o dist/construct-linux-amd64 ./cmd/construct
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: construct-linux-amd64
+          path: dist/construct-linux-amd64
+          if-no-files-found: error
 
+  build-linux-arm64:
+    runs-on: ubuntu-latest
+    needs: resolve
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Install aarch64 cross toolchain
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+      - name: Build linux/arm64 (cross-cgo)
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -ldflags "-s -w" -o dist/construct-linux-arm64 ./cmd/construct
+      - name: Upload artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: construct-linux-arm64
+          path: dist/construct-linux-arm64
+          if-no-files-found: error
+
+  build-macos:
+    runs-on: macos-latest
+    needs: resolve
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+          cache-dependency-path: go.sum
+      - name: Build darwin (arm64 + amd64 via clang -arch)
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o dist/construct-darwin-arm64 ./cmd/construct
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o dist/construct-darwin-amd64 ./cmd/construct
       - name: Optional release signing and notarization
         env:
           RELEASE_SIGN: ${{ vars.RELEASE_SIGN }}
           RELEASE_NOTARIZE: ${{ vars.RELEASE_NOTARIZE }}
           SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           make release-sign
           make notarize-release
-
       - name: Create macOS Universal Binary
         run: |
-          sudo apt-get update && sudo apt-get install -y llvm
+          lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
+          lipo -info dist/construct
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: construct-darwin
+          path: |
+            dist/construct-darwin-arm64
+            dist/construct-darwin-amd64
+            dist/construct
+          if-no-files-found: error
 
-          if ! command -v llvm-lipo &> /dev/null; then
-            LIPO_PATH=$(find /usr/bin -name "llvm-lipo-*" | head -n 1)
-            if [ -n "$LIPO_PATH" ]; then
-              sudo ln -s "$LIPO_PATH" /usr/bin/llvm-lipo
-            else
-              echo "Error: llvm-lipo not found"
-              exit 1
-            fi
-          fi
-
-          llvm-lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
-          file dist/construct
-          tar -czf dist/construct-cli-macos-universal.tar.gz -C dist construct
-          rm dist/construct
-
-      - name: Prepare Linux Artifacts
+  release:
+    runs-on: ubuntu-latest
+    needs: [resolve, lint, test-linux-amd64, build-linux-arm64, build-macos]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Download all artifacts
+        uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Package release archives
+        env:
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
-          mkdir -p dist/linux-amd64 dist/linux-arm64
-          cp dist/construct-linux-amd64 dist/linux-amd64/construct
-          cp dist/construct-linux-arm64 dist/linux-arm64/construct
-          tar -czf dist/construct-cli-linux-amd64.tar.gz -C dist/linux-amd64 construct
-          tar -czf dist/construct-cli-linux-arm64.tar.gz -C dist/linux-arm64 construct
-          rm -rf dist/linux-amd64 dist/linux-arm64
+          cd dist
+          chmod +x construct-darwin-arm64 construct-darwin-amd64 construct-linux-amd64 construct-linux-arm64
+          tar -czf "construct-darwin-arm64-${VERSION}.tar.gz" construct-darwin-arm64
+          tar -czf "construct-darwin-amd64-${VERSION}.tar.gz" construct-darwin-amd64
+          tar -czf "construct-linux-amd64-${VERSION}.tar.gz" construct-linux-amd64
+          tar -czf "construct-linux-arm64-${VERSION}.tar.gz" construct-linux-arm64
 
+          mkdir -p linux-amd64 linux-arm64
+          cp construct-linux-amd64 linux-amd64/construct
+          cp construct-linux-arm64 linux-arm64/construct
+          tar -czf construct-cli-linux-amd64.tar.gz -C linux-amd64 construct
+          tar -czf construct-cli-linux-arm64.tar.gz -C linux-arm64 construct
+          rm -rf linux-amd64 linux-arm64
+
+          tar -czf construct-cli-macos-universal.tar.gz construct
+          rm construct
       - name: Generate checksums
         env:
-          VERSION: ${{ env.VERSION }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           cd dist
           sha256sum \
@@ -146,10 +218,9 @@ jobs:
             "construct-cli-linux-amd64.tar.gz" \
             "construct-cli-linux-arm64.tar.gz" \
             > checksums.txt
-
       - name: Verify release outputs
         env:
-          VERSION: ${{ env.VERSION }}
+          VERSION: ${{ needs.resolve.outputs.version }}
         run: |
           set -e
           expected_files=(
@@ -172,10 +243,9 @@ jobs:
               exit 1
             fi
           done
-
       - name: Extract release notes from CHANGELOG.md
         env:
-          VERSION_SEMVER: ${{ env.VERSION_SEMVER }}
+          VERSION_SEMVER: ${{ needs.resolve.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -202,31 +272,29 @@ jobs:
               echo "**Full changelog:** ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/tag/${VERSION_SEMVER}" > "${notes_file}"
             fi
           fi
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ env.VERSION }}
-          name: The Construct CLI ${{ env.VERSION }}
+          tag_name: ${{ needs.resolve.outputs.version }}
+          name: The Construct CLI ${{ needs.resolve.outputs.version }}
           body_path: release_notes.md
           draft: false
-          prerelease: ${{ steps.resolve_version.outputs.is_prerelease == 'true' }}
+          prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
           files: |
-            dist/construct-darwin-arm64-${{ env.VERSION }}.tar.gz
-            dist/construct-darwin-amd64-${{ env.VERSION }}.tar.gz
-            dist/construct-linux-amd64-${{ env.VERSION }}.tar.gz
-            dist/construct-linux-arm64-${{ env.VERSION }}.tar.gz
+            dist/construct-darwin-arm64-${{ needs.resolve.outputs.version }}.tar.gz
+            dist/construct-darwin-amd64-${{ needs.resolve.outputs.version }}.tar.gz
+            dist/construct-linux-amd64-${{ needs.resolve.outputs.version }}.tar.gz
+            dist/construct-linux-arm64-${{ needs.resolve.outputs.version }}.tar.gz
             dist/construct-cli-macos-universal.tar.gz
             dist/construct-cli-linux-amd64.tar.gz
             dist/construct-cli-linux-arm64.tar.gz
             dist/checksums.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update release marker file
         env:
-          VERSION: ${{ env.VERSION }}
-          IS_PRERELEASE: ${{ env.IS_PRERELEASE }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          IS_PRERELEASE: ${{ needs.resolve.outputs.is_prerelease }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -243,7 +311,7 @@ jobs:
 
   update-tap:
     needs: release
-    if: ${{ needs.release.outputs.is_prerelease != 'true' }}
+    if: ${{ needs.resolve.outputs.is_prerelease != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Trigger Homebrew Tap Update
@@ -258,7 +326,7 @@ jobs:
               ref: 'main',
               inputs: {
                 formula: 'construct-cli',
-                tag: '${{ needs.release.outputs.version }}',
+                tag: '${{ needs.resolve.outputs.version }}',
                 repository: '${{ github.repository }}'
               }
             })
