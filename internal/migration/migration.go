@@ -271,7 +271,7 @@ func RunMigrations() error {
 	if ui.GumAvailable() {
 		ui.GumSuccess(fmt.Sprintf("Upgrading configuration: %s → %s", installed, current))
 	} else {
-		fmt.Printf("✓ Upgrading configuration: %s → %s\n", installed, current)
+		ui.InfoF("✓ Upgrading configuration: %s → %s\n", installed, current)
 	}
 
 	// 1. Update container templates (always - may have bug fixes)
@@ -285,9 +285,9 @@ func RunMigrations() error {
 		if len(diff.ChangedNames) > 0 {
 			msg := fmt.Sprintf("%s changed, rebuild required", strings.Join(diff.ChangedNames, ", "))
 			if ui.GumAvailable() {
-				fmt.Printf("%s  → %s%s\n", ui.ColorYellow, msg, ui.ColorReset)
+				ui.InfoF("%s  → %s%s\n", ui.ColorYellow, msg, ui.ColorReset)
 			} else {
-				fmt.Printf("  → %s\n", msg)
+				ui.InfoF("  → %s\n", msg)
 			}
 		}
 		markImageForRebuild()
@@ -302,9 +302,9 @@ func RunMigrations() error {
 		if len(softNames) > 0 {
 			msg := fmt.Sprintf("%s changed, restart on next run", strings.Join(softNames, ", "))
 			if ui.GumAvailable() {
-				fmt.Printf("%s  → %s%s\n", ui.ColorGrey, msg, ui.ColorReset)
+				ui.InfoF("%s  → %s%s\n", ui.ColorGrey, msg, ui.ColorReset)
 			} else {
-				fmt.Printf("  → %s\n", msg)
+				ui.InfoF("  → %s\n", msg)
 			}
 		}
 		if err := config.SetRebuildRequired(strings.Join(softNames, ", ") + " changed"); err != nil {
@@ -313,9 +313,9 @@ func RunMigrations() error {
 	} else {
 		// No template changes at all
 		if ui.GumAvailable() {
-			fmt.Printf("%s  → No template changes, skipping rebuild%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  → No template changes, skipping rebuild%s\n", ui.ColorGrey, ui.ColorReset)
 		} else {
-			fmt.Println("  → No template changes, skipping rebuild")
+			ui.InfoLn("  → No template changes, skipping rebuild")
 		}
 	}
 
@@ -338,9 +338,9 @@ func RunMigrations() error {
 		forceEntrypointRun()
 	} else {
 		if ui.GumAvailable() {
-			fmt.Printf("%s  → Packages structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  → Packages structure unchanged, skipping merge%s\n", ui.ColorGrey, ui.ColorReset)
 		} else {
-			fmt.Println("  → Packages structure unchanged, skipping merge")
+			ui.InfoLn("  → Packages structure unchanged, skipping merge")
 		}
 	}
 
@@ -363,16 +363,16 @@ func RunMigrations() error {
 	if ui.GumAvailable() {
 		ui.GumSuccess("Migration complete!")
 		if diff.ImageChanged {
-			fmt.Printf("%s  Note: Container image will rebuild on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  Note: Container image will rebuild on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
 		} else if diff.SoftChanged {
-			fmt.Printf("%s  Note: Container will restart with updated config on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  Note: Container will restart with updated config on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
 		}
 	} else {
-		fmt.Println("✓ Migration complete!")
+		ui.InfoLn("✓ Migration complete!")
 		if diff.ImageChanged {
-			fmt.Println("  Note: Container image will rebuild on next agent run")
+			ui.InfoLn("  Note: Container image will rebuild on next agent run")
 		} else if diff.SoftChanged {
-			fmt.Println("  Note: Container will restart with updated config on next agent run")
+			ui.InfoLn("  Note: Container will restart with updated config on next agent run")
 		}
 	}
 
@@ -384,9 +384,9 @@ func updateContainerTemplates() error {
 	containerDir := filepath.Join(config.GetConfigDir(), "container")
 
 	if ui.GumAvailable() {
-		fmt.Printf("%sUpdating container templates...%s\n", ui.ColorCyan, ui.ColorReset)
+		ui.InfoF("%sUpdating container templates...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
-		fmt.Println("→ Updating container templates...")
+		ui.InfoLn("→ Updating container templates...")
 	}
 
 	// Container templates (safe to replace - no user modifications expected).
@@ -491,16 +491,16 @@ func updateContainerTemplates() error {
 		}
 		// Always show which files were written
 		if ui.GumAvailable() {
-			fmt.Printf("%s  ✓ Written %s (%d bytes)%s\n", ui.ColorGrey, filename, len(content), ui.ColorReset)
+			ui.InfoF("%s  ✓ Written %s (%d bytes)%s\n", ui.ColorGrey, filename, len(content), ui.ColorReset)
 		} else {
-			fmt.Printf("  ✓ Written %s (%d bytes)\n", filename, len(content))
+			ui.InfoF("  ✓ Written %s (%d bytes)\n", filename, len(content))
 		}
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Container templates updated%s\n", ui.ColorPink, ui.ColorReset)
+		ui.InfoF("%s  ✓ Container templates updated%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Container templates updated")
+		ui.InfoLn("  ✓ Container templates updated")
 	}
 
 	return nil
@@ -541,9 +541,9 @@ func attemptMigrationPermissionRecoveryForOS(osName string, cause error, configP
 
 	attemptedOwnershipFix = true
 	if ui.GumAvailable() {
-		fmt.Printf("%sDetected config ownership issue.%s\n", ui.ColorYellow, ui.ColorReset)
+		ui.InfoF("%sDetected config ownership issue.%s\n", ui.ColorYellow, ui.ColorReset)
 	} else {
-		fmt.Println("Detected config ownership issue.")
+		ui.InfoLn("Detected config ownership issue.")
 	}
 
 	commands := ownershipFixCommands(configPath)
@@ -651,9 +651,9 @@ func regenerateTopgradeConfig() {
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Topgrade configuration regenerated%s\n", ui.ColorPink, ui.ColorReset)
+		ui.InfoF("%s  ✓ Topgrade configuration regenerated%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Topgrade configuration regenerated")
+		ui.InfoLn("  ✓ Topgrade configuration regenerated")
 	}
 }
 
@@ -712,9 +712,9 @@ func mergePackagesFile() error {
 	backupPath := packagesPath + ".backup"
 
 	if ui.GumAvailable() {
-		fmt.Printf("%sMerging packages file...%s\n", ui.ColorCyan, ui.ColorReset)
+		ui.InfoF("%sMerging packages file...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
-		fmt.Println("→ Merging packages file...")
+		ui.InfoLn("→ Merging packages file...")
 	}
 
 	// Check if packages.toml exists
@@ -725,9 +725,9 @@ func mergePackagesFile() error {
 		}
 
 		if ui.GumAvailable() {
-			fmt.Printf("%s  ✓ packages.toml created from template%s\n", ui.ColorPink, ui.ColorReset)
+			ui.InfoF("%s  ✓ packages.toml created from template%s\n", ui.ColorPink, ui.ColorReset)
 		} else {
-			fmt.Println("  ✓ packages.toml created from template")
+			ui.InfoLn("  ✓ packages.toml created from template")
 		}
 		return nil
 	}
@@ -744,9 +744,9 @@ func mergePackagesFile() error {
 		return fmt.Errorf("failed to backup packages: %w", err)
 	}
 	if ui.GumAvailable() {
-		fmt.Printf("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
+		ui.InfoF("%s  → Backup saved: %s%s\n", ui.ColorGrey, backupPath, ui.ColorReset)
 	} else {
-		fmt.Printf("  → Backup saved: %s\n", backupPath)
+		ui.InfoF("  → Backup saved: %s\n", backupPath)
 	}
 
 	// Apply template defaults only for missing keys, preserving user values.
@@ -768,9 +768,9 @@ func mergePackagesFile() error {
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Packages merged (user settings preserved)%s\n", ui.ColorPink, ui.ColorReset)
+		ui.InfoF("%s  ✓ Packages merged (user settings preserved)%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Packages merged (user settings preserved)")
+		ui.InfoLn("  ✓ Packages merged (user settings preserved)")
 	}
 
 	return nil
@@ -812,9 +812,9 @@ func markImageForRebuild() {
 	imageName := "construct-box:latest"
 
 	if ui.GumAvailable() {
-		fmt.Printf("%sStopping and removing old containers...%s\n", ui.ColorCyan, ui.ColorReset)
+		ui.InfoF("%sStopping and removing old containers...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
-		fmt.Println("→ Stopping and removing old containers...")
+		ui.InfoLn("→ Stopping and removing old containers...")
 	}
 
 	// Try docker
@@ -870,9 +870,9 @@ func markImageForRebuild() {
 	}
 
 	if ui.GumAvailable() {
-		fmt.Printf("%s  ✓ Containers and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
+		ui.InfoF("%s  ✓ Containers and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
 	} else {
-		fmt.Println("  ✓ Containers and image removed, forcing rebuild")
+		ui.InfoLn("  ✓ Containers and image removed, forcing rebuild")
 	}
 }
 
@@ -895,7 +895,7 @@ func CheckAndMigrate() error {
 	cmp := compareVersions(current, installed)
 
 	// Show migration notice
-	fmt.Println()
+	ui.InfoLn()
 	if ui.GumAvailable() {
 		if versionMissing {
 			ui.GumSuccess(fmt.Sprintf("Legacy or missing version detected → %s", current))
@@ -906,41 +906,41 @@ func CheckAndMigrate() error {
 		} else {
 			ui.GumSuccess(fmt.Sprintf("Template changes detected (%s)", current))
 		}
-		fmt.Printf("%sRunning automatic migration...%s\n", ui.ColorCyan, ui.ColorReset)
+		ui.InfoF("%sRunning automatic migration...%s\n", ui.ColorCyan, ui.ColorReset)
 	} else {
 		if versionMissing {
-			fmt.Printf("✓ Legacy or missing version detected → %s\n", current)
+			ui.InfoF("✓ Legacy or missing version detected → %s\n", current)
 		} else if cmp > 0 {
-			fmt.Printf("✓ New version detected: %s → %s\n", installed, current)
+			ui.InfoF("✓ New version detected: %s → %s\n", installed, current)
 		} else if cmp < 0 {
-			fmt.Printf("✓ Downgrade detected: %s → %s\n", installed, current)
+			ui.InfoF("✓ Downgrade detected: %s → %s\n", installed, current)
 		} else {
-			fmt.Printf("✓ Template changes detected (%s)\n", current)
+			ui.InfoF("✓ Template changes detected (%s)\n", current)
 		}
-		fmt.Println("→ Running automatic migration...")
+		ui.InfoLn("→ Running automatic migration...")
 	}
-	fmt.Println()
+	ui.InfoLn()
 
 	if err := RunMigrations(); err != nil {
 		return err
 	}
 
-	fmt.Println()
+	ui.InfoLn()
 	return nil
 }
 
 // ForceRefresh manually triggers a refresh of configuration and templates
 // This is useful for debugging or when users want to sync with the binary version
 func ForceRefresh() error {
-	fmt.Println()
+	ui.InfoLn()
 	if ui.GumAvailable() {
 		ui.GumSuccess("Refreshing configuration and templates from binary")
-		fmt.Printf("%sThis will update config, templates, and rebuild the container image%s\n", ui.ColorGrey, ui.ColorReset)
+		ui.InfoF("%sThis will update config, templates, and rebuild the container image%s\n", ui.ColorGrey, ui.ColorReset)
 	} else {
-		fmt.Println("✓ Refreshing configuration and templates from binary")
-		fmt.Println("  This will update config, templates, and rebuild the container image")
+		ui.InfoLn("✓ Refreshing configuration and templates from binary")
+		ui.InfoLn("  This will update config, templates, and rebuild the container image")
 	}
-	fmt.Println()
+	ui.InfoLn()
 
 	// 1. Update container templates
 	if err := updateContainerTemplates(); err != nil {
@@ -979,15 +979,15 @@ func ForceRefresh() error {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}
 
-	fmt.Println()
+	ui.InfoLn()
 	if ui.GumAvailable() {
 		ui.GumSuccess("Refresh complete!")
-		fmt.Printf("%s  Configuration and templates synced with binary version %s%s\n", ui.ColorGrey, constants.Version, ui.ColorReset)
+		ui.InfoF("%s  Configuration and templates synced with binary version %s%s\n", ui.ColorGrey, constants.Version, ui.ColorReset)
 	} else {
-		fmt.Println("✓ Refresh complete!")
-		fmt.Printf("  Configuration and templates synced with binary version %s\n", constants.Version)
+		ui.InfoLn("✓ Refresh complete!")
+		ui.InfoF("  Configuration and templates synced with binary version %s\n", constants.Version)
 	}
-	fmt.Println()
+	ui.InfoLn()
 
 	return nil
 }

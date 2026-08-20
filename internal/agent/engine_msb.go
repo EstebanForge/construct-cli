@@ -7,6 +7,7 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
+	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
 // execViaMsbDaemon is the msb run path (docs/VMs.md §7 Step 7): guarantee
@@ -17,7 +18,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	ctx := context.Background()
 
 	if !runtime.AreAgentsInstalled() {
-		fmt.Println("Installing agents inside the sandbox (first run)...")
+		ui.InfoLn("Installing agents inside the sandbox (first run)...")
 		if err := runtime.MsbInstallAgents(ctx, e.cfg); err != nil {
 			return 1, fmt.Errorf("msb agent install: %w", err)
 		}
@@ -38,9 +39,9 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 			shell = e.cfg.Sandbox.Shell
 		}
 		args = []string{shell}
-		fmt.Println("Entering Construct daemon shell...")
+		ui.InfoLn("Entering Construct daemon shell...")
 	} else {
-		fmt.Printf("Running in Construct daemon (msb): %v\n", args)
+		ui.InfoF("Running in Construct daemon (msb): %v\n", args)
 	}
 
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
@@ -53,11 +54,11 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	// (§3.1) and it runs through the SDK exec instead of docker exec.
 	if e.sshBridge != nil {
 		if err := msbEnsureSSHProxy(e.sshBridge.Port, e.sshProxySock); err != nil {
-			fmt.Printf("⚠️  SSH agent proxy not ready (msb): %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy not ready (msb): %v\n", err)
 		} else {
 			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", e.sshProxySock)
 			e.sshProxyContainer = "construct-cli-daemon" // Teardown cleans the socat via the msb exec path
-			fmt.Println("✓ Started SSH Agent proxy (msb)")
+			ui.InfoLn("✓ Started SSH Agent proxy (msb)")
 		}
 	}
 	envVars = e.sec.MaskEnv(envVars)
@@ -70,8 +71,8 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		User:    "construct",
 	})
 	if err == nil && len(args) > 0 && (code == 126 || code == 127) {
-		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
-		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
+		ui.InfoF("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
+		ui.InfoLn("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
 	}
 	return code, err
 }

@@ -26,6 +26,19 @@ func SetLogLevel(level int) {
 	CurrentLogLevel = level
 }
 
+// InfoF prints an informational run-path message to stderr.
+// Stdout is reserved for agent process output: harnesses spawn agents in RPC
+// modes (e.g. `pi --mode rpc`) that stream line-delimited JSON on stdout, so
+// any status text printed there corrupts the protocol stream. Interactive
+// users see the same text because terminals merge both streams.
+func InfoF(format string, a ...any) { fmt.Fprintf(os.Stderr, format, a...) }
+
+// InfoLn prints an informational run-path line to stderr. See InfoF.
+func InfoLn(a ...any) { fmt.Fprintln(os.Stderr, a...) }
+
+// Info prints informational run-path text to stderr without a newline. See InfoF.
+func Info(a ...any) { fmt.Fprint(os.Stderr, a...) }
+
 // LogError prints an error message to stderr.
 func LogError(err error) {
 	fmt.Fprintf(os.Stderr, "Error: %v\n", err)

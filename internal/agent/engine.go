@@ -140,7 +140,7 @@ func (e *RuntimeEngine) Prepare() error {
 		e.cbServer = cbServer
 	} else {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Warning: Failed to start clipboard server: %v\n", err)
+			ui.InfoF("Warning: Failed to start clipboard server: %v\n", err)
 		}
 	}
 
@@ -178,7 +178,7 @@ func (e *RuntimeEngine) Prepare() error {
 			if res, rerr := hostexec.ReconcileShims(homeDir, e.cfg.Sandbox.HostBinaries); rerr != nil {
 				fmt.Fprintf(os.Stderr, "Warning: host exec shim reconcile failed: %v\n", rerr)
 			} else if len(res.Created) > 0 || len(res.Removed) > 0 {
-				fmt.Printf("⚠ host exec enabled: %s\n", strings.Join(e.cfg.Sandbox.HostBinaries, ", "))
+				ui.InfoF("⚠ host exec enabled: %s\n", strings.Join(e.cfg.Sandbox.HostBinaries, ", "))
 			}
 		}
 	}
@@ -262,7 +262,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	switch state {
 	case runtime.ContainerStateRunning:
-		fmt.Printf("⚠️  A container for '%s' is already running.\n\n", e.cwd)
+		ui.InfoF("⚠️  A container for '%s' is already running.\n\n", e.cwd)
 		choice, err := e.promptForAttachOrRestart()
 		if err != nil {
 			return 0, nil // Canceled
@@ -275,7 +275,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 		_ = runtime.CleanupExitedContainer(e.containerRuntime, containerName) //nolint:errcheck
 
 	case runtime.ContainerStateExited:
-		fmt.Printf("🧹 Removing stopped container for '%s'...\n", e.cwd)
+		ui.InfoF("🧹 Removing stopped container for '%s'...\n", e.cwd)
 		_ = runtime.CleanupExitedContainer(e.containerRuntime, containerName) //nolint:errcheck
 	}
 
@@ -350,7 +350,7 @@ func (e *RuntimeEngine) ensureAgentRuntimeDirs() error {
 func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, providerEnv []string) (bool, int, error) {
 	imageName := constants.ImageName + ":latest"
 	if runtime.IsContainerStale(e.containerRuntime, daemonName, imageName) {
-		fmt.Println("⚠️  Daemon is running an outdated image. Falling back to normal startup...")
+		ui.InfoLn("⚠️  Daemon is running an outdated image. Falling back to normal startup...")
 		return false, 0, nil
 	}
 
@@ -392,9 +392,9 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	var bridgeEnv []string
 	if e.sshBridge != nil {
 		if err := e.ensureDaemonSSHProxy(daemonName, e.sshBridge.Port, execUser); err != nil {
-			fmt.Printf("⚠️  SSH agent proxy restart failed (daemon): %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy restart failed (daemon): %v\n", err)
 		} else if err := e.waitForDaemonSSHProxy(daemonName, execUser); err != nil {
-			fmt.Printf("⚠️  SSH agent proxy not ready (daemon): %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy not ready (daemon): %v\n", err)
 		} else {
 			e.sshProxyContainer = daemonName
 			e.sshProxyUser = execUser
@@ -402,21 +402,21 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 				fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port),
 				"SSH_AUTH_SOCK=" + e.sshProxySock,
 			}
-			fmt.Println("✓ Started SSH Agent proxy (daemon)")
+			ui.InfoLn("✓ Started SSH Agent proxy (daemon)")
 		}
 	}
 
 	// Setup Herdr Bridge Proxy if launched from a Herdr pane.
 	if e.herdrBridge != nil {
 		if err := ensureDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
-			fmt.Printf("⚠️  Herdr proxy restart failed (daemon): %v\n", err)
+			ui.InfoF("⚠️  Herdr proxy restart failed (daemon): %v\n", err)
 		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, execUser); err != nil {
-			fmt.Printf("⚠️  Herdr proxy not ready (daemon): %v\n", err)
+			ui.InfoF("⚠️  Herdr proxy not ready (daemon): %v\n", err)
 		} else {
 			e.herdrProxyContainer = daemonName
 			e.herdrProxyUser = execUser
 			bridgeEnv = append(bridgeEnv, e.herdrExecEnv()...)
-			fmt.Println("✓ Started Herdr proxy (daemon)")
+			ui.InfoLn("✓ Started Herdr proxy (daemon)")
 		}
 	}
 
@@ -460,16 +460,16 @@ skipPatch:
 			shell = e.cfg.Sandbox.Shell
 		}
 		args = []string{shell}
-		fmt.Println("Entering Construct daemon shell...")
+		ui.InfoLn("Entering Construct daemon shell...")
 	} else {
-		fmt.Printf("Running in Construct daemon: %v\n", args)
+		ui.InfoF("Running in Construct daemon: %v\n", args)
 	}
 
 	exitCode, err := execInteractiveAsUserFn(e.containerRuntime, daemonName, args, envVars, workdir, execUser)
 	if err == nil && len(args) > 0 && (exitCode == 126 || exitCode == 127) {
-		fmt.Printf("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
-		fmt.Println("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
-		fmt.Println("If needed, run 'construct sys packages --install' to reapply packages.toml.")
+		ui.InfoF("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
+		ui.InfoLn("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
+		ui.InfoLn("If needed, run 'construct sys packages --install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
 }
@@ -486,12 +486,12 @@ func (e *RuntimeEngine) startDaemonBackground(daemonName string) bool {
 	daemonMounts := runtime.ResolveDaemonMounts(e.cfg)
 	if e.cfg != nil && e.cfg.Daemon.MultiPathsEnabled && !daemonMounts.Enabled {
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Println("Warning: daemon.multi_paths_enabled is true but no valid daemon.mount_paths were found; skipping daemon auto-start.")
+			ui.InfoLn("Warning: daemon.multi_paths_enabled is true but no valid daemon.mount_paths were found; skipping daemon auto-start.")
 		}
 		return false
 	}
 
-	fmt.Println("🚀 Starting daemon for faster subsequent runs...")
+	ui.InfoLn("🚀 Starting daemon for faster subsequent runs...")
 
 	osEnv := os.Environ()
 	env.SetEnvVar(&osEnv, "PWD", e.cwd)
@@ -592,9 +592,9 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	if e.sshBridge != nil {
 		execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
 		if err := e.ensureDaemonSSHProxy(containerName, e.sshBridge.Port, execUser); err != nil {
-			fmt.Printf("⚠️  SSH agent proxy restart failed: %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy restart failed: %v\n", err)
 		} else if err := e.waitForDaemonSSHProxy(containerName, execUser); err != nil {
-			fmt.Printf("⚠️  SSH agent proxy not ready: %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy not ready: %v\n", err)
 		} else {
 			e.sshProxyContainer = containerName
 			e.sshProxyUser = execUser
@@ -607,9 +607,9 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	if e.herdrBridge != nil {
 		execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
 		if err := ensureDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
-			fmt.Printf("⚠️  Herdr proxy restart failed: %v\n", err)
+			ui.InfoF("⚠️  Herdr proxy restart failed: %v\n", err)
 		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, execUser); err != nil {
-			fmt.Printf("⚠️  Herdr proxy not ready: %v\n", err)
+			ui.InfoF("⚠️  Herdr proxy not ready: %v\n", err)
 		} else {
 			e.herdrProxyContainer = containerName
 			e.herdrProxyUser = execUser
@@ -863,9 +863,9 @@ func (e *RuntimeEngine) ensureImageExists() {
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
 	checkCmd.Dir = config.GetContainerDir()
 	if err := checkCmd.Run(); err != nil {
-		fmt.Println("Construct image not found. Building...")
+		ui.InfoLn("Construct image not found. Building...")
 		runtime.BuildImage(e.cfg)
-		fmt.Println()
+		ui.InfoLn()
 	}
 }
 
@@ -873,8 +873,8 @@ func (e *RuntimeEngine) warnDaemonMountFallback() {
 	if ui.CurrentLogLevel < ui.LogLevelInfo {
 		return
 	}
-	fmt.Println("Daemon workspace does not include the current directory; running without daemon.")
-	fmt.Println("Tip: Enable multi-root daemon mounts in config for always-fast starts.")
+	ui.InfoLn("Daemon workspace does not include the current directory; running without daemon.")
+	ui.InfoLn("Tip: Enable multi-root daemon mounts in config for always-fast starts.")
 }
 
 func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard.Server, execServer *hostexec.Server, cfg *config.Config) []string {
