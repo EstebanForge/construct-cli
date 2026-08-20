@@ -306,7 +306,7 @@ func BuildImage(cfg *config.Config) {
 		if ui.GumAvailable() {
 			ui.GumWarning("Skipping image build (CONSTRUCT_SKIP_IMAGE_BUILD)")
 		} else {
-			fmt.Println("Skipping image build (CONSTRUCT_SKIP_IMAGE_BUILD)")
+			ui.InfoLn("Skipping image build (CONSTRUCT_SKIP_IMAGE_BUILD)")
 		}
 		return
 	}
@@ -328,12 +328,12 @@ func BuildImage(cfg *config.Config) {
 		}()
 		logPath = logFile.Name()
 		if ui.GumAvailable() {
-			fmt.Printf("%sBuild log: %s%s\n", ui.ColorGrey, logPath, ui.ColorReset)
+			ui.InfoF("%sBuild log: %s%s\n", ui.ColorGrey, logPath, ui.ColorReset)
 		} else {
-			fmt.Printf("Build log: %s\n", logPath)
+			ui.InfoF("Build log: %s\n", logPath)
 		}
 	}
-	fmt.Println() // Spacer
+	ui.InfoLn() // Spacer
 
 	var cmd *exec.Cmd
 
@@ -344,7 +344,7 @@ func BuildImage(cfg *config.Config) {
 		os.Exit(1)
 	}
 	if containerRuntime == "container" {
-		fmt.Println("Note: macOS container runtime detected, using docker for build")
+		ui.InfoLn("Note: macOS container runtime detected, using docker for build")
 	}
 
 	cmd.Dir = configPath
@@ -358,7 +358,7 @@ func BuildImage(cfg *config.Config) {
 	if ui.GumAvailable() {
 		ui.GumSuccess("The Construct image built successfully!")
 	} else {
-		fmt.Println("\n✓ The Construct image built successfully!")
+		ui.InfoLn("\n✓ The Construct image built successfully!")
 	}
 	if err := config.ClearRebuildRequired(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to clear rebuild marker: %v\n", err)
@@ -367,12 +367,12 @@ func BuildImage(cfg *config.Config) {
 	// Check if agents are installed and install them if needed
 	if !AreAgentsInstalled() {
 		if ui.GumAvailable() {
-			fmt.Println()
-			fmt.Printf("%s🔧 Setup required - installing agents and packages...%s\n", ui.ColorOrange, ui.ColorReset)
-			fmt.Printf("%sThis will take 5-10 minutes...%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoLn()
+			ui.InfoF("%s🔧 Setup required - installing agents and packages...%s\n", ui.ColorOrange, ui.ColorReset)
+			ui.InfoF("%sThis will take 5-10 minutes...%s\n", ui.ColorGrey, ui.ColorReset)
 		} else {
-			fmt.Println("\n🔧 Setup required - installing agents and packages...")
-			fmt.Println("This will take 5-10 minutes...")
+			ui.InfoLn("\n🔧 Setup required - installing agents and packages...")
+			ui.InfoLn("This will take 5-10 minutes...")
 		}
 		if err := InstallAgentsAfterBuild(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err) // Simple logging for now
@@ -386,13 +386,13 @@ func BuildImage(cfg *config.Config) {
 		if ui.GumAvailable() {
 			ui.GumSuccess("Setup complete!")
 		} else {
-			fmt.Println("✅ Setup complete!")
+			ui.InfoLn("✅ Setup complete!")
 		}
 	} else {
 		if ui.GumAvailable() {
 			ui.GumSuccess("Setup already completed in persistent volumes")
 		} else {
-			fmt.Println("\n✅ Setup already completed in persistent volumes")
+			ui.InfoLn("\n✅ Setup already completed in persistent volumes")
 		}
 	}
 }
@@ -465,9 +465,9 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 			}
 		}()
 		if ui.GumAvailable() {
-			fmt.Printf("%sSetup log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
+			ui.InfoF("%sSetup log: %s%s\n", ui.ColorGrey, agentLogFile.Name(), ui.ColorReset)
 		} else {
-			fmt.Printf("Setup log: %s\n", agentLogFile.Name())
+			ui.InfoF("Setup log: %s\n", agentLogFile.Name())
 		}
 	}
 
@@ -730,7 +730,7 @@ func EnsureCustomNetwork(containerRuntime string) error {
 	}
 
 	// Create network
-	fmt.Println("Creating custom network for strict mode...")
+	ui.InfoLn("Creating custom network for strict mode...")
 	var createCmd *exec.Cmd
 	switch containerRuntime {
 	case "docker", "container":
@@ -749,7 +749,7 @@ func EnsureCustomNetwork(containerRuntime string) error {
 		return fmt.Errorf("failed to create custom network: %w", err)
 	}
 
-	fmt.Println("✓ Custom network 'construct-net' created")
+	ui.InfoLn("✓ Custom network 'construct-net' created")
 	return nil
 }
 
@@ -1101,16 +1101,16 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	}
 
 	if selinuxEnabled {
-		fmt.Println("✓ SELinux labels enabled for volume mounts")
+		ui.InfoLn("✓ SELinux labels enabled for volume mounts")
 	}
 	projectSelinuxSuffix := selinuxSuffix
 	workingDir := projectPath
 	if selinuxEnabled && isHomeCwd() {
 		projectSelinuxSuffix = ""
 		workingDir = "/projects"
-		fmt.Println("Warning: SELinux relabeling of home directory is not allowed; skipping :z for project mount")
-		fmt.Println("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
-		fmt.Println("Warning: Using /projects as fallback container working directory")
+		ui.InfoLn("Warning: SELinux relabeling of home directory is not allowed; skipping :z for project mount")
+		ui.InfoLn("Warning: Run from a project directory to re-enable SELinux labeling for the workspace")
+		ui.InfoLn("Warning: Using /projects as fallback container working directory")
 	}
 	fmt.Fprintf(&override, "    working_dir: %s\n", workingDir)
 
@@ -1122,7 +1122,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	if inputs.DisableSeccomp {
 		override.WriteString("    security_opt:\n")
 		override.WriteString("      - seccomp:unconfined\n")
-		fmt.Println("\u2713 Seccomp disabled (allows Chrome/Chromium headless automation)")
+		ui.InfoLn("\u2713 Seccomp disabled (allows Chrome/Chromium headless automation)")
 	}
 
 	// Linux capabilities to grant the container. NET_BIND_SERVICE lets the socat
@@ -1154,11 +1154,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	if shouldForceUserMapping {
 		fmt.Fprintf(&override, "    user: \"%d:%d\"\n", hostUID, hostGID)
 		if containerRuntime == "podman" {
-			fmt.Printf("✓ Container (podman) will run as user %d:%d\n", hostUID, hostGID)
+			ui.InfoF("✓ Container (podman) will run as user %d:%d\n", hostUID, hostGID)
 		} else {
-			fmt.Printf("⚠️  non_root_strict enabled: Docker container will run as user %d:%d\n", hostUID, hostGID)
-			fmt.Println("⚠️  Limitations: root bootstrap permission fixes are disabled; brew/npm installs may fail on first run.")
-			fmt.Println("⚠️  Recommendation: prefer runtime.engine='podman' for strict non-root workflows.")
+			ui.InfoF("⚠️  non_root_strict enabled: Docker container will run as user %d:%d\n", hostUID, hostGID)
+			ui.InfoLn("⚠️  Limitations: root bootstrap permission fixes are disabled; brew/npm installs may fail on first run.")
+			ui.InfoLn("⚠️  Recommendation: prefer runtime.engine='podman' for strict non-root workflows.")
 		}
 	}
 
@@ -1218,7 +1218,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	// and the entrypoint creates a socat unix proxy inside the container.
 	// This handles dynamic-path agents (Bitwarden) that recycle socket paths.
 	if forwardSSH && sshAuthSock != "" {
-		fmt.Println("✓ SSH Agent forwarding configured (TCP bridge)")
+		ui.InfoLn("✓ SSH Agent forwarding configured (TCP bridge)")
 	}
 
 	// Linux: ensure host.docker.internal resolves (required for host_service_env)
@@ -1274,12 +1274,12 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	switch networkMode {
 	case "offline":
 		override.WriteString("    network_mode: none\n")
-		fmt.Println("✓ Network isolation: offline (no network access)")
+		ui.InfoLn("✓ Network isolation: offline (no network access)")
 	case "strict":
 		override.WriteString("    networks:\n")
 		override.WriteString("      - construct-net\n")
 		caps = append(caps, "NET_ADMIN")
-		fmt.Println("✓ Network isolation: strict (allowlist mode)")
+		ui.InfoLn("✓ Network isolation: strict (allowlist mode)")
 
 		// Add network definition for strict mode
 		override.WriteString("\nnetworks:\n  construct-net:\n    name: construct-net\n    driver: bridge\n")
