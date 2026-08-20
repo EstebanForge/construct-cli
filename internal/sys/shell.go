@@ -1,17 +1,13 @@
 package sys
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
-	"github.com/EstebanForge/construct-cli/internal/agent"
-	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	"github.com/EstebanForge/construct-cli/internal/update"
 )
@@ -307,338 +303,6 @@ func resolveAliasConstructCommand() (string, error) {
 	return exePath, nil
 }
 
-// InstallAliases writes shell aliases for supported agents.
-func InstallAliases() {
-	constructCmd, err := resolveAliasConstructCommand()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining alias target command: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Standard agents
-	agents := make([]string, 0, len(agent.SupportedAgents))
-	for _, a := range agent.SupportedAgents {
-		agents = append(agents, a.Slug)
-	}
-
-	// CC providers (prefixed with cc-): start with built-in providers, then
-	// add any custom [claude.cc.*] sections found in the user's config.
-	ccProviderSet := map[string]struct{}{
-		"zai": {}, "minimax": {}, "kimi": {}, "qwen": {}, "mimo": {},
-	}
-	if cfg, _, cfgErr := config.Load(); cfgErr == nil {
-		for name := range cfg.Claude.Providers {
-			ccProviderSet[name] = struct{}{}
-		}
-	}
-	ccProviders := make([]string, 0, len(ccProviderSet))
-	for name := range ccProviderSet {
-		ccProviders = append(ccProviders, name)
-	}
-	sort.Strings(ccProviders)
-
-	shellInfo, err := getShellInfo()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining shell config: %v\n", err)
-		os.Exit(1)
-	}
-	configFile := shellInfo.configFile
-
-	// UX: Explain what's happening
-	if ui.GumAvailable() {
-		// Use Gum style for explanation
-		cmd := ui.GetGumCommand("style", "--foreground", "212", "--border", "rounded", "--padding", "1 2", "--margin", "1 0",
-			"This command will install shell aliases for all supported AI agents.",
-			"",
-			"From now on, when you type:",
-			"  • claude",
-			"  • agy",
-			"  • qwen",
-			"  • crush",
-			"",
-			"...they will automatically run inside The Construct.",
-			"Your agents will be sandboxed, and will only have access to the current directory where you call them.")
-		cmd.Stdout = os.Stdout
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to render alias info: %v\n", err)
-		}
-	} else {
-		fmt.Println("\nThis command will install shell aliases for all supported AI agents.")
-		fmt.Println("From now on, commands like 'claude', 'agy', 'qwen', 'crush' will run inside The Construct.")
-		fmt.Println("Your agents will be sandboxed, and will only have access to the current directory where you call them.")
-	}
-
-	fmt.Printf("Target command: %s\n", constructCmd)
-	fmt.Printf("Config file:    %s\n\n", configFile)
-
-	fmt.Println("Aliases to be installed:")
-	// Preview aliases
-	for _, agent := range agents {
-		fmt.Printf("  • alias %-10s = construct %s\n", agent, agent)
-	}
-	fmt.Println("\nCC Provider aliases:")
-	for _, provider := range ccProviders {
-		fmt.Printf("  • alias cc-%-7s = construct cc %s\n", provider, provider)
-	}
-	fmt.Println()
-
-	// Check for non-sandboxed agents and create ns- aliases
-	var nsAliases []nsAlias
-	for _, agent := range agents {
-		// Check if agent binary exists in PATH
-		if agentPath, err := exec.LookPath(agent); err == nil {
-			resolvedPath := resolveBinaryPath(agentPath)
-			nsAliases = append(nsAliases, nsAlias{agent: agent, path: resolvedPath})
-			fmt.Printf("  • %s (non-sandboxed)\n", formatNSFunctionPreview(shellInfo.shellType, agent, resolvedPath))
-		}
-	}
-	if len(nsAliases) > 0 {
-		fmt.Println("\nNon-sandboxed (ns-) aliases:")
-		fmt.Println("  These allow running agents directly without The Construct sandbox.")
-	}
-	fmt.Println()
-
-	// Check if block already exists
-	contentBytes, err := os.ReadFile(configFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
-		os.Exit(1)
-	}
-	content := string(contentBytes)
-	aliasesExist := strings.Contains(content, "# construct-cli aliases start")
-
-	if aliasesExist {
-		if ui.GumAvailable() {
-			ui.GumWarning(fmt.Sprintf("Aliases are already installed in %s", configFile))
-			if !ui.GumConfirm("Do you want to re-install to update them?") {
-				fmt.Println("Canceled.")
-				return
-			}
-			// Backup config before modification
-			if err := backupConfigFile(configFile); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			}
-			// Remove old alias block
-			startIdx := strings.Index(content, "# construct-cli aliases start")
-			endIdx := strings.Index(content, "# construct-cli aliases end")
-			if startIdx != -1 && endIdx != -1 {
-				// Find the end of the line with "# construct-cli aliases end"
-				endLineIdx := strings.Index(content[endIdx:], "\n") + endIdx + 1
-				newContent := content[:startIdx] + content[endLineIdx:]
-				if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
-					fmt.Fprintf(os.Stderr, "Error removing old aliases: %v\n", err)
-					os.Exit(1)
-				}
-			}
-		} else {
-			fmt.Printf("⚠️  Aliases are already installed in %s\n", configFile)
-			fmt.Print("Do you want to re-install to update them? [y/N]: ")
-			reader := bufio.NewReader(os.Stdin)
-			response, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-				os.Exit(1)
-			}
-			response = strings.TrimSpace(response)
-			if strings.ToLower(response) != "y" {
-				fmt.Println("Canceled.")
-				return
-			}
-			// Backup config before modification
-			if err := backupConfigFile(configFile); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-			}
-			// Remove old alias block
-			startIdx := strings.Index(content, "# construct-cli aliases start")
-			endIdx := strings.Index(content, "# construct-cli aliases end")
-			if startIdx != -1 && endIdx != -1 {
-				endLineIdx := strings.Index(content[endIdx:], "\n") + endIdx + 1
-				newContent := content[:startIdx] + content[endLineIdx:]
-				if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
-					fmt.Fprintf(os.Stderr, "Error removing old aliases: %v\n", err)
-					os.Exit(1)
-				}
-			}
-		}
-		fmt.Println("✓ Removed old aliases")
-	}
-
-	// Confirm (skip if already confirmed for re-install)
-	if !aliasesExist {
-		if ui.GumAvailable() {
-			if !ui.GumConfirm("Do you want to proceed?") {
-				fmt.Println("Canceled.")
-				return
-			}
-		} else {
-			fmt.Print("Do you want to proceed? [y/N]: ")
-			reader := bufio.NewReader(os.Stdin)
-			response, err := reader.ReadString('\n')
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-				os.Exit(1)
-			}
-			response = strings.TrimSpace(response)
-			if strings.ToLower(response) != "y" {
-				fmt.Println("Canceled.")
-				return
-			}
-		}
-	}
-
-	// Build alias block
-	var sb strings.Builder
-	sb.WriteString("\n\n# construct-cli aliases start\n")
-
-	// Add standard agents
-	for _, agent := range agents {
-		fmt.Fprintf(&sb, "alias %s='%s %s'\n", agent, constructCmd, agent)
-	}
-
-	// Add CC providers
-	for _, provider := range ccProviders {
-		fmt.Fprintf(&sb, "alias cc-%s='%s cc %s'\n", provider, constructCmd, provider)
-	}
-
-	// Add non-sandboxed (ns-) aliases for agents found in PATH
-	if len(nsAliases) > 0 {
-		sb.WriteString("\n# Non-sandboxed aliases - run agents directly without Construct sandbox\n")
-		for _, nsAlias := range nsAliases {
-			sb.WriteString(formatNSFunction(shellInfo.shellType, nsAlias.agent, nsAlias.path))
-		}
-	}
-
-	sb.WriteString("# construct-cli aliases end\n")
-
-	// Backup config before modification
-	if err := backupConfigFile(configFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-	}
-
-	// Append to file
-	f, err := os.OpenFile(configFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error opening config file: %v\n", err)
-		os.Exit(1)
-	}
-	defer func() {
-		if closeErr := f.Close(); closeErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to close config file: %v\n", closeErr)
-		}
-	}()
-
-	if _, err := f.WriteString(sb.String()); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing to config file: %v\n", err)
-		os.Exit(1)
-	}
-
-	totalAliases := len(agents) + len(ccProviders) + len(nsAliases)
-	if ui.GumAvailable() {
-		ui.GumSuccess(fmt.Sprintf("Successfully installed %d aliases to %s", totalAliases, configFile))
-	} else {
-		fmt.Printf("✅ Successfully installed %d aliases to %s\n", totalAliases, configFile)
-	}
-
-	fmt.Println()
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining home directory: %v\n", err)
-		os.Exit(1)
-	}
-	displayPath := strings.Replace(configFile, homeDir, "~", 1)
-	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
-}
-
-// UninstallAliases removes the Construct alias block from the user's shell config.
-func UninstallAliases() {
-	shellInfo, err := getShellInfo()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining shell config: %v\n", err)
-		os.Exit(1)
-	}
-	configFile := shellInfo.configFile
-
-	contentBytes, err := os.ReadFile(configFile)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading config file: %v\n", err)
-		os.Exit(1)
-	}
-	content := string(contentBytes)
-	aliasesExist := strings.Contains(content, "# construct-cli aliases start")
-
-	if !aliasesExist {
-		if ui.GumAvailable() {
-			ui.GumInfo("No Construct aliases were found to remove.")
-		} else {
-			fmt.Println("No Construct aliases were found to remove.")
-		}
-		return
-	}
-
-	if ui.GumAvailable() {
-		if !ui.GumConfirm("Do you want to remove Construct aliases from your shell config?") {
-			fmt.Println("Canceled.")
-			return
-		}
-	} else {
-		fmt.Print("Do you want to remove Construct aliases from your shell config? [y/N]: ")
-		reader := bufio.NewReader(os.Stdin)
-		response, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error reading input: %v\n", err)
-			os.Exit(1)
-		}
-		response = strings.TrimSpace(response)
-		if strings.ToLower(response) != "y" {
-			fmt.Println("Canceled.")
-			return
-		}
-	}
-
-	if err := backupConfigFile(configFile); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
-	}
-
-	startIdx := strings.Index(content, "# construct-cli aliases start")
-	endIdx := strings.Index(content, "# construct-cli aliases end")
-	if startIdx == -1 || endIdx == -1 {
-		fmt.Fprintf(os.Stderr, "Error removing aliases: alias block not found in %s\n", configFile)
-		os.Exit(1)
-	}
-
-	endLineOffset := strings.Index(content[endIdx:], "\n")
-	endLineIdx := endIdx + len("# construct-cli aliases end")
-	if endLineOffset != -1 {
-		endLineIdx = endIdx + endLineOffset + 1
-	}
-	newContent := content[:startIdx] + content[endLineIdx:]
-
-	if err := os.WriteFile(configFile, []byte(newContent), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error removing aliases: %v\n", err)
-		os.Exit(1)
-	}
-
-	if ui.GumAvailable() {
-		ui.GumSuccess(fmt.Sprintf("Removed Construct aliases from %s", configFile))
-	} else {
-		fmt.Printf("✅ Removed Construct aliases from %s\n", configFile)
-	}
-
-	fmt.Println()
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error determining home directory: %v\n", err)
-		os.Exit(1)
-	}
-	displayPath := strings.Replace(configFile, homeDir, "~", 1)
-	fmt.Printf("To apply the changes without closing your current session, run: source %s\n", displayPath)
-}
-
-type nsAlias struct {
-	agent string
-	path  string
-}
-
 func resolveBinaryPath(agentPath string) string {
 	// Keep symlink-based shim paths (for example /opt/homebrew/bin/*) instead of
 	// resolving to versioned Cellar/Caskroom locations. This keeps ns-* aliases
@@ -648,31 +312,6 @@ func resolveBinaryPath(agentPath string) string {
 		resolvedPath = absPath
 	}
 	return resolvedPath
-}
-
-func quoteShellPath(path string) string {
-	escaped := strings.ReplaceAll(path, "\"", "\\\"")
-	return fmt.Sprintf("\"%s\"", escaped)
-}
-
-func formatNSFunction(shellType, agent, path string) string {
-	quotedPath := quoteShellPath(path)
-	switch shellType {
-	case "fish":
-		return fmt.Sprintf("function ns-%s; %s $argv; end\n", agent, quotedPath)
-	default:
-		return fmt.Sprintf("ns-%s() { %s \"$@\"; }\n", agent, quotedPath)
-	}
-}
-
-func formatNSFunctionPreview(shellType, agent, path string) string {
-	quotedPath := quoteShellPath(path)
-	switch shellType {
-	case "fish":
-		return fmt.Sprintf("function ns-%-8s = %s $argv; end", agent, quotedPath)
-	default:
-		return fmt.Sprintf("function ns-%-8s = %s \"$@\"", agent, quotedPath)
-	}
 }
 
 type shellInfo struct {
@@ -745,4 +384,54 @@ func backupConfigFile(configFile string) error {
 	}
 
 	return nil
+}
+
+// aliasBlockStart/aliasBlockEnd delimit the managed alias block that older
+// Construct releases wrote into shell rc files. The alias system is gone
+// (replaced by `construct sys shims`); these markers remain only to clean up.
+const (
+	aliasBlockStart = "# construct-cli aliases start"
+	aliasBlockEnd   = "# construct-cli aliases end"
+)
+
+// RemoveLegacyAliasBlock removes the managed alias block from the user's
+// shell config without prompting. It backs the file up first. It is called
+// by `construct sys shims --install` so users migrating from aliases to
+// shims do not keep both layers. Hand-written aliases and functions outside
+// the markers are never touched.
+func RemoveLegacyAliasBlock() (removed bool, configFile string, err error) {
+	info, err := getShellInfo()
+	if err != nil {
+		return false, "", err
+	}
+	configFile = info.configFile
+
+	contentBytes, readErr := os.ReadFile(configFile)
+	if readErr != nil {
+		if os.IsNotExist(readErr) {
+			return false, configFile, nil
+		}
+		return false, configFile, readErr
+	}
+	content := string(contentBytes)
+
+	startIdx := strings.Index(content, aliasBlockStart)
+	endIdx := strings.Index(content, aliasBlockEnd)
+	if startIdx == -1 || endIdx == -1 || endIdx < startIdx {
+		return false, configFile, nil
+	}
+
+	if backupErr := backupConfigFile(configFile); backupErr != nil {
+		return false, configFile, backupErr
+	}
+
+	endLineIdx := endIdx + len(aliasBlockEnd)
+	if offset := strings.Index(content[endIdx:], "\n"); offset != -1 {
+		endLineIdx = endIdx + offset + 1
+	}
+	newContent := content[:startIdx] + content[endLineIdx:]
+	if writeErr := os.WriteFile(configFile, []byte(newContent), 0644); writeErr != nil {
+		return false, configFile, writeErr
+	}
+	return true, configFile, nil
 }

@@ -40,10 +40,13 @@ Global Flags:
   construct sys ct-fix             # Repair the ct shorthand command symlink
   construct sys help               # Show this help (alias for --help)
   construct sys init               # Initialize environment and install agents inside Construct
-  construct sys aliases            # Host alias operations
-                                   # [--install] Install agent aliases/functions (includes ns-)
-                                   # [--update] Reinstall/update host aliases
-                                   # [--uninstall] Remove Construct alias block from shell
+  construct sys shims              # PATH shims: real executables routing agents
+                                   # [<slug>] routes through the sandbox (exec construct <slug>)
+                                   # [ns-<slug>] runs the real host binary (non-sandboxed)
+                                   # [--install] Write shims (default ~/.local/bin)
+                                   # [--uninstall] Remove installed shims
+                                   # [--remove-aliases] Only remove legacy shell alias block
+                                   # [--list] Show shim state
   construct sys login-bridge       # Start localhost login callback bridge for headless agents
   construct sys rebuild            # Migrate and sync config/templates, then rebuild Docker image
   construct sys reset              # Delete agent binaries and cache (preserves personal config)
