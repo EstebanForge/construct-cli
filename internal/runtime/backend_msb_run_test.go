@@ -63,6 +63,58 @@ func TestMsbRunSpecEntrypointDefault(t *testing.T) {
 	}
 }
 
+func TestMsbPathMapsMirrorSandboxMounts(t *testing.T) {
+	proj := t.TempDir()
+	mounts := msbSandboxMounts(proj)
+	paths := MsbPathMaps(proj)
+	if len(paths) != len(mounts) {
+		t.Fatalf("MsbPathMaps (%d) must cover every msbSandboxMounts entry (%d)", len(paths), len(mounts))
+	}
+	for _, pm := range paths {
+		mc, ok := mounts[pm.Guest]
+		if !ok {
+			t.Errorf("MsbPathMaps guest %q not in msbSandboxMounts", pm.Guest)
+			continue
+		}
+		if mc.Kind() != msb.MountKindBind || mc.Bind != pm.Host {
+			t.Errorf("guest %q: PathMap host %q != mount bind %q", pm.Guest, pm.Host, mc.Bind)
+		}
+	}
+	// Project dir must always be present.
+	found := false
+	for _, pm := range paths {
+		if pm.Guest == "/workspace" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("MsbPathMaps missing /workspace project translation")
+	}
+}
+
+func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
+	// No known bridge ports (engine binds random ports per run): a single
+	// any-port host-TCP rule must be emitted so bridges stay reachable.
+	for _, mode := range []string{"offline", "permissive"} {
+		net := msbNetworkConfig(mode, nil)
+		hostRules := 0
+		for _, r := range net.Rules {
+			if r.Destination == "host" {
+				hostRules++
+				if r.Port != "" {
+					t.Errorf("%s: empty ports must yield any-port host rule, got port %q", mode, r.Port)
+				}
+				if r.Protocol != msb.PolicyProtocolTCP {
+					t.Errorf("%s: host rule must be TCP, got %q", mode, r.Protocol)
+				}
+			}
+		}
+		if hostRules == 0 {
+			t.Errorf("%s: no host transport rule emitted", mode)
+		}
+	}
+}
+
 func hasHostRule(net *msb.NetworkConfig, port string) bool {
 	for _, r := range net.Rules {
 		if r.Destination == "host" && r.Port == port && r.Action == "allow" {

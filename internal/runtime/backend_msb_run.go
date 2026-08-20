@@ -57,6 +57,33 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 	return mounts
 }
 
+// MsbPathMap pairs a guest mount point with its host source (used by the
+// host exec bridge to translate a guest cwd to the host working dir).
+type MsbPathMap struct {
+	Guest string
+	Host  string
+}
+
+// MsbPathMaps returns the guest→host path translations for every bind in
+// msbSandboxMounts (home, workspace, auto-mounts). Derived from the same
+// sources so the host exec bridge can never drift from actual mounts.
+func MsbPathMaps(projectDir string) []MsbPathMap {
+	maps := []MsbPathMap{}
+	if home := msbHostConstructHome(); home != "" {
+		maps = append(maps, MsbPathMap{Guest: msbHomeMountDest, Host: home})
+	}
+	if projectDir != "" {
+		if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
+			projectDir = resolved
+		}
+		maps = append(maps, MsbPathMap{Guest: "/workspace", Host: projectDir})
+	}
+	for _, m := range conditionalAutoMounts() {
+		maps = append(maps, MsbPathMap{Guest: m.Dest, Host: m.Src})
+	}
+	return maps
+}
+
 // msbHostConstructHome resolves the host construct home dir
 // (~/.config/construct-cli/home), symlink-resolved for msb's literal-path
 // binds. Empty means unavailable; /home/construct then falls back to the
@@ -107,12 +134,23 @@ func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
 	}
 }
 
-func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
-	// Public egress with explicit guest->host transport rules (§3.1):
-	// allow@host:tcp:<port> per bridge + DNS resolution.
-	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionAllow}
+// msbHostTransportRules emits the guest->host transport rules (§3.1).
+// bridgePorts are the known bridge listener ports; when empty (the engine
+// binds random ports per run and the sandbox outlives them) a single
+// any-port host-TCP rule is emitted instead. Safe: destination is the host
+// only, and every bridge enforces token auth.
+func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
+	if len(bridgePorts) == 0 {
+		return []msb.PolicyRule{{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: "host",
+			Protocol:    msb.PolicyProtocolTCP,
+		}}
+	}
+	rules := make([]msb.PolicyRule, 0, len(bridgePorts))
 	for _, port := range bridgePorts {
-		net.Rules = append(net.Rules, msb.PolicyRule{
+		rules = append(rules, msb.PolicyRule{
 			Action:      msb.PolicyActionAllow,
 			Direction:   msb.PolicyDirectionEgress,
 			Destination: "host",
@@ -120,23 +158,21 @@ func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
 			Port:        fmt.Sprintf("%d", port),
 		})
 	}
-	net.Rules = append(net.Rules, dnsRule())
+	return rules
+}
+
+func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
+	// Public egress with explicit guest->host transport rules (§3.1):
+	// allow@host:tcp per bridge + DNS resolution.
+	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionAllow}
+	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule())
 	return net
 }
 
 func msbNetworkOffline(bridgePorts []int) *msb.NetworkConfig {
 	// No public egress; host transport + DNS only (deny-by-default base).
 	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionDeny}
-	for _, port := range bridgePorts {
-		net.Rules = append(net.Rules, msb.PolicyRule{
-			Action:      msb.PolicyActionAllow,
-			Direction:   msb.PolicyDirectionEgress,
-			Destination: "host",
-			Protocol:    msb.PolicyProtocolTCP,
-			Port:        fmt.Sprintf("%d", port),
-		})
-	}
-	net.Rules = append(net.Rules, dnsRule())
+	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule())
 	return net
 }
 
