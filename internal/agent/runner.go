@@ -71,8 +71,8 @@ func RunWithArgs(args []string, networkFlag string) {
 	}
 
 	if shouldPromptGooseConfigure(args, configPath) {
-		fmt.Println("Goose CLI needs initial setup.")
-		fmt.Println("Run: ct goose configure")
+		ui.InfoLn("Goose CLI needs initial setup.")
+		ui.InfoLn("Run: ct goose configure")
 		os.Exit(1)
 	}
 
@@ -95,11 +95,11 @@ func applyNetworkFlag(cfg *config.Config, networkFlag string) {
 			os.Exit(1)
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			fmt.Printf("Network mode: %s (CLI flag override)\n", networkFlag)
+			ui.InfoF("Network mode: %s (CLI flag override)\n", networkFlag)
 		}
 		cfg.Network.Mode = networkFlag
 	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		fmt.Printf("Network mode: %s (from config)\n", cfg.Network.Mode)
+		ui.InfoF("Network mode: %s (from config)\n", cfg.Network.Mode)
 	}
 }
 
@@ -136,7 +136,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	providerEnv := env.ExpandProviderEnv(providerEnvMap)
 
 	if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		fmt.Printf("Using Claude provider: %s\n", providerName)
+		ui.InfoF("Using Claude provider: %s\n", providerName)
 	}
 
 	applyNetworkFlag(cfg, networkFlag)
@@ -203,15 +203,15 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			if err := config.ClearRebuildRequired(); err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: Failed to clear stale rebuild marker: %v\n", err)
 			} else if ui.CurrentLogLevel >= ui.LogLevelDebug {
-				fmt.Println("Debug: Cleared stale rebuild marker; image entrypoint hash is current")
+				ui.InfoLn("Debug: Cleared stale rebuild marker; image entrypoint hash is current")
 			}
 		} else {
 			if reason != "" {
-				fmt.Printf("⚠️  Rebuild required: %s\n", reason)
+				ui.InfoF("⚠️  Rebuild required: %s\n", reason)
 			} else {
-				fmt.Println("⚠️  Rebuild required.")
+				ui.InfoLn("⚠️  Rebuild required.")
 			}
-			fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
+			ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
 			return fmt.Errorf("rebuild required")
 		}
 	}
@@ -228,14 +228,14 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		if err := config.SetRebuildRequired("container image entrypoint is stale"); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
 		}
-		fmt.Println("⚠️  Container image entrypoint is stale.")
-		fmt.Println("Run 'construct sys rebuild' to refresh the container image.")
+		ui.InfoLn("⚠️  Container image entrypoint is stale.")
+		ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
 		return fmt.Errorf("rebuild required")
 	}
 
 	if _, err := os.Stat(forceFile); err == nil {
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Println("Debug: Force setup flag detected")
+			ui.InfoLn("Debug: Force setup flag detected")
 		}
 		return runSetup(cfg, containerRuntime, configPath)
 	}
@@ -244,15 +244,15 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 		actualHash := strings.TrimSpace(string(currentHash))
 		if actualHash == expectedHash {
 			if ui.CurrentLogLevel >= ui.LogLevelDebug {
-				fmt.Printf("Debug: Setup hash matches (%s)\n", actualHash)
+				ui.InfoF("Debug: Setup hash matches (%s)\n", actualHash)
 			}
 			return nil // Already up to date
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelDebug {
-			fmt.Printf("Debug: Setup hash mismatch:\n  Expected: %s\n  Actual:   %s\n", expectedHash, actualHash)
+			ui.InfoF("Debug: Setup hash mismatch:\n  Expected: %s\n  Actual:   %s\n", expectedHash, actualHash)
 		}
 	} else if ui.CurrentLogLevel >= ui.LogLevelDebug {
-		fmt.Printf("Debug: Could not read hash file: %v\n", err)
+		ui.InfoF("Debug: Could not read hash file: %v\n", err)
 	}
 
 	// Hash mismatch or missing - run setup
@@ -335,7 +335,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 	// deadlocks npm's global cache/lock. Refuse to start if one is in progress.
 	lockFile, lockErr := acquireSetupLock()
 	if errors.Is(lockErr, errSetupLockBusy) {
-		fmt.Println("ℹ️  Setup is already running in another instance. Wait for it to finish, then retry.")
+		ui.InfoLn("ℹ️  Setup is already running in another instance. Wait for it to finish, then retry.")
 		return lockErr
 	}
 	if lockErr != nil {
@@ -408,8 +408,8 @@ func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int
 		return 1
 	}
 	if shouldPromptGooseConfigure(args, configPath) {
-		fmt.Println("Goose CLI needs initial setup.")
-		fmt.Println("Run: ct goose configure")
+		ui.InfoLn("Goose CLI needs initial setup.")
+		ui.InfoLn("Run: ct goose configure")
 		return 1
 	}
 	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv)
