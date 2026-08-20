@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -9,6 +11,15 @@ import (
 )
 
 func TestBuildMsbRunSpecMounts(t *testing.T) {
+	// The home bind only exists when the host construct home is present.
+	// Isolate HOME and create it so the test does not depend on machine
+	// state (CI runners have no ~/.config/construct-cli/home).
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "construct-cli", "home"), 0o755); err != nil {
+		t.Fatalf("create construct home: %v", err)
+	}
+
 	cfg := config.DefaultConfig()
 	spec := BuildMsbRunSpec(&cfg, "sb-test", "/tmp/proj", []int{18080})
 	if spec.Name != "sb-test" {
@@ -28,6 +39,17 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	}
 	if spec.HostAliasEnv != msbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != msbHostAlias {
 		t.Errorf("host alias env missing: %+v", spec.Env)
+	}
+}
+
+// Without a host construct home the bind is absent and /home/construct
+// falls back to the image's baked-in skeleton (msbHostConstructHome "").
+func TestBuildMsbRunSpecMountsWithoutHostHome(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.DefaultConfig()
+	spec := BuildMsbRunSpec(&cfg, "sb", "/tmp/proj", nil)
+	if m := spec.Mounts[msbHomeMountDest]; m.Bind != "" {
+		t.Errorf("home bind must be absent without a host construct home: %+v", m)
 	}
 }
 
