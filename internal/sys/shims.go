@@ -128,11 +128,16 @@ func guardTarget(target string, force bool) error {
 }
 
 // writeExecutable writes the script and guarantees the executable bit.
+// The target is removed first: os.WriteFile follows symlinks, so a leftover
+// link would otherwise redirect the write into the link's target file and
+// corrupt whatever it points at (brew/npm globals are commonly symlinks).
 func writeExecutable(target, script string) error {
+	if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+		return err
+	}
 	if err := os.WriteFile(target, []byte(script), 0o755); err != nil {
 		return err
 	}
-	// WriteFile does not tighten permissions on an existing file.
 	return os.Chmod(target, 0o755)
 }
 
@@ -186,6 +191,18 @@ func InstallShims(dir string, only []string, force bool) {
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Could not resolve construct binary path: %v", err))
 		os.Exit(1)
+	}
+
+	// Warn when the resolved construct path does not point at the running
+	// binary. FixCtSymlink repairs a stale ct symlink, but a ct that is a
+	// regular file (or a symlink it cannot replace) is passed through as-is;
+	// every shim would then exec a dead or outdated construct.
+	if resolved, rerr := filepath.EvalSymlinks(constructPath); rerr == nil {
+		if self, serr := os.Executable(); serr == nil {
+			if selfResolved, srr := filepath.EvalSymlinks(self); srr == nil && resolved != selfResolved {
+				fmt.Fprintf(os.Stderr, "⚠ %s does not resolve to the running construct binary (%s); shims will exec it as-is\n", constructPath, selfResolved)
+			}
+		}
 	}
 
 	agents, err := selectAgents(only)
