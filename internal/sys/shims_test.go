@@ -258,3 +258,42 @@ func TestRemoveLegacyAliasBlock(t *testing.T) {
 		t.Error("no backup created before removal")
 	}
 }
+
+func TestWriteShimForceReplacesSymlinkWithoutCorruptingTarget(t *testing.T) {
+	dir := t.TempDir()
+	realBin := filepath.Join(dir, "realBin-pi")
+	original := "#!/bin/sh\nexec realBin\n"
+	if err := os.WriteFile(realBin, []byte(original), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "pi")
+	if err := os.Symlink(realBin, link); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without --force: refused; symlink and its target untouched.
+	if _, err := writeShim(dir, "pi", "/bin/construct", false); err == nil {
+		t.Fatal("expected refusal over foreign symlink")
+	}
+	data, _ := os.ReadFile(realBin)
+	if string(data) != original {
+		t.Fatalf("target modified without force: %q", data)
+	}
+
+	// With --force: the link itself is replaced by our shim file; the file
+	// it pointed at keeps its original content.
+	if _, err := writeShim(dir, "pi", "/bin/construct", true); err != nil {
+		t.Fatalf("force write: %v", err)
+	}
+	info, err := os.Lstat(link)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		t.Errorf("expected a regular file after --force, got err=%v mode=%v", err, info)
+	}
+	if !isOurShim(link) {
+		t.Error("forced replacement is not our shim")
+	}
+	data, _ = os.ReadFile(realBin)
+	if string(data) != original {
+		t.Fatalf("symlink target corrupted by --force: %q", data)
+	}
+}
