@@ -56,6 +56,7 @@ type RuntimeEngine struct {
 	execServer   *hostexec.Server
 	loginForward bool
 	loginPorts   []int
+	argStager    *argStager
 	osEnv        []string
 	cwd          string
 
@@ -107,6 +108,16 @@ func (e *RuntimeEngine) Prepare() error {
 	// host agent dir; the container has an isolated home, so they must be
 	// copied across to take effect. Best-effort; never blocks the run.
 	syncAgentIntegrations(e.args, e.configPath)
+
+	// 2.0.2 Stage host path arguments (orchestrator bridges, MCP configs,
+	// session files) into the construct home and rewrite them to their
+	// container paths. The construct home is mounted on every run path, so
+	// daemon exec, compose run, and msb all see the staged files. Warnings
+	// only; an unstaged path behaves exactly as before this feature.
+	if st := newArgStager(firstArgSlug(e.args), e.configPath, e.cwd); st != nil {
+		st.adaptArgs(e.args)
+		e.argStager = st
+	}
 
 	// 2.1 Write Global Agent Instructions (AGENTS.md)
 	globalAgentsMD := filepath.Join(e.configPath, "home", "AGENTS.md")
@@ -300,6 +311,12 @@ func resolveHostExecTimeout() time.Duration {
 
 // Teardown cleans up resources used by the engine.
 func (e *RuntimeEngine) Teardown() {
+	if e.argStager != nil {
+		// Sessions mutated inside the sandbox flow back to the host store
+		// first; the staging dir itself is per-run and always removable.
+		e.argStager.syncBack()
+		e.argStager.cleanup()
+	}
 	if e.sshBridge != nil {
 		// Remove our per-session socat/socket before tearing down the host
 		// bridge, so a finishing session never leaves a dead proxy behind for
