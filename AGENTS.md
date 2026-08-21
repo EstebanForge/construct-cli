@@ -50,6 +50,18 @@
 - Platform caveat: macOS host-gateway routes to host `127.0.0.1` (reaches loopback-bound dev servers). Linux host-gateway is the bridge IP — host services must bind `0.0.0.0`/bridge, not `127.0.0.1`-only.
 - `localhost` itself is NOT remapped (would shadow `127.0.0.1 localhost` or break in-container loopback services). For host `localhost` services, the relay on port 80/443 covers `http://localhost`/`https://localhost`; for other host-loopback use cases prefer `host.docker.internal`.
 
+## Run-Path Output (stdout is the agent's)
+
+Anything printed BEFORE or DURING agent execution must go to stderr (`ui.Info`, `ui.InfoLn`, `ui.InfoF` in `internal/ui`). Harnesses spawn agents in RPC modes that stream line-delimited JSON on stdout; any banner printed there corrupts the protocol stream. The interactive attach prompt in `engine.go` and explicit CLI output (`construct agents`, help screens) are the only intentional stdout on agent paths.
+
+## Harness Path-Arg Staging
+
+`internal/agent/arg_staging.go` stages orchestrator host path args into the construct home before any run path branches (`engine.Prepare`). When touching agent spawn behavior, keep these invariants: flags per agent live in `agentPathFlags`; staged files land under `.construct-staging/<run-id>` (0700); allowed roots are temp trees, the agent host config dir, and the caller cwd; values outside the roots stay untouched; `--session` values get a Teardown copy-back. Details: [docs/HARNESS-STAGING.md](docs/HARNESS-STAGING.md).
+
+## Release Builds (cgo constraint)
+
+The microsandbox SDK's FFI bridge is an untagged cgo file, so plain `GOOS`/`GOARCH` cross builds (cgo off) drop it and fail with "build constraints exclude all Go files" in `internal/ffi`. Release artifacts are built where a cgo toolchain exists (`.github/workflows/release.yml`): darwin on a macOS runner (clang `-arch` for amd64, native `lipo`), linux/amd64 native, linux/arm64 via `gcc-aarch64-linux-gnu`. Do not reintroduce a single-runner cross-compile matrix; `make cross-compile` remains local-dev only and cannot produce release artifacts for foreign platforms.
+
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases

@@ -8,6 +8,7 @@ Complete documentation for The Construct CLI.
 - [Configuration](CONFIGURATION.md) - Configure all settings
 - [Security](SECURITY.md) - Security features and best practices
 - [Host Exec Bridge](HOST-EXEC.md) - Proxy host-only binaries into the sandbox
+- [Harness Path-Arg Staging](HARNESS-STAGING.md) - Run orchestrator-driven agents (Paseo & co.) inside the sandbox
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [README](../README.md) - Project overview and quick start
 

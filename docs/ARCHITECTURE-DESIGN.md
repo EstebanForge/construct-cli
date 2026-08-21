@@ -18,7 +18,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives tool installs (apt, brew, npm, pip, cargo, gems), post-install hooks, and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
-- **Agent rules + shims**: Global AGENTS.md management, plus PATH shims: `<slug>` routes agents through the sandbox, `ns-<slug>` runs the real host binary.
+- **Agent rules + shims**: Global AGENTS.md management, plus PATH shims: `<slug>` routes agents through the sandbox, `ns-<slug>` runs the real host binary, and orchestrator host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to container paths ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
 - **Flexible Claude Integration**: Configurable provider aliases for Claude Code with secure environment management.
 - **Configurable Env Passthrough**: Users can forward exact env vars and prefix-mapped env vars into Construct without editing compose overrides.
@@ -202,6 +202,9 @@ make cross-compile   # all platforms
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
 - `shims --install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
 - `shims --uninstall`: Remove previously installed shims (only touches files it wrote).
+- `shims --remove-aliases`: Standalone cleanup of the legacy managed shell alias block. `sys aliases --uninstall` still works as a deprecation route; any other legacy aliases flag prints replacement guidance.
+- Run-path status output (daemon banners, proxy notices, image-build progress, migration chatter) goes to stderr via `ui.Info/InfoLn/InfoF`; stdout is reserved for the agent's own output so RPC modes stream clean JSONL. The interactive attach prompt and explicit CLI output (`construct agents`, help) stay on stdout.
+- Harness host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to `/home/construct/.construct-staging/...` in `engine.Prepare`, covering daemon exec, compose run, and msb alike ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
 - `sys check-update`: Manual command to check for new versions.
 - `sys self-update`: Update the Construct binary itself.
 - `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues.
