@@ -95,7 +95,9 @@ on stdout. Host path arguments passed by orchestrators (pi `--extension`,
 `--mcp-config`, `--session`) are staged into the construct home and rewritten
 to their container paths automatically, so harness-driven agents run sandboxed
 with their bridges intact. Harnesses that accept an explicit agent binary
-(e.g. Paseo's `PI_COMMAND`) can also point straight at the shim file.
+(e.g. Paseo's `PI_COMMAND`) can also point straight at the shim file. Full
+setup guide for orchestrators (daemon mounts, PATH, troubleshooting):
+[docs/HARNESSES.md](docs/HARNESSES.md).
 
 ## Common Examples
 

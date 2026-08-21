@@ -1,6 +1,6 @@
 # Harness Path-Arg Staging
 
-How orchestrator-driven agents (Paseo, IDE extensions, CI wrappers) run inside the sandbox even though they pass host paths on the command line.
+How orchestrator-driven agents (Paseo, IDE extensions, CI wrappers) run inside the sandbox even though they pass host paths on the command line. For the user-facing setup guide (shims, daemon mounts, PATH), see [HARNESSES.md](HARNESSES.md); this document covers the mechanism.
 
 ## The problem
 
