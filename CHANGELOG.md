@@ -2,16 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-<!-- RELEASE:START 1.15.0 -->
-## [1.15.0] - 2026-08-20
+<!-- RELEASE:START 1.15.1 -->
+## [1.15.1] - 2026-08-20
 
 ### Added
 - **`construct sys shims`: real PATH executables that route agents through the sandbox, for tools that spawn agent binaries directly**: shell aliases only exist inside an interactive shell, so orchestrators, IDE extensions, and CI wrappers that resolve an agent binary on PATH or exec it without a shell (Paseo and similar harnesses spawning `pi --mode rpc`) never saw the aliases and ran the bare host binary. `construct sys shims --install` (default dir `~/.local/bin`) writes two executables per supported agent: `<slug>` execs `construct <slug>` with stdin/stdout passed through unchanged (JSONL RPC streams stay clean), and `ns-<slug>` execs the real host binary directly, non-sandboxed (the ns- shell functions from the old alias system, now as files; the real binary is resolved on PATH while skipping the shim dir so it can never resolve to our own shim). Refuses to overwrite files it did not write (`--force` overrides), warns when the shim dir is off-PATH or another binary wins resolution, and `--uninstall` removes only files carrying our marker. `--remove-aliases` performs a standalone cleanup of the legacy managed shell alias block for upgraders who do not want shims.
+- **Host path arguments are staged into the sandbox for harness-driven runs**: orchestrators pass absolute host paths as flag values (pi `--extension` and `--mcp-config` point at temp bridge files under `/var/folders`, `--session` at the host `~/.pi` store), and those paths do not exist inside the container (the sandbox home is the bind-mounted construct home; macOS Docker Desktop does not share `/var/folders`). Flagged values for known agents that resolve to existing host files under trusted roots (temp trees, the agent's host config dir, the caller's cwd) are copied to `<construct home>/.construct-staging/<run-id>/` (0700, 8 MB per file, 16 files per run) and rewritten to their `/home/construct/.construct-staging/...` paths, in `engine.Prepare` so the daemon exec, compose run, and msb paths all inherit it. Session files register a copy-back on Teardown so sandbox progress reaches the original host store. Values outside the allowlist are left untouched. Verified live with the exact Paseo argv: bridge extension loaded in-sandbox, sandbox-born session resumed, clean JSONL on stdout.
 
 ### Changed
 - **The `construct sys aliases` system is removed**: shell aliases were invisible to non-shell callers, which is the gap shims close. `sys shims --install` migrates existing setups by removing the managed `# construct-cli aliases start/end` block from the shell rc (timestamped backup first; hand-written aliases and functions are never touched). For muscle memory and older instructions, `construct sys aliases --uninstall` still works (deprecation note, removes the block, exit 0) while any other legacy aliases flag prints the replacement commands and exits 1.
 - **All run-path status output now goes to stderr, keeping stdout reserved for the agent's own output**: banners such as `Running in Construct daemon: [...]`, daemon startup, SSH/Herdr proxy notices, rebuild hints, migration chatter, first-run initialization, and image-build progress printed to stdout, which corrupts line-delimited JSON streams consumed by harnesses and other non-interactive callers. New `ui.Info/InfoLn/InfoF` helpers carry these messages on `internal/agent` (engine, runner, msb), `internal/migration`, `internal/runtime`, `internal/env`, `internal/config`, and `internal/network`; interactive output is visually unchanged because terminals merge both streams. The interactive attach prompt and explicit CLI output (`construct agents`, help) intentionally remain on stdout. Verified warm: `pi --mode rpc` through an installed shim returns a pure JSONL stream with zero non-JSON stdout lines; cold-start output (first-run init, image build) also lands on stderr.
-<!-- RELEASE:END 1.15.0 -->
+<!-- RELEASE:END 1.15.1 -->
 
 <!-- RELEASE:START 1.14.1 -->
 ## [1.14.1] - 2026-07-30
