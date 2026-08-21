@@ -91,8 +91,11 @@ construct sys shims --remove-aliases # only clean up legacy shell aliases
 
 Shims exec `construct <slug>` with all arguments; stdin/stdout pass through
 unchanged, so agents in RPC modes (e.g. `pi --mode rpc`) keep streaming JSON
-on stdout. Harnesses that accept an explicit agent binary (e.g. Paseo's
-`PI_COMMAND`) can also point straight at the shim file.
+on stdout. Host path arguments passed by orchestrators (pi `--extension`,
+`--mcp-config`, `--session`) are staged into the construct home and rewritten
+to their container paths automatically, so harness-driven agents run sandboxed
+with their bridges intact. Harnesses that accept an explicit agent binary
+(e.g. Paseo's `PI_COMMAND`) can also point straight at the shim file.
 
 ## Common Examples
 
