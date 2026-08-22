@@ -21,7 +21,6 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	ctx := context.Background()
 
 	if !runtime.AreAgentsInstalled() {
-		ui.InfoLn("Installing agents inside the sandbox (first run)...")
 		if err := runtime.MsbInstallAgents(ctx, e.cfg); err != nil {
 			return 1, fmt.Errorf("msb agent install: %w", err)
 		}

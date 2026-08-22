@@ -12,6 +12,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
 // ErrMsbUnsupported marks primitives with no msb equivalent yet (Step 6
@@ -46,17 +47,22 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) error {
 		return nil
 	}
 
+	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
+
 	// Try msb pull from GHCR first if network available
+	ui.InfoLn("→ Attempting to pull construct-box image from GHCR...")
 	pull := exec.Command("msb", "pull", "ghcr.io/estebanforge/construct-box:latest")
 	pull.Stdin = nil
 	if _, err := pull.CombinedOutput(); err == nil {
 		tag := exec.Command("msb", "image", "tag", "ghcr.io/estebanforge/construct-box:latest", "construct-box:latest")
 		tag.Stdin = nil
 		if terr := tag.Run(); terr == nil {
+			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 			return nil
 		}
 	}
 
+	ui.InfoLn("→ Transitioning local Docker image to microVM (docker save + msb load)...")
 	tmp, err := os.CreateTemp("", "construct-box-*.tar")
 	if err != nil {
 		return fmt.Errorf("msb image transition: %w", err)
@@ -77,6 +83,7 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) error {
 	if out, err := load.CombinedOutput(); err != nil {
 		return fmt.Errorf("msb load: %w: %s", err, out)
 	}
+	ui.InfoLn("✓ MicroVM image loaded")
 	return nil
 }
 
