@@ -122,7 +122,9 @@ Construct supports microVM hardware isolation as an opt-in runtime backend (`bac
   - **Resource Allocations**: Configured to 4 vCPUs and 4096 MiB RAM (`CPUs: 4, MemoryMiB: 4096`), ensuring multi-threaded JS/TS CLI agents (Claude Code, Pi extensions, Codex, OpenCode) operate without memory pressure or Linux OOM termination.
   - **Startup Sequencing**: The guest entrypoint creates `/tmp/.construct_entrypoint_ready` on tmpfs when initialization completes. The backend probes this readiness marker before routing agent executions.
   - **Agent Installation**: First-run agent installation runs inside the VM via `MsbInstallAgents`, persisting installed toolchains and Node/Homebrew environments on the sandbox root disk.
-  - **Image Distribution**: Image readiness probes local cache, pulls published multi-arch images from `ghcr.io/estebanforge/construct-box`, or imports local images via `docker save` -> `msb load`.
+  - **Image Distribution & GA Release Plan**:
+    - Image readiness probes local cache, pulls published multi-arch images from `ghcr.io/estebanforge/construct-box`, or imports local images via `docker save` -> `msb load`.
+    - **General Availability (GA) Prerequisite**: Before graduating `backend = "microvm"` out of experimental, the multi-arch `construct-box:latest` image must be published to GHCR (`ghcr.io/estebanforge/construct-box:latest` via release workflow) so end users run without requiring a local Docker installation. Local Docker compilation + `msb load` transition remains preserved strictly as an offline and development fallback.
 
 - **Guest-to-Host Transport & Bridge Networking**:
   - All host bridges communicate across the microVM boundary through the DNS alias `host.microsandbox.internal`:
