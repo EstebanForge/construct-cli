@@ -43,7 +43,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		args = []string{shell}
 		ui.InfoLn("Entering Construct daemon shell...")
 	} else {
-		ui.InfoF("Running in Construct daemon (msb): %v\n", args)
+		ui.InfoF("Running in Construct daemon (microvm): %v\n", args)
 	}
 
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
@@ -70,11 +70,11 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	if e.sshBridge != nil {
 		e.sshProxySock = fmt.Sprintf("/tmp/construct-ssh-agent.%d.sock", os.Getpid())
 		if err := msbEnsureSSHProxy(e.sshBridge.Port, e.sshProxySock, execUser); err != nil {
-			ui.InfoF("⚠️  SSH agent proxy not ready (msb): %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy not ready (microvm): %v\n", err)
 		} else {
 			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", e.sshProxySock)
 			e.sshProxyContainer = "construct-cli-daemon" // Teardown cleans the socat via the msb exec path
-			ui.InfoLn("✓ Started SSH Agent proxy (msb)")
+			ui.InfoLn("✓ Started SSH Agent proxy (microvm)")
 		}
 	}
 	envVars = e.sec.MaskEnv(envVars)

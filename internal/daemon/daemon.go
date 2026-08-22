@@ -115,7 +115,7 @@ func startMsb(cfg *config.Config) {
 	ui.GumInfo("Starting daemon sandbox...")
 	sb, err := runtime.EnsureMsbDaemon(context.Background(), cfg, cwd)
 	if err != nil {
-		ui.GumError(fmt.Sprintf("Failed to start msb daemon: %v", err))
+		ui.GumError(fmt.Sprintf("Failed to start microvm daemon: %v", err))
 		os.Exit(1)
 	}
 	// Detached sandbox: Detach releases the handle without stopping the VM.
@@ -140,7 +140,7 @@ func stopMsb() {
 		return
 	}
 	if err := h.Stop(ctx); err != nil {
-		ui.GumError(fmt.Sprintf("Failed to stop msb daemon: %v", err))
+		ui.GumError(fmt.Sprintf("Failed to stop microvm daemon: %v", err))
 		os.Exit(1)
 	}
 	ui.GumSuccess("Daemon stopped")
@@ -175,7 +175,7 @@ func attachMsb(cfg *config.Config) {
 // statusMsb reports the msb daemon sandbox state.
 func statusMsb() {
 	state, err := runtime.NewMsbBackend().State(context.Background(), "construct-cli-daemon")
-	fmt.Println("\n=== Daemon Status (msb) ===")
+	fmt.Println("\n=== Daemon Status (microvm) ===")
 	fmt.Println("Sandbox: construct-cli-daemon")
 	if err != nil {
 		fmt.Printf("Status: unknown (%v)\n", err)
