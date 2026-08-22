@@ -42,7 +42,7 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 // EnsureImage transitions the construct image into msb: probes local msb
 // image first, attempts pulling from ghcr.io/estebanforge/construct-box:latest,
 // and falls back to docker save to a temp archive + msb load.
-func (m *MsbBackend) EnsureImage(_ *config.Config) error {
+func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	if m.imageLoaded() {
 		return nil
 	}
@@ -60,6 +60,12 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) error {
 			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 			return nil
 		}
+	}
+
+	// Build local image if not present in docker before attempting save
+	if !m.dockerImageExists(cfg) {
+		ui.InfoLn("→ Local construct-box image not found. Building with Docker first...")
+		BuildImage(cfg)
 	}
 
 	ui.InfoLn("→ Transitioning local Docker image to microVM (docker save + msb load)...")
@@ -85,6 +91,18 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) error {
 	}
 	ui.InfoLn("✓ MicroVM image loaded")
 	return nil
+}
+
+func (m *MsbBackend) dockerImageExists(cfg *config.Config) bool {
+	engine := "docker"
+	if cfg != nil && cfg.Runtime.Engine != "" {
+		engine = cfg.Runtime.Engine
+	}
+	containerRuntime := DetectRuntime(engine)
+	checkCmdArgs := GetCheckImageCommand(containerRuntime)
+	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
+	checkCmd.Dir = config.GetContainerDir()
+	return checkCmd.Run() == nil
 }
 
 // imageLoaded probes msb for the construct image.
