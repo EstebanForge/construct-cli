@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"strings"
 	"time"
 
@@ -248,7 +249,7 @@ func msbBaseEnv(cfg *config.Config) []string {
 	if lp := loopbackPortsString(cfg); lp != "" {
 		envVars = append(envVars, "CONSTRUCT_LOOPBACK_PORTS="+lp)
 	}
-	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
+	if stdruntime.GOOS == "linux" && cfg != nil && cfg.Sandbox.ExecAsHostUser {
 		if uid := os.Getuid(); uid > 0 {
 			envVars = append(envVars, fmt.Sprintf("CONSTRUCT_HOST_UID=%d", uid))
 			envVars = append(envVars, fmt.Sprintf("CONSTRUCT_HOST_GID=%d", os.Getgid()))
@@ -258,9 +259,13 @@ func msbBaseEnv(cfg *config.Config) []string {
 }
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
-// When ExecAsHostUser is enabled and host is non-root, it returns "hostUID:hostGID"
+// On non-Linux platforms (e.g. macOS), it returns "construct". On Linux when
+// ExecAsHostUser is enabled and host is non-root, it returns "hostUID:hostGID"
 // to match the host file ownership exposed by StatVirtualizationOff.
 func ResolveExecUserMsb(cfg *config.Config) string {
+	if stdruntime.GOOS != "linux" {
+		return "construct"
+	}
 	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
 		return "construct"
 	}
