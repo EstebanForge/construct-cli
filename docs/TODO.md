@@ -69,3 +69,16 @@ Remove hard-coded install from `packages.go`.
 - No technical dependency on Claude being installed early
 - Install order: Standard Tools → packages.toml (difference: Claude would run slightly later)
 - Same official install script: `curl -fsSL https://claude.ai/install.sh | bash`
+
+---
+
+# TODO: MicroVM Engine General Availability (GA) Checklist
+
+Items required before graduating `backend = "microvm"` out of experimental status.
+
+## Prerequisites
+
+- [ ] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` and tagged versions for `linux/amd64` and `linux/arm64` via the release workflow (`.github/workflows/release.yml`). Users running the microVM backend must pull this image directly via `msb pull` without requiring a local Docker engine.
+- [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "microvm"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
+- [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
+- [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
