@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	stdruntime "runtime"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -162,5 +163,15 @@ func TestEnvSliceToMap(t *testing.T) {
 	}
 	if len(got) != 2 {
 		t.Errorf("len = %d, want 2", len(got))
+	}
+}
+
+func TestResolveExecUserMsb(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.ExecAsHostUser = true
+	user := ResolveExecUserMsb(&cfg)
+	// On darwin, should always be "construct"
+	if stdruntime.GOOS == "darwin" && user != "construct" {
+		t.Errorf("expected construct on darwin, got %q", user)
 	}
 }
