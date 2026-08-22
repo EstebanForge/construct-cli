@@ -3,7 +3,6 @@ package runtime
 import (
 	"os"
 	"path/filepath"
-	stdruntime "runtime"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -170,8 +169,7 @@ func TestResolveExecUserMsb(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Sandbox.ExecAsHostUser = true
 	user := ResolveExecUserMsb(&cfg)
-	// On darwin, should always be "construct"
-	if stdruntime.GOOS == "darwin" && user != "construct" {
-		t.Errorf("expected construct on darwin, got %q", user)
+	if user != "construct" {
+		t.Errorf("expected construct, got %q", user)
 	}
 }
