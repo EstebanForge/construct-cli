@@ -27,6 +27,18 @@ fi
 
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
 if [ "$(id -u)" = "0" ]; then
+    # Align construct user and group in /etc/passwd and /etc/group with host UID/GID when provided
+    if [[ "${CONSTRUCT_HOST_UID:-}" =~ ^[0-9]+$ ]] && [ "${CONSTRUCT_HOST_UID}" -ne 0 ]; then
+        TARGET_UID="${CONSTRUCT_HOST_UID}"
+        TARGET_GID="${CONSTRUCT_HOST_GID:-$TARGET_UID}"
+        if [ "$(id -u construct 2>/dev/null)" != "$TARGET_UID" ] || [ "$(id -g construct 2>/dev/null)" != "$TARGET_GID" ]; then
+            if [ "$TARGET_GID" != "0" ]; then
+                groupmod -g "$TARGET_GID" construct 2>/dev/null || usermod -g "$TARGET_GID" construct 2>/dev/null || true
+            fi
+            usermod -u "$TARGET_UID" -g "$TARGET_GID" construct 2>/dev/null || usermod -u "$TARGET_UID" construct 2>/dev/null || true
+        fi
+    fi
+
     if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then
         # Fix Homebrew volume ownership. Idempotence probe: a recursive chown over
         # a fresh VM disk takes 100-300s (D state); skip it when the tree is
