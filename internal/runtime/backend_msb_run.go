@@ -430,7 +430,7 @@ create:
 	if err != nil {
 		return nil, err
 	}
-	ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
+	ui.InfoLn("⏳ Waiting for microVM guest environment initialization (first boot may take several minutes, please be patient)...")
 	// First boot runs the full entrypoint (chown, installs) before the
 	// ready marker; the agent exec must not race it.
 	if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
@@ -446,9 +446,11 @@ create:
 const msbReadyMarker = "/tmp/.construct_entrypoint_ready"
 
 // msbWaitKeeper polls until the entrypoint posts its readiness marker or
-// the timeout elapses.
+// the timeout elapses. It emits periodic progress notices every 30 seconds.
 func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	start := time.Now()
+	lastReport := time.Now()
 	for time.Now().Before(deadline) {
 		if out, err := sb.Exec(ctx, "test", []string{"-e", msbReadyMarker}); err == nil && out != nil && out.ExitCode() == 0 {
 			return nil
@@ -457,6 +459,11 @@ func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(2 * time.Second):
+			if time.Since(lastReport) >= 30*time.Second {
+				elapsed := time.Since(start).Truncate(time.Second)
+				ui.InfoF("⏳ Still initializing guest environment (%s elapsed, please be patient)...\n", elapsed)
+				lastReport = time.Now()
+			}
 		}
 	}
 	return errors.New("entrypoint did not reach the sleep keeper in time")
