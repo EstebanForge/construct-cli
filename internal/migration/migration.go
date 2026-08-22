@@ -869,6 +869,19 @@ func markImageForRebuild() {
 		}
 	}
 
+	// Try msb (microvm backend)
+	if _, err := exec.LookPath("msb"); err == nil {
+		if err := exec.Command("msb", "stop", "construct-cli-daemon").Run(); err != nil {
+			ui.LogDebug("Failed to stop msb sandbox construct-cli-daemon: %v", err)
+		}
+		if err := exec.Command("msb", "remove", "-f", "construct-cli-daemon").Run(); err != nil {
+			ui.LogDebug("Failed to remove msb sandbox construct-cli-daemon: %v", err)
+		}
+		if err := exec.Command("msb", "image", "remove", "-f", imageName).Run(); err != nil {
+			ui.LogDebug("Failed to remove msb image: %v", err)
+		}
+	}
+
 	if ui.GumAvailable() {
 		ui.InfoF("%s  ✓ Containers and image removed, forcing rebuild%s\n", ui.ColorPink, ui.ColorReset)
 	} else {

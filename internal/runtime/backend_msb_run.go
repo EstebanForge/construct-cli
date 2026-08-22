@@ -12,6 +12,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
 // msbHomeMountDest is the guest path of the host construct home bind.
@@ -376,6 +377,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				}
 			}
 			if needRecreate {
+				ui.InfoLn("🔄 Recreating microVM daemon sandbox for workspace...")
 				_ = h.Stop(ctx)                   //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // best-effort cleanup before recreate
 				goto create
@@ -391,15 +393,18 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				// then wait for it to reach the keeper before handing control to
 				// the agent exec (first boot runs installs; needs the window).
 				if out, eerr := sb.Exec(ctx, "test", []string{"-e", msbReadyMarker}); eerr != nil || out == nil || out.ExitCode() != 0 {
+					ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
 					msbRunDefaultAsync(sb)
 					if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
 						return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 					}
+					ui.InfoLn("✓ MicroVM environment ready")
 				}
 				return sb, nil
 			}
 			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
 		}
+		ui.InfoLn("🚀 Starting microVM daemon sandbox...")
 		sb, serr := h.StartDetached(ctx)
 		if serr != nil {
 			// Draining (stop in flight): wait it out, then boot.
@@ -410,7 +415,12 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		if serr != nil {
 			return nil, fmt.Errorf("start daemon sandbox: %w", serr)
 		}
+		ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
 		msbRunDefaultAsync(sb)
+		if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+			return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
+		}
+		ui.InfoLn("✓ MicroVM environment ready")
 		return sb, nil
 	}
 
@@ -420,17 +430,20 @@ create:
 	// time, which cannot be baked into boot-time egress rules. Permissive
 	// mode (default-allow) needs no rule; offline/strict bridge egress is
 	// part of the Step 7 bridge wiring (docs/VMs.md §7 Step 7).
+	ui.InfoLn("🚀 Booting microVM daemon sandbox...")
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil)
 	spec.Detached = true
 	sb, err := CreateMsbSandbox(ctx, spec)
 	if err != nil {
 		return nil, err
 	}
+	ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
 	// First boot runs the full entrypoint (chown, installs) before the
 	// ready marker; the agent exec must not race it.
 	if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
 		return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 	}
+	ui.InfoLn("✓ MicroVM environment ready")
 	return sb, nil
 }
 
@@ -472,6 +485,7 @@ func msbRunDefaultAsync(sb *msb.Sandbox) {
 // PrepareBackendAgnostic owns this on the normal path; MsbInstallAgents
 // regenerates it so a stale/empty script cannot silently skip the install.
 func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
+	ui.InfoLn("📦 Installing agents inside microVM sandbox...")
 	if err := EnsureMsbVolumes(ctx); err != nil {
 		return fmt.Errorf("msb agent install: %w", err)
 	}
@@ -496,6 +510,7 @@ func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		return err
 	}
+	ui.InfoLn("✓ MicroVM agent installation complete")
 	return nil
 }
 
