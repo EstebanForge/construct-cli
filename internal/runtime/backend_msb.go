@@ -28,7 +28,7 @@ type MsbBackend struct{}
 func NewMsbBackend() *MsbBackend { return &MsbBackend{} }
 
 // Name returns the backend identifier.
-func (m *MsbBackend) Name() string { return "msb" }
+func (m *MsbBackend) Name() string { return "microvm" }
 
 // Available reports whether the msb runtime is installed.
 func (m *MsbBackend) Available(_ context.Context) (bool, error) {
@@ -38,12 +38,25 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 	return msb.IsInstalled(), nil
 }
 
-// EnsureImage transitions the construct image into msb: docker save to a
-// temp archive, then msb load. Skips when the image is already loaded.
+// EnsureImage transitions the construct image into msb: probes local msb
+// image first, attempts pulling from ghcr.io/estebanforge/construct-box:latest,
+// and falls back to docker save to a temp archive + msb load.
 func (m *MsbBackend) EnsureImage(_ *config.Config) error {
 	if m.imageLoaded() {
 		return nil
 	}
+
+	// Try msb pull from GHCR first if network available
+	pull := exec.Command("msb", "pull", "ghcr.io/estebanforge/construct-box:latest")
+	pull.Stdin = nil
+	if _, err := pull.CombinedOutput(); err == nil {
+		tag := exec.Command("msb", "image", "tag", "ghcr.io/estebanforge/construct-box:latest", "construct-box:latest")
+		tag.Stdin = nil
+		if terr := tag.Run(); terr == nil {
+			return nil
+		}
+	}
+
 	tmp, err := os.CreateTemp("", "construct-box-*.tar")
 	if err != nil {
 		return fmt.Errorf("msb image transition: %w", err)
@@ -232,9 +245,9 @@ func envSliceToMap(env []string) map[string]string {
 // Interface conformance.
 var _ Backend = (*MsbBackend)(nil)
 
-// DetectBackend resolves the configured isolation backend, fail closed
-// (docs/VMs.md §4.3): backend = "msb" with msb missing is a hard error
-// with install instructions, never a silent Docker fallback.
+// DetectBackend resolves the configured isolation backend, fail closed:
+// backend = "microvm" with msb missing is a hard error with install instructions,
+// never a silent Docker fallback.
 func DetectBackend(cfg *config.Config) (Backend, error) {
 	backend := cfg.Runtime.Backend
 	if backend == "" {
@@ -247,28 +260,27 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 			return nil, errors.New("no container runtime found (docker/podman). Install Docker Desktop or Podman")
 		}
 		return NewDockerBackend(rt)
-	case "msb":
+	case "microvm":
 		m := NewMsbBackend()
 		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
-			return nil, errors.New("runtime backend = \"msb\" but microsandbox is not installed. Install it: curl -fsSL https://msb.sh | sh (Apple Silicon macOS or Linux with KVM)")
+			return nil, errors.New("runtime backend = \"microvm\" but microsandbox is not installed. Install it: curl -fsSL https://msb.sh | sh (Apple Silicon macOS or Linux with KVM)")
 		}
 		return m, nil
 	default:
-		return nil, fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"msb\")", backend)
+		return nil, fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"microvm\")", backend)
 	}
 }
 
 // ValidateBackendSelected reports whether the compose-based run path can
-// serve the configured backend. Entry points (runner, daemon, sys) call
-// this before any container operation: backend = "msb" must fail closed
-// with a clear message while the msb run path is still under construction
-// (docs/VMs.md §7 Step 6), never silently fall through to Docker.
+// serve the configured backend. Entry points call this before any container
+// operation: backend = "microvm" must fail closed with a clear message on compose-only
+// commands, never silently fall through to Docker.
 func ValidateBackendSelected(cfg *config.Config) error {
 	if cfg.Runtime.Backend == "" || cfg.Runtime.Backend == "docker" {
 		return nil
 	}
-	if cfg.Runtime.Backend == "msb" {
-		return errors.New("the msb backend is experimental and not yet wired into this command (docs/VMs.md Step 6 in progress). Remove `backend = \"msb\"` from [runtime] to use Docker")
+	if cfg.Runtime.Backend == "microvm" {
+		return errors.New("the microvm backend does not support this operation. Remove `backend = \"microvm\"` from [runtime] to use Docker")
 	}
-	return fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"msb\")", cfg.Runtime.Backend)
+	return fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"microvm\")", cfg.Runtime.Backend)
 }

@@ -34,9 +34,9 @@ func TestValidateBackendSelected(t *testing.T) {
 	if err := ValidateBackendSelected(&cfg); err != nil {
 		t.Fatalf("docker backend should validate: %v", err)
 	}
-	cfg.Runtime.Backend = "msb"
-	if err := ValidateBackendSelected(&cfg); err == nil || !strings.Contains(err.Error(), "not yet wired") {
-		t.Fatalf("msb should fail closed during Step 6, got %v", err)
+	cfg.Runtime.Backend = "microvm"
+	if err := ValidateBackendSelected(&cfg); err == nil || !strings.Contains(err.Error(), "does not support") {
+		t.Fatalf("microvm should fail closed on compose-only paths, got %v", err)
 	}
 	cfg.Runtime.Backend = "bogus"
 	if err := ValidateBackendSelected(&cfg); err == nil {

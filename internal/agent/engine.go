@@ -1195,17 +1195,7 @@ func ReadKeyringEnv() map[string]string {
 
 // MapDaemonWorkdir maps a host CWD to a container workdir using the mount source/dest pair.
 func MapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
-	rel, err := filepath.Rel(filepath.Clean(mountSource), filepath.Clean(cwd))
-	if err != nil {
-		return "", false
-	}
-	if rel == "." {
-		return mountDest, true
-	}
-	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
-		return "", false
-	}
-	return filepath.Join(mountDest, rel), true
+	return runtime.MapDaemonWorkdir(cwd, mountSource, mountDest)
 }
 
 // Compatibility wrappers for existing unit tests

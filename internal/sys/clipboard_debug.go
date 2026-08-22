@@ -1,53 +1,18 @@
 package sys
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/runtime"
+	internalRuntime "github.com/EstebanForge/construct-cli/internal/runtime"
 )
 
-// ClipboardDebug prints host and container clipboard bridge diagnostics.
-func ClipboardDebug(cfg *config.Config) {
-	if cfg == nil {
-		var err error
-		cfg, _, err = config.Load()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: Failed to load config: %v\n", err)
-			os.Exit(1)
-		}
-	}
-
-	// Host-side server log (always-on since this release).
-	hostLogPath := filepath.Join(config.GetLogsDir(), "clipboard_server.log")
-	fmt.Printf("=== Host clipboard server log: %s ===\n", hostLogPath)
-	if _, err := os.Stat(hostLogPath); err == nil {
-		if err := printTail(hostLogPath, 50); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to read host clipboard log: %v\n", err)
-		}
-	} else {
-		fmt.Println("(missing — start an agent session to populate)")
-	}
-
-	fmt.Println()
-	fmt.Println("=== Container clipboard diagnostics ===")
-
-	if err := runtime.ValidateBackendSelected(cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return
-	}
-
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
-	configPath := config.GetConfigDir()
-	cmd, err := runtime.BuildComposeCommand(containerRuntime, configPath, "exec", []string{
-		"-T",
-		"construct-box",
-		"bash",
-		"-lc",
-		`set -u
+const clipboardDebugScript = `set -u
 
 echo "--- Clipboard environment ---"
 for var in CONSTRUCT_AGENT_NAME CONSTRUCT_CLIPBOARD_URL CONSTRUCT_CLIPBOARD_TOKEN \
@@ -162,7 +127,84 @@ ls -l /tmp/construct-copilot-*.png /tmp/construct-clipboard*.png 2>/dev/null || 
 echo
 echo "--- Clipboard sync process ---"
 ps -ef | grep -E "clipboard-x11-sync|Xvfb" | grep -v grep || echo "(not running)"
-`,
+`
+
+// ClipboardDebug runs diagnostics for clipboard image pasting across host and
+// container, displaying environment vars, patch status, and active shims.
+func ClipboardDebug(cfg *config.Config) {
+	if cfg == nil {
+		var err error
+		cfg, _, err = config.Load()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Failed to load config: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	// Always report the configured switch state
+	fmt.Printf("Clipboard image patch: ")
+	if cfg != nil && !cfg.Agents.ClipboardImagePatch {
+		fmt.Println("disabled (agents.clipboard_image_patch = false in config.toml)")
+	} else {
+		fmt.Println("enabled")
+	}
+
+	// Check xclip on Linux host (only if patch is enabled)
+	if isLinuxHost() && (cfg == nil || cfg.Agents.ClipboardImagePatch) {
+		if _, err := exec.LookPath("xclip"); err != nil {
+			fmt.Fprintf(os.Stderr, "\nWarning: 'xclip' is required for clipboard image pasting on Linux hosts.\n")
+			fmt.Fprintf(os.Stderr, "Install it with: sudo apt install xclip  (or your package manager)\n")
+			os.Exit(1)
+		}
+	}
+
+	// Host-side server log (always-on since this release).
+	hostLogPath := filepath.Join(config.GetLogsDir(), "clipboard_server.log")
+	fmt.Printf("=== Host clipboard server log: %s ===\n", hostLogPath)
+	if _, err := os.Stat(hostLogPath); err == nil {
+		if err := printTail(hostLogPath, 50); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to read host clipboard log: %v\n", err)
+		}
+	} else {
+		fmt.Println("(missing — start an agent session to populate)")
+	}
+
+	fmt.Println()
+	fmt.Println("=== Container clipboard diagnostics ===")
+
+	if cfg != nil && cfg.Runtime.Backend == "microvm" {
+		ctx := context.Background()
+		m := internalRuntime.NewMsbBackend()
+		state, err := m.State(ctx, "construct-cli-daemon")
+		if err != nil || state != internalRuntime.ContainerStateRunning {
+			fmt.Fprintln(os.Stderr, "\nClipboard debug failed: sandbox 'construct-cli-daemon' is not running")
+			fmt.Fprintln(os.Stderr, "Start the Construct daemon first with 'construct sys daemon start' or run an agent session.")
+			os.Exit(1)
+		}
+		if _, err := m.ExecStream(ctx, internalRuntime.ExecOptions{
+			Name:    "construct-cli-daemon",
+			Command: []string{"bash", "-lc", clipboardDebugScript},
+			User:    "construct",
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "\nClipboard debug failed: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	if err := internalRuntime.ValidateBackendSelected(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
+	containerRuntime := internalRuntime.DetectRuntime(cfg.Runtime.Engine)
+	configPath := config.GetConfigDir()
+	cmd, err := internalRuntime.BuildComposeCommand(containerRuntime, configPath, "exec", []string{
+		"-T",
+		"construct-box",
+		"bash",
+		"-lc",
+		clipboardDebugScript,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to build clipboard debug command: %v\n", err)
@@ -177,6 +219,10 @@ ps -ef | grep -E "clipboard-x11-sync|Xvfb" | grep -v grep || echo "(not running)
 		fmt.Fprintln(os.Stderr, "Start the Construct daemon first with 'construct sys shell' or run an agent session.")
 		os.Exit(1)
 	}
+}
+
+func isLinuxHost() bool {
+	return runtime.GOOS == "linux"
 }
 
 func printTail(path string, lines int) error {

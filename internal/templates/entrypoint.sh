@@ -32,7 +32,7 @@ if [ "$(id -u)" = "0" ]; then
         # a fresh VM disk takes 100-300s (D state); skip it when the tree is
         # already owned by the runtime user (warm volume).
         if [ -d /home/linuxbrew/.linuxbrew ]; then
-            if [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%U:%G' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
+            if [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%u:%g' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
                 :
             else
                 chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
@@ -43,7 +43,7 @@ if [ "$(id -u)" = "0" ]; then
         # backends the recursive chown goes through a per-file xattr overlay
         # and takes minutes over a populated home; skip when a stable probe
         # dir already carries the target ownership (warm home).
-        if [ -d /home/construct/.local ] && [ "$(stat -c '%U:%G' /home/construct/.local 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
+        if [ -d /home/construct/.local ] && [ "$(stat -c '%u:%g' /home/construct/.local 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
             :
         else
             chown -R "$RUN_AS_CHOWN" /home/construct 2>/dev/null || true
@@ -104,11 +104,11 @@ else
         # Idempotence probes (same as the root block): recursive chowns go
         # through the xattr overlay on microVM backends and take minutes on a
         # populated home; skip when ownership is already correct.
-        if [ -d /home/construct/.local ] && [ "$(stat -c '%U:%G' /home/construct/.local 2>/dev/null)" != "$(id -un):$(id -gn)" ]; then
+        if [ -d /home/construct/.local ] && [ "$(stat -c '%u:%g' /home/construct/.local 2>/dev/null)" != "$(id -u):$(id -g)" ]; then
             sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
         fi
 
-        if [ -d /home/linuxbrew/.linuxbrew ] && [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%U:%G' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" != "$(id -un):$(id -gn)" ]; then
+        if [ -d /home/linuxbrew/.linuxbrew ] && [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%u:%g' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" != "$(id -u):$(id -g)" ]; then
             sudo chown -R "$(id -u):$(id -g)" /home/linuxbrew/.linuxbrew 2>/dev/null || true
         fi
 
@@ -201,6 +201,7 @@ add_path "$HOME/.local/bin"
 add_path "$HOME/.npm-global/bin"
 add_path "$HOME/.cargo/bin"
 add_path "$HOME/.bun/bin"
+add_path "$HOME/.opencode/bin"
 add_path "$HOME/.asdf/bin"
 add_path "$HOME/.asdf/shims"
 add_path "$HOME/.local/share/mise/bin"

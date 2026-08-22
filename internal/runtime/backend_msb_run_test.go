@@ -40,6 +40,9 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if spec.HostAliasEnv != msbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != msbHostAlias {
 		t.Errorf("host alias env missing: %+v", spec.Env)
 	}
+	if spec.Env["CONSTRUCT_LOOPBACK_PORTS"] != "80,443" {
+		t.Errorf("expected default loopback ports 80,443 in env, got: %q", spec.Env["CONSTRUCT_LOOPBACK_PORTS"])
+	}
 }
 
 // Without a host construct home the bind is absent and /home/construct

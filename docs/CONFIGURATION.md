@@ -93,7 +93,7 @@ ANTHROPIC_AUTH_TOKEN = "${ANTHROPIC_API_KEY}"
 ```toml
 [runtime]
 engine = "auto"  # Options: auto, podman, docker, container
-backend = "docker"  # Isolation backend: docker|msb (experimental)
+backend = "docker"  # Isolation backend: docker|microvm (experimental)
 ```
 
 **Options:**
@@ -109,15 +109,10 @@ backend = "docker"  # Isolation backend: docker|msb (experimental)
 
 ### Isolation Backend
 
-`backend` selects the isolation technology. It fails closed: a configured but
-missing backend is a hard error, never a silent fallback.
+`backend` selects the isolation technology. It fails closed: a configured but missing backend is a hard error, never a silent fallback.
 
 - `docker` (default): the OCI container path (Docker/Podman per `engine`).
-- `msb` (experimental): [microsandbox](https://microsandbox.dev) microVMs — a separate guest kernel per agent. Requires `msb` installed (`curl -fsSL https://msb.sh | sh`), Apple Silicon macOS or Linux with KVM, and the construct image built by the Docker path (the first `msb` run transitions it automatically via save/load). Design, status, and limitations: [docs/VMs.md](VMs.md).
-
-Known msb limitations (Step 7 in progress): clipboard/host-exec/SSH bridges
-and strict/offline enforcement inside the VM are not yet wired; daemon
-cold-boot takes several minutes (disk ownership fixes).
+- `microvm` (experimental): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Requires `msb` installed (`curl -fsSL https://msb.sh | sh`), Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
 
 ### Update Management
 

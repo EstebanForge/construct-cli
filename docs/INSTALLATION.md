@@ -69,6 +69,11 @@ brew install EstebanForge/tap/construct-cli
 - Lightweight alternative to Docker Desktop
 - Auto-detected if available
 
+**Option 4: MicroVM Isolation (Experimental)**
+- Install microsandbox: `curl -fsSL https://msb.sh | sh`
+- Set `backend = "microvm"` in `~/.config/construct-cli/config.toml` under `[runtime]`
+- Runs sandboxes with dedicated Linux guest kernels via Apple Hypervisor.framework
+
 #### Installation Steps
 
 ```bash
@@ -116,6 +121,18 @@ curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 
 # Log out and back in for group changes to take effect
+```
+
+**Option 3: MicroVM Isolation (Experimental)**
+
+```bash
+# Install microsandbox
+curl -fsSL https://msb.sh | sh
+
+# Ensure KVM access (/dev/kvm)
+sudo usermod -aG kvm $USER
+
+# Set backend in config.toml: [runtime] backend = "microvm"
 ```
 
 #### Installation Steps

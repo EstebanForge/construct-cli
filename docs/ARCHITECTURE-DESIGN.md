@@ -106,7 +106,37 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `permissive`: full egress
   - `strict`: custom `construct-net` bridge + UFW rules; allow/block lists via env
   - `offline`: `network_mode: none`
-- **VM backend (experimental)**: `backend = "msb"` in `[runtime]` selects [microsandbox](https://microsandbox.dev) microVM isolation instead of OCI containers — a separate guest kernel per agent. The runtime layer exposes a `Backend` interface (`internal/runtime/backend.go`: exec, interactive exec, state, mounts, labels, image, lifecycle) with a Docker facade implementation and an msb implementation over the msb Go SDK. `DetectBackend` resolves the configured backend fail-closed (no silent Docker fallback). The msb run path: persistent detached sandbox `construct-cli-daemon` (unlimited idle/max duration), entrypoint readiness marker on tmpfs, first-run agent install inside the VM, image transition via `docker save` → `msb load`. Status, benchmarks, and operational caveats: [docs/VMs.md](VMs.md).
+- **VM backend (experimental)**: `backend = "microvm"` in `[runtime]` selects [microsandbox](https://microsandbox.dev) microVM isolation instead of OCI containers (a separate guest kernel per agent). The runtime layer exposes a `Backend` interface (`internal/runtime/backend.go`: exec, interactive exec, state, mounts, labels, image, lifecycle) with a Docker facade implementation and an msb implementation over the msb Go SDK. `DetectBackend` resolves the configured backend fail-closed (no silent Docker fallback). The msb run path: persistent detached sandbox `construct-cli-daemon` (unlimited idle/max duration), entrypoint readiness marker on tmpfs, first-run agent install inside the VM, image transition via `docker save` -> `msb load` or GHCR image pull. Detailed design and operational architecture: Section 4.1 below.
+
+### 4.1 MicroVM Isolation Engine (microsandbox Backend)
+
+Construct supports microVM hardware isolation as an opt-in runtime backend (`backend = "microvm"` in `[runtime]`), powered by [microsandbox](https://microsandbox.dev). Instead of sharing the host Linux kernel inside an OCI container, each sandbox runs within an isolated Linux guest kernel via hardware hypervisors (Apple Hypervisor.framework on macOS, KVM on Linux).
+
+- **Runtime Architecture & Backend Abstraction**:
+  - The runtime interface (`internal/runtime/backend.go`) decouples execution from container specifics, standardizing commands, streaming, interactive PTY sessions, lifecycle, and image management across backends.
+  - `DockerBackend` implements the interface over Docker/Podman OCI containers; `MsbBackend` implements the interface over the microsandbox Go SDK (`github.com/superradcompany/microsandbox/sdk/go`).
+  - `DetectBackend(cfg)` validates configuration and fails closed with actionable error guidance when a configured backend is missing (no silent fallbacks).
+
+- **Daemon Sandbox & Lifecycle Management**:
+  - The microVM engine manages a persistent, detached guest sandbox named `construct-cli-daemon` (`WithDetached()`, `WithIdleTimeout(0)`, `WithMaxDuration(0)`).
+  - **Resource Allocations**: Configured to 4 vCPUs and 4096 MiB RAM (`CPUs: 4, MemoryMiB: 4096`), ensuring multi-threaded JS/TS CLI agents (Claude Code, Pi extensions, Codex, OpenCode) operate without memory pressure or Linux OOM termination.
+  - **Startup Sequencing**: The guest entrypoint creates `/tmp/.construct_entrypoint_ready` on tmpfs when initialization completes. The backend probes this readiness marker before routing agent executions.
+  - **Agent Installation**: First-run agent installation runs inside the VM via `MsbInstallAgents`, persisting installed toolchains and Node/Homebrew environments on the sandbox root disk.
+  - **Image Distribution**: Image readiness probes local cache, pulls published multi-arch images from `ghcr.io/estebanforge/construct-box`, or imports local images via `docker save` -> `msb load`.
+
+- **Guest-to-Host Transport & Bridge Networking**:
+  - All host bridges communicate across the microVM boundary through the DNS alias `host.microsandbox.internal`:
+    - **Clipboard Bridge**: Transmits text and image paste buffers over authenticated token channels.
+    - **Host Exec Bridge**: Executes host-only binaries with bidirectional path translation (`/workspace` <-> host cwd).
+    - **SSH Agent Proxy**: Bridges the host SSH socket into the guest via `/tmp/construct-ssh-agent.<pid>.sock`, bypassing VirtioFS UNIX socket creation constraints.
+    - **Herdr Bridge**: Connects agent status reporters to host Herdr sockets.
+    - **Loopback TCP Relays**: Relays in-guest loopback ports (`127.0.0.1:<port>` -> `host.microsandbox.internal:<port>`) so headless browser tools access local host development sites.
+  - **Network Enforcement**: Supports `permissive`, `strict`, and `offline` modes through in-guest packet filtering combined with hypervisor network egress policies.
+
+- **Storage, Mounts & Permissions**:
+  - **VirtioFS Mounts**: Mounts the host workspace to `/workspace`, user home to `/home/construct`, and conditional caches (qmd models, gitignore seeds).
+  - **Host UID/GID Mapping**: Mounts configure `StatVirtualization: msb.StatVirtualizationOff` and execute commands with the host's numeric UID/GID (`ResolveExecUserMsb`), ensuring files written by agents match host user ownership.
+  - **Dynamic Multi-Root Switching**: Sandboxes record `construct.project_dir` labels; `EnsureMsbDaemon` detects when the caller navigates to a workspace outside the mounted project root and recreates the sandbox automatically.
 
 ---
 
@@ -127,7 +157,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - omp (Oh My Pi)
 
 ### 5.1 Claude Provider Aliases (CC System)
-Construct supports configurable provider aliases for Claude Code, enabling seamless switching between different API endpoints:
+Construct supports configurable provider aliases for Claude Code, enabling switching between different API endpoints:
 
 - **Primary Usage**: `construct cc <provider> [args...]`
 - **Fallback Usage**: `construct claude <provider> [args...]`

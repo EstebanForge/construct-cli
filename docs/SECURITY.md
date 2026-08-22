@@ -17,11 +17,12 @@ Complete security documentation for The Construct CLI, including container secur
 The Construct CLI provides multiple layers of security:
 
 1. **Container Isolation**: Agents run in isolated containers
-2. **Network Isolation**: Optional network modes (permissive/strict/offline)
-3. **Secret Redaction**: Experimental feature to hide secrets from agents
-4. **Ephemeral Containers**: Clean slate on every run
-5. **No Path Escape**: Agents cannot access files outside project root
-6. **Build Verification**: Cryptographic verification of releases
+2. **MicroVM Isolation**: Optional hardware-level isolation via dedicated guest kernels (`backend = "microvm"`)
+3. **Network Isolation**: Optional network modes (permissive/strict/offline)
+4. **Secret Redaction**: Experimental feature to hide secrets from agents
+5. **Ephemeral Sandboxes**: Clean slate on every run
+6. **No Path Escape**: Agents cannot access files outside project root
+7. **Build Verification**: Cryptographic verification of releases
 
 ## Container Security
 
@@ -83,6 +84,24 @@ disable_seccomp = true
 This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct build` to regenerate the image/override and restart the container.
 
 **Tradeoff:** `seccomp:unconfined` removes a kernel-level syscall-restriction layer. It is a deliberate security reduction, scoped to users who run browsers in-container. Default-off preserves isolation for everyone else. An alternative is a Chrome-tailored seccomp JSON profile (whitelist only the needed syscalls) if you need tighter control than full unconfined.
+
+## MicroVM Isolation (Experimental Backend)
+
+### Overview
+
+When `backend = "microvm"` is enabled in `[runtime]`, Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
+
+### Threat Model Difference
+
+- **Container isolation (Docker/Podman)**: Agents share the host kernel. An escape vulnerability in the Linux kernel directly compromises the host operating system.
+- **MicroVM isolation (msb)**: Each agent runs within a separate Linux guest kernel managed by hardware hypervisors (Apple Hypervisor.framework on macOS, KVM on Linux). An escape requires both a guest kernel exploit and a hypervisor vulnerability.
+
+### Security Guarantees
+
+- **Separate Guest Kernel**: No shared syscall table or shared kernel namespaces with the host.
+- **Fail-Closed Egress**: Network policy is enforced at the hypervisor boundary in addition to in-guest iptables filtering.
+- **Resource Limits**: Sandboxes allocate 4 vCPUs and 4096 MiB RAM by default, preventing host resource exhaustion.
+- **Controlled Bridges**: Guest-to-host bridges (clipboard, host-exec, SSH agent proxy, loopback relays) authenticate via per-session tokens and only communicate over dedicated local listeners. Detailed analysis: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
 
 ## Secret Redaction
 

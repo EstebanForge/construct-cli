@@ -225,7 +225,7 @@ func Run(args ...string) {
 	// after the Runtime Check so every runtimeName-gated check degrades to
 	// its skipped/not-applicable branch instead of probing a container
 	// runtime the backend does not use.
-	msbBackend := cfg != nil && cfg.Runtime.Backend == "msb"
+	msbBackend := cfg != nil && cfg.Runtime.Backend == "microvm"
 
 	// 2. Environment Check
 	envCheck := CheckResult{Name: "Environment"}
@@ -309,7 +309,7 @@ func Run(args ...string) {
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
 	if msbBackend {
 		runtimeCheck.Status = CheckStatusSkipped
-		runtimeCheck.Message = "Not applicable (runtime backend = msb)"
+		runtimeCheck.Message = "Not applicable (runtime backend = microvm)"
 		runtimeCheck.Details = append(runtimeCheck.Details, "Isolation runs in microsandbox microVMs; see the VM Backend check")
 		checks = append(checks, runtimeCheck)
 
@@ -350,8 +350,8 @@ func Run(args ...string) {
 	}
 	checks = append(checks, runtimeCheck)
 
-	// 4.1 VM Backend Check (msb only; docs/VMs.md Step 6)
-	if cfg != nil && cfg.Runtime.Backend == "msb" {
+	// 4.1 VM Backend Check (microvm only)
+	if cfg != nil && cfg.Runtime.Backend == "microvm" {
 		checks = append(checks, msbBackendCheck())
 	}
 

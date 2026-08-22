@@ -39,7 +39,9 @@ func EnsureMsbVolumes(_ context.Context) error { return nil }
 func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 	mounts := map[string]msb.MountConfig{}
 	if home := msbHostConstructHome(); home != "" {
-		mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{})
+		mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{
+			StatVirtualization: msb.StatVirtualizationOff,
+		})
 	}
 
 	if projectDir != "" {
@@ -48,11 +50,16 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 		if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
 			projectDir = resolved
 		}
-		mounts["/workspace"] = msb.Mount.Bind(projectDir, msb.MountOptions{})
+		mounts["/workspace"] = msb.Mount.Bind(projectDir, msb.MountOptions{
+			StatVirtualization: msb.StatVirtualizationOff,
+		})
 	}
 
 	for _, m := range conditionalAutoMounts() {
-		mounts[m.Dest] = msb.Mount.Bind(m.Src, msb.MountOptions{Readonly: m.Readonly})
+		mounts[m.Dest] = msb.Mount.Bind(m.Src, msb.MountOptions{
+			Readonly:           m.Readonly,
+			StatVirtualization: msb.StatVirtualizationOff,
+		})
 	}
 	return mounts
 }
@@ -199,9 +206,11 @@ type MsbRunSpec struct {
 	HostAliasEnv string   // CONSTRUCT_HOST_ALIAS value for the entrypoint
 	Entrypoint   []string // empty = image entrypoint; override for one-shot flows (update-all, install, sha256 verify)
 	Cmd          []string // workload; empty = sleep infinity (persistent sandbox)
-	Detached     bool     // VM outlives the creating process (daemon sandboxes)
-	CPUs         uint8    // 0 = msb default (1)
-	MemoryMiB    uint32   // 0 = msb default (512)
+	PortBindings []msb.PortBinding
+	Labels       map[string]string
+	Detached     bool   // VM outlives the creating process (daemon sandboxes)
+	CPUs         uint8  // 0 = msb default (1)
+	MemoryMiB    uint32 // 0 = msb default (512)
 }
 
 // BuildMsbRunSpec assembles the sandbox spec from config and project dir.
@@ -213,20 +222,52 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	for k, v := range envSliceToMap(msbBaseEnv(cfg)) {
 		env[k] = v
 	}
+	var labels map[string]string
+	if projectDir != "" {
+		labels = map[string]string{
+			"construct.project_dir": projectDir,
+		}
+	}
 	return &MsbRunSpec{
 		Name:         name,
 		Image:        "construct-box:latest",
 		Mounts:       msbSandboxMounts(projectDir),
 		Network:      msbNetworkConfig(cfg.Network.Mode, bridgePorts),
 		Env:          env,
+		Labels:       labels,
 		HostAliasEnv: msbHostAlias,
+		CPUs:         4,
+		MemoryMiB:    4096,
 	}
 }
 
 // msbBaseEnv holds the backend-agnostic env every msb sandbox carries.
 func msbBaseEnv(cfg *config.Config) []string {
-	_ = cfg
-	return []string{}
+	var envVars []string
+	if lp := loopbackPortsString(cfg); lp != "" {
+		envVars = append(envVars, "CONSTRUCT_LOOPBACK_PORTS="+lp)
+	}
+	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
+		if uid := os.Getuid(); uid > 0 {
+			envVars = append(envVars, fmt.Sprintf("CONSTRUCT_HOST_UID=%d", uid))
+			envVars = append(envVars, fmt.Sprintf("CONSTRUCT_HOST_GID=%d", os.Getgid()))
+		}
+	}
+	return envVars
+}
+
+// ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
+// When ExecAsHostUser is enabled and host is non-root, it returns "hostUID:hostGID"
+// to match the host file ownership exposed by StatVirtualizationOff.
+func ResolveExecUserMsb(cfg *config.Config) string {
+	if cfg == nil || !cfg.Sandbox.ExecAsHostUser {
+		return "construct"
+	}
+	uid := os.Getuid()
+	if uid == 0 {
+		return "construct"
+	}
+	return fmt.Sprintf("%d:%d", uid, os.Getgid())
 }
 
 // CreateMsbSandbox boots a sandbox from a run spec (image must already be
@@ -274,6 +315,12 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 	if spec.MemoryMiB > 0 {
 		opts = append(opts, msb.WithMemory(spec.MemoryMiB))
 	}
+	if len(spec.PortBindings) > 0 {
+		opts = append(opts, msb.WithPortBindings(spec.PortBindings...))
+	}
+	if len(spec.Labels) > 0 {
+		opts = append(opts, msb.WithLabels(spec.Labels))
+	}
 	sb, err := msb.CreateSandbox(ctx, spec.Name, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("create sandbox: %w", err)
@@ -320,6 +367,21 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	}
 
 	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
+		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
+			currentProjectDir := sbc.Labels["construct.project_dir"]
+			needRecreate := sbc.MemoryMiB < 2048
+			if currentProjectDir != "" && projectDir != "" {
+				if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, "/workspace"); !ok {
+					needRecreate = true
+				}
+			}
+			if needRecreate {
+				_ = h.Stop(ctx)                   //nolint:errcheck // best-effort stop before recreate
+				_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // best-effort cleanup before recreate
+				goto create
+			}
+		}
+
 		if h.Status() == msb.SandboxStatusRunning {
 			sb, cerr := h.Connect(ctx)
 			if cerr == nil {
@@ -352,6 +414,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		return sb, nil
 	}
 
+create:
 	// Not present: create with the project bind so agent workdirs resolve.
 	// Bridge ports are omitted: host bridges bind random ports at engine run
 	// time, which cannot be baked into boot-time egress rules. Permissive

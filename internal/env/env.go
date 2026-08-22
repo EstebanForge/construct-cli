@@ -22,6 +22,7 @@ var PathComponents = []string{
 	"$HOME/.npm-global/bin",
 	"$HOME/.cargo/bin",
 	"$HOME/.bun/bin",
+	"$HOME/.opencode/bin",
 	"$HOME/.asdf/bin",
 	"$HOME/.asdf/shims",
 	"$HOME/.local/share/mise/bin",

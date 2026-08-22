@@ -2,6 +2,7 @@
 package network
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -43,7 +44,6 @@ func AddRule(target, action string) {
 			func() []string {
 				ips, err := ResolveDomain(target)
 				if err != nil {
-					ui.LogWarning("Failed to resolve %s: %v", target, err)
 					return nil
 				}
 				return ips
@@ -63,6 +63,11 @@ func AddRule(target, action string) {
 		os.Exit(1)
 	}
 	ui.GumSuccess("Updated config.toml")
+
+	if cfg.Runtime.Backend == "microvm" {
+		applyRuleMsb(target, action, resolvedIPs)
+		return
+	}
 
 	// 6. Apply to running container if exists
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
@@ -132,6 +137,11 @@ func RemoveRule(target string) {
 	}
 	ui.GumSuccess("Removed from config.toml")
 
+	if cfg.Runtime.Backend == "microvm" {
+		removeRuleMsb(target)
+		return
+	}
+
 	// 4. Remove from running container if exists
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
@@ -159,12 +169,6 @@ func ListRules() {
 		os.Exit(1)
 	}
 
-	if !ui.GumAvailable() {
-		ListRulesBasic(cfg)
-		return
-	}
-
-	// Use Gum for beautiful table display
 	ui.InfoLn()
 	cmd := ui.GetGumCommand("style", "--border", "rounded",
 		"--padding", "1 2", "--bold", "Network Configuration")
@@ -305,6 +309,10 @@ func ShowStatus() {
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
+	}
+	if cfg.Runtime.Backend == "microvm" {
+		showStatusMsb()
+		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
 		ui.GumError(err.Error())
@@ -693,4 +701,91 @@ func runningSessionContainers(containerRuntime string) []string {
 		names = append(names, "construct-cli")
 	}
 	return names
+}
+
+func applyRuleMsb(target, action string, resolvedIPs []string) {
+	ctx := context.Background()
+	m := runtime.NewMsbBackend()
+	state, err := m.State(ctx, "construct-cli-daemon")
+	if err != nil || state != runtime.ContainerStateRunning {
+		ui.GumInfo("No running sandbox. Rule will apply on next start.")
+		return
+	}
+	var ips []string
+	if len(resolvedIPs) > 0 {
+		ips = resolvedIPs
+	} else if IsValidIP(target) || IsValidCIDR(target) {
+		ips = []string{target}
+	}
+	for _, ip := range ips {
+		cmd := "add_allow"
+		if action == "block" {
+			cmd = "add_block"
+		}
+		_, code, err := m.Exec(ctx, runtime.ExecOptions{
+			Name:    "construct-cli-daemon",
+			Command: []string{"/usr/local/bin/network-filter.sh", cmd, ip},
+			User:    "root",
+		})
+		if err != nil || code != 0 {
+			ui.GumWarning("Could not apply to daemon sandbox")
+			ui.InfoLn("   Rule will apply on next start")
+			return
+		}
+	}
+	ui.GumSuccess("Applied to sandbox 'construct-cli-daemon' immediately")
+}
+
+func removeRuleMsb(target string) {
+	ctx := context.Background()
+	m := runtime.NewMsbBackend()
+	state, err := m.State(ctx, "construct-cli-daemon")
+	if err != nil || state != runtime.ContainerStateRunning {
+		ui.GumInfo("No running sandbox. Rule will apply on next start.")
+		return
+	}
+	var ipsToRemove []string
+	if !IsValidIP(target) && !IsValidCIDR(target) {
+		if ips, err := ResolveDomain(target); err == nil {
+			ipsToRemove = ips
+		}
+	}
+	if len(ipsToRemove) == 0 {
+		ipsToRemove = []string{target}
+	}
+	for _, ip := range ipsToRemove {
+		_, code, err := m.Exec(ctx, runtime.ExecOptions{
+			Name:    "construct-cli-daemon",
+			Command: []string{"/usr/local/bin/network-filter.sh", "remove_rule", ip},
+			User:    "root",
+		})
+		if err != nil || code != 0 {
+			ui.GumWarning("Could not remove from daemon sandbox")
+			ui.InfoLn("   Rule will be removed on next start")
+			return
+		}
+	}
+	ui.GumSuccess("Removed from sandbox 'construct-cli-daemon' immediately")
+}
+
+func showStatusMsb() {
+	ctx := context.Background()
+	m := runtime.NewMsbBackend()
+	state, err := m.State(ctx, "construct-cli-daemon")
+	if err != nil || state != runtime.ContainerStateRunning {
+		ui.GumWarning("Sandbox is not running")
+		ui.InfoLn("Start an agent to see active network status")
+		os.Exit(1)
+	}
+	ui.InfoLn("=== Active UFW Status in Sandbox ===")
+	ui.InfoLn()
+	_, err = m.ExecStream(ctx, runtime.ExecOptions{
+		Name:    "construct-cli-daemon",
+		Command: []string{"/usr/local/bin/network-filter.sh", "show_status"},
+		User:    "root",
+	})
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to get status: %v", err))
+		os.Exit(1)
+	}
 }

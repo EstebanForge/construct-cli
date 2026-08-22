@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
@@ -48,12 +51,26 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 	env.SetEnvVar(&envVars, "CONSTRUCT_HOST_ALIAS", "host.microsandbox.internal")
+	// Pin xterm-256color to guarantee terminfo compatibility inside the guest image
+	env.SetEnvVar(&envVars, "TERM", "xterm-256color")
+
+	stdTTY := term.IsTerminal(int(os.Stdin.Fd()))
+	if stdTTY {
+		if w, h, err := term.GetSize(int(os.Stdin.Fd())); err == nil && w > 0 && h > 0 {
+			env.SetEnvVar(&envVars, "COLUMNS", fmt.Sprintf("%d", w))
+			env.SetEnvVar(&envVars, "LINES", fmt.Sprintf("%d", h))
+		}
+	}
+
+	execUser := runtime.ResolveExecUserMsb(e.cfg)
 
 	// SSH agent proxy (docs/VMs.md §7): same per-session socket + socat model
 	// as the Docker daemon path, but the socat target is the msb host alias
 	// (§3.1) and it runs through the SDK exec instead of docker exec.
+	// In msb, the socket lives in /tmp because virtiofs host mounts reject AF_UNIX bind.
 	if e.sshBridge != nil {
-		if err := msbEnsureSSHProxy(e.sshBridge.Port, e.sshProxySock); err != nil {
+		e.sshProxySock = fmt.Sprintf("/tmp/construct-ssh-agent.%d.sock", os.Getpid())
+		if err := msbEnsureSSHProxy(e.sshBridge.Port, e.sshProxySock, execUser); err != nil {
 			ui.InfoF("⚠️  SSH agent proxy not ready (msb): %v\n", err)
 		} else {
 			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", e.sshProxySock)
@@ -63,12 +80,19 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	}
 	envVars = e.sec.MaskEnv(envVars)
 
+	workdir := "/workspace"
+	if e.cwd != "" {
+		if mapped, ok := MapDaemonWorkdir(e.cwd, e.cwd, "/workspace"); ok {
+			workdir = mapped
+		}
+	}
+
 	code, err := runtime.NewMsbBackend().ExecInteractive(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: args,
 		Env:     envVars,
-		Workdir: "/workspace",
-		User:    "construct",
+		Workdir: workdir,
+		User:    execUser,
 	})
 	if err == nil && len(args) > 0 && (code == 126 || code == 127) {
 		ui.InfoF("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
@@ -81,13 +105,13 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 // proxy UNIX socket to the host SSH bridge over the msb host alias (§3.1).
 // Same script shape as the Docker path's ensureDaemonSSHProxy; the port is
 // passed via env to keep it out of the shell string.
-func msbEnsureSSHProxy(port int, sockPath string) error {
-	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`
+func msbEnsureSSHProxy(port int, sockPath, execUser string) error {
+	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" </dev/null >/tmp/socat.log 2>&1 &`
 	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: []string{"bash", "-lc", script},
 		Env:     []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)},
-		User:    "construct",
+		User:    execUser,
 	})
 	if err != nil {
 		return fmt.Errorf("start ssh proxy socat (port %d): %w", port, err)
@@ -96,15 +120,15 @@ func msbEnsureSSHProxy(port int, sockPath string) error {
 		return fmt.Errorf("ssh proxy socat exited with code %d", code)
 	}
 	// Wait for the socket to appear (same budget as the Docker path).
-	return msbWaitForSSHProxy(sockPath)
+	return msbWaitForSSHProxy(sockPath, execUser)
 }
 
-func msbWaitForSSHProxy(sockPath string) error {
+func msbWaitForSSHProxy(sockPath, execUser string) error {
 	probe := `for i in $(seq 1 10); do [ -S "` + sockPath + `" ] && exit 0; sleep 0.2; done; exit 1`
 	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: []string{"bash", "-c", probe},
-		User:    "construct",
+		User:    execUser,
 	})
 	if err != nil {
 		return err
@@ -115,9 +139,9 @@ func msbWaitForSSHProxy(sockPath string) error {
 	return nil
 }
 
-// msbBackendSelected reports whether the engine should take the msb path.
+// msbBackendSelected reports whether the engine should take the microvm path.
 func (e *RuntimeEngine) msbBackendSelected() bool {
-	return e.cfg != nil && strings.EqualFold(e.cfg.Runtime.Backend, "msb")
+	return e.cfg != nil && strings.EqualFold(e.cfg.Runtime.Backend, "microvm")
 }
 
 // msbClipboardHost returns the guest-visible host alias for bridge servers

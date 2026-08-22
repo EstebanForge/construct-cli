@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -21,6 +22,10 @@ func ExecCommand(cfg *config.Config, cmdArgs []string) int {
 		fmt.Fprintf(os.Stderr, "  construct sys exec -- npm update -g @anthropic-ai/claude-code\n")
 		fmt.Fprintf(os.Stderr, "  construct sys exec -- cat /etc/os-release\n")
 		return 1
+	}
+
+	if cfg != nil && cfg.Runtime.Backend == "microvm" {
+		return execMsbCommand(cfg, cmdArgs)
 	}
 
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
@@ -149,4 +154,37 @@ func buildExecEnv() []string {
 	}
 
 	return envVars
+}
+
+// execMsbCommand streams a non-interactive command inside the running msb
+// daemon sandbox.
+func execMsbCommand(cfg *config.Config, cmdArgs []string) int {
+	_ = cfg
+	ctx := context.Background()
+	m := runtime.NewMsbBackend()
+	state, err := m.State(ctx, "construct-cli-daemon")
+	if err != nil || state != runtime.ContainerStateRunning {
+		fmt.Fprintf(os.Stderr, "Error: no running sandbox for this directory.\n")
+		fmt.Fprintf(os.Stderr, "\nStart one first:\n")
+		fmt.Fprintf(os.Stderr, "  construct sys daemon start       # background daemon\n")
+		return 1
+	}
+
+	osEnv := buildExecEnv()
+	env.SetEnvVar(&osEnv, "CONSTRUCT_HOST_ALIAS", "host.microsandbox.internal")
+
+	execUser := runtime.ResolveExecUserMsb(cfg)
+
+	exitCode, err := m.ExecStream(ctx, runtime.ExecOptions{
+		Name:    "construct-cli-daemon",
+		Command: cmdArgs,
+		Env:     osEnv,
+		Workdir: "/workspace",
+		User:    execUser,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+	return exitCode
 }
