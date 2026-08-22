@@ -4,6 +4,9 @@
 
 # Runtime Preferences
 [runtime]
+# Isolation backend: "docker" (default) or "microvm" (microsandbox microVMs, experimental)
+# backend = "docker"
+
 # Options: "auto", "container", "podman", "docker"
 # "auto" will detect in priority order: container > podman > docker
 engine = "auto"

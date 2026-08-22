@@ -43,17 +43,15 @@ Prevents LLM agents from accessing raw secrets in your project:
 - Isolated workspace (OverlayFS/APFS)
 - Stream-time output masking
 
-### Provider Configuration
+### MicroVM Isolation Engine (Experimental)
 
-**[Providers Guide](PROVIDERS.md)** - Configure custom Claude endpoints
+**[MicroVM Backend Architecture](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend)** - Hardware-level isolation
 
-Supported providers:
-- Zai GLM
-- MiniMax M2
-- Kimi K2
-- Qwen
-- Mimo
-- And more...
+Run agents inside dedicated Linux microVMs via microsandbox:
+- Dedicated Linux guest kernel per agent sandbox
+- Hardware hypervisor isolation (Hypervisor.framework / KVM)
+- Full bridge support: clipboard, host-exec, SSH agent proxy, loopback relays
+- Resource allocation: 4 vCPUs and 4096 MiB RAM
 
 ### Package Management
 
@@ -65,6 +63,18 @@ Install additional packages:
 - bun (Bun package manager)
 - npm (Node.js)
 - pip (Python)
+
+### Provider Configuration
+
+**[Providers Guide](PROVIDERS.md)** - Configure custom Claude endpoints
+
+Supported providers:
+- Zai GLM
+- MiniMax M2
+- Kimi K2
+- Qwen
+- Mimo
+- And more...
 
 ## Reference Documentation
 
@@ -161,7 +171,7 @@ All settings explained:
 | [**Configuration**](CONFIGURATION.md) | Complete configuration reference |
 | [**Security**](SECURITY.md) | Security features and best practices |
 | [**Hide Secrets**](HIDE-SECRETS.md) | Secret redaction user guide |
-| [**VM Backend**](VMs.md) | Opt-in microVM isolation plan and status (experimental) |
+| [**VM Backend**](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Opt-in microVM isolation architecture and operational design (experimental) |
 | [**Providers**](PROVIDERS.md) | Custom Claude API endpoints |
 | [**Packages**](PACKAGES.md) | User-defined package management |
 | [**Architecture**](ARCHITECTURE-DESIGN.md) | Technical design and internals |

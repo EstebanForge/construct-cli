@@ -11,7 +11,7 @@ import (
 // (126/127 PATH fidelity included); callers rely on them (engine.go exit
 // hint paths).
 type Backend interface {
-	// Name returns the backend identifier ("docker", "msb").
+	// Name returns the backend identifier ("docker", "microvm").
 	Name() string
 
 	// Available reports whether the backend is installed and running.

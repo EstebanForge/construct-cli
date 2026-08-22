@@ -23,7 +23,7 @@ func Start() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "msb" {
+	if cfg.Runtime.Backend == "microvm" {
 		startMsb(cfg)
 		return
 	}
@@ -201,7 +201,7 @@ func Stop() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "msb" {
+	if cfg.Runtime.Backend == "microvm" {
 		stopMsb()
 		return
 	}
@@ -246,7 +246,7 @@ func Restart() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "msb" {
+	if cfg.Runtime.Backend == "microvm" {
 		stopMsb()
 		startMsb(cfg)
 		return
@@ -288,7 +288,7 @@ func Attach() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "msb" {
+	if cfg.Runtime.Backend == "microvm" {
 		attachMsb(cfg)
 		return
 	}
@@ -339,7 +339,7 @@ func Status() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "msb" {
+	if cfg.Runtime.Backend == "microvm" {
 		statusMsb()
 		ServiceStatus()
 		return

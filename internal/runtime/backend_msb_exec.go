@@ -77,26 +77,22 @@ func (m *MsbBackend) ExecInteractive(ctx context.Context, opts ExecOptions) (int
 	if err != nil {
 		return 1, fmt.Errorf("msb exec interactive: %w", err)
 	}
-
-	// stdin pump: host stdin -> guest stdin sink. Close on EOF so the guest
-	// sees end-of-input (msb output EOF semantics need the write end closed).
-	pumpDone := make(chan struct{})
-	sink := h.TakeStdin()
-	go func() {
-		defer close(pumpDone)
-		if sink == nil {
-			return
-		}
-		_, _ = io.Copy(sink, os.Stdin) //nolint:errcheck // guest-side EOF is the signal
-		_ = sink.Close()               //nolint:errcheck // sink already closed on guest exit
+	defer func() {
+		_ = h.Close() //nolint:errcheck // stream already drained
 	}()
 
 	// Terminal plumbing: raw mode keeps TUI agents in control of the screen;
-	// SIGWINCH forwards window resizes to the guest PTY.
+	// send initial dimensions and forward SIGWINCH window resizes to guest PTY.
 	if stdTTY {
 		oldState, rawErr := term.MakeRaw(int(os.Stdin.Fd()))
 		if rawErr == nil {
-			defer func() { _ = term.Restore(int(os.Stdin.Fd()), oldState) }() //nolint:errcheck // best-effort restore
+			defer func() {
+				_ = term.Restore(int(os.Stdin.Fd()), oldState)                                    //nolint:errcheck // best-effort restore
+				_, _ = os.Stdout.WriteString("\x1b[?1049l\x1b[?25h\x1b[?2004l\x1b[?1000l\x1b[0m") //nolint:errcheck // best-effort reset
+			}()
+		}
+		if w, h2, err := term.GetSize(int(os.Stdin.Fd())); err == nil && w > 0 && h2 > 0 {
+			_ = h.Resize(ctx, uint16(h2), uint16(w)) //nolint:errcheck // initial size best-effort
 		}
 		winch := make(chan os.Signal, 1)
 		signal.Notify(winch, syscall.SIGWINCH)
@@ -112,9 +108,41 @@ func (m *MsbBackend) ExecInteractive(ctx context.Context, opts ExecOptions) (int
 		}()
 	}
 
-	defer func() {
-		_ = h.Close() //nolint:errcheck // stream already drained
-	}()
+	// stdin pump: host stdin -> guest stdin sink.
+	// In TTY mode, do not close the sink on transient stdin reads; keep it
+	// open until the interactive session exits to prevent agents from closing.
+	sink := h.TakeStdin()
+	if sink != nil {
+		defer func() {
+			_ = sink.Close() //nolint:errcheck // best-effort close on session exit
+		}()
+		if stdTTY {
+			go func() {
+				buf := make([]byte, 1024)
+				for {
+					n, rerr := os.Stdin.Read(buf)
+					if n > 0 {
+						if _, werr := sink.Write(buf[:n]); werr != nil {
+							return
+						}
+					}
+					if rerr != nil {
+						return
+					}
+				}
+			}()
+		} else {
+			go func() {
+				_, _ = io.Copy(sink, os.Stdin) //nolint:errcheck // guest-side EOF is the signal
+				_ = sink.Close()               //nolint:errcheck // sink already closed on guest exit
+			}()
+		}
+	}
+
+	// Under a PTY, both stdout and stderr belong to the single terminal stream.
+	if stdTTY {
+		return msbDrain(h, os.Stdout, os.Stdout)
+	}
 	return msbDrain(h, os.Stdout, os.Stderr)
 }
 
