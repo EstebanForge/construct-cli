@@ -64,11 +64,11 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 
 	// Build local image if not present in docker before attempting save
 	if !m.dockerImageExists(cfg) {
-		ui.InfoLn("→ Local construct-box image not found. Building with Docker first...")
+		ui.InfoLn("→ Local construct-box image not found. Building with Docker first (this may take a few minutes)...")
 		BuildImage(cfg)
 	}
 
-	ui.InfoLn("→ Transitioning local Docker image to microVM (docker save + msb load)...")
+	ui.InfoLn("→ Transitioning local Docker image to microVM (docker save + msb load, ~3.5GB)...")
 	tmp, err := os.CreateTemp("", "construct-box-*.tar")
 	if err != nil {
 		return fmt.Errorf("msb image transition: %w", err)
