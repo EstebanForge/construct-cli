@@ -286,6 +286,9 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 		}
 		return NewDockerBackend(rt)
 	case "microvm":
+		if cfg != nil && strings.EqualFold(cfg.Network.Mode, "strict") {
+			return nil, errors.New("network mode 'strict' is not yet supported under the microvm backend (use backend = \"docker\" or network mode = \"permissive\")")
+		}
 		m := NewMsbBackend()
 		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
 			return nil, errors.New("runtime backend = \"microvm\" but microsandbox is not installed. Install it: curl -fsSL https://msb.sh | sh (Apple Silicon macOS or Linux with KVM)")

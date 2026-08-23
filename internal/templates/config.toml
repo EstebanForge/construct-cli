@@ -26,6 +26,13 @@ update_channel = "stable"
 # Mount the entire home directory? (Dangerous, default: false)
 mount_home = false
 
+# Allow mounting host $HOME as /workspace under microvm backend? (Dangerous, default: false)
+# virtiofs has no exclusion filter; recursive scans across $HOME can freeze the microVM.
+allow_home_workspace = false
+
+# Max file entries scanned in workspace before confirmation prompt (default: 60000)
+workspace_max_entries = 60000
+
 # Forward host SSH agent into the container (default: true)
 forward_ssh_agent = true
 
