@@ -387,9 +387,16 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
 			currentProjectDir, hasLabel := sbc.Labels["construct.project_dir"]
 			needRecreate := sbc.MemoryMiB < 2048
+			allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
 			if projectDir != "" {
 				dest := GetMsbWorkspaceMountDest(currentProjectDir)
 				if !hasLabel || currentProjectDir == "" {
+					needRecreate = true
+				} else if sbc.Volumes == nil || sbc.Volumes[dest].Bind != cleanProjectDir(currentProjectDir) {
+					needRecreate = true
+				} else if !allowHome && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome {
+					needRecreate = true
+				} else if isGitRoot(cleanProjectDir(projectDir)) && cleanProjectDir(projectDir) != cleanProjectDir(currentProjectDir) {
 					needRecreate = true
 				} else if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, dest); !ok {
 					needRecreate = true
@@ -472,7 +479,7 @@ create:
 const msbReadyMarker = "/tmp/.construct_entrypoint_ready"
 
 // msbWaitKeeper polls until the entrypoint posts its readiness marker or
-// the timeout elapses. It emits periodic progress notices every 30 seconds.
+// the timeout elapses. It emits periodic progress notices every 60 seconds.
 func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	start := time.Now()
@@ -485,7 +492,7 @@ func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) 
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(2 * time.Second):
-			if time.Since(lastReport) >= 30*time.Second {
+			if time.Since(lastReport) >= 60*time.Second {
 				elapsed := time.Since(start).Truncate(time.Second)
 				ui.InfoF("⏳ Still initializing guest environment (%s elapsed, please be patient)...\n", elapsed)
 				lastReport = time.Now()
