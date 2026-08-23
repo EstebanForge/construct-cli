@@ -196,3 +196,36 @@ func TestGetMsbWorkspaceMountDest(t *testing.T) {
 		}
 	}
 }
+
+func TestParseMsbConfigMounts(t *testing.T) {
+	jsonPayload := `{
+		"name": "construct-cli-daemon",
+		"mounts": [
+			{"type": "Tmpfs", "guest": "/tmp", "size_mib": 512},
+			{"type": "Bind", "host": "/host/home", "guest": "/home/construct"},
+			{"type": "Bind", "host": "/host/workspaces/proj", "guest": "/workspaces/proj"}
+		]
+	}`
+
+	mounts := parseMsbConfigMounts(jsonPayload)
+	if len(mounts) != 2 {
+		t.Fatalf("expected 2 bind mounts, got %d: %+v", len(mounts), mounts)
+	}
+	if mounts["/home/construct"] != "/host/home" {
+		t.Errorf("home mount = %q, want /host/home", mounts["/home/construct"])
+	}
+	if mounts["/workspaces/proj"] != "/host/workspaces/proj" {
+		t.Errorf("project mount = %q, want /host/workspaces/proj", mounts["/workspaces/proj"])
+	}
+	if _, ok := mounts["/tmp"]; ok {
+		t.Errorf("tmpfs mount should not be in bind mounts map")
+	}
+
+	// Empty / invalid JSON
+	if m := parseMsbConfigMounts(""); len(m) != 0 {
+		t.Errorf("expected empty map for empty string, got %+v", m)
+	}
+	if m := parseMsbConfigMounts("invalid json"); len(m) != 0 {
+		t.Errorf("expected empty map for invalid json, got %+v", m)
+	}
+}
