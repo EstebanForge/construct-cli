@@ -493,8 +493,11 @@ func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) 
 			return ctx.Err()
 		case <-time.After(2 * time.Second):
 			if time.Since(lastReport) >= 60*time.Second {
-				elapsed := time.Since(start).Truncate(time.Second)
-				ui.InfoF("⏳ Still initializing guest environment (%s elapsed, please be patient)...\n", elapsed)
+				mins := int(time.Since(start).Round(time.Minute) / time.Minute)
+				if mins < 1 {
+					mins = 1
+				}
+				ui.InfoF("⏳ Still initializing guest environment (%dm elapsed, please be patient)...\n", mins)
 				lastReport = time.Now()
 			}
 		}
