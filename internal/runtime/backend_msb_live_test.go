@@ -79,7 +79,8 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("exit-code fidelity: code=%d err=%v", code, err)
 	}
 
-	out, code, err = m.Exec(ctx, ExecOptions{Name: name, Command: []string{"cat", "/workspace/marker.txt"}})
+	dest := GetMsbWorkspaceMountDest(proj)
+	out, code, err = m.Exec(ctx, ExecOptions{Name: name, Command: []string{"cat", filepath.Join(dest, "marker.txt")}})
 	if err != nil || code != 0 || !strings.Contains(out, "construct-live") {
 		t.Fatalf("Exec cat marker: code=%d out=%q err=%v", code, out, err)
 	}
@@ -315,8 +316,9 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 		return strings.TrimSpace(out), code, err
 	}
 
+	guestWorkspace := GetMsbWorkspaceMountDest(proj)
 	// 1. No token -> 401.
-	body := `{"argv":["pwd"],"cwd":"/workspace"}`
+	body := fmt.Sprintf(`{"argv":["pwd"],"cwd":%q}`, guestWorkspace)
 	status, code, err := execCurl(body)
 	if err != nil || code != 0 || status != "401" {
 		t.Fatalf("no-token exec: status=%s code=%d err=%v (want 401)", status, code, err)
@@ -329,7 +331,7 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	}
 
 	// 3. PathMap proof: rerun with body visible; stdout frame must carry the
-	// HOST project dir (base64), i.e. /workspace translated to $proj.
+	// HOST project dir (base64), i.e. guest workspace translated to $proj.
 	cmd := append([]string{"curl", "-s", "--max-time", "30", "-X", "POST", "-d", body, "-H", "X-Construct-Exec-Token: " + srv.Token, "-H", "Content-Type: application/json"}, srv.URL+"/exec")
 	out, code, err := m.Exec(ctx, ExecOptions{Name: name, Command: cmd})
 	if err != nil || code != 0 {
