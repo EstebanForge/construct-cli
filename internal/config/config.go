@@ -41,6 +41,8 @@ type RuntimeConfig struct {
 // SandboxConfig holds sandbox options.
 type SandboxConfig struct {
 	MountHome              bool     `toml:"mount_home"`
+	AllowHomeWorkspace     bool     `toml:"allow_home_workspace"`  // Allow mounting host $HOME into /workspace under microvm (dangerous; default false)
+	WorkspaceMaxEntries    int      `toml:"workspace_max_entries"` // Max file entries in workspace before confirmation prompt (default: 60000)
 	ForwardSSHAgent        bool     `toml:"forward_ssh_agent"`
 	PropagateGitIdentity   bool     `toml:"propagate_git_identity"`
 	NonRootStrict          bool     `toml:"non_root_strict"`
@@ -116,6 +118,8 @@ func DefaultConfig() Config {
 		},
 		Sandbox: SandboxConfig{
 			MountHome:            false,
+			AllowHomeWorkspace:   false,
+			WorkspaceMaxEntries:  60000,
 			ForwardSSHAgent:      true,
 			PropagateGitIdentity: true,
 			NonRootStrict:        false,

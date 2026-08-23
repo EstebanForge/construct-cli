@@ -82,3 +82,53 @@ Items required before graduating `backend = "microvm"` out of experimental statu
 - [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "microvm"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
 - [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
 - [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
+
+---
+
+# TODO: Bidirectional Synchronized Workspace for MicroVM (High-Performance Monorepos)
+
+## Background
+
+Virtiofs passthrough over Apple Virtualization Framework carries high metadata latency per file operation (`stat`, `readdir`, `open`). In large monorepos with hundreds of thousands of files or heavy dependency trees, recursive scans by agents (`find`, `rg`, indexing) can saturate the virtualization queue.
+
+Docker Sandboxes solves this problem for monorepos through **Synchronized File Shares** (Mutagen-based background caching), keeping the guest workspace on a native ext4 disk while synchronizing file updates to the host.
+
+## Goal
+
+Implement an opt-in `sync_mode = "bidirectional"` for the Construct microVM backend to give agents native Linux ext4 filesystem performance while keeping host files updated in real time.
+
+## Proposed Architecture
+
+```
+Host Project Directory (APFS / ext4)
+         │  ▲
+         │  │  Bi-directional Sync (Mutagen / Vsock Daemon)
+         ▼  │
+MicroVM Guest `/workspace` (Native ext4 Virtual Disk)
+         ▲
+         │  Full Native I/O Speed
+AI Agent (Pi, Claude, Codex, Antigravity)
+```
+
+## Implementation Plan
+
+1. **Configuration Knob**:
+   - Add `[sandbox] sync_mode = "virtiofs"` (default) or `"bidirectional"` to `internal/config/config.go` and `internal/templates/config.toml`.
+2. **Guest Storage Layout**:
+   - When `sync_mode = "bidirectional"`, omit the host bind mount for `/workspace` in `msbSandboxMounts`.
+   - Allocate `/workspace` directly on the microVM's virtual disk.
+3. **Synchronization Transport**:
+   - Establish a bi-directional file synchronization bridge between the host CLI process and the guest environment over vsock or guest SSH bridge.
+   - Use an embedded synchronization agent (such as Mutagen) or a lightweight bidirectional rsync/inotify watcher.
+4. **Lifecycle & Synchronization Stages**:
+   - **Pre-flight**: Perform an initial seed synchronization from host to guest `/workspace` before starting the agent session.
+   - **Runtime**: Stream incremental file modifications bi-directionally during the agent session.
+   - **Teardown**: Perform a final sync flush from guest to host before detaching or shutting down.
+5. **Ignore & Pruning Rules**:
+   - Automatically exclude heavy cache directories and binary artifacts (`node_modules/`, `.git/objects/`, target builds) from bi-directional host sync to minimize synchronization overhead.
+
+## Success Criteria
+
+- Recursive file operations (`find /workspace`, `rg`, `git status`) inside the microVM execute at native ext4 speed with zero Virtiofs queue lag.
+- Files created or edited by the agent inside `/workspace` appear immediately on the host filesystem.
+- Zero risk of microVM freeze when running agents across large monorepos.

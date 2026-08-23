@@ -34,8 +34,8 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if mounts := spec.Mounts; mounts[msbHomeMountDest].Bind == "" {
 		t.Errorf("home bind mount missing: %+v", mounts[msbHomeMountDest])
 	}
-	if spec.Mounts["/workspace"].Bind != "/tmp/proj" {
-		t.Errorf("project mount missing: %+v", spec.Mounts["/workspace"])
+	if spec.Mounts["/workspaces/proj"].Bind != "/tmp/proj" {
+		t.Errorf("project mount missing: %+v", spec.Mounts["/workspaces/proj"])
 	}
 	if spec.HostAliasEnv != msbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != msbHostAlias {
 		t.Errorf("host alias env missing: %+v", spec.Env)
@@ -106,14 +106,15 @@ func TestMsbPathMapsMirrorSandboxMounts(t *testing.T) {
 		}
 	}
 	// Project dir must always be present.
+	expectedGuest := GetMsbWorkspaceMountDest(proj)
 	found := false
 	for _, pm := range paths {
-		if pm.Guest == "/workspace" {
+		if pm.Guest == expectedGuest {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("MsbPathMaps missing /workspace project translation")
+		t.Errorf("MsbPathMaps missing %s project translation", expectedGuest)
 	}
 }
 
@@ -171,5 +172,27 @@ func TestResolveExecUserMsb(t *testing.T) {
 	user := ResolveExecUserMsb(&cfg)
 	if user != "construct" {
 		t.Errorf("expected construct, got %q", user)
+	}
+}
+
+func TestGetMsbWorkspaceMountDest(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"", "/workspaces"},
+		{"/", "/workspaces"},
+		{".", "/workspaces"},
+		{"/Users/esteban/Dev/my-proj", "/workspaces/my-proj"},
+		{"/Users/esteban/Dev/my-proj/", "/workspaces/my-proj"},
+		{"/tmp/workspace", "/workspaces/workspace"},
+		{"/tmp/nested/deep/project", "/workspaces/project"},
+	}
+
+	for _, tt := range tests {
+		got := GetMsbWorkspaceMountDest(tt.input)
+		if got != tt.expected {
+			t.Errorf("GetMsbWorkspaceMountDest(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
 	}
 }

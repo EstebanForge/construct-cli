@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -19,6 +20,24 @@ import (
 // builds (buildDaemonExecEnv + MaskEnv + exit-code fidelity).
 func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (int, error) {
 	ctx := context.Background()
+
+	var allowHome bool
+	var maxEntries int
+	if e.cfg != nil {
+		if strings.EqualFold(e.cfg.Network.Mode, "strict") {
+			return 1, errors.New("network mode 'strict' is not yet supported under the microvm backend (use backend = \"docker\" or network mode = \"permissive\")")
+		}
+		allowHome = e.cfg.Sandbox.AllowHomeWorkspace
+		maxEntries = e.cfg.Sandbox.WorkspaceMaxEntries
+	}
+	verdict := runtime.EvaluateWorkspace(e.cwd, maxEntries)
+	if err := runtime.EnforceWorkspace(verdict, runtime.WorkspacePolicy{
+		AllowHome:   allowHome,
+		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
+		Confirm:     ui.GumConfirm,
+	}); err != nil {
+		return 1, err
+	}
 
 	if !runtime.AreAgentsInstalled() {
 		if err := runtime.MsbInstallAgents(ctx, e.cfg); err != nil {
@@ -79,9 +98,14 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	}
 	envVars = e.sec.MaskEnv(envVars)
 
-	workdir := "/workspace"
+	workdir := "/workspaces"
 	if e.cwd != "" {
-		if mapped, ok := MapDaemonWorkdir(e.cwd, e.cwd, "/workspace"); ok {
+		projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
+		if projectRoot == "" {
+			projectRoot = e.cwd
+		}
+		dest := runtime.GetMsbWorkspaceMountDest(projectRoot)
+		if mapped, ok := runtime.MapDaemonWorkdir(e.cwd, projectRoot, dest); ok {
 			workdir = mapped
 		}
 	}
@@ -105,7 +129,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 // Same script shape as the Docker path's ensureDaemonSSHProxy; the port is
 // passed via env to keep it out of the shell string.
 func msbEnsureSSHProxy(port int, sockPath, execUser string) error {
-	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" </dev/null >/tmp/socat.log 2>&1 &`
+	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" </dev/null >/tmp/socat.log 2>&1 &`
 	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: []string{"bash", "-lc", script},

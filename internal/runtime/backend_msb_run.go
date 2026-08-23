@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -33,9 +34,35 @@ const msbHomeMountDest = "/home/construct"
 // copy-image-content-into-empty-volume behavior). No named volumes remain.
 func EnsureMsbVolumes(_ context.Context) error { return nil }
 
+func cleanProjectDir(projectDir string) string {
+	if projectDir == "" {
+		return ""
+	}
+	if v := EvaluateWorkspace(projectDir, 0); v.Risk == WorkspaceRiskSystem {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
+		return resolved
+	}
+	return filepath.Clean(projectDir)
+}
+
+// GetMsbWorkspaceMountDest returns the guest mount destination for a project dir (/workspaces/<name>).
+func GetMsbWorkspaceMountDest(projectDir string) string {
+	cleaned := cleanProjectDir(projectDir)
+	if cleaned == "" {
+		return "/workspaces"
+	}
+	projectName := filepath.Base(cleaned)
+	if projectName == "." || projectName == "/" || projectName == "" {
+		return "/workspaces"
+	}
+	return "/workspaces/" + projectName
+}
+
 // msbSandboxMounts maps the construct mount layout onto msb MountConfig:
 // host construct home -> /home/construct (direct bind, Docker-parity),
-// project dir bind -> /workspace, plus conditional auto-mounts (qmd models)
+// project dir bind -> /workspaces/<name>, plus conditional auto-mounts (qmd models)
 // when the host path exists. linuxbrew stays on the sandbox root disk.
 func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 	mounts := map[string]msb.MountConfig{}
@@ -45,13 +72,9 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 		})
 	}
 
-	if projectDir != "" {
-		// Resolve host symlinks (macOS /var -> /private/var etc.): msb binds
-		// the literal path and fails with ENOTDIR on unresolved temp paths.
-		if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
-			projectDir = resolved
-		}
-		mounts["/workspace"] = msb.Mount.Bind(projectDir, msb.MountOptions{
+	if dir := cleanProjectDir(projectDir); dir != "" {
+		dest := GetMsbWorkspaceMountDest(dir)
+		mounts[dest] = msb.Mount.Bind(dir, msb.MountOptions{
 			StatVirtualization: msb.StatVirtualizationOff,
 		})
 	}
@@ -75,20 +98,23 @@ type MsbPathMap struct {
 // MsbPathMaps returns the guest→host path translations for every bind in
 // msbSandboxMounts (home, workspace, auto-mounts). Derived from the same
 // sources so the host exec bridge can never drift from actual mounts.
+// Maps are sorted longest guest-path first to resolve nested paths correctly.
 func MsbPathMaps(projectDir string) []MsbPathMap {
 	maps := []MsbPathMap{}
 	if home := msbHostConstructHome(); home != "" {
 		maps = append(maps, MsbPathMap{Guest: msbHomeMountDest, Host: home})
 	}
-	if projectDir != "" {
-		if resolved, err := filepath.EvalSymlinks(projectDir); err == nil {
-			projectDir = resolved
-		}
-		maps = append(maps, MsbPathMap{Guest: "/workspace", Host: projectDir})
+	if dir := cleanProjectDir(projectDir); dir != "" {
+		dest := GetMsbWorkspaceMountDest(dir)
+		maps = append(maps, MsbPathMap{Guest: dest, Host: dir})
 	}
 	for _, m := range conditionalAutoMounts() {
 		maps = append(maps, MsbPathMap{Guest: m.Dest, Host: m.Src})
 	}
+	// Sort longest guest path first so specific nested paths match before parent mounts.
+	sort.Slice(maps, func(i, j int) bool {
+		return len(maps[i].Guest) > len(maps[j].Guest)
+	})
 	return maps
 }
 
@@ -223,11 +249,8 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	for k, v := range envSliceToMap(msbBaseEnv(cfg)) {
 		env[k] = v
 	}
-	var labels map[string]string
-	if projectDir != "" {
-		labels = map[string]string{
-			"construct.project_dir": projectDir,
-		}
+	labels := map[string]string{
+		"construct.project_dir": cleanProjectDir(projectDir),
 	}
 	return &MsbRunSpec{
 		Name:         name,
@@ -362,10 +385,13 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 
 	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
 		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
-			currentProjectDir := sbc.Labels["construct.project_dir"]
+			currentProjectDir, hasLabel := sbc.Labels["construct.project_dir"]
 			needRecreate := sbc.MemoryMiB < 2048
-			if currentProjectDir != "" && projectDir != "" {
-				if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, "/workspace"); !ok {
+			if projectDir != "" {
+				dest := GetMsbWorkspaceMountDest(currentProjectDir)
+				if !hasLabel || currentProjectDir == "" {
+					needRecreate = true
+				} else if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, dest); !ok {
 					needRecreate = true
 				}
 			}
@@ -552,4 +578,17 @@ func msbSeedAutoFiles(ctx context.Context, sb *msb.Sandbox) error {
 		return fmt.Errorf("msb seed gitignore: %w", err)
 	}
 	return nil
+}
+
+// GetMsbDaemonProjectDir returns the mounted project dir of the running msb daemon.
+func GetMsbDaemonProjectDir(ctx context.Context) string {
+	h, err := msb.GetSandbox(ctx, msbDaemonName)
+	if err != nil {
+		return ""
+	}
+	sbc, err := h.Config()
+	if err != nil || sbc == nil {
+		return ""
+	}
+	return sbc.Labels["construct.project_dir"]
 }

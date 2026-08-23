@@ -7,6 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
+
+	"golang.org/x/term"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -112,6 +115,23 @@ func startMsb(cfg *config.Config) {
 		ui.GumError(fmt.Sprintf("Failed to get working directory: %v", err))
 		os.Exit(1)
 	}
+
+	var allowHome bool
+	var maxEntries int
+	if cfg != nil {
+		allowHome = cfg.Sandbox.AllowHomeWorkspace
+		maxEntries = cfg.Sandbox.WorkspaceMaxEntries
+	}
+	verdict := runtime.EvaluateWorkspace(cwd, maxEntries)
+	if err := runtime.EnforceWorkspace(verdict, runtime.WorkspacePolicy{
+		AllowHome:   allowHome,
+		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
+		Confirm:     ui.GumConfirm,
+	}); err != nil {
+		ui.GumError(fmt.Sprintf("MicroVM workspace refused: %v", err))
+		os.Exit(1)
+	}
+
 	ui.GumInfo("Starting daemon sandbox...")
 	sb, err := runtime.EnsureMsbDaemon(context.Background(), cfg, cwd)
 	if err != nil {
@@ -128,22 +148,29 @@ func startMsb(cfg *config.Config) {
 
 // stopMsb stops the msb daemon sandbox; the root disk persists. Waits for
 // the stopped state so a subsequent start does not race the draining VM.
-func stopMsb() {
+func stopMsb() error {
 	ctx := context.Background()
 	h, err := msb.GetSandbox(ctx, "construct-cli-daemon")
 	if err != nil {
-		ui.GumWarning("Daemon is not running")
-		os.Exit(1)
+		return fmt.Errorf("daemon is not running: %w", err)
 	}
 	if h.Status() == msb.SandboxStatusStopped {
 		ui.GumInfo("Daemon is already stopped")
-		return
+		return nil
 	}
+	ui.GumInfo("Stopping microVM daemon...")
 	if err := h.Stop(ctx); err != nil {
-		ui.GumError(fmt.Sprintf("Failed to stop microvm daemon: %v", err))
-		os.Exit(1)
+		return fmt.Errorf("failed to stop microvm daemon: %w", err)
+	}
+	for i := 0; i < 30; i++ {
+		fresh, err := h.Refresh(ctx)
+		if err != nil || fresh.Status() == msb.SandboxStatusStopped {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 	ui.GumSuccess("Daemon stopped")
+	return nil
 }
 
 // attachMsb opens an interactive shell in the running daemon sandbox.
@@ -159,10 +186,14 @@ func attachMsb(cfg *config.Config) {
 	if cfg != nil && cfg.Sandbox.Shell != "" {
 		shell = cfg.Sandbox.Shell
 	}
-	code, err := m.ExecInteractive(context.Background(), runtime.ExecOptions{
+	ctx := context.Background()
+	projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
+	workdir := runtime.GetMsbWorkspaceMountDest(projectRoot)
+
+	code, err := m.ExecInteractive(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: []string{shell},
-		Workdir: "/workspace",
+		Workdir: workdir,
 		User:    "construct",
 	})
 	if err != nil {
@@ -202,7 +233,10 @@ func Stop() {
 		os.Exit(1)
 	}
 	if cfg.Runtime.Backend == "microvm" {
-		stopMsb()
+		if err := stopMsb(); err != nil {
+			ui.GumWarning("Daemon is not running")
+			os.Exit(1)
+		}
 		return
 	}
 	if err := runtime.ValidateBackendSelected(cfg); err != nil {
@@ -247,7 +281,7 @@ func Restart() {
 		os.Exit(1)
 	}
 	if cfg.Runtime.Backend == "microvm" {
-		stopMsb()
+		_ = stopMsb() //nolint:errcheck // best-effort stop before start on restart
 		startMsb(cfg)
 		return
 	}
