@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -367,6 +368,30 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 	return sb, nil
 }
 
+type msbConfigRaw struct {
+	Mounts []struct {
+		Type  string `json:"type"`
+		Host  string `json:"host"`
+		Guest string `json:"guest"`
+	} `json:"mounts"`
+}
+
+// parseMsbConfigMounts parses guest->host bind mounts from sandbox ConfigJSON.
+// The SDK's SandboxConfig.Volumes is unpopulated because the JSON schema uses "mounts" (array).
+func parseMsbConfigMounts(configJSON string) map[string]string {
+	var raw msbConfigRaw
+	if err := json.Unmarshal([]byte(configJSON), &raw); err != nil {
+		return nil
+	}
+	mounts := make(map[string]string, len(raw.Mounts))
+	for _, m := range raw.Mounts {
+		if m.Type == "Bind" && m.Guest != "" {
+			mounts[m.Guest] = m.Host
+		}
+	}
+	return mounts
+}
+
 // msbDaemonName is the persistent sandbox backing the daemon mode under
 // the msb backend (Docker analog: construct-cli-daemon container). Named
 // sandboxes persist across stop/start, so agent installs and brew state on
@@ -390,9 +415,10 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
 			if projectDir != "" {
 				dest := GetMsbWorkspaceMountDest(currentProjectDir)
+				mounts := parseMsbConfigMounts(h.ConfigJSON())
 				if !hasLabel || currentProjectDir == "" {
 					needRecreate = true
-				} else if sbc.Volumes == nil || sbc.Volumes[dest].Bind != cleanProjectDir(currentProjectDir) {
+				} else if mounts[dest] != cleanProjectDir(currentProjectDir) {
 					needRecreate = true
 				} else if !allowHome && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome {
 					needRecreate = true
