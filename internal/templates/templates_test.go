@@ -224,6 +224,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(DockerCompose, "CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP:-0}") {
 		t.Error("docker-compose.yml should pass through CONSTRUCT_USERNS_REMAP with default 0")
 	}
+	if !strings.Contains(DockerCompose, "CONSTRUCT_USERNS_KEEPID=${CONSTRUCT_USERNS_KEEPID:-0}") {
+		t.Error("docker-compose.yml should pass through CONSTRUCT_USERNS_KEEPID with default 0")
+	}
 
 	// Verify update-all uses shared hash helper
 	if !strings.Contains(UpdateAll, "entrypoint-hash.sh") {
@@ -263,6 +266,7 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 		`RUN_AS_USER="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
 		`RUN_AS_CHOWN="${CONSTRUCT_HOST_UID}:${CONSTRUCT_HOST_GID}"`,
 		`if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then`,
+		`if [ "${CONSTRUCT_USERNS_KEEPID:-0}" != "1" ]; then`,
 		`RUN_AS_USER="root"`,
 		`RUN_AS_CHOWN="0:0"`,
 		`SKIP_RECURSIVE_CHOWN=1`,

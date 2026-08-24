@@ -37,6 +37,7 @@ services:
       - CONSTRUCT_HOST_UID=${CONSTRUCT_HOST_UID:-}
       - CONSTRUCT_HOST_GID=${CONSTRUCT_HOST_GID:-}
       - CONSTRUCT_USERNS_REMAP=${CONSTRUCT_USERNS_REMAP:-0}
+      - CONSTRUCT_USERNS_KEEPID=${CONSTRUCT_USERNS_KEEPID:-0}
       - CGO_ENABLED=1
       # Host exec bridge (see docs/HOST-EXEC.md). Defaults empty so the file
       # stays valid when the feature is off; real values are injected per-exec

@@ -192,6 +192,9 @@ func TestBuildComposeCommandInjectsHostIdentityEnvOnLinux(t *testing.T) {
 		if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_USERNS_REMAP=") {
 			t.Fatalf("expected CONSTRUCT_USERNS_REMAP in compose command env on linux, got %v", cmd.Env)
 		}
+		if !containsEnvWithPrefix(cmd.Env, "CONSTRUCT_USERNS_KEEPID=") {
+			t.Fatalf("expected CONSTRUCT_USERNS_KEEPID in compose command env on linux, got %v", cmd.Env)
+		}
 	}
 }
 
@@ -573,6 +576,73 @@ func TestGenerateDockerComposeOverridePodmanUserMappingDependsOnUsernsMode(t *te
 	if !hasUserMapping {
 		t.Fatalf("Expected podman override to include user mapping when userns-remap is inactive, got: %s", contentStr)
 	}
+}
+
+// TestGenerateDockerComposeOverridePodmanKeepIdUsernsMode is a regression test
+// for the rootless-podman EACCES bug: the daemon's exec user (construct, uid
+// 1000) could not write the /home/construct bind mount because the runtime's
+// default rootless mapping puts uid 1000 on a subuid outside the host user's
+// range. userns_mode: keep-id fixes this by mapping the host UID/GID directly
+// into the container. Forces both branches via podmanIsRootlessFn instead of
+// relying on the test host's actual podman installation.
+func TestGenerateDockerComposeOverridePodmanKeepIdUsernsMode(t *testing.T) {
+	if stdruntime.GOOS != "linux" {
+		t.Skip("Linux-specific podman userns_mode behavior")
+	}
+
+	origFn := podmanIsRootlessFn
+	t.Cleanup(func() { podmanIsRootlessFn = origFn })
+
+	generate := func(t *testing.T, rootless bool) string {
+		t.Helper()
+		podmanIsRootlessFn = func() bool { return rootless }
+
+		tmpDir := t.TempDir()
+		origHome := os.Getenv("HOME")
+		os.Setenv("HOME", tmpDir)
+		t.Cleanup(func() { os.Setenv("HOME", origHome) })
+
+		containerDir := filepath.Join(tmpDir, "container")
+		if err := os.MkdirAll(containerDir, 0755); err != nil {
+			t.Fatalf("Failed to create temp dir: %v", err)
+		}
+
+		projectName := filepath.Base(tmpDir)
+		if projectName == "." || projectName == "/" {
+			projectName = "workspace"
+		}
+		expectedPath := "/projects/" + projectName
+
+		if err := GenerateDockerComposeOverride(tmpDir, expectedPath, "bridge", "podman"); err != nil {
+			t.Fatalf("GenerateDockerComposeOverride failed: %v", err)
+		}
+
+		content, err := os.ReadFile(filepath.Join(containerDir, "docker-compose.override.yml"))
+		if err != nil {
+			t.Fatalf("Failed to read generated file: %v", err)
+		}
+		return string(content)
+	}
+
+	t.Run("rootless emits keep-id and skips user mapping", func(t *testing.T) {
+		contentStr := generate(t, true)
+		if !strings.Contains(contentStr, "userns_mode: keep-id") {
+			t.Fatalf("expected userns_mode: keep-id for rootless podman, got: %s", contentStr)
+		}
+		if strings.Contains(contentStr, "user: \"") {
+			t.Fatalf("expected no user: mapping alongside keep-id, got: %s", contentStr)
+		}
+	})
+
+	t.Run("rootful omits keep-id and forces user mapping", func(t *testing.T) {
+		contentStr := generate(t, false)
+		if strings.Contains(contentStr, "userns_mode:") {
+			t.Fatalf("expected no userns_mode for rootful podman, got: %s", contentStr)
+		}
+		if !strings.Contains(contentStr, "user: \"") {
+			t.Fatalf("expected user: mapping for rootful podman, got: %s", contentStr)
+		}
+	})
 }
 
 func TestGenerateDockerComposeOverrideHomeCwdSELinuxUsesFallbackWorkingDir(t *testing.T) {
