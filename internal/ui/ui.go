@@ -123,6 +123,13 @@ func IsTerminal() bool {
 	return isTTY(os.Stdout)
 }
 
+// StdinIsTerminal reports whether a confirm prompt can safely read stdin.
+// Piped or scripted stdin (ssh batches, agents, CI) must never be read by a
+// prompt: it hangs or consumes the piped stream.
+func StdinIsTerminal() bool {
+	return isTTY(os.Stdin)
+}
+
 func isTTY(file *os.File) bool {
 	// Check file info - character devices are terminals.
 	fi, err := file.Stat()

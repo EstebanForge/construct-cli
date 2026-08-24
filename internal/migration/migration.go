@@ -2,6 +2,7 @@
 package migration
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -553,7 +554,12 @@ func attemptMigrationPermissionRecoveryForOS(osName string, cause error, configP
 	}
 	fmt.Fprintln(os.Stderr)
 
-	if !confirmOwnershipFixFn(fmt.Sprintf("Attempt to fix ownership now? (%s)", configPath)) {
+	if !ui.StdinIsTerminal() {
+		// Non-interactive session (script, ssh, agent): the fix below is
+		// rootless; run it directly instead of prompting (a prompt would eat
+		// piped stdin or hang).
+		ui.InfoLn("Non-interactive session: attempting ownership fix without prompting.")
+	} else if !confirmOwnershipFixFn(fmt.Sprintf("Attempt to fix ownership now? (%s)", configPath)) {
 		return false, ownershipFixDeclinedError(commands)
 	}
 
@@ -670,10 +676,25 @@ func warnConfigPermission(err error) {
 }
 
 func runOwnershipFix(configPath string) error {
+	// Rootless/userns runtimes repair ownership without sudo; prefer the
+	// no-prompt path so scripted sessions self-heal (sudo cannot ask for a
+	// password without a terminal, and must never read piped stdin).
+	if _, err := exec.LookPath("podman"); err == nil {
+		cmd := exec.Command("podman", "unshare", "chown", "-R", "0:0", configPath)
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "Warning: podman unshare ownership fix failed (%v); trying sudo fallback.\n", err)
+	}
 	uid := os.Getuid()
 	gid := os.Getgid()
 	cmd := exec.Command("sudo", "chown", "-R", fmt.Sprintf("%d:%d", uid, gid), configPath)
-	cmd.Stdin = os.Stdin
+	if ui.StdinIsTerminal() {
+		cmd.Stdin = os.Stdin
+	}
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
