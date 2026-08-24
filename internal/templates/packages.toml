@@ -57,6 +57,7 @@ packages = [
   "pkg-config",
   "direnv",
   "gum",
+  "rtk",  # Rust Token Killer
   # Languages
   "go",
   "openjdk",

@@ -923,6 +923,8 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	// Hash all inputs in a deterministic order
 	// fmt.Fprintf to hash.Hash cannot error for sha256.New()
 	writeHashString(h, "version:%s", inputs.Version)
+	// Cache key for the emitted volume mode syntax; bump when the syntax changes.
+	writeHashString(h, "mount_mode_syntax:comma")
 	writeHashString(h, "runtime:%s", inputs.Runtime)
 	writeHashString(h, "uid:%d", inputs.UID)
 	writeHashString(h, "gid:%d", inputs.GID)
@@ -1104,6 +1106,13 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		ui.InfoLn("✓ SELinux labels enabled for volume mounts")
 	}
 	projectSelinuxSuffix := selinuxSuffix
+	// Comma variant for volume entries that already carry a mode flag (e.g. :ro):
+	// the compose short syntax joins options with a comma; a second colon field
+	// (":ro:z") is rejected by podman-compose.
+	selinuxCommaSuffix := ""
+	if selinuxSuffix != "" {
+		selinuxCommaSuffix = "," + strings.TrimPrefix(selinuxSuffix, ":")
+	}
 	workingDir := projectPath
 	if selinuxEnabled && isHomeCwd() {
 		projectSelinuxSuffix = ""
@@ -1182,7 +1191,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		// Mount global gitignore (read-only) if found on host
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
-				formatVolumePath(gitIgnorePath), selinuxSuffix)
+				formatVolumePath(gitIgnorePath), selinuxCommaSuffix)
 		}
 		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
