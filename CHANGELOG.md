@@ -3,13 +3,19 @@
 All notable changes to Construct CLI will be documented in this file.
 
 <!-- RELEASE:START 1.16.0 -->
-## [1.16.0] - 2026-08-21
+## [1.16.0] - 2026-08-23
 
 ### Added
 - **MicroVM hardware isolation engine (`backend = "microvm"`)**: Construct now supports microVM hardware isolation powered by [microsandbox](https://microsandbox.dev) as an opt-in runtime backend alongside OCI containers. Each sandbox runs within an isolated Linux guest kernel managed by hardware hypervisors (Apple Hypervisor.framework on macOS, KVM on Linux). The runtime layer standardizes lifecycle, command execution, streaming stdio, interactive PTY sessions, and image inspection through a modular `Backend` interface (`internal/runtime/backend.go`).
 - **Full guest-to-host bridge subsystem for microVMs**: All Construct bridges communicate across the microVM boundary via `host.microsandbox.internal`: token-authenticated clipboard text and image pasting, bidirectional host-exec path mapping, SSH agent proxying (with socket listeners placed on guest tmpfs to bypass VirtioFS socket creation constraints), Herdr status reporting, and loopback TCP relays (`127.0.0.1:<port>` -> `host.microsandbox.internal:<port>`) for headless browser access to host development sites.
 - **Resource sizing and persistent daemon management**: Sandboxes configure 4 vCPUs and 4096 MiB RAM (`CPUs: 4, MemoryMiB: 4096`) by default, preventing memory starvation or Linux OOM termination on heavy JS/TS agent heaps (Claude Code, Pi extensions, Codex, OpenCode). Sandboxes dynamically recreate when switching across host project roots, persist toolchains and package installations across stop/start cycles on the sandbox root disk, and validate backend readiness fail-closed without silent fallback.
 - **MicroVM health diagnostics**: `construct sys doctor` includes dedicated checks for the microVM backend (binary detection, daemon reachability, image state, and hypervisor virtualization support).
+- **`rtk` (Rust Token Killer) joins the default brew packages**: token counting and context budgeting inside sandboxes, present on every fresh install.
+
+### Fixed
+- **podman-compose parse failure on SELinux-labeled read-only mounts**: the generated override emitted the global gitignore bind as `src:dst:ro:z`; podman-compose's short-mount grammar accepts at most three colon-separated fields, so every setup on a podman host died with `could not parse mount` before the container started. Mounts that already carry a mode flag now append the SELinux label as a comma-joined option (`ro,z`), which docker compose also accepts, and the override cache key gained a `mount_mode_syntax` field so existing `docker-compose.override.yml` files regenerate instead of keeping the unparseable line.
+- **Bun bootstrap failed on fresh containers (`unzip is required to install bun`)**: the user-package installer reaches the Bun step before any brew formula is populated, and the Debian base image ships no unzip. `unzip` joins the base image apt layer so the installer path is self-sufficient.
+- **Config ownership doctor blocked scripted and agent sessions**: rootless podman's user namespace periodically rewrites files under `~/.config/construct-cli` through the `:z` mounts, leaving them owned by a subordinate UID that blocks host-side writes. The doctor confirmed with a prompt that reads stdin (hung or consumed the piped stream in ssh batches and agent runs), and the migration fix path went straight to sudo, which cannot ask for a password without a terminal. Confirm prompts now gate on `ui.StdinIsTerminal()`: non-interactive sessions run the rootless fix directly, `runOwnershipFix` tries `podman unshare chown -R 0:0` before the sudo fallback, and sudo only inherits stdin on a real terminal.
 <!-- RELEASE:END 1.16.0 -->
 
 <!-- RELEASE:START 1.15.1 -->
