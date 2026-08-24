@@ -2,6 +2,13 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.16.1 -->
+## [1.16.1] - 2026-08-24
+
+### Fixed
+- **Rootless podman: agents crashed with `EACCES: permission denied` writing under `/home/construct`**: `ct pi update --all` and similar commands exec into the daemon as the `construct` user (uid 1000), but rootless podman's default user namespace maps container uid 1000 to a host subuid (e.g. `100999`) while container root maps to the real host user. The `/home/construct` bind mount is created host-side and owned by the host user, so the mapped `construct` user only had read access to it, surfacing as `mkdir '/home/construct/.pi/agent/trust.json.lock'` failures. The generated `docker-compose.override.yml` now sets `userns_mode: keep-id` for rootless podman, which maps the host UID/GID directly into the container at the same numeric id instead of through the subuid range, so `construct` (uid 1000) aliases the host user and can write the mount it already owns. `entrypoint.sh`'s root-phase ownership fix carried the opposite assumption (container root aliases the host user, so stay root and skip the chown); it now reads a new `CONSTRUCT_USERNS_KEEPID` signal to skip that fallback under keep-id and take the normal numeric-uid chown-then-drop-privileges path instead. The override cache key gained a version marker so every existing `docker-compose.override.yml` regenerates with the fix on next run; a daemon container already running under the old mapping keeps it until recreated (`construct sys doctor --fix`, which always stops and recreates the daemon), since `userns_mode` only takes effect at container creation.
+<!-- RELEASE:END 1.16.1 -->
+
 <!-- RELEASE:START 1.16.0 -->
 ## [1.16.0] - 2026-08-23
 
