@@ -1461,7 +1461,11 @@ func ensureConfigPermissions(configPath, containerRuntime string) error {
 	}
 	fmt.Fprintln(os.Stderr)
 
-	if !confirmOwnershipFixFn("Attempt to fix ownership now? This may require your sudo password.") {
+	if !ui.StdinIsTerminal() {
+		// Non-interactive session (script, ssh, agent): the rootless fix below
+		// needs no sudo and no input, so run it instead of prompting.
+		fmt.Fprintf(os.Stderr, "Non-interactive session: attempting rootless ownership fix without prompting.\n")
+	} else if !confirmOwnershipFixFn("Attempt to fix ownership now? This may require your sudo password.") {
 		return fmt.Errorf("ownership fix required before continuing. Run:\n%s", formatOwnershipFixCommands(commands))
 	}
 
