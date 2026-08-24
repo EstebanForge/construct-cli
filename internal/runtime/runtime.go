@@ -43,6 +43,7 @@ var attemptedOwnershipFix bool
 var confirmOwnershipFixFn = ui.GumConfirm
 var runOwnershipFixInteractiveFn = runOwnershipFix
 var runOwnershipFixRootlessFn = runOwnershipFixRootless
+var podmanIsRootlessFn = podmanIsRootless
 
 // DetectRuntime selects an available container runtime using parallel detection.
 func DetectRuntime(preferredEngine string) string {
@@ -799,10 +800,28 @@ func AppendRuntimeIdentityEnv(env []string, containerRuntime string) []string {
 		return env
 	}
 
-	if UsesUserNamespaceRemap(containerRuntime) {
+	usernsRemap := UsesUserNamespaceRemap(containerRuntime)
+	if usernsRemap {
 		env = setEnvVar(env, "CONSTRUCT_USERNS_REMAP", "1")
 	} else {
 		env = setEnvVar(env, "CONSTRUCT_USERNS_REMAP", "0")
+	}
+
+	// Podman rootless containers run with --userns=keep-id (see
+	// GenerateDockerComposeOverride), which maps the host UID/GID directly
+	// into the container instead of through the subuid range the runtime's
+	// default rootless mapping uses. entrypoint.sh needs this distinct signal:
+	// its generic userns-remap fallback (stay root, skip the recursive chown)
+	// assumes the default mapping's direction, where container root aliases
+	// the host user; under keep-id it is uid 1000 (construct) that aliases
+	// the host user instead, so that fallback must not fire here. Reuses
+	// usernsRemap rather than calling podmanIsRootlessFn again: for podman
+	// that bool already IS podmanIsRootlessFn(), so this avoids a second
+	// `podman info` shell-out on every agent launch.
+	if containerRuntime == "podman" && usernsRemap {
+		env = setEnvVar(env, "CONSTRUCT_USERNS_KEEPID", "1")
+	} else {
+		env = setEnvVar(env, "CONSTRUCT_USERNS_KEEPID", "0")
 	}
 	return env
 }
@@ -814,7 +833,7 @@ func UsesUserNamespaceRemap(containerRuntime string) bool {
 		return false
 	}
 
-	return (containerRuntime == "podman" && podmanIsRootless()) ||
+	return (containerRuntime == "podman" && podmanIsRootlessFn()) ||
 		((containerRuntime == "docker" || containerRuntime == "container") && dockerUsesUserNamespaceRemap())
 }
 
@@ -925,6 +944,10 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "version:%s", inputs.Version)
 	// Cache key for the emitted volume mode syntax; bump when the syntax changes.
 	writeHashString(h, "mount_mode_syntax:comma")
+	// Version marker for the podman rootless userns_mode:keep-id fix; bumping
+	// this literal forces every existing override (computed before this field
+	// existed) to regenerate once, regardless of whether UsernsRemap changed.
+	writeHashString(h, "podman_keepid_userns:1")
 	writeHashString(h, "runtime:%s", inputs.Runtime)
 	writeHashString(h, "uid:%d", inputs.UID)
 	writeHashString(h, "gid:%d", inputs.GID)
@@ -1169,6 +1192,22 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			ui.InfoLn("⚠️  Limitations: root bootstrap permission fixes are disabled; brew/npm installs may fail on first run.")
 			ui.InfoLn("⚠️  Recommendation: prefer runtime.engine='podman' for strict non-root workflows.")
 		}
+	}
+
+	// Podman rootless: the runtime's default userns mapping puts uid 1000
+	// (construct, the ResolveExecUser exec target) on a subuid far outside the
+	// host user's range, while host UID 1000 maps to container root instead.
+	// The construct-cli home bind mount is created host-side and owned by the
+	// host user, so `podman exec -u construct mkdir ...` under that default
+	// mapping fails EACCES against the mount - reproduced live on a fresh
+	// Fedora/podman 5.8.4 host. --userns=keep-id remaps the host UID/GID
+	// directly into the container at the SAME numeric id, so construct (uid
+	// 1000) aliases the host user and can write the mount it already owns.
+	// Podman-only; Docker's userns-remap is a separate, daemon-wide opt-in
+	// handled outside this override.
+	if runtime.GOOS == "linux" && containerRuntime == "podman" && usernsRemap {
+		override.WriteString("    userns_mode: keep-id\n")
+		ui.InfoLn("✓ Container (podman) using --userns=keep-id so construct (uid 1000) matches the host user")
 	}
 
 	// Volumes block

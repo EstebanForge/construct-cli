@@ -20,9 +20,16 @@ fi
 # In rootless/userns-remapped runtimes, host user ownership may map to container root.
 # Forcing numeric host UID in that mode rewrites bind-mount ownership to subuid ranges.
 if [ "$(id -u)" = "0" ] && [ "${CONSTRUCT_USERNS_REMAP:-0}" = "1" ]; then
-    RUN_AS_USER="root"
-    RUN_AS_CHOWN="0:0"
-    SKIP_RECURSIVE_CHOWN=1
+    # Podman's --userns=keep-id flips the mapping direction: it maps the host
+    # UID/GID directly into the container at the SAME numeric id, so
+    # construct's uid (set above from CONSTRUCT_HOST_UID/GID) already aliases
+    # the host user. Only stay root/skip the chown for the default mapping,
+    # where container root (not construct) is the one aliasing the host user.
+    if [ "${CONSTRUCT_USERNS_KEEPID:-0}" != "1" ]; then
+        RUN_AS_USER="root"
+        RUN_AS_CHOWN="0:0"
+        SKIP_RECURSIVE_CHOWN=1
+    fi
 fi
 
 # Root-level operations (only if actually running as root - typically Docker, not Podman)
