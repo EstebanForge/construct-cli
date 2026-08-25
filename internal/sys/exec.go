@@ -33,12 +33,7 @@ func ExecCommand(cfg *config.Config, cmdArgs []string) int {
 		return 1
 	}
 
-	containerRuntime := runtime.DetectRuntime(func() string {
-		if cfg != nil {
-			return cfg.Runtime.Engine
-		}
-		return ""
-	}())
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 
 	// Try daemon first, then CWD container.
 	containerName, workdir, ok := resolveExecTarget(cfg, containerRuntime)

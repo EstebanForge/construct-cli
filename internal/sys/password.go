@@ -13,7 +13,7 @@ import (
 
 // SetPassword allows users to change the construct user password inside the container.
 func SetPassword(cfg *config.Config) {
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Prepare runtime environment

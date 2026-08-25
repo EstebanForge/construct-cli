@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.16.2 -->
+## [1.16.2] - 2026-08-25
+
+### Fixed
+- **MicroVM daemon: switching projects no longer recreates the sandbox**: under `backend = "microvm"`, moving to a different project root destroyed and recreated the daemon microVM, wiping guest state (brew and apt installs) and re-running the multi-minute first boot on every switch. The Docker backend's multi-root daemon mounts are now ported to the microVM path: with `[daemon] multi_paths_enabled = true`, every `mount_paths` root is mounted under `/workspaces/<hash>` (full-path hash, so same-named repos cannot collide) and the daemon is reused for any directory inside the set; the sandbox is recreated only when the configured mount set itself changes (microsandbox mounts are create-time only, the SDK has no hot-add). A directory outside every configured root stops with an actionable error instead of a destructive recreate. In default single-path mode, subdirectories of the mounted root now reuse the daemon (previously even a subdirectory of the same project triggered a full recreate), and stale workspace labels are detected before reuse. Workdir mapping resolves symlinks on both sides, so paths reached through macOS `/tmp` vs `/private/tmp` or symlinked checkouts no longer spuriously count as outside the mount.
+
+### Changed
+- **`[runtime] engine` merged into `backend`**: the two config keys encoded one decision (engine picked the OCI binary, backend only switched container vs microVM, and engine was ignored under microvm), and the literal value `docker` meant different things on each key. The single `backend` key now takes `auto` (default; detects container > podman > docker), `container`, `podman`, `docker`, or `microvm`; pinning a binary sets the priority order and detection still falls through when the pin is unavailable. Existing configs migrate automatically on first run with an in-place, comment-preserving rewrite: a pinned `engine = "podman"` becomes `backend = "podman"` on the same line, `engine = "auto"` is dropped, and an explicit `backend` pin always wins over a leftover engine value; if the file cannot be rewritten, the same rules apply in memory for that session and the legacy value can never round-trip back through `Save()`. The migration write is atomic (temp file plus rename), so a crash mid-write cannot truncate config.toml. One nuance: an old explicit `backend = "docker"` with no engine now pins the Docker binary instead of auto-detecting; set `backend = "auto"` to restore detection (documented in docs/CONFIGURATION.md).
+
+### Docs
+- **MicroVM users are pointed at the daemon setup**: README, docs/CONFIGURATION.md, docs/ARCHITECTURE-DESIGN.md, and the config template now state the preferred microVM workflow: enable `[daemon] multi_paths_enabled` with `mount_paths` covering your project roots so the daemon sandbox is created once and reused across projects, instead of being recreated (with a full guest re-initialization) on every directory switch.
+<!-- RELEASE:END 1.16.2 -->
+
 <!-- RELEASE:START 1.16.1 -->
 ## [1.16.1] - 2026-08-24
 

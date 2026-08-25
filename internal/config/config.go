@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/constants"
@@ -31,8 +32,15 @@ type Config struct {
 
 // RuntimeConfig holds container runtime settings.
 type RuntimeConfig struct {
-	Engine              string `toml:"engine"`
-	Backend             string `toml:"backend"` // docker (default) | microvm (microsandbox; fails closed if not installed)
+	// Backend is the single isolation knob: "auto" (default; detects
+	// container > podman > docker), a pinned OCI binary ("container",
+	// "podman", "docker"), or "microvm" (microsandbox; fails closed if not
+	// installed).
+	Backend string `toml:"backend"`
+	// Engine is the deprecated pre-merge key (auto|container|podman|docker).
+	// Kept for the in-file migration and the in-memory fallback in Load();
+	// the file rewrite removes it, so it never round-trips via Save().
+	Engine              string `toml:"engine,omitempty"`
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
 	UpdateChannel       string `toml:"update_channel"`        // stable|beta
@@ -110,8 +118,7 @@ type SecurityConfig struct {
 func DefaultConfig() Config {
 	return Config{
 		Runtime: RuntimeConfig{
-			Engine:              "auto",
-			Backend:             "docker",
+			Backend:             "auto",
 			AutoUpdateCheck:     true,
 			UpdateCheckInterval: 86400,
 			UpdateChannel:       "stable",
@@ -301,12 +308,171 @@ func Load() (*Config, bool, error) {
 		return nil, createdNew, fmt.Errorf("failed to read config file: %w", err)
 	}
 
+	// One-time in-file migration: fold the deprecated [runtime] engine key
+	// into backend with single-line surgery (comments preserved). When the
+	// file cannot be rewritten, the in-memory fold below keeps behavior
+	// identical for that session.
+	if newText, migrated := migrateLegacyEngineKey(string(data)); migrated {
+		if werr := writeFileAtomic(configPath, []byte(newText), 0o644); werr == nil {
+			data = []byte(newText)
+			ui.InfoLn("♻️  Migrated config.toml: [runtime] engine merged into backend")
+		} else {
+			ui.InfoF("⚠️  Could not rewrite config.toml to migrate the legacy engine key (%v); applying it in memory for this session\n", werr)
+		}
+	}
+
 	config := DefaultConfig()
 	if err := toml.Unmarshal(data, &config); err != nil {
 		return nil, createdNew, fmt.Errorf("failed to parse config.toml: %w", err)
 	}
 
+	// In-memory fold for files the rewrite could not touch: a pinned legacy
+	// engine must never be silently dropped (auto-detect could pick a
+	// different binary than the user pinned).
+	foldLegacyEngine(&config)
+
 	return &config, createdNew, nil
+}
+
+// writeFileAtomic writes via temp file + rename so a crash mid-write can
+// never leave a truncated config.toml behind.
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".config-migrate-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	if _, werr := tmp.Write(data); werr != nil {
+		tmp.Close()        //nolint:errcheck // best-effort cleanup
+		os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+		return werr
+	}
+	if cerr := tmp.Chmod(perm); cerr != nil {
+		tmp.Close()        //nolint:errcheck // best-effort cleanup
+		os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+		return cerr
+	}
+	if cerr := tmp.Close(); cerr != nil {
+		os.Remove(tmpName) //nolint:errcheck // best-effort cleanup
+		return cerr
+	}
+	return os.Rename(tmpName, path)
+}
+
+// foldLegacyEngine maps a decoded legacy engine value onto Backend.
+// Old semantics: engine picked the OCI binary; backend only switched to
+// microvm. So a pinned engine wins over a default/"docker" backend, and
+// microvm always wins (engine was dead there).
+func foldLegacyEngine(cfg *Config) {
+	if cfg.Runtime.Engine == "" {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(cfg.Runtime.Engine)) {
+	case "container", "podman", "docker":
+		switch cfg.Runtime.Backend {
+		case "", "auto", "docker":
+			cfg.Runtime.Backend = strings.ToLower(strings.TrimSpace(cfg.Runtime.Engine))
+		}
+	}
+	// The legacy value is folded: clear it so it can never round-trip into
+	// config.toml via Save() when the in-file rewrite could not remove the
+	// line (single-quoted or dotted-key TOML shapes decode fine but escape
+	// the line surgery).
+	cfg.Runtime.Engine = ""
+}
+
+// migrateLegacyEngineKey folds the deprecated [runtime] engine key into the
+// unified backend key with single-line surgery: comments and every other
+// line stay byte-identical. Rules mirror foldLegacyEngine exactly:
+//   - engine=container|podman|docker with backend unset/"auto"/"docker": the
+//     engine line becomes backend = "<engine>" in place; the explicit
+//     backend line is removed (two backend keys in one section would be
+//     invalid TOML)
+//   - engine with any other explicit backend (podman, microvm, ...): the
+//     engine line is dropped; the explicit backend pin governs
+//   - engine=auto or unknown: the engine line is dropped (the "auto"
+//     default covers it)
+//
+// The surgery is best-effort for the common shape (double-quoted
+// key = "value" inside [runtime]); uncommon-but-valid shapes (single
+// quotes, dotted keys) are left untouched and covered by the in-memory
+// fold, which also clears the field so it cannot round-trip via Save().
+// Returns the new text and whether anything changed. Idempotent: once the
+// engine key is gone the function is a no-op.
+func migrateLegacyEngineKey(data string) (string, bool) {
+	lines := strings.Split(data, "\n")
+	section := ""
+	engineIdx, backendIdx := -1, -1
+	engineVal, backendVal := "", ""
+	for i, raw := range lines {
+		t := strings.TrimSpace(raw)
+		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			section = t
+			continue
+		}
+		if section != "[runtime]" {
+			continue
+		}
+		if k, v, ok := tomlQuotedKV(t); ok && k == "engine" && engineIdx == -1 {
+			engineIdx, engineVal = i, v
+		}
+		if k, v, ok := tomlQuotedKV(t); ok && k == "backend" && backendIdx == -1 {
+			backendIdx, backendVal = i, v
+		}
+	}
+	if engineIdx == -1 {
+		return data, false
+	}
+
+	replaceWith := ""
+	switch strings.ToLower(engineVal) {
+	case "container", "podman", "docker":
+		switch backendVal {
+		case "", "auto", "docker":
+			replaceWith = `backend = "` + strings.ToLower(engineVal) + `"`
+		}
+	}
+
+	out := make([]string, 0, len(lines))
+	for i, raw := range lines {
+		switch i {
+		case engineIdx:
+			if replaceWith != "" {
+				out = append(out, replaceWith)
+			}
+		case backendIdx:
+			if replaceWith == "" {
+				out = append(out, raw) // keep backend=microvm (or unset value) line
+			}
+			// else: superseded by the migrated backend line; drop it
+		default:
+			out = append(out, raw)
+		}
+	}
+	return strings.Join(out, "\n"), true
+}
+
+// tomlQuotedKV parses a `key = "value"` line with optional trailing
+// comment. Comment lines and non-quoted values are rejected.
+func tomlQuotedKV(trimmed string) (key, value string, ok bool) {
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", "", false
+	}
+	eq := strings.Index(trimmed, "=")
+	if eq < 0 {
+		return "", "", false
+	}
+	key = strings.TrimSpace(trimmed[:eq])
+	rest := strings.TrimSpace(trimmed[eq+1:])
+	if !strings.HasPrefix(rest, "\"") {
+		return "", "", false
+	}
+	end := strings.Index(rest[1:], "\"")
+	if end < 0 {
+		return "", "", false
+	}
+	return key, rest[1 : end+1], true
 }
 
 // Save writes the config back to config.toml

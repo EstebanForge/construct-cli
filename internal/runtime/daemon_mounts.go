@@ -99,6 +99,11 @@ func MapDaemonWorkdirFromMounts(cwd string, mounts []DaemonMount) (string, bool)
 	}
 
 	cwd = filepath.Clean(cwd)
+	// Match against the symlink-resolved mount sources: a logical cwd
+	// (shell PWD through a symlink) must still map into its resolved root.
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
 	for _, mount := range mounts {
 		rel, err := filepath.Rel(filepath.Clean(mount.HostPath), cwd)
 		if err != nil {
@@ -118,6 +123,16 @@ func MapDaemonWorkdirFromMounts(cwd string, mounts []DaemonMount) (string, bool)
 
 // MapDaemonWorkdir maps a host CWD to a container workdir using the mount source/dest pair.
 func MapDaemonWorkdir(cwd, mountSource, mountDest string) (string, bool) {
+	// Resolve symlinks on both sides (best-effort): mount sources come from
+	// resolved labels and inspect output, while a shell cwd can be logical
+	// (macOS /tmp vs /private/tmp); unresolved comparison fails the Rel match
+	// and would spuriously trigger a daemon recreate.
+	if resolved, err := filepath.EvalSymlinks(cwd); err == nil {
+		cwd = resolved
+	}
+	if resolved, err := filepath.EvalSymlinks(mountSource); err == nil {
+		mountSource = resolved
+	}
 	rel, err := filepath.Rel(filepath.Clean(mountSource), filepath.Clean(cwd))
 	if err != nil {
 		return "", false
@@ -207,6 +222,13 @@ func normalizeMountPath(raw string) (string, error) {
 	abs = filepath.Clean(abs)
 	if _, err := os.Stat(abs); err != nil {
 		return "", fmt.Errorf("path not found")
+	}
+
+	// Resolve symlinks so configured roots compare equal against the
+	// symlink-resolved cwd the workspace guard produces (macOS: /tmp vs
+	// /private/tmp would otherwise spuriously miss a configured root).
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		abs = resolved
 	}
 
 	return abs, nil

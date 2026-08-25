@@ -50,7 +50,7 @@ func RunWithArgs(args []string, networkFlag string) {
 		os.Exit(1)
 	}
 
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Prepare runtime environment (network, overrides)
@@ -158,7 +158,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 		os.Exit(1)
 	}
 
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Prepare runtime environment (network, overrides)

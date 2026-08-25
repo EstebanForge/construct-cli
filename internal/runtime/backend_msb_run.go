@@ -63,9 +63,12 @@ func GetMsbWorkspaceMountDest(projectDir string) string {
 
 // msbSandboxMounts maps the construct mount layout onto msb MountConfig:
 // host construct home -> /home/construct (direct bind, Docker-parity),
-// project dir bind -> /workspaces/<name>, plus conditional auto-mounts (qmd models)
-// when the host path exists. linuxbrew stays on the sandbox root disk.
-func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
+// then either the configured multi-path daemon mounts (daemon.mount_paths,
+// Docker parity: every root mounted under /workspaces/<hash>) or the single
+// project dir bind -> /workspaces/<name>, plus conditional auto-mounts
+// (qmd models) when the host path exists. linuxbrew stays on the sandbox
+// root disk.
+func msbSandboxMounts(cfg *config.Config, projectDir string) map[string]msb.MountConfig {
 	mounts := map[string]msb.MountConfig{}
 	if home := msbHostConstructHome(); home != "" {
 		mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{
@@ -73,7 +76,13 @@ func msbSandboxMounts(projectDir string) map[string]msb.MountConfig {
 		})
 	}
 
-	if dir := cleanProjectDir(projectDir); dir != "" {
+	if dm := ResolveDaemonMounts(cfg); dm.Enabled {
+		for _, m := range dm.Mounts {
+			mounts[m.ContainerPath] = msb.Mount.Bind(m.HostPath, msb.MountOptions{
+				StatVirtualization: msb.StatVirtualizationOff,
+			})
+		}
+	} else if dir := cleanProjectDir(projectDir); dir != "" {
 		dest := GetMsbWorkspaceMountDest(dir)
 		mounts[dest] = msb.Mount.Bind(dir, msb.MountOptions{
 			StatVirtualization: msb.StatVirtualizationOff,
@@ -97,15 +106,19 @@ type MsbPathMap struct {
 }
 
 // MsbPathMaps returns the guest→host path translations for every bind in
-// msbSandboxMounts (home, workspace, auto-mounts). Derived from the same
-// sources so the host exec bridge can never drift from actual mounts.
+// msbSandboxMounts (home, workspace mounts, auto-mounts). Derived from the
+// same sources so the host exec bridge can never drift from actual mounts.
 // Maps are sorted longest guest-path first to resolve nested paths correctly.
-func MsbPathMaps(projectDir string) []MsbPathMap {
+func MsbPathMaps(cfg *config.Config, projectDir string) []MsbPathMap {
 	maps := []MsbPathMap{}
 	if home := msbHostConstructHome(); home != "" {
 		maps = append(maps, MsbPathMap{Guest: msbHomeMountDest, Host: home})
 	}
-	if dir := cleanProjectDir(projectDir); dir != "" {
+	if dm := ResolveDaemonMounts(cfg); dm.Enabled {
+		for _, m := range dm.Mounts {
+			maps = append(maps, MsbPathMap{Guest: m.ContainerPath, Host: m.HostPath})
+		}
+	} else if dir := cleanProjectDir(projectDir); dir != "" {
 		dest := GetMsbWorkspaceMountDest(dir)
 		maps = append(maps, MsbPathMap{Guest: dest, Host: dir})
 	}
@@ -253,10 +266,15 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	labels := map[string]string{
 		"construct.project_dir": cleanProjectDir(projectDir),
 	}
+	// Multi-path parity (Docker): stamp the mount-set hash so the daemon
+	// reuse check detects config changes without re-deriving mounts.
+	if dm := ResolveDaemonMounts(cfg); dm.Enabled {
+		labels[DaemonMountsLabelKey] = dm.Hash
+	}
 	return &MsbRunSpec{
 		Name:         name,
 		Image:        "construct-box:latest",
-		Mounts:       msbSandboxMounts(projectDir),
+		Mounts:       msbSandboxMounts(cfg, projectDir),
 		Network:      msbNetworkConfig(cfg.Network.Mode, bridgePorts),
 		Env:          env,
 		Labels:       labels,
@@ -398,6 +416,46 @@ func parseMsbConfigMounts(configJSON string) map[string]string {
 // the root disk survive daemon restarts (docs/VMs.md §7.1).
 const msbDaemonName = "construct-cli-daemon"
 
+// ErrMsbDaemonWorkdirUnmapped reports that the requested project dir falls
+// outside every configured daemon.mount_paths root. Callers must not
+// recreate the daemon sandbox in this case: the mount set is static config
+// (Docker parity), and recreation would needlessly destroy the guest root
+// disk (installs, brew state).
+var ErrMsbDaemonWorkdirUnmapped = errors.New("msb daemon: current directory is outside the configured daemon mount paths")
+
+// msbDaemonNeedsRecreate decides whether an existing daemon sandbox can
+// serve projectDir. Multi-path mode (daemon.mount_paths): recreate only
+// when the mounted hash drifted from config (mounts are create-time only;
+// the SDK has no hot-add). Single-path mode: recreate only when the current
+// mount cannot map projectDir (label/mount drift, a disallowed workspace,
+// or a cwd outside the mounted root); subdirectories of the mounted root
+// reuse the daemon. The returned reason explains any recreate to the user.
+func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool) (bool, string) {
+	if dm.Enabled {
+		if sandboxLabels[DaemonMountsLabelKey] != dm.Hash {
+			return true, "daemon.mount_paths changed"
+		}
+		return false, ""
+	}
+	currentProjectDir, hasLabel := sandboxLabels["construct.project_dir"]
+	dest := GetMsbWorkspaceMountDest(currentProjectDir)
+	mounts := parseMsbConfigMounts(configJSON)
+	switch {
+	case !hasLabel || currentProjectDir == "":
+		return true, "daemon has no workspace label"
+	case mounts[dest] != currentProjectDir:
+		return true, "workspace label does not match mounted state"
+	case !allowHome && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome:
+		return true, "mounted workspace is no longer allowed"
+	}
+	if projectDir != "" {
+		if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, dest); !ok {
+			return true, "current directory is not under the mounted workspace"
+		}
+	}
+	return false, ""
+}
+
 // EnsureMsbDaemon guarantees the persistent daemon sandbox exists and is
 // running: create when missing, boot when stopped (default workload — the
 // entrypoint + sleep infinity — is re-invoked explicitly; the SDK never
@@ -408,28 +466,26 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		return nil, err
 	}
 
+	// Multi-path mode (Docker parity): the mount set is static config. A cwd
+	// outside every configured root is a hard error, never a recreate — the
+	// daemon state survives and the user gets an actionable message instead.
+	dm := ResolveDaemonMounts(cfg)
+	if dm.Enabled && projectDir != "" {
+		if _, ok := MapDaemonWorkdirFromMounts(projectDir, dm.Mounts); !ok {
+			return nil, fmt.Errorf("%w: %s (add the root to [daemon] mount_paths or disable daemon.multi_paths_enabled)", ErrMsbDaemonWorkdirUnmapped, cleanProjectDir(projectDir))
+		}
+	}
+
 	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
 		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
-			currentProjectDir, hasLabel := sbc.Labels["construct.project_dir"]
 			needRecreate := sbc.MemoryMiB < 2048
-			allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
-			if projectDir != "" {
-				dest := GetMsbWorkspaceMountDest(currentProjectDir)
-				mounts := parseMsbConfigMounts(h.ConfigJSON())
-				if !hasLabel || currentProjectDir == "" {
-					needRecreate = true
-				} else if mounts[dest] != cleanProjectDir(currentProjectDir) {
-					needRecreate = true
-				} else if !allowHome && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome {
-					needRecreate = true
-				} else if isGitRoot(cleanProjectDir(projectDir)) && cleanProjectDir(projectDir) != cleanProjectDir(currentProjectDir) {
-					needRecreate = true
-				} else if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, dest); !ok {
-					needRecreate = true
-				}
+			reason := "memory below minimum"
+			if !needRecreate {
+				allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
+				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome)
 			}
 			if needRecreate {
-				ui.InfoLn("🔄 Recreating microVM daemon sandbox for workspace...")
+				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", reason)
 				_ = h.Stop(ctx)                   //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // best-effort cleanup before recreate
 				goto create
@@ -477,7 +533,9 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	}
 
 create:
-	// Not present: create with the project bind so agent workdirs resolve.
+	// Not present (or mount set changed): create with the workspace binds so
+	// agent workdirs resolve — multi-path mode mounts every configured root;
+	// single-path mode mounts the project dir.
 	// Bridge ports are omitted: host bridges bind random ports at engine run
 	// time, which cannot be baked into boot-time egress rules. Permissive
 	// mode (default-allow) needs no rule; offline/strict bridge egress is

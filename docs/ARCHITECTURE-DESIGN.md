@@ -10,7 +10,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 
 ## 2. Goals & Requirements
 - **Zero-trace host**: Containers run with `--rm`; only named volumes persist installs/state.
-- **Flexible runtime support**: User-configurable engine with auto-detection and auto-start capabilities.
+- **Flexible runtime support**: User-configurable isolation backend with auto-detection and auto-start capabilities.
 - **Fast subsequent runs**: Agents and tools live in a persistent named volume (`construct-packages`); optional daemon mode enables instant agent startup (~100ms) via container reuse.
 - **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, including first-class env passthrough controls in `[sandbox]`.
@@ -82,7 +82,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ---
 
 ## 4. Runtimes & Isolation
-- **Runtime Detection**: The container runtime engine is determined by the `engine` setting in `config.toml` (e.g., `container`, `podman`, `docker`). If set to `auto` (the default), it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
+- **Runtime Detection**: The OCI binary is determined by the unified `backend` setting in `config.toml` (`container`, `podman`, `docker`; `microvm` bypasses it for the msb SDK). If set to `auto` (the default), it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
 - **Linux specifics**:
   - Docker compose startup and daemon runs propagate host `CONSTRUCT_HOST_UID`/`CONSTRUCT_HOST_GID` on Linux to keep mounted home/config ownership aligned.
@@ -138,7 +138,7 @@ Construct supports microVM hardware isolation as an opt-in runtime backend (`bac
 - **Storage, Mounts & Permissions**:
   - **VirtioFS Mounts**: Mounts the host workspace to `/workspace`, user home to `/home/construct`, and conditional caches (qmd models, gitignore seeds).
   - **Host UID/GID Mapping**: Mounts configure `StatVirtualization: msb.StatVirtualizationOff` and execute commands with the host's numeric UID/GID (`ResolveExecUserMsb`), ensuring files written by agents match host user ownership.
-  - **Dynamic Multi-Root Switching**: Sandboxes record `construct.project_dir` labels; `EnsureMsbDaemon` detects when the caller navigates to a workspace outside the mounted project root and recreates the sandbox automatically.
+  - **Dynamic Multi-Root Switching**: Multi-path mode (`daemon.multi_paths_enabled` + `daemon.mount_paths`, Docker parity) mounts every configured root under `/workspaces/<hash>` and stamps `construct.daemon.mounts_hash`; the daemon is reused for any cwd inside the set and recreated only when the configured set itself changes (mounts are create-time only in the microsandbox SDK). Single-path mode keeps the `construct.project_dir` label and recreates only when the current mount cannot map the cwd; subdirectories of the mounted root reuse the daemon. A cwd outside every configured root returns `ErrMsbDaemonWorkdirUnmapped` (actionable error, never a destructive recreate).
 
 ---
 

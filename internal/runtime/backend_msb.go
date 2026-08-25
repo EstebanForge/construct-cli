@@ -94,11 +94,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 }
 
 func (m *MsbBackend) dockerImageExists(cfg *config.Config) bool {
-	engine := "docker"
-	if cfg != nil && cfg.Runtime.Engine != "" {
-		engine = cfg.Runtime.Engine
-	}
-	containerRuntime := DetectRuntime(engine)
+	containerRuntime := ResolveContainerRuntime(cfg)
 	checkCmdArgs := GetCheckImageCommand(containerRuntime)
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
 	checkCmd.Dir = config.GetContainerDir()
@@ -276,13 +272,13 @@ var _ Backend = (*MsbBackend)(nil)
 func DetectBackend(cfg *config.Config) (Backend, error) {
 	backend := cfg.Runtime.Backend
 	if backend == "" {
-		backend = "docker"
+		backend = "auto"
 	}
 	switch backend {
-	case "docker":
-		rt := DetectRuntime(cfg.Runtime.Engine)
+	case "auto", "container", "podman", "docker":
+		rt := DetectRuntime(backend)
 		if rt == "" {
-			return nil, errors.New("no container runtime found (docker/podman). Install Docker Desktop or Podman")
+			return nil, errors.New("no container runtime found (container/podman/docker). Install Docker Desktop or Podman")
 		}
 		return NewDockerBackend(rt)
 	case "microvm":
@@ -295,7 +291,7 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 		}
 		return m, nil
 	default:
-		return nil, fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"microvm\")", backend)
+		return nil, fmt.Errorf("unknown runtime backend %q (want \"auto\", \"container\", \"podman\", \"docker\", or \"microvm\")", backend)
 	}
 }
 
@@ -304,11 +300,11 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 // operation: backend = "microvm" must fail closed with a clear message on compose-only
 // commands, never silently fall through to Docker.
 func ValidateBackendSelected(cfg *config.Config) error {
-	if cfg.Runtime.Backend == "" || cfg.Runtime.Backend == "docker" {
+	switch cfg.Runtime.Backend {
+	case "", "auto", "container", "podman", "docker":
 		return nil
+	case "microvm":
+		return errors.New("the microvm backend does not support this operation. Set `backend` to \"auto\", \"container\", \"podman\", or \"docker\" in [runtime] to use Docker")
 	}
-	if cfg.Runtime.Backend == "microvm" {
-		return errors.New("the microvm backend does not support this operation. Remove `backend = \"microvm\"` from [runtime] to use Docker")
-	}
-	return fmt.Errorf("unknown runtime backend %q (want \"docker\" or \"microvm\")", cfg.Runtime.Backend)
+	return fmt.Errorf("unknown runtime backend %q (want \"auto\", \"container\", \"podman\", \"docker\", or \"microvm\")", cfg.Runtime.Backend)
 }

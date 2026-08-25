@@ -3,6 +3,7 @@ package daemon
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,7 +35,7 @@ func Start() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 	containerName := "construct-cli-daemon"
 
@@ -135,6 +136,11 @@ func startMsb(cfg *config.Config) {
 	ui.GumInfo("Starting daemon sandbox...")
 	sb, err := runtime.EnsureMsbDaemon(context.Background(), cfg, cwd)
 	if err != nil {
+		if errors.Is(err, runtime.ErrMsbDaemonWorkdirUnmapped) {
+			ui.GumError("Current directory is outside the configured daemon mount paths")
+			fmt.Println("Add its root to [daemon] mount_paths (config.toml) or disable daemon.multi_paths_enabled")
+			os.Exit(1)
+		}
 		ui.GumError(fmt.Sprintf("Failed to start microvm daemon: %v", err))
 		os.Exit(1)
 	}
@@ -187,8 +193,19 @@ func attachMsb(cfg *config.Config) {
 		shell = cfg.Sandbox.Shell
 	}
 	ctx := context.Background()
-	projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
-	workdir := runtime.GetMsbWorkspaceMountDest(projectRoot)
+	workdir := "/workspaces"
+	if dm := runtime.ResolveDaemonMounts(cfg); dm.Enabled {
+		// Multi-path mode: land the shell in the creating cwd mapped under
+		// the configured mount set (hash-validated by the daemon path).
+		if projectRoot := runtime.GetMsbDaemonProjectDir(ctx); projectRoot != "" {
+			if mapped, ok := runtime.MapDaemonWorkdirFromMounts(projectRoot, dm.Mounts); ok {
+				workdir = mapped
+			}
+		}
+	} else {
+		projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
+		workdir = runtime.GetMsbWorkspaceMountDest(projectRoot)
+	}
 
 	code, err := m.ExecInteractive(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
@@ -243,7 +260,7 @@ func Stop() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	containerName := "construct-cli-daemon"
 
 	state := runtime.GetContainerState(containerRuntime, containerName)
@@ -289,7 +306,7 @@ func Restart() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	containerName := "construct-cli-daemon"
 
 	state := runtime.GetContainerState(containerRuntime, containerName)
@@ -330,7 +347,7 @@ func Attach() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	containerName := "construct-cli-daemon"
 
 	state := runtime.GetContainerState(containerRuntime, containerName)
@@ -382,7 +399,7 @@ func Status() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	containerName := "construct-cli-daemon"
 
 	state := runtime.GetContainerState(containerRuntime, containerName)

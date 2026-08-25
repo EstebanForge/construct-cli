@@ -171,7 +171,7 @@ func (e *RuntimeEngine) Prepare() error {
 			// msb mounts differ from Docker compose: derive the translation from
 			// the same source the sandbox mounts use (runtime.MsbPathMaps).
 			pathMaps = pathMaps[:0]
-			for _, pm := range runtime.MsbPathMaps(e.cwd) {
+			for _, pm := range runtime.MsbPathMaps(e.cfg, e.cwd) {
 				pathMaps = append(pathMaps, hostexec.PathMap{Container: pm.Guest, Host: pm.Host})
 			}
 		} else if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {

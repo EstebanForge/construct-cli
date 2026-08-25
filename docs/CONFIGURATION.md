@@ -88,31 +88,23 @@ ANTHROPIC_AUTH_TOKEN = "${ANTHROPIC_API_KEY}"
 
 ## Runtime Settings
 
-### Container Runtime
+### Isolation Backend
 
 ```toml
 [runtime]
-engine = "auto"  # Options: auto, podman, docker, container
-backend = "docker"  # Isolation backend: docker|microvm (experimental)
+backend = "auto"  # auto (default) | container | podman | docker | microvm (experimental)
 ```
 
+One key selects both the isolation technology and, for the container path, the OCI binary. It fails closed: a configured but missing backend is a hard error, never a silent fallback.
+
 **Options:**
-- `auto`: Auto-detect available runtime (recommended)
-- `podman`: Use Podman explicitly
-- `docker`: Use Docker explicitly
-- `container`: Use macOS native runtime (macOS 14+)
+- `auto` (default): auto-detect the container runtime, priority `container` > `podman` > `docker`
+- `container`: pin the macOS native runtime (macOS 14+)
+- `podman`: pin Podman
+- `docker`: pin Docker (OrbStack on macOS, then Docker Desktop). Pinning sets the priority order, not a hard requirement: if the pinned binary is unavailable, detection falls through to the others.
+- `microvm` (experimental): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Requires `msb` installed (`curl -fsSL https://msb.sh | sh`), Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Every run executes in the persistent daemon sandbox: with `[daemon] multi_paths_enabled = true` and `mount_paths` set to your project roots, the sandbox is created once and reused across all of them, so the guest is not re-initialized when you switch directories (see [Daemon Settings](#daemon-settings)). Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
 
-**Runtime detection order:**
-1. macOS native container runtime (if available)
-2. Podman
-3. Docker (OrbStack on macOS, then Docker Desktop)
-
-### Isolation Backend
-
-`backend` selects the isolation technology. It fails closed: a configured but missing backend is a hard error, never a silent fallback.
-
-- `docker` (default): the OCI container path (Docker/Podman per `engine`).
-- `microvm` (experimental): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Requires `msb` installed (`curl -fsSL https://msb.sh | sh`), Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
+**Migrating from the old `engine` key:** `engine` and `backend` merged into the single `backend` key. On first run, Construct rewrites a legacy `engine` key in place (comments preserved): a pinned `engine = "podman"` becomes `backend = "podman"`, and `engine = "auto"` is dropped. If you had explicitly set `backend = "docker"` with no `engine` key and want auto-detection back, set `backend = "auto"` (the old explicit `docker` value now pins the Docker binary).
 
 ### Update Management
 
@@ -406,6 +398,8 @@ mount_paths = []
 ```
 
 **Enable when:** Working with multiple projects simultaneously
+
+**MicroVM backend:** with `backend = "microvm"`, multi-root mounts are the preferred setup. Every run goes through the persistent daemon sandbox; with your project roots configured in `mount_paths`, the sandbox is created once and reused for all of them. Switching to a directory outside the configured roots stops with an actionable error instead of recreating the sandbox, so guest state (installed packages, agent CLIs) survives. Changing `mount_paths` itself recreates the sandbox once, on the next run.
 
 ```toml
 [daemon]
