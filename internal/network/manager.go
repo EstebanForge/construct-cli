@@ -74,7 +74,7 @@ func AddRule(target, action string) {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := ApplyRuleToContainer(containerRuntime, containerName,
 			target, action, resolvedIPs); err != nil {
@@ -147,7 +147,7 @@ func RemoveRule(target string) {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	for _, containerName := range runningSessionContainers(containerRuntime) {
 		if err := RemoveRuleFromContainer(containerRuntime, containerName, target); err != nil {
 			ui.GumWarning(fmt.Sprintf("Could not remove from container '%s'", containerName))
@@ -318,7 +318,7 @@ func ShowStatus() {
 		ui.GumError(err.Error())
 		os.Exit(1)
 	}
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	containers := runningSessionContainers(containerRuntime)
 
 	if len(containers) == 0 {

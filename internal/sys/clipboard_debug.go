@@ -197,7 +197,7 @@ func ClipboardDebug(cfg *config.Config) {
 		return
 	}
 
-	containerRuntime := internalRuntime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := internalRuntime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 	cmd, err := internalRuntime.BuildComposeCommand(containerRuntime, configPath, "exec", []string{
 		"-T",

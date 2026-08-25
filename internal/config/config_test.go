@@ -13,7 +13,7 @@ import (
 func TestConfigParsing(t *testing.T) {
 	testConfig := `
 [runtime]
-engine = "docker"
+backend = "docker"
 auto_update_check = true
 update_channel = "beta"
 
@@ -48,8 +48,8 @@ clipboard_image_patch = false
 	}
 
 	// Test runtime
-	if config.Runtime.Engine != "docker" {
-		t.Errorf("Expected engine 'docker', got '%s'", config.Runtime.Engine)
+	if config.Runtime.Backend != "docker" {
+		t.Errorf("Expected backend 'docker', got '%s'", config.Runtime.Backend)
 	}
 	if !config.Runtime.AutoUpdateCheck {
 		t.Error("Expected auto_update_check to be true")
@@ -138,7 +138,7 @@ func TestConfigDirPath(t *testing.T) {
 func TestConfigStructure(t *testing.T) {
 	config := Config{
 		Runtime: RuntimeConfig{
-			Engine:          "docker",
+			Backend:         "docker",
 			AutoUpdateCheck: false,
 			UpdateChannel:   "stable",
 		},
@@ -166,7 +166,7 @@ func TestConfigStructure(t *testing.T) {
 		},
 	}
 
-	if config.Runtime.Engine != "docker" {
+	if config.Runtime.Backend != "docker" {
 		t.Error("Runtime config initialization failed")
 	}
 	if config.Sandbox.Shell != "/bin/bash" {
@@ -472,5 +472,113 @@ func TestInitReplacesDirectoryCollisionForTemplateFile(t *testing.T) {
 	}
 	if info.IsDir() {
 		t.Fatal("expected entrypoint-hash.sh to be a file after Init")
+	}
+}
+
+func TestDefaultBackendIsAuto(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Runtime.Backend != "auto" {
+		t.Fatalf("default backend = %q, want auto", cfg.Runtime.Backend)
+	}
+}
+
+func TestMigrateLegacyEngineKey(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		changed bool
+	}{
+		{
+			name:    "pinned engine without backend becomes backend in place",
+			in:      "# Runtime Preferences\n[runtime]\n# old comment stays\nengine = \"podman\"\nauto_update_check = true\n",
+			want:    "# Runtime Preferences\n[runtime]\n# old comment stays\nbackend = \"podman\"\nauto_update_check = true\n",
+			changed: true,
+		},
+		{
+			name:    "pinned engine replaces explicit docker backend, no duplicate key",
+			in:      "[runtime]\nbackend = \"docker\"\nengine = \"container\"\n",
+			want:    "[runtime]\nbackend = \"container\"\n",
+			changed: true,
+		},
+		{
+			name:    "engine dropped under microvm backend",
+			in:      "[runtime]\nbackend = \"microvm\"\nengine = \"podman\"\n",
+			want:    "[runtime]\nbackend = \"microvm\"\n",
+			changed: true,
+		},
+		{
+			name:    "engine dropped when explicit non-default backend pinned",
+			in:      "[runtime]\nbackend = \"podman\"\nengine = \"docker\"\n",
+			want:    "[runtime]\nbackend = \"podman\"\n",
+			changed: true,
+		},
+		{
+			name:    "auto engine dropped",
+			in:      "[runtime]\nengine = \"auto\"\nupdate_channel = \"stable\"\n",
+			want:    "[runtime]\nupdate_channel = \"stable\"\n",
+			changed: true,
+		},
+		{
+			name:    "commented engine line is not a key",
+			in:      "[runtime]\n# engine = \"podman\"\n",
+			want:    "[runtime]\n# engine = \"podman\"\n",
+			changed: false,
+		},
+		{
+			name:    "engine key outside runtime section ignored",
+			in:      "[other]\nengine = \"podman\"\n",
+			want:    "[other]\nengine = \"podman\"\n",
+			changed: false,
+		},
+		{
+			name:    "no engine key is a no-op",
+			in:      "[runtime]\nbackend = \"microvm\"\n",
+			want:    "[runtime]\nbackend = \"microvm\"\n",
+			changed: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := migrateLegacyEngineKey(tt.in)
+			if changed != tt.changed {
+				t.Fatalf("changed = %v, want %v (got %q)", changed, tt.changed, got)
+			}
+			if got != tt.want {
+				t.Errorf("migrated file:\ngot  %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFoldLegacyEngine(t *testing.T) {
+	tests := []struct {
+		name            string
+		engine, backend string
+		want            string
+	}{
+		{"pinned engine wins over auto", "podman", "auto", "podman"},
+		{"pinned engine wins over explicit docker", "container", "docker", "container"},
+		{"microvm always wins", "podman", "microvm", "microvm"},
+		{"explicit non-default backend wins", "docker", "podman", "podman"},
+		{"auto engine changes nothing", "auto", "auto", "auto"},
+		{"empty engine changes nothing", "", "docker", "docker"},
+		{"unknown engine ignored", "weird", "auto", "auto"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Runtime.Engine = tt.engine
+			cfg.Runtime.Backend = tt.backend
+			foldLegacyEngine(&cfg)
+			if cfg.Runtime.Backend != tt.want {
+				t.Fatalf("backend = %q, want %q", cfg.Runtime.Backend, tt.want)
+			}
+			// Regression: the folded legacy value must be cleared so it can
+			// never round-trip into config.toml via Save().
+			if cfg.Runtime.Engine != "" {
+				t.Errorf("Engine not cleared after fold: %q", cfg.Runtime.Engine)
+			}
+		})
 	}
 }

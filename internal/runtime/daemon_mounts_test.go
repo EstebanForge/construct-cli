@@ -206,3 +206,72 @@ func TestGenerateDockerComposeOverrideMultiPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizeMountPathResolvesSymlinks(t *testing.T) {
+	target := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = resolved
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	got, err := normalizeMountPath(link)
+	if err != nil {
+		t.Fatalf("normalizeMountPath: %v", err)
+	}
+	if got != target {
+		t.Errorf("normalizeMountPath(%q) = %q, want resolved %q", link, got, target)
+	}
+}
+
+func TestMapDaemonWorkdirFromMountsSymlinkedCwd(t *testing.T) {
+	target := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = resolved
+	}
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	mounts := []DaemonMount{{HostPath: target, ContainerPath: "/workspaces/x"}}
+	got, ok := MapDaemonWorkdirFromMounts(filepath.Join(link, "sub"), mounts)
+	if !ok {
+		t.Fatal("expected symlinked cwd to map under resolved mount")
+	}
+	if got != "/workspaces/x/sub" {
+		t.Errorf("mapped workdir = %q, want /workspaces/x/sub", got)
+	}
+}
+
+// Regression: single-path mapping must resolve symlinks on both sides — a
+// logical cwd through a symlink must reuse the daemon instead of tripping
+// the "not under the mounted workspace" recreate (guest root disk wipe).
+func TestMapDaemonWorkdirSymlinkedCwd(t *testing.T) {
+	target := t.TempDir()
+	if resolved, err := filepath.EvalSymlinks(target); err == nil {
+		target = resolved
+	}
+	if err := os.MkdirAll(filepath.Join(target, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	// Logical cwd through the symlink maps onto the resolved mount source.
+	got, ok := MapDaemonWorkdir(filepath.Join(link, "sub"), target, "/workspaces/root")
+	if !ok || got != "/workspaces/root/sub" {
+		t.Errorf("MapDaemonWorkdir(symlinked cwd) = (%q, %v), want (/workspaces/root/sub, true)", got, ok)
+	}
+
+	// Exact root through the symlink maps to the mount dest itself.
+	got, ok = MapDaemonWorkdir(link, target, "/workspaces/root")
+	if !ok || got != "/workspaces/root" {
+		t.Errorf("MapDaemonWorkdir(symlinked root cwd) = (%q, %v), want (/workspaces/root, true)", got, ok)
+	}
+}

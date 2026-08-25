@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,8 +91,8 @@ func TestMsbRunSpecEntrypointDefault(t *testing.T) {
 
 func TestMsbPathMapsMirrorSandboxMounts(t *testing.T) {
 	proj := t.TempDir()
-	mounts := msbSandboxMounts(proj)
-	paths := MsbPathMaps(proj)
+	mounts := msbSandboxMounts(nil, proj)
+	paths := MsbPathMaps(nil, proj)
 	if len(paths) != len(mounts) {
 		t.Fatalf("MsbPathMaps (%d) must cover every msbSandboxMounts entry (%d)", len(paths), len(mounts))
 	}
@@ -115,6 +116,132 @@ func TestMsbPathMapsMirrorSandboxMounts(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("MsbPathMaps missing %s project translation", expectedGuest)
+	}
+}
+
+func msbTestConfigWithMountPaths(t *testing.T, paths ...string) config.Config {
+	t.Helper()
+	cfg := config.DefaultConfig()
+	cfg.Daemon.MultiPathsEnabled = true
+	cfg.Daemon.MountPaths = paths
+	return cfg
+}
+
+// Multi-path mode mounts every configured root and never adds an extra
+// project bind: the mount set must equal config exactly (hash parity with
+// the daemon label checked in EnsureMsbDaemon).
+func TestMsbSandboxMountsMultiPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "construct-cli", "home"), 0o755); err != nil {
+		t.Fatalf("create construct home: %v", err)
+	}
+
+	rootA, rootB := t.TempDir(), t.TempDir()
+	cfg := msbTestConfigWithMountPaths(t, rootA, rootB)
+
+	mounts := msbSandboxMounts(&cfg, t.TempDir())
+	if len(mounts) != 3 { // home + two configured roots
+		t.Fatalf("expected home + 2 configured roots, got %d mounts: %v", len(mounts), mounts)
+	}
+	dm := ResolveDaemonMounts(&cfg)
+	if !dm.Enabled {
+		t.Fatal("expected daemon mounts enabled")
+	}
+	for _, m := range dm.Mounts {
+		mc, ok := mounts[m.ContainerPath]
+		if !ok || mc.Bind != m.HostPath {
+			t.Errorf("configured root %s not mounted at %s", m.HostPath, m.ContainerPath)
+		}
+	}
+}
+
+func TestMsbPathMapsMultiPathMirror(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "construct-cli", "home"), 0o755); err != nil {
+		t.Fatalf("create construct home: %v", err)
+	}
+
+	rootA, rootB := t.TempDir(), t.TempDir()
+	cfg := msbTestConfigWithMountPaths(t, rootA, rootB)
+
+	mounts := msbSandboxMounts(&cfg, "")
+	paths := MsbPathMaps(&cfg, "")
+	if len(paths) != len(mounts) {
+		t.Fatalf("MsbPathMaps (%d) must cover every msbSandboxMounts entry (%d)", len(paths), len(mounts))
+	}
+	for _, pm := range paths {
+		mc, ok := mounts[pm.Guest]
+		if !ok {
+			t.Errorf("MsbPathMaps guest %q not in msbSandboxMounts", pm.Guest)
+			continue
+		}
+		if mc.Kind() != msb.MountKindBind || mc.Bind != pm.Host {
+			t.Errorf("guest %q: PathMap host %q != mount bind %q", pm.Guest, pm.Host, mc.Bind)
+		}
+	}
+}
+
+func TestBuildMsbRunSpecMountsHashLabel(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	cfg := msbTestConfigWithMountPaths(t, root)
+
+	spec := BuildMsbRunSpec(&cfg, "sb", t.TempDir(), nil)
+	dm := ResolveDaemonMounts(&cfg)
+	if spec.Labels[DaemonMountsLabelKey] != dm.Hash {
+		t.Errorf("mounts hash label = %q, want %q", spec.Labels[DaemonMountsLabelKey], dm.Hash)
+	}
+
+	single := config.DefaultConfig()
+	specSingle := BuildMsbRunSpec(&single, "sb", "", nil)
+	if _, ok := specSingle.Labels[DaemonMountsLabelKey]; ok {
+		t.Error("single-path spec must not carry the mounts hash label")
+	}
+}
+
+func TestMsbDaemonNeedsRecreate(t *testing.T) {
+	root := t.TempDir()
+	sub := filepath.Join(root, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	other := t.TempDir()
+
+	dest := GetMsbWorkspaceMountDest(root)
+	cfgJSON := fmt.Sprintf(`{"mounts":[{"type":"Bind","host":%q,"guest":%q}]}`, root, dest)
+	singleLabels := map[string]string{"construct.project_dir": root}
+
+	multi := DaemonMounts{Enabled: true, Hash: "abc", Mounts: []DaemonMount{{HostPath: root, ContainerPath: "/workspaces/x"}}}
+	multiLabels := map[string]string{DaemonMountsLabelKey: "abc"}
+
+	tests := []struct {
+		name       string
+		dm         DaemonMounts
+		labels     map[string]string
+		cfgJSON    string
+		projectDir string
+		want       bool
+	}{
+		{"multi hash match reuses", multi, multiLabels, "", sub, false},
+		{"multi hash mismatch recreates", multi, map[string]string{DaemonMountsLabelKey: "zzz"}, "", sub, true},
+		{"single exact root reuses", DaemonMounts{}, singleLabels, cfgJSON, root, false},
+		{"single subdir reuses", DaemonMounts{}, singleLabels, cfgJSON, sub, false},
+		{"single other root recreates", DaemonMounts{}, singleLabels, cfgJSON, other, true},
+		{"single missing label recreates", DaemonMounts{}, map[string]string{}, cfgJSON, root, true},
+		{"single mount drift recreates", DaemonMounts{}, singleLabels, `{"mounts":[]}`, root, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, reason := msbDaemonNeedsRecreate(tt.dm, tt.labels, tt.cfgJSON, tt.projectDir, false)
+			if got != tt.want {
+				t.Fatalf("needRecreate = %v (reason %q), want %v", got, reason, tt.want)
+			}
+			if got && reason == "" {
+				t.Error("recreate decision must carry a reason")
+			}
+		})
 	}
 }
 

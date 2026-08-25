@@ -15,7 +15,7 @@ import (
 
 // UpdateAgents runs the update-all script inside the container.
 func UpdateAgents(cfg *config.Config) {
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Prepare runtime environment (network, overrides)
@@ -116,7 +116,7 @@ func UpdateAgents(cfg *config.Config) {
 
 // ResetVolumes deletes persistent volumes to force agent reinstall on next run.
 func ResetVolumes(cfg *config.Config) {
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 
 	if ui.GumAvailable() {
 		// Use Gum for warning and confirmation
@@ -200,7 +200,7 @@ func ResetVolumes(cfg *config.Config) {
 
 // InstallPackages regenerates and runs the user-defined installation script.
 func InstallPackages(cfg *config.Config) {
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// 1. Prepare (regenerates script and override)
@@ -262,7 +262,7 @@ func InstallPackages(cfg *config.Config) {
 
 // ReinstallPackages clears the packages volume and reapplies packages.toml.
 func ReinstallPackages(cfg *config.Config) {
-	containerRuntime := runtime.DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 
 	if ui.GumAvailable() {
 		ui.GumInfo("Reinstalling packages: removing construct-packages volume first")

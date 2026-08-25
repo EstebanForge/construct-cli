@@ -4,12 +4,14 @@
 
 # Runtime Preferences
 [runtime]
-# Isolation backend: "docker" (default) or "microvm" (microsandbox microVMs, experimental)
-# backend = "docker"
-
-# Options: "auto", "container", "podman", "docker"
-# "auto" will detect in priority order: container > podman > docker
-engine = "auto"
+# Isolation backend: "auto" (default; detects container > podman > docker), or pin a specific
+# OCI runtime ("container", "podman", "docker"), or "microvm" (microsandbox microVMs,
+# experimental).
+# With "microvm": use the daemon and set [daemon] multi_paths_enabled + mount_paths to cover
+# your project roots. The daemon sandbox is then created once and reused across projects;
+# without it, switching project roots recreates the sandbox and re-runs guest initialization
+# (first boot takes minutes).
+# backend = "auto"
 
 # Automatically check for updates once per day (true/false)
 auto_update_check = true
@@ -185,6 +187,9 @@ auto_start = true
 # Enable multi-root daemon mounts (advanced, default: false)
 # Purpose: allow the daemon to serve runs from multiple host roots, not just the current repo.
 # Benefits: faster agent startups across different projects without restarting the daemon.
+# Recommended with backend = "microvm": the microVM daemon sandbox is created once and reused
+# for every project under these roots; without it, switching project roots recreates the
+# sandbox (guest state resets, first boot takes minutes).
 multi_paths_enabled = false
 
 # Host directories the daemon can serve (used only when multi_paths_enabled=true)

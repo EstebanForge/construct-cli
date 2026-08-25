@@ -214,11 +214,9 @@ func Run(args ...string) {
 	}
 
 	// Runtime is needed by multiple checks (env warnings, compose health/fixes, linux remap handling).
-	engine := "auto"
-	if cfg != nil {
-		engine = cfg.Runtime.Engine
-	}
-	runtimeName := runtimepkg.DetectRuntime(engine)
+	// The unified backend key doubles as the engine selector: auto/container/podman/docker
+	// resolve to an OCI binary, microvm blanks out below (Docker checks not applicable).
+	runtimeName := runtimepkg.ResolveContainerRuntime(cfg)
 
 	// Backend dispatch (docs/VMs.md §7 Step 6): under the msb backend the
 	// Docker-only checks below are not applicable. runtimeName is blanked

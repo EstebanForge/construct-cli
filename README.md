@@ -13,7 +13,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **One command** to use any AGENT inside a secured, isolated sandbox. Agents spawn from the path where you call them, without a path escape.
 - **Zero Config**: no complex setup. The Construct just works out of the box across macOS, Linux, and Windows (WSL).
 - **Auto-detection**: Automatically detects and uses the best available container runtime (macOS native → Podman → Docker)
-- **Experimental MicroVM Engine**: Optional hardware-level isolation via microVMs (`backend = "microvm"` using microsandbox), running agents with dedicated guest Linux kernels
+- **Experimental MicroVM Engine**: Optional hardware-level isolation via microVMs (`backend = "microvm"` using microsandbox), running agents with dedicated guest Linux kernels; use it with the daemon and `[daemon] mount_paths` covering your project roots so the sandbox is reused, not recreated, when you switch projects
 - **Clean Slate**: Ephemeral containers with persistent volumes for agents and packages
 - **Network Isolation**: Optional `permissive`, `strict`, or `offline` network modes with allow/block lists
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent

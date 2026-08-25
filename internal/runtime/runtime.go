@@ -45,6 +45,24 @@ var runOwnershipFixInteractiveFn = runOwnershipFix
 var runOwnershipFixRootlessFn = runOwnershipFixRootless
 var podmanIsRootlessFn = podmanIsRootless
 
+// ResolveContainerRuntime maps the unified runtime backend value onto an
+// OCI binary via DetectRuntime. Pinned container backends pin their binary;
+// microvm (and empty/unknown) values fall back to auto-detection: these
+// call sites only need an OCI binary for image transitions and compose
+// plumbing, which the microvm path also reaches via docker save / msb load.
+func ResolveContainerRuntime(cfg *config.Config) string {
+	b := ""
+	if cfg != nil {
+		b = strings.TrimSpace(cfg.Runtime.Backend)
+	}
+	switch b {
+	case "container", "podman", "docker", "auto":
+		return DetectRuntime(b)
+	default:
+		return DetectRuntime("auto")
+	}
+}
+
 // DetectRuntime selects an available container runtime using parallel detection.
 func DetectRuntime(preferredEngine string) string {
 	runtimes := []string{"container", "podman", "docker"}
@@ -312,7 +330,7 @@ func BuildImage(cfg *config.Config) {
 		return
 	}
 
-	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Create log file for build output
@@ -430,7 +448,7 @@ func AreAgentsInstalled() bool {
 
 // InstallAgentsAfterBuild runs the container once to install agents
 func InstallAgentsAfterBuild(cfg *config.Config) error {
-	containerRuntime := DetectRuntime(cfg.Runtime.Engine)
+	containerRuntime := ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 
 	// Prepare runtime environment (network, overrides)

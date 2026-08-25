@@ -47,6 +47,12 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 
 	sb, err := runtime.EnsureMsbDaemon(ctx, e.cfg, e.cwd)
 	if err != nil {
+		if errors.Is(err, runtime.ErrMsbDaemonWorkdirUnmapped) {
+			// Docker parity ends here: msb has no per-invocation sandbox path,
+			// so an unmapped cwd aborts instead of falling back to compose run.
+			ui.InfoLn("Tip: add this directory's root to [daemon] mount_paths (config.toml) or disable daemon.multi_paths_enabled.")
+			return 1, err
+		}
 		return 1, fmt.Errorf("msb daemon: %w", err)
 	}
 	defer func() {
@@ -100,13 +106,21 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 
 	workdir := "/workspaces"
 	if e.cwd != "" {
-		projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
-		if projectRoot == "" {
-			projectRoot = e.cwd
-		}
-		dest := runtime.GetMsbWorkspaceMountDest(projectRoot)
-		if mapped, ok := runtime.MapDaemonWorkdir(e.cwd, projectRoot, dest); ok {
-			workdir = mapped
+		if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {
+			// Multi-path mode: the workdir is the cwd mapped under the
+			// configured mount set (Docker parity with MapDaemonWorkdirFromMounts).
+			if mapped, ok := runtime.MapDaemonWorkdirFromMounts(e.cwd, dm.Mounts); ok {
+				workdir = mapped
+			}
+		} else {
+			projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
+			if projectRoot == "" {
+				projectRoot = e.cwd
+			}
+			dest := runtime.GetMsbWorkspaceMountDest(projectRoot)
+			if mapped, ok := runtime.MapDaemonWorkdir(e.cwd, projectRoot, dest); ok {
+				workdir = mapped
+			}
 		}
 	}
 

@@ -281,7 +281,7 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	}
 
 	pathMaps := make([]hostexec.PathMap, 0, 3)
-	for _, pm := range MsbPathMaps(proj) {
+	for _, pm := range MsbPathMaps(&cfg, proj) {
 		pathMaps = append(pathMaps, hostexec.PathMap{Container: pm.Guest, Host: pm.Host})
 	}
 	srv, err := hostexec.StartServer(msbHostAlias, cfg.Sandbox.HostBinaries, hostexec.DefaultTimeout, pathMaps)
