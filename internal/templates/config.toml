@@ -166,6 +166,35 @@ host_service_env = [
 # reachable via host-gateway. Empty list disables the feature (no NET_BIND_SERVICE cap).
 host_loopback_ports = [80, 443]
 
+# Mount the host skills library into each supported agent's skills directory inside
+# the sandbox (default: true). This bind-mounts the host source into /home/construct/<agent>/skills
+# for every agent that has a known skills path, so users no longer need to run a
+# separate sync step (e.g. manage.sh link) to duplicate skills into the sandbox.
+# Source resolution order (first non-empty wins):
+#   1. $CONSTRUCT_SKILLS_SOURCE environment variable
+#   2. [sandbox] skills_source below (if non-empty)
+#   3. Auto-detect, first existing:
+#        ~/Dev/EstebanForge/AGENTS/skills
+#        ~/AGENTS/skills
+#        ~/.config/construct-cli/skills
+#        $XDG_DATA_HOME/construct/skills
+#   4. None found: no mount, no error. The feature is opt-out by silent absence.
+# Set to false to disable entirely and rely on a pre-sync step (legacy behavior).
+# See docs/VMsv2.md (phase 7) and docs/CONFIGURATION.md.
+mount_skills = true
+# Skills mount mode (default: true = read-only). The mount uses `:ro` so the
+# agent inside the sandbox cannot modify the host skills source; this is the
+# safe default — agents consume skills, they do not author them. Opt into
+# read-write by setting this to false ONLY when you want agents to author or
+# edit skills (writes flow back to the host; trust bound matches the
+# persistent home bind). See docs/SECURITY.md when that doc gains a
+# filesystem-exposure section.
+skills_read_only = true
+# Override the host skills source path. Empty (default) triggers auto-detect.
+# Useful for CI runners, multi-machine setups, or when the canonical agent-forge
+# layout is not where your skills live. Env var $CONSTRUCT_SKILLS_SOURCE wins.
+# skills_source = ""
+
 # Agent Behavior
 [agents]
 # Enable yolo mode for all supported agents (default: false, overrides yolo_agents)

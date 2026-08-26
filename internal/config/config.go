@@ -66,6 +66,9 @@ type SandboxConfig struct {
 	HostLoopbackPorts      []int    `toml:"host_loopback_ports"` // container 127.0.0.1 ports relayed to host.docker.internal (Chromium-hardcoded *.localhost/localhost traffic)
 	SSHPinIdentities       []string `toml:"ssh_pin_identities"`  // host=keyname entries; pin one SSH identity per host to avoid sshd MaxAuthTries when the agent holds many keys
 	HostBinaries           []string `toml:"host_binaries"`       // binaries proxied to the host instead of run in-container; see docs/HOST-EXEC.md
+	MountSkills            bool     `toml:"mount_skills"`        // Bind-mount host skills source into each supported agent's skills dir (default: true; auto-detects ~/Dev/EstebanForge/AGENTS/skills, ~/AGENTS/skills, ~/.config/construct-cli/skills, $XDG_DATA_HOME/construct/skills). See docs/VMsv2.md phase 7.
+	SkillsReadOnly         bool     `toml:"skills_read_only"`    // Mount skills source read-only (default: true). Set false to allow agents inside the sandbox to author or edit skills (writes flow back to host). Opt-in RW; default is the safe choice.
+	SkillsSource           string   `toml:"skills_source"`       // Override the host skills source path; empty = auto-detect. Env var $CONSTRUCT_SKILLS_SOURCE wins over this key.
 }
 
 // NetworkConfig holds network allow/block settings.
@@ -132,6 +135,9 @@ func DefaultConfig() Config {
 			NonRootStrict:        false,
 			AllowCustomOverride:  false,
 			ExecAsHostUser:       true,
+			MountSkills:          true,
+			SkillsReadOnly:       true,
+			SkillsSource:         "",
 			EnvPassthrough: []string{
 				"GITHUB_TOKEN",
 				"CONTEXT7_API_KEY",
