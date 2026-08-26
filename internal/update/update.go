@@ -16,6 +16,7 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	semver "github.com/EstebanForge/construct-cli/internal/version"
 )
@@ -135,6 +136,18 @@ func resolveUpdateChannel(cfg ...*config.Config) string {
 	default:
 		return updateChannelStable
 	}
+}
+
+// resolveUpdateCfg returns the first non-nil config from the variadic
+// list, or nil. Lets the caller (SelfUpdate) act on the effective cfg
+// without re-loading.
+func resolveUpdateCfg(cfg ...*config.Config) *config.Config {
+	for _, c := range cfg {
+		if c != nil {
+			return c
+		}
+	}
+	return nil
 }
 
 func versionURLForChannel(channel string) string {
@@ -361,6 +374,15 @@ func SelfUpdate(cfg ...*config.Config) error {
 			fmt.Printf("Now using user-local binary: %s\n", displayPath(targetPath))
 			fmt.Println("If needed, run: export PATH=\"$HOME/.local/bin:$PATH\"")
 		}
+	}
+
+	// Phase 4: pre-stage the new image in the background so the next ct
+	// invocation finds construct-box:latest already pulled. Best-effort;
+	// the user already saw the success line and the prepuller is silent
+	// (writes to ~/.config/construct-cli/logs/prepull.log).
+	resolvedCfg := resolveUpdateCfg(cfg...)
+	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, "microvm") {
+		runtimepkg.MaybePrepullImage(resolvedCfg)
 	}
 
 	return nil

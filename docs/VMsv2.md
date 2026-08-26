@@ -112,11 +112,11 @@ Design (host-side only, per the fundamentals):
 - A run arriving during the countdown: it registers a session; the helper rechecks after the sleep and stands down.
 - Warm restart already works: the stopped-daemon path (`StartDetached` + `ExecDefault` + `msbWaitKeeper`) exists today and is exercised by `sys daemon start`.
 
-- [ ] P3.1 Session registry helper (register/unregister/sweep-stale) + unit tests
-- [ ] P3.2 Wire register/unregister into `execViaMsbDaemon` and Teardown
-- [ ] P3.3 `idle-watch` helper command (sleep, recheck, stop) + config `daemon.idle_stop_minutes` (default 45)
-- [ ] P3.4 Spawn-on-last-unregister logic, best-effort, logged
-- [ ] P3.5 Test: registry count zero after unregisters; stale pid swept; idle-watch stands down when a session appears
+- [x] P3.1 Session registry helper (register/unregister/sweep-stale) + unit tests
+- [x] P3.2 Wire register/unregister into `execViaMsbDaemon` and Teardown
+- [x] P3.3 `idle-watch` helper command (sleep, recheck, stop) + config `daemon.idle_stop_minutes` (default 45)
+- [x] P3.4 Spawn-on-last-unregister logic, best-effort, logged
+- [x] P3.5 Test: registry count zero after unregisters; stale pid swept; idle-watch stands down when a session appears
 - [ ] P3.6 Update `docs/CONFIGURATION.md` + config template comment; mention in `construct sys daemon status`
 
 ### Phase 4: background image pre-pull
@@ -125,9 +125,9 @@ Goal: remove the first-run "why is this downloading gigabytes" surprise. Install
 
 Design: after a successful `construct update` (and on first-run init when `backend = "microvm"` is detected in config), spawn a detached best-effort process running the equivalent of the GHCR pull path in `EnsureImage` (`msb pull ghcr.io/estebanforge/construct-box:latest` + `msb image tag ... construct-box:latest`), output appended to the construct log dir. Never blocks, never fails the parent command. Opt-out: `runtime.prepull_image = false`. Note: `EnsureImage` currently pulls `:latest` only; keep that behavior here (do not "fix" it in this phase).
 
-- [ ] P4.1 Detached pre-pull helper (pull + tag + log), reused by update and first-run paths
-- [ ] P4.2 Config flag `runtime.prepull_image` (default true) + template/docs
-- [ ] P4.3 Verify: fresh sandbox image store + update run -> later `ct` skips the pull in `EnsureImage`
+- [x] P4.1 Detached pre-pull helper (pull + tag + log), reused by update and first-run paths
+- [x] P4.2 Config flag `runtime.prepull_image` (default true) + template/docs
+- [ ] P4.3 Verify: fresh sandbox image store + update run -> later `ct` skips the pull in `EnsureImage` (wall-clock, requires live msb)
 
 ### Phase 5: credential proxy design doc (no implementation)
 
@@ -140,7 +140,7 @@ Hard constraints recorded from review (the design must address each):
 - The proxy only pays off if provider keys STOP being passed as guest env. The design must include the removal plan for the env passthrough of provider keys (`collectForwardedEnv` in `internal/agent/engine.go` and friends) or the proxy is theater.
 - Interaction with network modes: offline still allows host transport; strict/permissive policy rules need the proxy port allowed guest-to-host.
 
-- [ ] P5.1 Write `docs/CREDS-PROXY.md`: threat model, component diagram, CA lifecycle, per-provider rule format, token store, guest env removal plan, rollout flags
+- [x] P5.1 Write `docs/CREDS-PROXY.md`: threat model, component diagram, CA lifecycle, per-provider rule format, token store, guest env removal plan, rollout flags
 - [ ] P5.2 Review round on the design doc (isolated peer review, same protocol as this plan)
 
 ### Phase 6: snapshot fork (gated; do not start before the gate opens)

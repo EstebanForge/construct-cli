@@ -248,6 +248,11 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "set-password":
 		cfg = ensureConfigLoaded(cfg)
 		sys.SetPassword(cfg)
+	case "prepull":
+		// Invoked as a detached process by MaybePrepullImage. Not meant
+		// for direct user invocation; exposed so the binary can re-exec
+		// itself for the background pull loop.
+		runtime.PrepullRun()
 	case "daemon":
 		if len(args) < 2 {
 			ui.PrintSysDaemonHelp()
@@ -480,6 +485,13 @@ func handleDaemonCommand(args []string) {
 			ui.GumError(fmt.Sprintf("Unknown roots subcommand: %s", args[1]))
 			os.Exit(1)
 		}
+	case "idle-watch":
+		// Invoked as a detached process by MaybeSpawnIdleWatcher. Not
+		// meant for direct user invocation; kept in the dispatcher so
+		// the binary can re-exec itself for the watch loop without a
+		// separate helper.
+		minutes := daemon.IdleWatchMinutesFromArgs(args[1:])
+		runtime.IdleWatchRun(minutes)
 	default:
 		ui.GumError(fmt.Sprintf("Unknown daemon command: %s", command))
 		ui.PrintSysDaemonHelp()
