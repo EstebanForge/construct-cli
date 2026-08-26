@@ -121,7 +121,27 @@ func IdleWatchRun(minutes int) {
 // daemon from a detached process without an import cycle (daemon imports
 // runtime, not the other way around). Best-effort: if stop fails the
 // user can still run `construct sys daemon stop` manually.
+//
+// Acquires the daemon flock (phase 1) before stopping so a concurrent ct
+// invocation's EnsureMsbDaemon cannot be torn down mid-flight, and so two
+// concurrent watchers serialize on the same lock. The flock is per-process
+// on the same file description; distinct processes contending on the
+// same file path DO block, which is the property we want.
 func StopMsbDaemonBestEffort() error {
+	release, err := acquireDaemonLock()
+	if err != nil {
+		return fmt.Errorf("acquire daemon lock: %w", err)
+	}
+	defer release()
+
+	// Re-check under the lock: a new session may have registered between
+	// the watcher's last tick and now. If so, stand down — the
+	// previously-live session deserves a daemon.
+	if LiveSessionCount() > 0 {
+		ui.InfoLn("idle-watch: a session appeared under the lock, standing down")
+		return nil
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	h, err := msb.GetSandbox(ctx, msbDaemonName)

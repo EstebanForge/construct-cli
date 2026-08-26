@@ -380,6 +380,13 @@ func SelfUpdate(cfg ...*config.Config) error {
 	// invocation finds construct-box:latest already pulled. Best-effort;
 	// the user already saw the success line and the prepuller is silent
 	// (writes to ~/.config/construct-cli/logs/prepull.log).
+	//
+	// Ordering: installBinaryWithBackup above already finished its
+	// atomic rename; os.Executable() in the detached child will resolve
+	// to the freshly installed binary. If a future refactor changes the
+	// install order, the prepull would still exec the right binary because
+	// /proc/self/exe points to the running process's inode (which the
+	// rename already updated under us).
 	resolvedCfg := resolveUpdateCfg(cfg...)
 	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, "microvm") {
 		runtimepkg.MaybePrepullImage(resolvedCfg)
