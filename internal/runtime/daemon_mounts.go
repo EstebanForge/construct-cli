@@ -17,6 +17,13 @@ import (
 // DaemonMountsLabelKey stores the hash for multi-path daemon mounts.
 const DaemonMountsLabelKey = "construct.daemon.mounts_hash"
 
+// DaemonSkillsLabelKey stores the hash for host skills mounts. The daemon
+// recreate check compares this against the current cfg; a mismatch means
+// the skills mount set (source path, read-only flag, target count) drifted
+// and the running sandbox must be rebuilt so it picks up the new mounts.
+// Mirrors DaemonMountsLabelKey semantics but for the skills source only.
+const DaemonSkillsLabelKey = "construct.daemon.skills_hash"
+
 // DaemonMount defines a host-to-container mount mapping.
 type DaemonMount struct {
 	HostPath      string
