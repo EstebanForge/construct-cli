@@ -545,3 +545,30 @@ func statusBasic(state runtime.ContainerState, containerRuntime, containerName s
 
 	fmt.Println()
 }
+
+// RootsList prints the daemon's learned roots (host dirs the daemon
+// learned to mount under single-path mode, phase 2). Pinned configured
+// paths from daemon.mount_paths are shown alongside, marked "configured".
+// "remember to forget" the path with `construct sys daemon roots forget
+// <path>` once the project is done.
+func RootsList() {
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	runtime.DaemonRootsList(cfg)
+}
+
+// RootsForget removes a learned root by exact path. Configured
+// daemon.mount_paths entries are pinned and CANNOT be forgotten here;
+// remove them from config.toml instead. Refuses paths not in the learned
+// set so a typo does not silently succeed.
+func RootsForget(path string) {
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	runtime.DaemonRootsForget(cfg, path)
+}

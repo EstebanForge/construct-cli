@@ -2,10 +2,12 @@ package runtime
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
@@ -487,5 +489,77 @@ func TestParseMsbConfigMounts(t *testing.T) {
 	}
 	if m := parseMsbConfigMounts("invalid json"); len(m) != 0 {
 		t.Errorf("expected empty map for invalid json, got %+v", m)
+	}
+}
+
+// log line per subtest, isolating each so the count assertion is unambiguous.
+// The combined TestMsbLogBootFormat covers the format with mixed outcomes
+// and the negative-duration clamp.
+func TestMsbLogBootFormatOnePerOutcome(t *testing.T) {
+	base := time.Date(2026, 8, 26, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name    string
+		outcome string
+		elapsed time.Duration
+		reason  string
+		roots   int
+		wantSub []string
+	}{
+		{"cold", "cold", 90 * time.Second, "first create", 3, []string{"outcome=cold", "seconds=90", "roots=3"}},
+		{"recreate", "recreate", 12 * time.Second, "mount drift", 5, []string{"outcome=recreate", "seconds=12", "roots=5"}},
+		{"warm", "warm", 23 * time.Second, "StartDetached", 3, []string{"outcome=warm", "seconds=23", "roots=3"}},
+		{"reconnect", "reconnect", 0, "marker present", 3, []string{"outcome=reconnect", "seconds=0", "roots=3"}},
+		{"negative duration", "reconnect", -5 * time.Second, "marker present", 1, []string{"seconds=0"}},
+	}
+
+	origClock := msbBootClock
+	t.Cleanup(func() { msbBootClock = origClock })
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			start := base
+
+			// Capture stderr.
+			origStderr := os.Stderr
+			r, w, err := os.Pipe()
+			if err != nil {
+				t.Fatalf("pipe: %v", err)
+			}
+			os.Stderr = w
+			t.Cleanup(func() { os.Stderr = origStderr })
+
+			msbBootClock = func() time.Time { return start.Add(tc.elapsed) }
+			msbLogBoot(tc.outcome, start, tc.reason, tc.roots)
+
+			if cerr := w.Close(); cerr != nil {
+				t.Fatalf("close pipe write end: %v", cerr)
+			}
+			out, rerr := io.ReadAll(r)
+			if rerr != nil {
+				t.Fatalf("read pipe: %v", rerr)
+			}
+			got := string(out)
+
+			for _, want := range tc.wantSub {
+				if !strings.Contains(got, want) {
+					t.Errorf("missing %q in: %s", want, got)
+				}
+			}
+		})
+	}
+}
+
+// TestMsbBootClockIsInjectable confirms the package-level clock can be
+// replaced so tests avoid real time.Sleep. The construct itself is trivial
+// but the test guards against an accidental rename that would break the
+// telemetry test pattern.
+func TestMsbBootClockIsInjectable(t *testing.T) {
+	orig := msbBootClock
+	t.Cleanup(func() { msbBootClock = orig })
+
+	fixed := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	msbBootClock = func() time.Time { return fixed }
+	if got := msbBootClock(); !got.Equal(fixed) {
+		t.Fatalf("clock override did not take effect: got %v want %v", got, fixed)
 	}
 }

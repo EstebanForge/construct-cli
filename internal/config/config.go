@@ -99,6 +99,7 @@ type DaemonConfig struct {
 	AutoStart         bool     `toml:"auto_start"`          // Auto-start daemon on first agent run (default: true)
 	MultiPathsEnabled bool     `toml:"multi_paths_enabled"` // Enable multi-path daemon mounts (default: false)
 	MountPaths        []string `toml:"mount_paths"`         // Multi-path daemon mount roots (opt-in)
+	MaxLearnedRoots   int      `toml:"max_learned_roots"`   // LRU cap on roots.json learned entries (default 8; 0 disables learning)
 }
 
 // ClaudeConfig stores Claude provider configuration.
@@ -196,6 +197,7 @@ func DefaultConfig() Config {
 			AutoStart:         true,
 			MultiPathsEnabled: false,
 			MountPaths:        []string{},
+			MaxLearnedRoots:   8,
 		},
 		Security: SecurityConfig{
 			HideSecrets:                false,

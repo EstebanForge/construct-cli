@@ -462,6 +462,24 @@ func handleDaemonCommand(args []string) {
 		daemon.InstallService()
 	case "uninstall":
 		daemon.UninstallService()
+	case "roots":
+		if len(args) < 2 {
+			ui.GumError("roots requires a subcommand: list | forget <path>")
+			os.Exit(1)
+		}
+		switch args[1] {
+		case "list":
+			daemon.RootsList()
+		case "forget":
+			if len(args) < 3 {
+				ui.GumError("forget requires a path argument")
+				os.Exit(1)
+			}
+			daemon.RootsForget(args[2])
+		default:
+			ui.GumError(fmt.Sprintf("Unknown roots subcommand: %s", args[1]))
+			os.Exit(1)
+		}
 	default:
 		ui.GumError(fmt.Sprintf("Unknown daemon command: %s", command))
 		ui.PrintSysDaemonHelp()

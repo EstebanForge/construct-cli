@@ -51,9 +51,9 @@ Goal: measure before optimizing. Every later decision (especially phase 6) is ga
 
 Design: instrument `EnsureMsbDaemon` in `internal/runtime/backend_msb_run.go` with duration logging for four events, tagged with an outcome: `cold` (create path, first boot with installs), `recreate` (with the reason string already produced by `msbDaemonNeedsRecreate`), `warm` (stopped sandbox booted via `StartDetached` + `msbWaitKeeper`), `reconnect` (already running, marker present). `msbWaitKeeper` already tracks `start`; extend it to return the elapsed wait. Log via `ui.LogInfo` (or the structured log the daemon already writes) with a stable prefix such as `msb-boot:` so numbers are greppable later, example: `msb-boot: outcome=warm seconds=23 root=/path`.
 
-- [ ] P0.1 Instrument cold, recreate, warm, reconnect durations in `EnsureMsbDaemon` with the `msb-boot:` prefix
-- [ ] P0.2 Include the recreate reason and the mounted root count in the log line
-- [ ] P0.3 Unit test: the four outcome tags are emitted (fake clock or injectable timer if needed; do not sleep in tests)
+- [x] P0.1 Instrument cold, recreate, warm, reconnect durations in `EnsureMsbDaemon` with the `msb-boot:` prefix
+- [x] P0.2 Include the recreate reason and the mounted root count in the log line
+- [x] P0.3 Unit test: the four outcome tags are emitted (fake clock or injectable timer if needed; do not sleep in tests)
 - [ ] P0.4 Dogfood on macOS for one week, collect numbers, record median cold vs warm vs reconnect in this file (section 10)
 
 Acceptance: `grep msb-boot` over a week of logs answers "what does a warm boot cost" and "how often do recreates happen".
@@ -64,12 +64,12 @@ Goal: serialize daemon state mutations. The critical section MUST wrap, as one u
 
 Design: lock file `~/.config/construct-cli/daemon.lock` (create dir if missing, mode 0600). Acquire with `syscall.Flock(fd, LOCK_EX)` (blocking) in `EnsureMsbDaemon` before reading any daemon state, release on return. Blocking is correct: a 10-minute first boot behind the lock is expected, not exceptional. Print a notice when the lock is not acquired within ~250ms: "Waiting for another construct invocation to finish daemon setup...". Release must happen on ALL return paths (`defer`). The lock is host-local; one per construct config dir.
 
-- [ ] P1.1 Add `internal/runtime/daemon_lock.go` with `acquireDaemonLock() (release func(), err error)` using a blocking `syscall.Flock`
-- [ ] P1.2 Wire acquisition at the top of `EnsureMsbDaemon`; `defer` release; wrap the entire decision + learn + recreate sequence
-- [ ] P1.3 Waiting notice after 250ms blocked (a goroutine + timer, cancel on acquire)
-- [ ] P1.4 Test: two goroutines enter `EnsureMsbDaemon`'s critical section, second observes the lock (unit test on the lock helper with a held fd)
-- [ ] P1.5 Test: release happens on error paths (recreate failure does not strand the lock)
-- [ ] P1.6 Document the lock file in `construct sys doctor` output (show "daemon lock: free/held")
+- [x] P1.1 Add `internal/runtime/daemon_lock.go` with `acquireDaemonLock() (release func(), err error)` using a blocking `syscall.Flock`
+- [x] P1.2 Wire acquisition at the top of `EnsureMsbDaemon`; `defer` release; wrap the entire decision + learn + recreate sequence
+- [x] P1.3 Waiting notice after 250ms blocked (a goroutine + timer, cancel on acquire)
+- [x] P1.4 Test: two goroutines enter `EnsureMsbDaemon`'s critical section, second observes the lock (unit test on the lock helper with a held fd)
+- [x] P1.5 Test: release happens on error paths (recreate failure does not strand the lock)
+- [x] P1.6 Document the lock file in `construct sys doctor` output (show "daemon lock: free/held")
 
 ### Phase 2: learned roots
 
@@ -91,12 +91,13 @@ New CLI surface (mirror the existing `sys daemon` verb style in `internal/daemon
 
 Edge cases to handle explicitly: concurrent learn of two roots (covered by phase 1 lock), root deleted from disk between runs (stat check; drop silently with a log line), root that resolves through a symlink (store resolved), cap reached (evict LRU, warn once).
 
-- [ ] P2.1 `internal/runtime/roots_store.go`: load/save/update roots.json with version field, atomic write (`writeFileAtomic` pattern from `internal/config/config.go`), and LRU cap
+- [x] P2.1 `internal/runtime/roots_store.go`: load/save/update roots.json with version field, atomic write (`writeFileAtomic` pattern from `internal/config/config.go`), and LRU cap
 - [ ] P2.2 Combined mount-set resolution (configured pinned + learned LRU) with single hash; all four consumers derive from it
-- [ ] P2.3 Prompt-on-learn interactive path; hard deny + actionable message non-interactive path; both covered by unit tests
-- [ ] P2.4 `EvaluateWorkspace` floor + refusal of configured-root forgetting
-- [ ] P2.5 `construct sys daemon roots` list command + tests
-- [ ] P2.6 `construct sys daemon roots forget <path>` + tests
+  - P2.2 stubs already shipped: `ResolveDaemonMountsWithLearned` is a no-op wrapper that currently delegates to `ResolveDaemonMounts` (placeholder for the unified set). `requestLearnRoot` is shipped with `nolint:unused` because the call site in `EnsureMsbDaemon` is part of this item. The system-root workspace guard inside `requestLearnRoot` is a defensive backstop; in practice `cleanProjectDir` filters system roots upstream so the backstop never fires.
+- [x] P2.3 Prompt-on-learn interactive path; hard deny + actionable message non-interactive path; helper shipped (covered by tests; EnsureMsbDaemon call site is part of P2.2 wire-in)
+- [x] P2.4 `EvaluateWorkspace` floor + refusal of configured-root forgetting
+- [x] P2.5 `construct sys daemon roots` list command + tests
+- [x] P2.6 `construct sys daemon roots forget <path>` + tests
 - [ ] P2.7 Update `docs/CONFIGURATION.md` (learned roots, cap, prompt behavior, the command) and the config template comment block
 - [ ] P2.8 Dogfood: two projects, verify exactly one recreate on first visit to the second, zero recreates thereafter
 

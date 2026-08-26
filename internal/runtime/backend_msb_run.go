@@ -490,7 +490,31 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 // running: create when missing, boot when stopped (default workload — the
 // entrypoint + sleep infinity — is re-invoked explicitly; the SDK never
 // auto-runs it, not at create and not at start). Returns the live sandbox.
+//
+// Boot telemetry: each return path emits one msb-boot: line with the
+// outcome (cold | recreate | warm | reconnect), the elapsed seconds, the
+// mount count, and (for recreate) the reason. The start clock is captured
+// at the top; the log is fire-and-forget and never affects the returned
+// sandbox. See msbLogBoot + docs/VMsv2.md phase 0.
 func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string) (*msb.Sandbox, error) {
+	bootStart := msbBootClock()
+	bootOutcome := msbBootCold
+	bootReason := ""
+	bootRoots := msbBootMountCount(cfg, projectDir)
+
+	// Serialize all daemon state mutations across concurrent ct
+	// invocations. The critical section wraps read-state, decide, write-
+	// state, and the recreate/boot itself so two invocations learning
+	// different roots cannot produce last-write-wins root loss or a double
+	// recreate. Blocking is correct: a 10-minute first boot behind the
+	// lock is expected (the prior install path runs inside it). The lock
+	// is host-local; one per construct config dir.
+	releaseLock, err := acquireDaemonLock()
+	if err != nil {
+		return nil, fmt.Errorf("acquire daemon lock: %w", err)
+	}
+	defer releaseLock()
+
 	m := NewMsbBackend()
 	if err := m.EnsureImage(cfg); err != nil {
 		return nil, err
@@ -515,6 +539,8 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome, cfg)
 			}
 			if needRecreate {
+				bootOutcome = msbBootRecreate
+				bootReason = reason
 				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", reason)
 				_ = h.Stop(ctx)                   //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // best-effort cleanup before recreate
@@ -537,7 +563,14 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 						return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 					}
 					ui.InfoLn("✓ MicroVM environment ready")
+					bootOutcome = msbBootWarm
+					bootReason = "ready marker missing; re-ran default workload"
+					msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
+					return sb, nil
 				}
+				bootOutcome = msbBootReconnect
+				bootReason = "ready marker present"
+				msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
 				return sb, nil
 			}
 			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
@@ -559,6 +592,9 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 		}
 		ui.InfoLn("✓ MicroVM environment ready")
+		bootOutcome = msbBootWarm
+		bootReason = "stopped sandbox booted via StartDetached"
+		msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
 		return sb, nil
 	}
 
@@ -584,6 +620,10 @@ create:
 		return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 	}
 	ui.InfoLn("✓ MicroVM environment ready")
+	if bootOutcome != msbBootRecreate {
+		bootReason = "first create (no existing sandbox)"
+	}
+	msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
 	return sb, nil
 }
 
@@ -715,4 +755,44 @@ func GetMsbDaemonProjectDir(ctx context.Context) string {
 		return ""
 	}
 	return sbc.Labels["construct.project_dir"]
+}
+
+// msb-boot: telemetry for EnsureMsbDaemon. One outcome tag per return path:
+// cold (create, first boot with installs), recreate (sandbox torn down +
+// rebuilt, reason included), warm (stopped sandbox booted via
+// StartDetached + keeper wait), reconnect (already running, marker
+// present). The `msb-boot:` prefix is stable; numbers are greppable to
+// fill section 10 of docs/VMsv2.md and gate phase 6 (snapshot fork).
+//
+// Logged via stderr (ui.InfoF) so it respects the run-path-output rule
+// (AGENTS.md "Run-Path Output"); users capture via `2>log.txt`.
+
+const (
+	msbBootCold      = "cold"
+	msbBootRecreate  = "recreate"
+	msbBootWarm      = "warm"
+	msbBootReconnect = "reconnect"
+)
+
+// msbBootClock is the clock used for msb-boot: telemetry. Tests override
+// it to produce deterministic durations without sleeping.
+var msbBootClock = time.Now
+
+// msbBootMountCount is the source for the "roots=N" field. Tests override
+// to keep the log assertion deterministic when the real mount map is empty.
+var msbBootMountCount = func(cfg *config.Config, projectDir string) int {
+	return len(msbSandboxMounts(cfg, projectDir))
+}
+
+// msbLogBoot emits the structured `msb-boot:` line. Format is fixed so
+// downstream tooling can grep for `msb-boot:` and parse the fields
+// without coordinating on a new schema. The outcome + reason carry the
+// semantics; seconds + roots carry the measurements.
+func msbLogBoot(outcome string, start time.Time, reason string, rootCount int) {
+	seconds := int(msbBootClock().Sub(start).Round(time.Second).Seconds())
+	if seconds < 0 {
+		seconds = 0
+	}
+	ui.InfoF("msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
+		outcome, seconds, rootCount, reason)
 }
