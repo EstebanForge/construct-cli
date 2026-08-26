@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -57,8 +58,8 @@ func MaybePrepullImage(cfg *config.Config) {
 	cmd := exec.Command(exe, "sys", "prepull", "--once")
 	cmd.Stdin = nil
 	logPath := prepullLogFilePath()
-	cmd.Stdout = prepullLogWriter(logPath, false)
-	cmd.Stderr = prepullLogWriter(logPath, true)
+	cmd.Stdout = prepullLogWriter(logPath)
+	cmd.Stderr = prepullLogWriter(logPath)
 	setDetachedAttrs(cmd)
 	if err := cmd.Start(); err != nil {
 		ui.InfoF("⚠️  Could not spawn prepull: %v\n", err)
@@ -109,27 +110,16 @@ func PrepullRun() {
 
 // imageLoadedForPrepull is a fast probe of `msb image ls` for the local
 // construct-box tag. Best-effort: any error returns false (the prepull
-// will run, and EnsureImage's slower probe will decide).
+// will run, and EnsureImage's slower probe will decide). Uses bytes.Contains
+// on the full output; a false negative (substring not matched) is harmless
+// — the prepull just runs redundantly, which is cheaper than a brittle
+// line-anchored parse.
 func imageLoadedForPrepull() bool {
 	out, err := exec.Command("msb", "image", "ls").CombinedOutput()
 	if err != nil {
 		return false
 	}
-	return containsBytes(out, "construct-box:latest")
-}
-
-// containsBytes is a tiny helper to avoid the strings import in this
-// file (the larger runtime package already pulls it elsewhere).
-func containsBytes(haystack []byte, needle string) bool {
-	if len(needle) == 0 {
-		return true
-	}
-	for i := 0; i+len(needle) <= len(haystack); i++ {
-		if string(haystack[i:i+len(needle)]) == needle {
-			return true
-		}
-	}
-	return false
+	return bytes.Contains(out, []byte("construct-box:latest"))
 }
 
 // prepullLogFilePath returns the path to the prepull log inside the
@@ -152,14 +142,11 @@ func openPrepullLog(path string) *os.File {
 	return f
 }
 
-// prepullLogWriter returns a writer that appends each line to the log
-// file with a timestamp. When append is true, the writer is the log
-// file (stderr); when false, stdout.
-func prepullLogWriter(path string, stderr bool) *os.File {
-	// For simplicity we just route both stdout and stderr to the same
-	// log file via openPrepullLog. The shell captures them together;
-	// the prepull log file is line-prefixed by the script.
-	_ = path
-	_ = stderr
+// prepullLogWriter returns the log file for the prepull detached process.
+// Both stdout and stderr from the child route to the same file (the
+// shell captures them together; the prepull log is line-prefixed by the
+// script). The original signature took a `stderr` flag but both branches
+// always returned the same file; the parameter was dead.
+func prepullLogWriter(path string) *os.File {
 	return openPrepullLog(path)
 }
