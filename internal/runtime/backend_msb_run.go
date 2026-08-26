@@ -89,7 +89,7 @@ func msbSandboxMounts(cfg *config.Config, projectDir string) map[string]msb.Moun
 		})
 	}
 
-	for _, m := range conditionalAutoMounts() {
+	for _, m := range conditionalAutoMounts(cfg) {
 		mounts[m.Dest] = msb.Mount.Bind(m.Src, msb.MountOptions{
 			Readonly:           m.Readonly,
 			StatVirtualization: msb.StatVirtualizationOff,
@@ -122,7 +122,7 @@ func MsbPathMaps(cfg *config.Config, projectDir string) []MsbPathMap {
 		dest := GetMsbWorkspaceMountDest(dir)
 		maps = append(maps, MsbPathMap{Guest: dest, Host: dir})
 	}
-	for _, m := range conditionalAutoMounts() {
+	for _, m := range conditionalAutoMounts(cfg) {
 		maps = append(maps, MsbPathMap{Guest: m.Dest, Host: m.Src})
 	}
 	// Sort longest guest path first so specific nested paths match before parent mounts.
@@ -148,17 +148,28 @@ func msbHostConstructHome() string {
 // conditionalAutoMounts mirrors GenerateDockerComposeOverride's host-exists
 // auto-mounts (AGENTS.md "Conditional Host Mounts"). Returns destination,
 // source, and whether the mount is read-only. The qmd models cache stays RW
-// (lazily-fetched models write back to the shared host cache).
+// (lazily-fetched models write back to the shared host cache). Skills mounts
+// default to read-only (cfg.Sandbox.SkillsReadOnly = true); opt-in RW when
+// the user wants agents to author or edit skills (see docs/VMsv2.md phase 7).
 //
 // NOTE: only directory mounts belong here. msb agentd bind-mounts require the
 // target path to pre-exist in the guest image (v0.6.10: a missing target
 // aborts sandbox start with ENOENT, unlike Docker which auto-creates it).
 // File-sized auto-mounts (global gitignore) are seeded post-boot via
 // msbSeedAutoFiles instead.
-func conditionalAutoMounts() []msbAutoMount {
+func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 	var mounts []msbAutoMount
 	if p, ok := getQmdModelsPath(); ok {
 		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: false})
+	}
+	// Host skills source -> per-agent skills directory. Each SupportedAgents
+	// entry that hosts skills gets one bind. Mount mode matches cfg.Sandbox
+	// .SkillsReadOnly (default true; opt-in RW). See docs/VMsv2.md phase 7.
+	if p, ok := GetSkillsSourcePath(cfg); ok {
+		readonly := cfg == nil || cfg.Sandbox.SkillsReadOnly
+		for _, target := range SkillsMountTargets() {
+			mounts = append(mounts, msbAutoMount{Dest: target, Src: p, Readonly: readonly})
+		}
 	}
 	return mounts
 }

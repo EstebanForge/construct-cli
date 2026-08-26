@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -734,6 +735,12 @@ func Run(args ...string) {
 
 	// 13. SSH Agent Check
 	checks = append(checks, checkSSHAgent(cfg))
+
+	// 13b. Sandbox Mounts Check (skills, mount_home, host_loopback, host_binaries)
+	checks = append(checks, checkSandboxMounts(cfg))
+
+	// 13c. Skills + Custom Override Foot-gun
+	checks = append(checks, checkSkillsOverrideFootgun(cfg))
 
 	// 14. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Construct SSH Keys"}
@@ -1732,4 +1739,136 @@ func imageEntrypointHash(runtimeName, imageName string) (string, error) {
 		return "", fmt.Errorf("unexpected sha256sum output")
 	}
 	return fields[0], nil
+}
+
+// checkSandboxMounts aggregates the sandbox mount knobs into one doctor
+// check so a single pass surfaces misconfigurations the override generator
+// would silently absorb (skills mount enabled but no host source, dangerous
+// mount_home, empty host_binaries list, etc.). Worst sub-status wins.
+func checkSandboxMounts(cfg *config.Config) CheckResult {
+	check := CheckResult{Name: "Sandbox Mounts"}
+	if cfg == nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "Config unavailable"
+		return check
+	}
+
+	worst := CheckStatusOK
+	check.Message = "All sandbox mount knobs healthy"
+	details := []string{}
+
+	// Skills mount: source-resolved + mode + target count.
+	if cfg.Sandbox.MountSkills {
+		if src, ok := runtimepkg.GetSkillsSourcePath(cfg); ok {
+			mode := "read-write"
+			if cfg.Sandbox.SkillsReadOnly {
+				mode = "read-only"
+			}
+			details = append(details,
+				fmt.Sprintf("Skills: %s -> %s (%d targets)", mode, src, len(runtimepkg.SkillsMountTargets())))
+		} else {
+			worst = CheckStatusWarning
+			check.Message = "Skills mount enabled but no host source found"
+			check.Suggestion = "Create one of ~/Dev/EstebanForge/AGENTS/skills, ~/AGENTS/skills, ~/.config/construct-cli/skills, or set [sandbox] skills_source"
+			details = append(details, "Skills: enabled (auto-detect found nothing; feature is silent-no-mount by design)")
+		}
+	} else {
+		details = append(details, "Skills: disabled ([sandbox] mount_skills = false)")
+	}
+
+	// mount_home: dangerous opt-in. Always surface the state.
+	if cfg.Sandbox.MountHome {
+		worst = downgradeStatus(worst, CheckStatusWarning)
+		check.Message = "mount_home is enabled (dangerous; full host $HOME into the container)"
+		details = append(details, "mount_home: enabled (full $HOME bind; reduces isolation, see docs/SECURITY.md)")
+	} else {
+		details = append(details, "mount_home: disabled (default; safe)")
+	}
+
+	// host_loopback_ports: empty list disables the socat relays.
+	if len(cfg.Sandbox.HostLoopbackPorts) == 0 {
+		details = append(details, "host_loopback_ports: [] (relays disabled; no NET_BIND_SERVICE cap)")
+	} else {
+		parts := make([]string, 0, len(cfg.Sandbox.HostLoopbackPorts))
+		for _, p := range cfg.Sandbox.HostLoopbackPorts {
+			parts = append(parts, strconv.Itoa(p))
+		}
+		details = append(details,
+			fmt.Sprintf("host_loopback_ports: [%s] (relays active; NET_BIND_SERVICE granted)", strings.Join(parts, ", ")))
+	}
+
+	// host_binaries: empty list disables the host-exec bridge.
+	if len(cfg.Sandbox.HostBinaries) == 0 {
+		details = append(details, "host_binaries: [] (host-exec bridge off; feature disabled)")
+	} else {
+		parts := make([]string, 0, len(cfg.Sandbox.HostBinaries))
+		parts = append(parts, cfg.Sandbox.HostBinaries...)
+		worst = downgradeStatus(worst, CheckStatusWarning)
+		check.Message = "host_binaries is non-empty (each listed binary runs on host with container-controlled argv)"
+		check.Suggestion = "Review the list: each entry runs on the host as your user. Off (empty) when not needed."
+		details = append(details, fmt.Sprintf("host_binaries: [%s] (see docs/HOST-EXEC.md)", strings.Join(parts, ", ")))
+	}
+
+	check.Status = worst
+	check.Details = details
+	return check
+}
+
+// checkSkillsOverrideFootgun warns when mount_skills is enabled AND the user
+// is also hand-editing docker-compose.override.yml. A manual override can
+// silently drop the `:ro` flag from the skills mounts, defeating the secure
+// default. The hash regenerates the override and overwrites the manual edit
+// unless allow_custom_compose_override = true, so this combination is the
+// only path where a hostile or careless edit can persist.
+func checkSkillsOverrideFootgun(cfg *config.Config) CheckResult {
+	check := CheckResult{Name: "Skills + Custom Override"}
+	if cfg == nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "Config unavailable"
+		return check
+	}
+	if !cfg.Sandbox.MountSkills || !cfg.Sandbox.AllowCustomOverride {
+		check.Status = CheckStatusOK
+		check.Message = "No override foot-gun"
+		check.Details = []string{
+			"mount_skills and allow_custom_compose_override are not both true; manual override edits cannot drop the :ro flag.",
+		}
+		return check
+	}
+	mode := "read-write"
+	if cfg.Sandbox.SkillsReadOnly {
+		mode = "read-only"
+	}
+	check.Status = CheckStatusWarning
+	check.Message = fmt.Sprintf("mount_skills (mode=%s) + allow_custom_compose_override = true", mode)
+	check.Details = []string{
+		"Manual edits to docker-compose.override.yml persist and can silently drop `:ro` from the skills mounts.",
+		"This defeats the secure default of [sandbox] skills_read_only = true.",
+	}
+	check.Suggestion = "Disable allow_custom_compose_override unless you intentionally maintain the override, or set [sandbox] skills_read_only = false to make the security posture explicit."
+	return check
+}
+
+// downgradeStatus returns the more severe of current and next according to
+// the standard check ordering: OK < Skipped < Warning < Error. Skipped
+// never overrides OK or Warning; a real check should never be hidden by a
+// skip from another subcheck.
+func downgradeStatus(current, next CheckStatus) CheckStatus {
+	rank := func(s CheckStatus) int {
+		switch s {
+		case CheckStatusOK:
+			return 0
+		case CheckStatusSkipped:
+			return 1
+		case CheckStatusWarning:
+			return 2
+		case CheckStatusError:
+			return 3
+		}
+		return 0
+	}
+	if rank(next) > rank(current) {
+		return next
+	}
+	return current
 }

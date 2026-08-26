@@ -1131,3 +1131,208 @@ func TestCountSSHAddIdentities(t *testing.T) {
 		t.Fatalf("blank lines: got %d want 0", n)
 	}
 }
+
+// doctorTestSkillsHome resets HOME + XDG_DATA_HOME + CONSTRUCT_SKILLS_SOURCE
+// for a single test and plants a skills directory under HOME. Returns the
+// planted host source path.
+func doctorTestSkillsHome(t *testing.T) string {
+	t.Helper()
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", "")
+	t.Setenv("CONSTRUCT_SKILLS_SOURCE", "")
+	planted := filepath.Join(tmp, "Dev", "EstebanForge", "AGENTS", "skills")
+	if err := os.MkdirAll(planted, 0o755); err != nil {
+		t.Fatalf("mkdir planted: %v", err)
+	}
+	return planted
+}
+
+func TestCheckSandboxMounts(t *testing.T) {
+	planted := doctorTestSkillsHome(t)
+
+	cases := []struct {
+		name       string
+		mutate     func(*config.Config)
+		wantStatus CheckStatus
+		wantIn     string // substring expected in Details OR Message
+		wantNil    bool   // pass nil cfg to the check
+	}{
+		{
+			name: "all defaults (skills enabled, source resolves, RO)",
+			mutate: func(_ *config.Config) {
+				// MountSkills + SkillsReadOnly default to true.
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "Skills: read-only -> ",
+		},
+		{
+			name: "skills enabled but no source on disk",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				// Point the config override at a non-existent path so the
+				// resolver fails closed without touching env vars (avoids
+				// t.Setenv restore races across subtests).
+				c.Sandbox.SkillsSource = "/no/such/skills"
+			},
+			wantStatus: CheckStatusWarning,
+			wantIn:     "Skills: enabled (auto-detect found nothing",
+		},
+		{
+			name: "skills disabled",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = false
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "Skills: disabled",
+		},
+		{
+			name: "skills RW opt-in",
+			mutate: func(c *config.Config) {
+				c.Sandbox.SkillsReadOnly = false
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "Skills: read-write -> ",
+		},
+		{
+			name: "mount_home enabled -> warning",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountHome = true
+			},
+			wantStatus: CheckStatusWarning,
+			wantIn:     "mount_home: enabled",
+		},
+		{
+			name: "host_binaries non-empty -> warning",
+			mutate: func(c *config.Config) {
+				c.Sandbox.HostBinaries = []string{"wicket", "gh"}
+			},
+			wantStatus: CheckStatusWarning,
+			wantIn:     "host_binaries: [wicket, gh]",
+		},
+		{
+			name: "host_loopback_ports populated",
+			mutate: func(c *config.Config) {
+				c.Sandbox.HostLoopbackPorts = []int{80, 443, 3000}
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "host_loopback_ports: [80, 443, 3000]",
+		},
+		{
+			name:       "nil cfg -> skipped",
+			mutate:     func(_ *config.Config) {},
+			wantStatus: CheckStatusSkipped,
+			wantIn:     "Config unavailable",
+			wantNil:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg *config.Config
+			if !tc.wantNil {
+				cfg = &config.Config{}
+				*cfg = config.DefaultConfig()
+				tc.mutate(cfg)
+			}
+			got := checkSandboxMounts(cfg)
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status: got %q want %q (details=%v, message=%q)", got.Status, tc.wantStatus, got.Details, got.Message)
+			}
+			found := false
+			for _, d := range got.Details {
+				if strings.Contains(d, tc.wantIn) {
+					found = true
+					break
+				}
+			}
+			if !found && !strings.Contains(got.Message, tc.wantIn) {
+				t.Fatalf("missing %q in details=%v message=%q", tc.wantIn, got.Details, got.Message)
+			}
+			// Resolve the planted path lazily; some subtests have no planted
+			// source (skills disabled or env override to missing path).
+			_ = planted
+		})
+	}
+}
+
+func TestCheckSkillsOverrideFootgun(t *testing.T) {
+	cases := []struct {
+		name       string
+		mutate     func(*config.Config)
+		wantStatus CheckStatus
+		wantIn     string // substring expected in Details OR Message
+		wantNil    bool
+	}{
+		{
+			name: "no foot-gun (skills disabled)",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = false
+				c.Sandbox.AllowCustomOverride = true
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "No override foot-gun",
+		},
+		{
+			name: "no foot-gun (custom override disabled)",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.AllowCustomOverride = false
+			},
+			wantStatus: CheckStatusOK,
+			wantIn:     "No override foot-gun",
+		},
+		{
+			name: "foot-gun (mount_skills + allow_custom_compose_override)",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.AllowCustomOverride = true
+				c.Sandbox.SkillsReadOnly = true // the secure default
+			},
+			wantStatus: CheckStatusWarning,
+			wantIn:     "mount_skills (mode=read-only) + allow_custom_compose_override = true",
+		},
+		{
+			name: "foot-gun with RW",
+			mutate: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.AllowCustomOverride = true
+				c.Sandbox.SkillsReadOnly = false
+			},
+			wantStatus: CheckStatusWarning,
+			wantIn:     "mount_skills (mode=read-write) + allow_custom_compose_override = true",
+		},
+		{
+			name:       "nil cfg -> skipped",
+			mutate:     func(_ *config.Config) {},
+			wantStatus: CheckStatusSkipped,
+			wantIn:     "Config unavailable",
+			wantNil:    true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var cfg *config.Config
+			if !tc.wantNil {
+				cfg = &config.Config{}
+				*cfg = config.DefaultConfig()
+				tc.mutate(cfg)
+			}
+			got := checkSkillsOverrideFootgun(cfg)
+			if got.Status != tc.wantStatus {
+				t.Fatalf("status: got %q want %q (details=%v, message=%q)", got.Status, tc.wantStatus, got.Details, got.Message)
+			}
+			found := false
+			for _, d := range got.Details {
+				if strings.Contains(d, tc.wantIn) {
+					found = true
+					break
+				}
+			}
+			if !found && !strings.Contains(got.Message, tc.wantIn) {
+				t.Fatalf("missing %q in details=%v message=%q", tc.wantIn, got.Details, got.Message)
+			}
+		})
+	}
+}

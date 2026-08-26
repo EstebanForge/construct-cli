@@ -933,25 +933,28 @@ func getProjectMountPathFromDir(dir string) string {
 
 // overrideInputs captures all inputs that affect docker-compose.override.yml generation
 type overrideInputs struct {
-	Version        string // Construct CLI version - ensures cache invalidation on upgrades
-	Runtime        string // Container runtime - affects override generation
-	UID            int    // Host user ID (Linux only)
-	GID            int    // Host group ID (Linux only)
-	UsernsRemap    bool   // Whether runtime remaps container users away from host IDs
-	AllowCustom    bool   // Whether custom compose override behavior is allowed
-	DisableSeccomp bool   // Whether seccomp is disabled (for headless browser automation)
-	SELinuxEnabled bool   // SELinux status
-	NetworkMode    string // Network isolation mode
-	GitName        string // Git user.name config
-	GitEmail       string // Git user.email config
-	ProjectPath    string // Project mount path
-	ForwardSSH     bool   // SSH agent forwarding enabled
-	PropagateGit   bool   // Git identity propagation enabled
-	DaemonMulti    bool   // Multi-path daemon mounts enabled
-	DaemonMounts   string // Hash of normalized mount paths
-	GitIgnorePath  string // Host global gitignore path (empty if not found)
-	QmdModelsPath  string // Host qmd model cache path (empty if not found)
-	LoopbackPorts  string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
+	Version           string // Construct CLI version - ensures cache invalidation on upgrades
+	Runtime           string // Container runtime - affects override generation
+	UID               int    // Host user ID (Linux only)
+	GID               int    // Host group ID (Linux only)
+	UsernsRemap       bool   // Whether runtime remaps container users away from host IDs
+	AllowCustom       bool   // Whether custom compose override behavior is allowed
+	DisableSeccomp    bool   // Whether seccomp is disabled (for headless browser automation)
+	SELinuxEnabled    bool   // SELinux status
+	NetworkMode       string // Network isolation mode
+	GitName           string // Git user.name config
+	GitEmail          string // Git user.email config
+	ProjectPath       string // Project mount path
+	ForwardSSH        bool   // SSH agent forwarding enabled
+	PropagateGit      bool   // Git identity propagation enabled
+	DaemonMulti       bool   // Multi-path daemon mounts enabled
+	DaemonMounts      string // Hash of normalized mount paths
+	GitIgnorePath     string // Host global gitignore path (empty if not found)
+	QmdModelsPath     string // Host qmd model cache path (empty if not found)
+	LoopbackPorts     string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
+	SkillsSource      string // Host skills source path (empty if disabled or not found)
+	SkillsTargetCount int    // Number of per-agent skills mount targets (0 disables even when source is present)
+	SkillsReadOnly    bool   // Whether the skills mounts use `:ro` (default true; opt-in RW when false)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -984,6 +987,9 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
 	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
 	writeHashString(h, "loopbackports:%s", inputs.LoopbackPorts)
+	writeHashString(h, "skillssource:%s", inputs.SkillsSource)
+	writeHashString(h, "skillstargets:%d", inputs.SkillsTargetCount)
+	writeHashString(h, "skillsreadonly:%v", inputs.SkillsReadOnly)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1085,25 +1091,28 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	// Build override inputs struct
 	allowCustomOverride := cfg != nil && cfg.Sandbox.AllowCustomOverride
 	inputs := overrideInputs{
-		Version:        constants.Version,
-		Runtime:        containerRuntime,
-		UID:            hostUID,
-		GID:            hostGID,
-		UsernsRemap:    usernsRemap,
-		AllowCustom:    allowCustomOverride,
-		DisableSeccomp: cfg != nil && cfg.Sandbox.DisableSeccomp,
-		SELinuxEnabled: selinuxEnabled,
-		NetworkMode:    networkMode,
-		GitName:        gitName,
-		GitEmail:       gitEmail,
-		ProjectPath:    projectPath,
-		ForwardSSH:     forwardSSH,
-		PropagateGit:   propagateGit,
-		DaemonMulti:    cfg != nil && cfg.Daemon.MultiPathsEnabled,
-		DaemonMounts:   daemonMounts.Hash,
-		GitIgnorePath:  func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
-		QmdModelsPath:  func() string { p, _ := getQmdModelsPath(); return p }(),
-		LoopbackPorts:  loopbackPortsString(cfg),
+		Version:           constants.Version,
+		Runtime:           containerRuntime,
+		UID:               hostUID,
+		GID:               hostGID,
+		UsernsRemap:       usernsRemap,
+		AllowCustom:       allowCustomOverride,
+		DisableSeccomp:    cfg != nil && cfg.Sandbox.DisableSeccomp,
+		SELinuxEnabled:    selinuxEnabled,
+		NetworkMode:       networkMode,
+		GitName:           gitName,
+		GitEmail:          gitEmail,
+		ProjectPath:       projectPath,
+		ForwardSSH:        forwardSSH,
+		PropagateGit:      propagateGit,
+		DaemonMulti:       cfg != nil && cfg.Daemon.MultiPathsEnabled,
+		DaemonMounts:      daemonMounts.Hash,
+		GitIgnorePath:     func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
+		QmdModelsPath:     func() string { p, _ := getQmdModelsPath(); return p }(),
+		LoopbackPorts:     loopbackPortsString(cfg),
+		SkillsSource:      func() string { p, _ := GetSkillsSourcePath(cfg); return p }(),
+		SkillsTargetCount: len(SkillsMountTargets()),
+		SkillsReadOnly:    cfg != nil && cfg.Sandbox.SkillsReadOnly,
 	}
 
 	// Check if override needs regeneration
@@ -1255,6 +1264,17 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models%s\n",
 				formatVolumePath(qmdModelsPath), selinuxSuffix)
 		}
+		// Mount host skills source into each supported agent's skills dir
+		// (read-only by default; opt-in RW). Source resolution precedence:
+		// $CONSTRUCT_SKILLS_SOURCE > [sandbox] skills_source > auto-detect.
+		// See internal/runtime/skills_mount.go and docs/VMsv2.md phase 7.
+		if skillsSource, found := GetSkillsSourcePath(cfg); found {
+			opts := SkillsMountOptions(cfg, selinuxSuffix)
+			for _, target := range SkillsMountTargets() {
+				fmt.Fprintf(&override, "      - %s:%s%s\n",
+					formatVolumePath(skillsSource), target, opts)
+			}
+		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		for _, mount := range daemonMounts.Mounts {
@@ -1275,6 +1295,15 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if qmdModelsPath, found := getQmdModelsPath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models\n",
 				formatVolumePath(qmdModelsPath))
+		}
+		// Mount host skills source into each supported agent's skills dir
+		// (read-only by default; opt-in RW). See phase 7 in VMsv2.md.
+		if skillsSource, found := GetSkillsSourcePath(cfg); found {
+			opts := SkillsMountOptions(cfg, "")
+			for _, target := range SkillsMountTargets() {
+				fmt.Fprintf(&override, "      - %s:%s%s\n",
+					formatVolumePath(skillsSource), target, opts)
+			}
 		}
 	}
 
