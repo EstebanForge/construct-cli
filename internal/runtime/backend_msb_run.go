@@ -282,6 +282,14 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	if dm := ResolveDaemonMounts(cfg); dm.Enabled {
 		labels[DaemonMountsLabelKey] = dm.Hash
 	}
+	// Skills hash (separate label so a skills-only toggle does not require a
+	// multi-path daemon). Stamped whenever skills mounts are enabled, even
+	// if the auto-detect found no source; the recreate check distinguishes
+	// "enabled + source present" from "enabled + source missing" via the
+	// hash contents.
+	if skillsHash := SkillsDaemonHash(cfg); skillsHash != "" {
+		labels[DaemonSkillsLabelKey] = skillsHash
+	}
 	return &MsbRunSpec{
 		Name:         name,
 		Image:        "construct-box:latest",
@@ -441,7 +449,18 @@ var ErrMsbDaemonWorkdirUnmapped = errors.New("msb daemon: current directory is o
 // mount cannot map projectDir (label/mount drift, a disallowed workspace,
 // or a cwd outside the mounted root); subdirectories of the mounted root
 // reuse the daemon. The returned reason explains any recreate to the user.
-func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool) (bool, string) {
+//
+// The skills hash (DaemonSkillsLabelKey) is checked in BOTH modes; a skills
+// toggle, RO/RW flip, source appearance, or supported-agent-list growth
+// must recreate the running daemon so the new mounts take effect.
+func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool, cfg *config.Config) (bool, string) {
+	// Skills hash parity. Checked FIRST because it is the cheapest decision
+	// (no mount parsing) and the most likely drift source in routine use.
+	if currentSkills := SkillsDaemonHash(cfg); currentSkills != "" || sandboxLabels[DaemonSkillsLabelKey] != "" {
+		if sandboxLabels[DaemonSkillsLabelKey] != currentSkills {
+			return true, "host skills mounts changed (source, mode, or targets)"
+		}
+	}
 	if dm.Enabled {
 		if sandboxLabels[DaemonMountsLabelKey] != dm.Hash {
 			return true, "daemon.mount_paths changed"
@@ -493,7 +512,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			reason := "memory below minimum"
 			if !needRecreate {
 				allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
-				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome)
+				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome, cfg)
 			}
 			if needRecreate {
 				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", reason)

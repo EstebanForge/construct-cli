@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -178,4 +180,38 @@ func SkillsMountOptions(cfg *config.Config, selinuxSuffix string) string {
 		return ":ro"
 	}
 	return ":ro," + strings.TrimPrefix(selinuxSuffix, ":")
+}
+
+// SkillsDaemonHash computes a hash that uniquely identifies the host skills
+// mount set for the microvm daemon. The daemon recreate check (see
+// msbDaemonNeedsRecreate in backend_msb_run.go) compares this hash against
+// the value stamped on the sandbox as construct.daemon.skills_hash; a
+// mismatch forces a recreate so the running VM picks up the new mounts.
+//
+// The hash covers:
+//   - skills mount on/off (MountSkills)
+//   - resolved host source path (empty when auto-detect misses)
+//   - read-only flag (SkillsReadOnly)
+//   - target count (SkillsMountTargets length)
+//
+// Including the target count defends against drift if a new agent is added
+// to the SupportedAgents list and the user toggles skills on after a
+// daemon is already running; the count shift changes the hash and triggers
+// recreate without needing a separate "supported agents" hash.
+//
+// Returns "" when skills are disabled (no mount, no label, no recreate
+// trigger). When skills are enabled but the source does not resolve the
+// hash still includes source="" so a future source-appearance recreates
+// the daemon.
+func SkillsDaemonHash(cfg *config.Config) string {
+	if cfg == nil || !cfg.Sandbox.MountSkills {
+		return ""
+	}
+	src, _ := GetSkillsSourcePath(cfg)
+	h := sha256.New()
+	writeHashString(h, "mount:%v\n", cfg.Sandbox.MountSkills)
+	writeHashString(h, "readonly:%v\n", cfg.Sandbox.SkillsReadOnly)
+	writeHashString(h, "source:%s\n", src)
+	writeHashString(h, "targets:%d\n", len(SkillsMountTargets()))
+	return hex.EncodeToString(h.Sum(nil))
 }

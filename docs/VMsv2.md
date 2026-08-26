@@ -1,6 +1,6 @@
 # VMs v2: microVM UX Hardening Plan
 
-Status: approved direction, phased implementation. Owner: Esteban. Last updated: 2026-08-26 (phase 7 added).
+Status: approved direction, phased implementation. Owner: Esteban. Last updated: 2026-08-26 (phase 7 added; skills daemon-recreate gap closed).
 
 Scope: the microVM backend (`backend = "microvm"`, microsandbox SDK v0.6.10) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
 
@@ -203,7 +203,13 @@ Config knobs:
 Override hash integration (`internal/runtime/runtime.go` `overrideInputs` + `hashOverrideInputs`):
 - New field `SkillsSource string` (empty when disabled). Hash line `skillssource:%s`.
 - New field `SkillsTargetCount int`. Hash line `skillstargets:%d`.
-- Both must change together with any future per-agent override (none planned) to force regeneration of `docker-compose.override.yml`.
+- New field `SkillsReadOnly bool`. Hash line `skillsreadonly:%v`.
+- All three change together with any future per-agent override (none planned) to force regeneration of `docker-compose.override.yml`.
+
+microvm daemon recreate parity (`internal/runtime/backend_msb_run.go`):
+- New label `construct.daemon.skills_hash` stamped by `BuildMsbRunSpec` whenever skills mounts are enabled (regardless of whether the source resolves).
+- Hash covers `MountSkills` + resolved source path + `SkillsReadOnly` + target count. Returns "" when skills are disabled (no label, no recreate trigger).
+- `msbDaemonNeedsRecreate` checks this label FIRST in both multi-path and single-path modes, returning recreate with reason `host skills mounts changed (source, mode, or targets)` on mismatch. Skills toggle, RO/RW flip, source appearance, and supported-agent-list growth all recreate the running daemon so the new mounts take effect.
 
 Docker volumes block (mirror qmd models cache, both `linux` and `darwin` blocks):
 ```
@@ -254,7 +260,7 @@ Interaction with `manage.sh`:
 
 - Daemon lifecycle and mounts: `internal/runtime/backend_msb_run.go` (`EnsureMsbDaemon`, `msbSandboxMounts`, `MsbPathMaps`, `BuildMsbRunSpec`, `msbDaemonNeedsRecreate`, `msbWaitKeeper`)
 - Mount set resolution: `internal/runtime/daemon_mounts.go` (`ResolveDaemonMounts`, `MapDaemonWorkdirFromMounts`, `daemonMountDest`, `normalizeMountPath`)
-- Skills mount: `internal/runtime/skills_mount.go` (phase 7) — `getSkillsSourcePath`, `skillsMountTargets`. Docker: `internal/runtime/runtime.go` (`GenerateDockerComposeOverride`, `overrideInputs`, `hashOverrideInputs`). microvm: `internal/runtime/backend_msb_run.go` (`conditionalAutoMounts`, `MsbPathMaps`)
+- Skills mount: `internal/runtime/skills_mount.go` (phase 7) — `GetSkillsSourcePath`, `SkillsMountTargets`, `SkillsMountOptions`, `SkillsDaemonHash`. Docker: `internal/runtime/runtime.go` (`GenerateDockerComposeOverride`, `overrideInputs`, `hashOverrideInputs`). microvm: `internal/runtime/backend_msb_run.go` (`BuildMsbRunSpec` stamps the skills hash label, `conditionalAutoMounts`, `MsbPathMaps`, `msbDaemonNeedsRecreate` checks `construct.daemon.skills_hash` in both multi-path and single-path modes)
 - Per-agent config paths: `internal/agent/agent.go` (`SupportedAgents`, `<ConfigPath>/skills` is the mount target)
 - Workspace guard: `internal/runtime/workspace_guard.go`
 - Engine run path: `internal/agent/engine_msb.go` (`execViaMsbDaemon`), Teardown in `internal/agent/engine.go`
@@ -271,6 +277,7 @@ Interaction with `manage.sh`:
 - Round 3 (architecture, continued reviewer session): verdict "keep the shared daemon, discard per-workspace and snapshot-as-run-model"; elevated flock and credential injection. Adopted.
 - Round 4 (this plan, continued reviewer session, higher-tier reviewer): corrections adopted: prompt-on-learn + LRU cap + `daemon roots` command; learned roots are not trust-equivalent; item 1 and item 5 coupling (learn = hash change = recreate = root disk wipe); own timer never `WithIdleTimeout`; flock widened and moved first; TLS-termination constraint for the credential proxy; ordering 0-1-2-3-4-5-6.
 - Round 5 (phase 7, host skills mount, 2026-08-26): owner-direct decision (no external reviewer this round). Source resolution precedence fixed (env > config > auto-detect) instead of letting config shadow env. Per-agent targets derived from `SupportedAgents` rather than hard-coded, so adding an agent picks up the mount for free. **Mount mode flipped from RW to RO** during implementation: RW is a known foot-gun when bind-mounting host content into a sandbox, and the agent does not need RW to consume a skill. Users opt into RW via `[sandbox] skills_read_only = false` when they want agents to author skills; trust bound matches the persistent home. Failure mode is silent (source missing → no mount, no error), not an interactive prompt — the feature is opt-out by absence, not by asking.
+- Round 6 (peer review follow-up, 2026-08-26): isolated Sonnet review caught a daemon recreate gap — `msbDaemonNeedsRecreate` did not consider skills mounts, so a skills toggle on a running daemon would silently miss the new mounts until manually recreated. Fix: new label `construct.daemon.skills_hash` (hash of source + RO flag + target count), stamped in `BuildMsbRunSpec` whenever skills are enabled, checked first in `msbDaemonNeedsRecreate` for both multi-path and single-path modes. Doc nits accepted: `SkillsTargetCount` comment corrected to "static full count, never 0"; `config.toml` comment now names the real per-agent paths; missing `$CONSTRUCT_SKILLS_SOURCE` missing-path test added.
 
 ## 10. Dogfood numbers (fill from phase 0 telemetry)
 

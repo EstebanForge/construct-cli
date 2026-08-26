@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -234,12 +235,144 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, reason := msbDaemonNeedsRecreate(tt.dm, tt.labels, tt.cfgJSON, tt.projectDir, false)
+			// Disable skills so the new skills-hash check does not fire and
+			// mask the workspace/mounts behavior these cases exercise.
+			cfg := config.DefaultConfig()
+			cfg.Sandbox.MountSkills = false
+			got, reason := msbDaemonNeedsRecreate(tt.dm, tt.labels, tt.cfgJSON, tt.projectDir, false, &cfg)
 			if got != tt.want {
 				t.Fatalf("needRecreate = %v (reason %q), want %v", got, reason, tt.want)
 			}
 			if got && reason == "" {
 				t.Error("recreate decision must carry a reason")
+			}
+		})
+	}
+}
+
+// TestMsbDaemonNeedsRecreateSkillsHash verifies the skills hash label
+// triggers a recreate when the host skills mount set drifts: a source
+// appearance, a RO/RW toggle, or a disabled→enabled flip. The check runs
+// in both multi-path and single-path modes (the user might toggle skills
+// while the daemon is in either mode). The workspace + multi-path labels
+// are pre-populated so the skills check is the only variable; a failure
+// here cannot be masked by an unrelated recreate trigger.
+func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
+	planted := t.TempDir()
+	plantedSkills := filepath.Join(planted, "skills")
+	if err := os.MkdirAll(plantedSkills, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	type tc struct {
+		name       string
+		configure  func(*config.Config) // cfg fed to msbDaemonNeedsRecreate
+		stored     string               // value stored on the existing sandbox label
+		wantReason string               // expected reason when wantRecreate is true
+	}
+	cases := []tc{
+		{
+			name: "skills disabled, stored empty: no recreate",
+			configure: func(c *config.Config) {
+				c.Sandbox.MountSkills = false
+			},
+			stored: "",
+		},
+		{
+			name: "skills enabled + source present, stored matches: no recreate",
+			configure: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.SkillsSource = plantedSkills
+			},
+			stored: "matches", // sentinel; we set it to the actual hash below
+		},
+		{
+			name: "skills enabled + source missing, stored empty: recreate",
+			configure: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.SkillsSource = "/no/such/skills"
+			},
+			stored:     "",
+			wantReason: "host skills mounts changed",
+		},
+		{
+			name: "skills enabled + source present, stored missing: recreate",
+			configure: func(c *config.Config) {
+				c.Sandbox.MountSkills = true
+				c.Sandbox.SkillsSource = plantedSkills
+			},
+			stored:     "",
+			wantReason: "host skills mounts changed",
+		},
+		{
+			name: "RO -> RW toggle: recreate",
+			configure: func(c *config.Config) {
+				// Stored label reflects RO state (the daemon was created RO).
+				c.Sandbox.MountSkills = true
+				c.Sandbox.SkillsReadOnly = true
+				c.Sandbox.SkillsSource = plantedSkills
+			},
+			stored:     "matches-ro", // sentinel: hash with RO=true (the stored state)
+			wantReason: "host skills mounts changed",
+		},
+	}
+
+	// Valid workspace state for single-path mode (avoid masking recreate
+	// triggers from the unrelated workspace check).
+	workspaceRoot := t.TempDir()
+	cfgJSON := fmt.Sprintf(`{"mounts":[{"type":"Bind","host":%q,"guest":%q}]}`, workspaceRoot, GetMsbWorkspaceMountDest(workspaceRoot))
+	workspaceLabels := map[string]string{"construct.project_dir": workspaceRoot}
+
+	for _, single := range cases {
+		t.Run(single.name, func(t *testing.T) {
+			cfg := config.DefaultConfig()
+			single.configure(&cfg)
+
+			// Resolve "matches*" sentinels to the actual hash produced by the
+			// helper so we do not duplicate the hashing logic in the test.
+			stored := single.stored
+			if stored == "matches" || stored == "matches-ro" {
+				probeCfg := cfg
+				if stored == "matches-ro" {
+					// Probe with the configure state (RO=true) so the stored
+					// hash matches the RO era; the cfg passed to the function
+					// is then toggled to RW below to simulate the user's flip.
+					probeCfg.Sandbox.SkillsReadOnly = true
+					stored = SkillsDaemonHash(&probeCfg)
+					cfg.Sandbox.SkillsReadOnly = false
+				} else {
+					stored = SkillsDaemonHash(&probeCfg)
+				}
+			}
+
+			labels := map[string]string{}
+			for k, v := range workspaceLabels {
+				labels[k] = v
+			}
+			if stored != "" {
+				labels[DaemonSkillsLabelKey] = stored
+			}
+
+			wantRecreate := single.wantReason != ""
+			for _, mode := range []string{"multi", "single"} {
+				t.Run(mode, func(t *testing.T) {
+					var dm DaemonMounts
+					var labelsForMode = map[string]string{}
+					for k, v := range labels {
+						labelsForMode[k] = v
+					}
+					if mode == "multi" {
+						dm = DaemonMounts{Enabled: true, Hash: "multi-hash"}
+						labelsForMode[DaemonMountsLabelKey] = "multi-hash"
+					}
+					got, reason := msbDaemonNeedsRecreate(dm, labelsForMode, cfgJSON, workspaceRoot, false, &cfg)
+					if got != wantRecreate {
+						t.Fatalf("mode=%s got recreate=%v reason=%q, want recreate=%v", mode, got, reason, wantRecreate)
+					}
+					if wantRecreate && !strings.Contains(reason, single.wantReason) {
+						t.Fatalf("mode=%s reason=%q, want substring %q", mode, reason, single.wantReason)
+					}
+				})
 			}
 		})
 	}
