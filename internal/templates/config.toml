@@ -23,6 +23,13 @@ update_check_interval = 86400
 # "beta" lets selected machines receive pre-release updates only.
 update_channel = "stable"
 
+# Phase 4: when true, `construct update` and first-run init spawn a detached
+# `msb pull` of construct-box:latest so the next ct invocation finds the
+# image already staged. Output goes to ~/.config/construct-cli/logs/prepull.log.
+# Set false on a metered link or when you want to manage image pulls
+# manually. Default true.
+prepull_image = true
+
 # Sandbox Settings
 [sandbox]
 # Mount the entire home directory? (Dangerous, default: false)
@@ -231,6 +238,16 @@ mount_paths = []
 # evicted, the daemon recreates with the smaller set, and one notice is
 # printed. 0 disables learning entirely. Default 8.
 max_learned_roots = 8
+
+# Phase 3: stop the daemon after this many minutes of zero live sessions
+# (default 45). On the last unregister, a detached `construct sys daemon
+# idle-watch` is spawned; it rechecks the session registry every 30s and
+# stops the daemon if the count is still zero at the deadline. A new ct
+# invocation that registers a session during the sleep stands the watcher
+# down. Bridges (SSH proxy, clipboard, host exec, herdr) die with the
+# daemon, so idle = smaller host attack surface. 0 disables idle stop
+# entirely (the daemon runs until manually stopped).
+idle_stop_minutes = 45
 
 # Network Isolation (Optional)
 [network]

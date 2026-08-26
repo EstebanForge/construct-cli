@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,6 +240,16 @@ func statusMsb() {
 	default:
 		fmt.Println("Status: Not created")
 		fmt.Println("Use 'construct sys daemon start' to create")
+	}
+	// Phase 3: surface live session count so the user can see who is
+	// holding the daemon up. "0 sessions" + Status: Stopped means the
+	// idle-watcher (or a manual stop) did its job; "0 sessions" +
+	// Status: Running means a watcher is armed or about to fire.
+	count := runtime.LiveSessionCount()
+	if count == 0 {
+		fmt.Println("Live sessions: 0 (idle-watcher armed if daemon.idle_stop_minutes > 0)")
+	} else {
+		fmt.Printf("Live sessions: %d\n", count)
 	}
 }
 
@@ -571,4 +582,21 @@ func RootsForget(path string) {
 		os.Exit(1)
 	}
 	runtime.DaemonRootsForget(cfg, path)
+}
+
+// IdleWatchMinutesFromArgs parses `--minutes N` from a daemon subcommand
+// argument slice. Used by the `daemon idle-watch` subcommand which the
+// spawner (MaybeSpawnIdleWatcher) calls detached. Returns 0 on parse
+// failure; the watch loop treats 0 as "disabled, exit immediately".
+func IdleWatchMinutesFromArgs(args []string) int {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--minutes" {
+			n, err := strconv.Atoi(args[i+1])
+			if err != nil || n < 0 {
+				return 0
+			}
+			return n
+		}
+	}
+	return 0
 }

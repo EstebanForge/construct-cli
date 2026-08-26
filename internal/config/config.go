@@ -44,6 +44,11 @@ type RuntimeConfig struct {
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
 	UpdateChannel       string `toml:"update_channel"`        // stable|beta
+	// PrepullImage (phase 4): when true, construct update + first-run init
+	// spawn a detached `msb pull` of construct-box:latest so the next
+	// ct invocation finds the image already staged. Default true; set
+	// false to skip the background pull (e.g. on a metered link).
+	PrepullImage bool `toml:"prepull_image"`
 }
 
 // SandboxConfig holds sandbox options.
@@ -100,6 +105,7 @@ type DaemonConfig struct {
 	MultiPathsEnabled bool     `toml:"multi_paths_enabled"` // Enable multi-path daemon mounts (default: false)
 	MountPaths        []string `toml:"mount_paths"`         // Multi-path daemon mount roots (opt-in)
 	MaxLearnedRoots   int      `toml:"max_learned_roots"`   // LRU cap on roots.json learned entries (default 8; 0 disables learning)
+	IdleStopMinutes   int      `toml:"idle_stop_minutes"`   // Phase 3: stop daemon after N minutes of zero registered sessions (default 45; 0 disables)
 }
 
 // ClaudeConfig stores Claude provider configuration.
@@ -126,6 +132,7 @@ func DefaultConfig() Config {
 			AutoUpdateCheck:     true,
 			UpdateCheckInterval: 86400,
 			UpdateChannel:       "stable",
+			PrepullImage:        true,
 		},
 		Sandbox: SandboxConfig{
 			MountHome:            false,
@@ -198,6 +205,7 @@ func DefaultConfig() Config {
 			MultiPathsEnabled: false,
 			MountPaths:        []string{},
 			MaxLearnedRoots:   8,
+			IdleStopMinutes:   45,
 		},
 		Security: SecurityConfig{
 			HideSecrets:                false,

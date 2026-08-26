@@ -311,6 +311,14 @@ func resolveHostExecTimeout() time.Duration {
 
 // Teardown cleans up resources used by the engine.
 func (e *RuntimeEngine) Teardown() {
+	// Phase 3 idle stop: always Unregister this PID first so a partial
+	// Teardown (panic, signal) still triggers the watcher check. If THIS
+	// was the last session, spawn the detached watcher that decides
+	// whether to stop the daemon after the configured idle window.
+	//nolint:errcheck // best-effort; missing session file on partial teardown is normal
+	_ = runtime.Unregister(os.Getpid())
+	runtime.MaybeSpawnIdleWatcher(e.cfg)
+
 	if e.argStager != nil {
 		// Sessions mutated inside the sandbox flow back to the host store
 		// first; the staging dir itself is per-run and always removable.
