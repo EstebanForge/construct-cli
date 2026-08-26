@@ -742,6 +742,12 @@ func Run(args ...string) {
 	// 13c. Skills + Custom Override Foot-gun
 	checks = append(checks, checkSkillsOverrideFootgun(cfg))
 
+	// 13d. Daemon Lock (phase 1: surfaces whether another construct
+	// invocation is currently holding the daemon flock). Free by default;
+	// Warning when held (the user might be racing themselves or waiting on
+	// a stale process — clear text + suggestion for both).
+	checks = append(checks, checkDaemonLock())
+
 	// 14. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Construct SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
@@ -1871,4 +1877,32 @@ func downgradeStatus(current, next CheckStatus) CheckStatus {
 		return next
 	}
 	return current
+}
+
+// checkDaemonLock reports whether the microvm daemon flock is free or held
+// (docs/VMsv2.md phase 1). Held means another construct invocation is in
+// the daemon setup critical section — either racing the user (likely a
+// stale process), or the user kicked off two constructs in parallel.
+// Free by default; Warning when held.
+func checkDaemonLock() CheckResult {
+	check := CheckResult{Name: "Daemon Lock"}
+	held, err := runtimepkg.DaemonLockHeld()
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Could not inspect daemon lock"
+		check.Details = append(check.Details, err.Error())
+		check.Suggestion = "Check ~/.config/construct-cli/daemon.lock permissions; another construct invocation may have crashed mid-acquire."
+		return check
+	}
+	if held {
+		check.Status = CheckStatusWarning
+		check.Message = "Daemon lock: held (another construct invocation is in the setup critical section)"
+		check.Details = append(check.Details, "Lock file: "+runtimepkg.DaemonLockPath())
+		check.Suggestion = "If no other ct is running, a previous invocation crashed mid-acquire. Wait for the in-flight one or restart your shell."
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = "Daemon lock: free"
+	check.Details = append(check.Details, "Lock file: "+runtimepkg.DaemonLockPath())
+	return check
 }

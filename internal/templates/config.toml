@@ -225,6 +225,13 @@ multi_paths_enabled = false
 # Supports "~" home expansion, e.g. ["~/Dev/Projects", "/work/client-repos"]
 mount_paths = []
 
+# LRU cap on learned roots (phase 2). The daemon auto-learns a new host
+# root the first time it serves a project there (interactive prompt only).
+# When the cap is exceeded, the least-recently-used learned root is
+# evicted, the daemon recreates with the smaller set, and one notice is
+# printed. 0 disables learning entirely. Default 8.
+max_learned_roots = 8
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)
