@@ -66,7 +66,7 @@ Validates the data layer (P2.1) + helper (P2.3) + CLI (P2.5/P2.6). The actual `E
 | `ct` from project B after project A | ONE `outcome=recreate` (the B visit) | more = race; zero = P2.2 not wired (known) |
 | `ct` from project A again (after B) | NO recreate (reconnect) | recreate = P2.2 not wired |
 | `ct` from project B again | NO recreate (reconnect) | recreate = P2.2 not wired |
-| `ct sys daemon roots` | lists both A and B under "Daemon learned roots" | missing = registration broken |
+| `ct sys daemon roots list` | lists both A and B under "Daemon learned roots" | missing = registration broken |
 
 ### How to run
 
@@ -79,7 +79,7 @@ cd proj-A && ct pi "echo hi"     # cold create + installs
 cd proj-B && ct pi "echo hi"     # expect ONE recreate (learned root)
 cd proj-A && ct pi "echo hi"     # expect NO recreate (reconnect)
 cd proj-B && ct pi "echo hi"     # expect NO recreate (reconnect)
-ct sys daemon roots                     # both /A and /B should appear
+ct sys daemon roots list                # both /A and /B should appear
 
 # Cap behavior: when the cap (default 8) is exceeded, oldest is evicted
 # with one notice. To exercise this you need 9+ distinct projects; the
