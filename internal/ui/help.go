@@ -85,8 +85,9 @@ Commands:
   config             # Config operations (opens config.toml by default)
                      # [--migrate] Re-sync config/templates with current binary
                      # [--restore] Restore config.toml from backup
-  daemon             # Manage background daemon (start|stop|restart|attach|status|install|uninstall)
+  daemon             # Manage background daemon (start|stop|restart|attach|status|install|uninstall|roots)
   packages           # Manage packages.toml and package lifecycle
+  prepull            # Stage the microVM image in the background (backend=microvm only)
   doctor             # System health operations
                      # [--fix] Append missing defaults to config.toml (backup first)
   clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
@@ -148,9 +149,11 @@ Commands:
   stop           # Stop background container
   restart        # Restart background container
   attach         # Attach to running daemon (Ctrl+P Ctrl+Q to detach)
-  status         # Show daemon + auto-start service status
+  status         # Show daemon + auto-start service status (+ live session count)
   install        # Install daemon as auto-start service (runs on login/boot)
   uninstall      # Uninstall daemon auto-start service
+  roots list     # Show learned roots (auto-mounted dirs) + pinned mount paths
+  roots forget <path>  # Remove a learned root (pinned mount_paths entries refuse)
 
 Examples:
   construct sys daemon start
@@ -160,6 +163,7 @@ Examples:
   construct sys daemon restart
   construct sys daemon install
   construct sys daemon uninstall
+  construct sys daemon roots list
 `
 	fmt.Print(help)
 }
