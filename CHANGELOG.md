@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.16.4 -->
+## [1.16.4] - 2026-08-27
+
+### Fixed
+- **microVM: construct now matches msb 0.6.15 (schema, refs, workdir)**: construct embeds the microsandbox engine through the Go SDK, pinned at v0.6.10, while the host `msb` CLI could be newer. A newer CLI migrates `~/.microsandbox/db` forward and the embedded engine then fails every daemon create with `database schema is newer than this msb binary` (hit live on a Linux host running msb 0.6.15). The SDK pin is now v0.6.15; when upgrading the host msb, upgrade construct in the same window.
+- **No more phantom 3.5GB image transitions**: `msb image tag` does not exist in msb 0.6.15 (and the pull+tag flow was dead code), so a successful GHCR pull always "failed" its tag step and construct fell through to the docker save + load transition. `msb load -i` also imports archives under the `localhost/` prefix, which the bare-ref probe never matched, so every run re-transitioned the archive. Image resolution now probes candidates in order (bare, `ghcr.io/estebanforge/construct-box:latest`, `localhost/construct-box:latest`) for EnsureImage, the daemon run spec, the prepull, and `ct sys doctor`; the pull path verifies the registry ref and the load path verifies the localhost ref, with no tag step at all. Known follow-up: the docker-archive transition still produces an incomplete rootfs under 0.6.15 (guest has no `/bin/sh`); the registry pull is the reliable path and is preferred.
+- **Daemon create no longer dies on image WORKDIR validation**: msb 0.6.15 validates the image working directory at create time and construct-box declares `WORKDIR /projects`, which the transitioned archive fails. Sandbox create now sets an explicit workdir (`/home/construct`, present in every construct-box image); exec paths set their own cwd, so this is only the default.
+- **Boot telemetry is now collectable**: `msb-boot:` lines printed to stderr only, so the dogfood P0 greps over `logs/*.log` matched nothing even on a healthy install. `msbLogBoot` now also appends an RFC3339-stamped line to `~/.config/construct-cli/logs/msb-boot.log`; the format test isolates HOME so fixture lines cannot pollute the real log.
+
+### Docs
+- **`docs/VMsv2.md` section 10**: preliminary single-run observations recorded (macOS recreate 490s with the skills-drift recreate firing correctly, reconnect 0s on both hosts) plus the collection caveat that the log-file telemetry ships with this release.
+<!-- RELEASE:END 1.16.4 -->
+
 <!-- RELEASE:START 1.16.3 -->
 ## [1.16.3] - 2026-08-26
 
