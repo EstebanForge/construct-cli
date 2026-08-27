@@ -298,6 +298,12 @@ Interaction with `manage.sh`:
 - Snapshot fork boot time (phase 6 spike): TBD
 - Skills mount: source resolved automatically (TBD dogfood); override regenerates within one `construct` invocation when source appears/disappears (TBD); zero skills inside the persistent home after phase 7 ships (TBD)
 
+Preliminary single-run observations (2026-08-26/27, NOT medians; full week pending):
+
+- macOS arm64, msb 0.6.10, construct 1.16.3: recreate 490s (reason "host skills mounts changed", roots=14, includes full guest re-init); reconnect 0s. The skills-drift recreate fired correctly on the first 1.16.3 run (round-6 fix validated live).
+- Linux amd64 (ATTD-Zenless), msb 0.6.15 + SDK-aligned build: cold create + guest init ≈5 min (telemetry file append shipped after that boot, so no captured line); reconnect 0s, roots=13.
+- Collection caveat: construct 1.16.3 prints `msb-boot:` to stderr only; the `logs/msb-boot.log` append lands with 1.16.4 (commit 5673324). Run the dogfood week on 1.16.4 or the P0 greps over `logs/*.log` stay empty.
+
 ## 11. Open questions and risks (carry forward, do not silently resolve)
 
 - skills_source resolution: a future change in XDG defaults (XDG Base Directory Specification rev) may require re-ordering the auto-detect list. Document the lookup order in the config comment block so users understand the precedence without reading the code.
