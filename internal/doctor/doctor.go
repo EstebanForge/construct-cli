@@ -920,8 +920,9 @@ func msbBackendCheck() CheckResult {
 		check.Suggestion = "Run `msb list` to start the daemon; check ~/.microsandbox logs if it fails"
 		return check
 	}
-	if msbRun("image", "inspect", "construct-box:latest") {
-		check.Details = append(check.Details, "Image construct-box:latest loaded")
+	imageRef := runtimepkg.MsbConstructImageRef()
+	if msbRun("image", "inspect", imageRef) {
+		check.Details = append(check.Details, fmt.Sprintf("Image %s loaded", imageRef))
 	} else {
 		check.Details = append(check.Details, "Image construct-box:latest not loaded (loaded on first construct run)")
 	}

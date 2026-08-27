@@ -39,6 +39,37 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 	return msb.IsInstalled(), nil
 }
 
+// constructImageRefCandidates lists the refs the construct image may be
+// cached under, in preference order. msb has no `image tag` subcommand
+// (checked 0.6.15) and refs are stored as given: `msb pull` caches the
+// full registry ref, `msb load -i` imports archives as localhost/<name>.
+// The bare name stays first for msb builds that resolve short names.
+var constructImageRefCandidates = []string{
+	"construct-box:latest",
+	"ghcr.io/estebanforge/construct-box:latest",
+	"localhost/construct-box:latest",
+}
+
+// MsbConstructImageRef returns the first cached construct-box ref by
+// probing `msb image inspect` per candidate. Falls back to the bare
+// canonical ref (msb then reports its own "image not found", which is
+// more actionable than a construct-side guess) when nothing is cached or
+// msb is unavailable (unit tests).
+func MsbConstructImageRef() string {
+	for _, ref := range constructImageRefCandidates {
+		if msbImageCached(ref) {
+			return ref
+		}
+	}
+	return "construct-box:latest"
+}
+
+func msbImageCached(ref string) bool {
+	cmd := exec.Command("msb", "image", "inspect", ref)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
+	return cmd.Run() == nil
+}
+
 // EnsureImage transitions the construct image into msb: probes local msb
 // image first, attempts pulling from ghcr.io/estebanforge/construct-box:latest,
 // and falls back to docker save to a temp archive + msb load.
@@ -49,14 +80,15 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
-	// Try msb pull from GHCR first if network available
+	// Try msb pull from GHCR first if network available. The pull caches
+	// the FULL registry ref (no `image tag` subcommand exists to alias it
+	// down to the bare name); imageLoaded and the run spec resolve cached
+	// refs via constructImageRefCandidates.
 	ui.InfoLn("→ Attempting to pull construct-box image from GHCR...")
 	pull := exec.Command("msb", "pull", "ghcr.io/estebanforge/construct-box:latest")
 	pull.Stdin = nil
 	if _, err := pull.CombinedOutput(); err == nil {
-		tag := exec.Command("msb", "image", "tag", "ghcr.io/estebanforge/construct-box:latest", "construct-box:latest")
-		tag.Stdin = nil
-		if terr := tag.Run(); terr == nil {
+		if msbImageCached("ghcr.io/estebanforge/construct-box:latest") {
 			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 			return nil
 		}
@@ -89,6 +121,13 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	if out, err := load.CombinedOutput(); err != nil {
 		return fmt.Errorf("msb load: %w: %s", err, out)
 	}
+	// `msb load -i` imports under the localhost/ prefix
+	// (localhost/construct-box:latest). Verify the import landed so the
+	// next EnsureImage skips the transition; imageLoaded and the run spec
+	// resolve the localhost ref via constructImageRefCandidates.
+	if !msbImageCached("localhost/construct-box:latest") {
+		return fmt.Errorf("msb load reported success but localhost/construct-box:latest is not cached; run `msb image ls` to inspect the store")
+	}
 	ui.InfoLn("✓ MicroVM image loaded")
 	return nil
 }
@@ -101,11 +140,15 @@ func (m *MsbBackend) dockerImageExists(cfg *config.Config) bool {
 	return checkCmd.Run() == nil
 }
 
-// imageLoaded probes msb for the construct image.
+// imageLoaded probes msb for the construct image under any of its cached
+// refs (bare, localhost/, full registry).
 func (m *MsbBackend) imageLoaded() bool {
-	cmd := exec.Command("msb", "image", "inspect", "construct-box:latest")
-	cmd.Stdin = nil
-	return cmd.Run() == nil
+	for _, ref := range constructImageRefCandidates {
+		if msbImageCached(ref) {
+			return true
+		}
+	}
+	return false
 }
 
 // Exec runs a command inside a running sandbox. Exit-code fidelity: the SDK
