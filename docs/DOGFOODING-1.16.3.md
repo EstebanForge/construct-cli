@@ -75,10 +75,10 @@ Validates the data layer (P2.1) + helper (P2.3) + CLI (P2.5/P2.6). The actual `E
 # do NOT set multi_paths_enabled)
 mkdir -p ~/Dev/proj-A ~/Dev/proj-B
 
-cd ~/Dev/proj-A && ct pi "echo hi"     # cold create + installs
-cd ~/Dev/proj-B && ct pi "echo hi"     # expect ONE recreate (learned root)
-cd ~/Dev/proj-A && ct pi "echo hi"     # expect NO recreate (reconnect)
-cd ~/Dev/proj-B && ct pi "echo hi"     # expect NO recreate (reconnect)
+cd proj-A && ct pi "echo hi"     # cold create + installs
+cd proj-B && ct pi "echo hi"     # expect ONE recreate (learned root)
+cd proj-A && ct pi "echo hi"     # expect NO recreate (reconnect)
+cd proj-B && ct pi "echo hi"     # expect NO recreate (reconnect)
 ct sys daemon roots                     # both /A and /B should appear
 
 # Cap behavior: when the cap (default 8) is exceeded, oldest is evicted
@@ -94,7 +94,7 @@ Validates the `MaybePrepullImage` spawn + the `msb pull` + `msb image tag` chain
 
 | Check | Expectation | Bug signal |
 |---|---|---|
-| After `ct sys update`, prepull log exists | line: `prepull started` | missing = spawn failed silently |
+| After `ct sys prepull`, prepull log exists | line: `prepull started` | missing = spawn failed silently |
 | Prepull log outcome | `prepull done` (success) OR `prepull FAILED at pull/tag: <err>` | failure = capture the error verbatim |
 | Next `ct sys doctor` image check | "ready" / "Image is up to date" | "Preparing microVM image" = prepull didn't seed the cache |
 | `msb image ls` shows `construct-box:latest` after prepull | present | absent = pull or tag step failed |
@@ -102,13 +102,23 @@ Validates the `MaybePrepullImage` spawn + the `msb pull` + `msb image tag` chain
 ### How to run
 
 ```bash
-# Pre: remove the cached image so the prepull has work to do
+# Pre: remove the cached image so the prepull has work to do.
+# If rm says "image not found" while doctor claims the image is loaded,
+# list the stored ref first (msb image ls | grep construct-box) and rm
+# the exact ref shown; msb matches rm by exact reference, not substring.
 msb image rm construct-box:latest
 
-# Watch the prepull log live during update
+# Watch the prepull log live
 tail -f ~/.config/construct-cli/logs/prepull.log &
-ct sys update                           # self-update; prepull fires on success
-# Wait for: "Spawned background prepull (log: ...)" then the log file fills
+ct sys prepull                          # deterministic: runs the pull loop now
+# Direct invocation runs the pull loop in the FOREGROUND and writes the
+# same log (the "Spawned background prepull" line only appears when
+# MaybePrepullImage spawns the detached child after a real update).
+#
+# Do NOT use `ct sys update` here: that is agent-update-inside-container
+# (compose-only; fails closed on backend=microvm by design). And
+# `ct sys self-update` only fires the prepull after an ACTUAL update;
+# the "already on latest version" no-op path returns before the spawn.
 
 # After: verify the prepull log has the expected lines
 tail -10 ~/.config/construct-cli/logs/prepull.log

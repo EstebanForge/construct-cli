@@ -310,10 +310,10 @@ func Run(args ...string) {
 		runtimeCheck.Status = CheckStatusSkipped
 		runtimeCheck.Message = "Not applicable (runtime backend = microvm)"
 		runtimeCheck.Details = append(runtimeCheck.Details, "Isolation runs in microsandbox microVMs; see the VM Backend check")
-		checks = append(checks, runtimeCheck)
 
 		// Blank from here on: every downstream container-runtime check keys
-		// off runtimeName and must take its skipped branch under msb.
+		// off runtimeName and must take its skipped branch under msb. The
+		// runtimeCheck itself is appended once below, after the shared chain.
 		runtimeName = ""
 	} else if runtimeName != "" {
 		runtimeCheck.Status = CheckStatusOK
@@ -506,9 +506,14 @@ func Run(args ...string) {
 		checks = append(checks, daemonRecreateCheck)
 	}
 
-	// 5. Daemon Mode Check
+	// 5. Daemon Mode Check (compose daemon; the microvm daemon is covered
+	// by the VM Backend check and `construct sys daemon status`)
 	daemonCheck := CheckResult{Name: "Daemon Mode"}
-	if cfg == nil || runtimeName == "" {
+	if msbBackend {
+		daemonCheck.Status = CheckStatusSkipped
+		daemonCheck.Message = "Not applicable (runtime backend = microvm)"
+		daemonCheck.Details = append(daemonCheck.Details, "MicroVM daemon state: run 'construct sys daemon status'")
+	} else if cfg == nil || runtimeName == "" {
 		daemonCheck.Status = CheckStatusSkipped
 		daemonCheck.Message = "Unavailable (config/runtime missing)"
 	} else {
@@ -751,22 +756,8 @@ func Run(args ...string) {
 	// 14. SSH Keys Check (Imported)
 	keysCheck := CheckResult{Name: "Construct SSH Keys"}
 	sshDir := filepath.Join(config.GetConfigDir(), "home", ".ssh")
-	nonKeyFiles := map[string]bool{
-		"known_hosts":     true,
-		"known_hosts.old": true,
-		"config":          true,
-		"config.backup":   true,
-		"authorized_keys": true,
-		"agent.sock":      true,
-	}
 	if entries, err := os.ReadDir(sshDir); err == nil && len(entries) > 0 {
-		var keyNames []string
-		for _, entry := range entries {
-			name := entry.Name()
-			if !entry.IsDir() && !strings.HasSuffix(name, ".pub") && !nonKeyFiles[name] {
-				keyNames = append(keyNames, name)
-			}
-		}
+		keyNames := sshKeyNames(entries)
 		if len(keyNames) > 0 {
 			keysCheck.Status = CheckStatusOK
 			keysCheck.Message = fmt.Sprintf("Found %d local keys", len(keyNames))
@@ -1208,6 +1199,30 @@ func extractComposeNetworkNames(output string) []string {
 			continue
 		}
 		seen[name] = true
+		names = append(names, name)
+	}
+	return names
+}
+
+// sshKeyNames filters a .ssh directory listing down to candidate private
+// key file names. Excludes directories, .pub counterparts, known non-key
+// files, and unix sockets: the SSH agent proxy leaves stale
+// agent.<pid>.sock files in the mounted construct home between daemon
+// boots, and those must not surface as "local keys" in doctor output.
+func sshKeyNames(entries []os.DirEntry) []string {
+	nonKeyFiles := map[string]bool{
+		"known_hosts":     true,
+		"known_hosts.old": true,
+		"config":          true,
+		"config.backup":   true,
+		"authorized_keys": true,
+	}
+	var names []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasSuffix(name, ".pub") || strings.HasSuffix(name, ".sock") || nonKeyFiles[name] {
+			continue
+		}
 		names = append(names, name)
 	}
 	return names
