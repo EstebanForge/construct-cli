@@ -1,0 +1,79 @@
+name: Publish Base Image
+
+# Manual-only by design: the CLI never pins construct-box by version (it
+# always pulls :latest, see internal/runtime/backend_msb_run.go), so image
+# publishes are decoupled from CLI releases. Dispatch this when the image
+# definition (internal/templates/Dockerfile + its COPYed scripts) changed
+# and you want it shipped. Leave `version` empty for a :latest-only push,
+# or set it (e.g. 1.16.3) to also pin a version tag for rollback.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional version tag to pin (example: 1.2.3). Empty = latest only"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+# Serialize dispatches: two concurrent runs would race the :latest tag.
+concurrency:
+  group: publish-image
+  cancel-in-progress: false
+
+jobs:
+  publish-image:
+    name: Publish Base Image (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          TAGS="ghcr.io/estebanforge/construct-box:latest"
+          if [ -n "${VERSION}" ]; then
+            if [[ "${VERSION}" == v* ]]; then
+              echo "Error: version must not use 'v' prefix (got: ${VERSION})"
+              exit 1
+            fi
+            if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Error: version must be SemVer-like (got: ${VERSION})"
+              exit 1
+            fi
+            TAGS="${TAGS}"$'\n'"ghcr.io/estebanforge/construct-box:${VERSION}"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Construct base image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./internal/templates
+          file: ./internal/templates/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

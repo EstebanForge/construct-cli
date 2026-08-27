@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   resolve:
@@ -331,35 +330,3 @@ jobs:
                 repository: '${{ github.repository }}'
               }
             })
-
-  publish-image:
-    name: Publish Base Image (GHCR)
-    needs: [release, resolve]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v7
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Construct base image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./internal/templates
-          file: ./internal/templates/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/estebanforge/construct-box:${{ needs.resolve.outputs.version }}
-            ghcr.io/estebanforge/construct-box:latest
