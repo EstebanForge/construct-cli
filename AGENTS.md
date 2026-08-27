@@ -62,6 +62,10 @@ Anything printed BEFORE or DURING agent execution must go to stderr (`ui.Info`, 
 
 The microsandbox SDK's FFI bridge is an untagged cgo file, so plain `GOOS`/`GOARCH` cross builds (cgo off) drop it and fail with "build constraints exclude all Go files" in `internal/ffi`. Release artifacts are built where a cgo toolchain exists (`.github/workflows/release.yml`): darwin on a macOS runner (clang `-arch` for amd64, native `lipo`), linux/amd64 native, linux/arm64 via `gcc-aarch64-linux-gnu`. Do not reintroduce a single-runner cross-compile matrix; `make cross-compile` remains local-dev only and cannot produce release artifacts for foreign platforms.
 
+## Image Publish (decoupled from releases)
+
+The `construct-box` GHCR image is NOT built by the release workflow. The CLI always pulls `construct-box:latest` (no version coupling), so image publishes are a separate manual workflow: `.github/workflows/image.yml` (`workflow_dispatch`, optional `version` input pins `ghcr.io/estebanforge/construct-box:<version>` alongside `:latest`). Dispatch it when the image definition changes: `internal/templates/Dockerfile` plus the files it COPYs (`entrypoint.sh`, `update-all.sh`, `network-filter.sh`, `clipper`, `clipboard-x11-sync.sh`, `osascript`, `construct-host-exec`). Multi-arch (amd64 + arm64 via QEMU) with GitHub Actions cache; dispatches are serialized by a concurrency group.
+
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases
