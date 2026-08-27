@@ -50,6 +50,14 @@
 - Platform caveat: macOS host-gateway routes to host `127.0.0.1` (reaches loopback-bound dev servers). Linux host-gateway is the bridge IP — host services must bind `0.0.0.0`/bridge, not `127.0.0.1`-only.
 - `localhost` itself is NOT remapped (would shadow `127.0.0.1 localhost` or break in-container loopback services). For host `localhost` services, the relay on port 80/443 covers `http://localhost`/`https://localhost`; for other host-loopback use cases prefer `host.docker.internal`.
 
+## MicroVM Daemon (msb backend)
+
+- Daemon flock: `internal/runtime/daemon_lock.go` (`acquireDaemonLock`). Any code that stops, recreates, or makes count-based decisions about the msb daemon must hold the flock while reading `LiveSessionCount()` AND acting (`internal/runtime/idle_watch.go` `StopMsbDaemonBestEffort` is the reference pattern). Count reads outside the lock race concurrent watchers and fresh `EnsureMsbDaemon` calls. The 250ms "Waiting for another construct invocation" notice measures the acquisition wait only; disarm fires on acquire, never on release.
+- Daemon recreate labels: the daemon is stamped with `construct.daemon.*` labels (`mounts_hash`, `skills_hash`) by `BuildMsbRunSpec`; `msbDaemonNeedsRecreate` (`internal/runtime/backend_msb_run.go`) compares them against current config to decide recreate-with-reason. A new daemon-affecting runtime config knob MUST add its label + recreate check, or toggling it on a running daemon stays invisible until manual recreate (the skills_hash gap shipped exactly this way and needed a review round to catch).
+- Mounts: configured roots (`daemon.mount_paths`) + learned roots (`requestLearnRoot`, capped, oldest evicted) feed ONE combined hash into `construct.daemon.mounts_hash`. A cwd outside the set returns `ErrMsbDaemonWorkdirUnmapped` (error, never destructive). `ResolveDaemonMountsWithLearned` is a deliberate no-op wrapper over `ResolveDaemonMounts`; do not "fix" it away.
+- Prepull: `internal/runtime/prepull.go` pulls `ghcr.io/estebanforge/construct-box:latest` detached, spawned only after an ACTUAL self-update (the "already on latest version" no-op returns before the spawn). The deterministic foreground path is `construct sys prepull`. Opt-out: `runtime.prepull_image = false`.
+- Design + peer-review trail: [docs/VMsv2.md](docs/VMsv2.md). Dogfood procedures: [docs/DOGFOODING-1.16.3.md](docs/DOGFOODING-1.16.3.md).
+
 ## Run-Path Output (stdout is the agent's)
 
 Anything printed BEFORE or DURING agent execution must go to stderr (`ui.Info`, `ui.InfoLn`, `ui.InfoF` in `internal/ui`). Harnesses spawn agents in RPC modes that stream line-delimited JSON on stdout; any banner printed there corrupts the protocol stream. The interactive attach prompt in `engine.go` and explicit CLI output (`construct agents`, help screens) are the only intentional stdout on agent paths.
@@ -69,6 +77,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases
+- The release workflow triggers on TAG PUSH (`git push origin <version>`). A `chore(release)` commit alone ships nothing: no tag push means no GitHub release, no artifacts, no VERSION bump, and stable users stay on the old version
 - When asked to bump version: update `internal/constants/constants.go` only
 - When asked to add CHANGELOG entry: add new section with current version from constants.go
 - `VERSION` is updated by release workflow for stable tags (e.g. `1.3.8`)
