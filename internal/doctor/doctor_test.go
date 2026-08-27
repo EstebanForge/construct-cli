@@ -15,6 +15,36 @@ import (
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 )
 
+func TestSshKeyNamesSkipsSocketsAndNonKeys(t *testing.T) {
+	entries := []os.DirEntry{
+		fakeDirEntry{name: "id_ed25519"},
+		fakeDirEntry{name: "id_ed25519.pub"},
+		fakeDirEntry{name: "agent.10030.sock"},
+		fakeDirEntry{name: "agent.sock"},
+		fakeDirEntry{name: "agent.msbtest.sock"},
+		fakeDirEntry{name: "known_hosts"},
+		fakeDirEntry{name: "known_hosts.old"},
+		fakeDirEntry{name: "config"},
+		fakeDirEntry{name: "authorized_keys"},
+		fakeDirEntry{name: "subdir", dir: true},
+	}
+	got := sshKeyNames(entries)
+	want := []string{"id_ed25519"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("sshKeyNames() = %v, want %v", got, want)
+	}
+}
+
+type fakeDirEntry struct {
+	name string
+	dir  bool
+}
+
+func (f fakeDirEntry) Name() string               { return f.name }
+func (f fakeDirEntry) IsDir() bool                { return f.dir }
+func (f fakeDirEntry) Type() os.FileMode          { return 0 }
+func (f fakeDirEntry) Info() (os.FileInfo, error) { return nil, nil }
+
 func TestFindMissingPackagesTemplatePaths(t *testing.T) {
 	tmpDir := t.TempDir()
 	packagesPath := filepath.Join(tmpDir, "packages.toml")

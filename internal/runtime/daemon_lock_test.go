@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -186,6 +187,45 @@ func TestAcquireDaemonLockNoopReleaseOnError(t *testing.T) {
 		t.Fatal("expected a no-op release func on error (callers always defer)")
 	}
 	// The no-op release must not panic.
+	release()
+}
+
+// TestDaemonLockNoticeSilentOnLongHold: the notice measures the
+// ACQUISITION wait only. An uncontended acquire held far past
+// daemonLockNoticeAfter must not print "waiting for another construct
+// invocation" (regression: done used to close only at release time, so
+// every hold longer than 250ms armed the timer for the full duration and
+// fired a false notice 250ms in — i.e. every real daemon boot).
+func TestDaemonLockNoticeSilentOnLongHold(t *testing.T) {
+	withDaemonLockTestHome(t)
+
+	// Swap stderr BEFORE the acquire: the notice goroutine captures the
+	// writer at spawn, so a wrongly fired notice lands in the pipe.
+	origStderr := os.Stderr
+	r, w, perr := os.Pipe()
+	if perr != nil {
+		t.Fatalf("pipe: %v", perr)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = origStderr })
+
+	release, err := acquireDaemonLock()
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+
+	// Hold past the notice window; nothing contends, so no notice.
+	time.Sleep(daemonLockNoticeAfter + 150*time.Millisecond)
+	if err := w.Close(); err != nil {
+		t.Fatalf("close pipe writer: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("read pipe: %v", err)
+	}
+	if strings.Contains(string(out), "Waiting for another construct invocation") {
+		t.Fatal("uncontended long hold printed the waiting notice; the notice must fire only when the acquisition itself exceeds the window")
+	}
 	release()
 }
 

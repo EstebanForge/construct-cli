@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
-	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
 // DaemonLockPath is the host-local flock file. One per construct config
@@ -52,30 +52,47 @@ func acquireDaemonLock() (release func(), err error) {
 
 	// 250ms notice: goroutine + timer, cancel on acquire. The goroutine
 	// always exits; we leak no goroutines.
+	//
+	// The writer is captured BEFORE the goroutine starts: reading the
+	// os.Stderr global from a goroutine that can outlive the caller's
+	// frame is a data race against anything swapping os.Stderr (tests do).
+	//
+	// Disarm goes through its own once and fires on ACQUIRE (success or
+	// error), not on release: the notice measures the acquisition wait.
+	// A daemon setup that holds an uncontended lock for 10 minutes must
+	// not print "waiting for another construct invocation" 250ms in.
 	done := make(chan struct{})
+	noticeStderr := os.Stderr
+	var noticeOnce sync.Once
+	disarmNotice := func() { noticeOnce.Do(func() { close(done) }) }
 	go func() {
 		select {
 		case <-done:
 			return
 		case <-time.After(daemonLockNoticeAfter):
-			ui.InfoLn("Waiting for another construct invocation to finish daemon setup...")
+			//nolint:errcheck // best-effort notice; a closed stderr must not fail the run path
+			fmt.Fprintln(noticeStderr, "Waiting for another construct invocation to finish daemon setup...")
 		}
 	}()
 
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		close(done)
+		disarmNotice()
 		//nolint:errcheck // best-effort cleanup; flock failure already surfaces the error
 		_ = f.Close()
 		return func() {}, err
 	}
+	// Acquired: disarm immediately. Slow HOLDS are normal and expected;
+	// slow ACQUIRES are the only thing the notice exists for.
+	disarmNotice()
+
 	// On success, hold the file open in the closure so the OS keeps the
 	// flock alive. Closing the fd releases the lock. sync.Once makes the
 	// release idempotent: callers may defer it AND call it from a
 	// shutdown path without panicking on double-close.
-	var once sync.Once
+	var releaseOnce sync.Once
 	release = func() {
-		once.Do(func() {
-			close(done)
+		releaseOnce.Do(func() {
+			disarmNotice() // no-op on the normal path; belt and braces
 			//nolint:errcheck // LOCK_UN on a held fd; the OS releases on close either way
 			_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 			//nolint:errcheck // best-effort cleanup; OS releases the lock on close
