@@ -291,8 +291,12 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 		labels[DaemonSkillsLabelKey] = skillsHash
 	}
 	return &MsbRunSpec{
-		Name:         name,
-		Image:        "construct-box:latest",
+		Name: name,
+		// Resolve the cached ref (bare / localhost/ / full registry): the
+		// daemon resolves image refs exactly as stored, and `msb load -i`
+		// imports as localhost/construct-box:latest. Falls back to the
+		// bare name when msb is unavailable (unit tests).
+		Image:        MsbConstructImageRef(),
 		Mounts:       msbSandboxMounts(cfg, projectDir),
 		Network:      msbNetworkConfig(cfg.Network.Mode, bridgePorts),
 		Env:          env,
@@ -336,6 +340,12 @@ func CreateMsbSandbox(ctx context.Context, spec *MsbRunSpec) (*msb.Sandbox, erro
 		msb.WithMounts(spec.Mounts),
 		msb.WithNetwork(spec.Network),
 		msb.WithEnv(spec.Env),
+		// Explicit workdir: construct-box images declare WORKDIR /projects
+		// (Dockerfile) and msb >= 0.6.15 validates the image workdir exists
+		// in the guest at create time — the transitioned archive fails that
+		// check. /home/construct exists in every construct-box image; exec
+		// paths set their own WithExecCwd, so this is only the default.
+		msb.WithWorkdir("/home/construct"),
 	}
 	// The image CMD (/bin/bash) exits immediately without a TTY; Docker's
 	// compose keeps it alive via stdin_open+tty, which msb has no equivalent
@@ -795,4 +805,14 @@ func msbLogBoot(outcome string, start time.Time, reason string, rootCount int) {
 	}
 	ui.InfoF("msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
 		outcome, seconds, rootCount, reason)
+	// Persistent copy: stderr is ephemeral, and the P6 gate greps
+	// ~/.config/construct-cli/logs/*.log for these lines (dogfood guide
+	// P0). Without the append the medians are uncollectable.
+	if f, err := os.OpenFile(filepath.Join(config.GetConfigDir(), "logs", "msb-boot.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
+		fmt.Fprintf(f, "%s msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
+			time.Now().Format(time.RFC3339), outcome, seconds, rootCount, reason)
+		//nolint:errcheck // telemetry is best-effort; stderr copy already fired
+		_ = f.Close()
+	}
 }

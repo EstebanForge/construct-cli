@@ -517,6 +517,10 @@ func TestMsbLogBootFormatOnePerOutcome(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			// msbLogBoot appends to <config>/logs/msb-boot.log too; isolate
+			// HOME so fixture lines never pollute the real telemetry log.
+			t.Setenv("HOME", t.TempDir())
+
 			start := base
 
 			// Capture stderr.

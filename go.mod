@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/charmbracelet/gum v0.17.0
 	github.com/pelletier/go-toml/v2 v2.4.3
-	github.com/superradcompany/microsandbox/sdk/go v0.6.10
+	github.com/superradcompany/microsandbox/sdk/go v0.6.15
 	golang.org/x/term v0.45.0
 )
 

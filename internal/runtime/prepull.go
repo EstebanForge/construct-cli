@@ -97,14 +97,9 @@ func PrepullRun() {
 		fmt.Fprintf(os.Stderr, "prepull pull failed: %v (see %s)\n", err, logPath)
 		os.Exit(1)
 	}
-	tag := exec.Command("msb", "image", "tag", prepullImageRef, "construct-box:latest")
-	tag.Stdout = f
-	tag.Stderr = f
-	if err := tag.Run(); err != nil {
-		logPrepull("prepull FAILED at tag: %v", err)
-		fmt.Fprintf(os.Stderr, "prepull tag failed: %v (see %s)\n", err, logPath)
-		os.Exit(1)
-	}
+	// No `image tag` step: msb (0.6.15) has no tag subcommand. The pull
+	// caches the full registry ref; EnsureImage and the run spec resolve it
+	// via constructImageRefCandidates.
 	logPrepull("prepull done")
 }
 
