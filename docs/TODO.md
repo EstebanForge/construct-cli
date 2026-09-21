@@ -1,4 +1,4 @@
-# TODO: Move Claude from packages.go to packages.toml
+# TODO: Move Claude from packages.go to packages.toml [OBSOLETE 2026-09-21 — superseded by Image Layering below: Claude is BAKED into the image at `/usr/local/bin`; it must be REMOVED from `packages.go`, NOT moved to `packages.toml`. A packages.toml entry would shadow the baked binary with a bind copy.]
 
 ## Background
 
@@ -180,7 +180,17 @@ Move EVERYTHING dev-oriented from `packages.toml` into the image, and pre-instal
 
 ## The override contract (bind vs baked)
 
-PATH order decides: `/home/construct/.local/bin` and `/home/construct/.npm-global/bin` (bind) precede `/usr/local/bin` (baked).
+Actual PATH precedence (verified `internal/env/env.go` `PathComponents`):
+
+1. `/home/linuxbrew/.linuxbrew/bin` — FIRST; brew-tier tools shadow EVERYTHING (bind AND baked)
+2. `/home/construct/.local/bin`, `/home/construct/.npm-global/bin` — the bind tier (overrides for npm/curl-installed agents)
+3. `/usr/local/bin` — the baked baseline (loses to both tiers above)
+
+Layer semantics that qualify the contract:
+
+- `[apt]` and `[brew]` user entries install to the guest ROOT disk, not the bind — a microvm recreate wipes them (compose keeps them until container recreate). This is existing behavior and must be documented, not changed by the bake.
+- `gem install` as the construct user fails on system paths; user-space gems land in `$HOME/.gem/ruby/.../bin`, which is ABSENT from `PathComponents`. Fix during implementation: `gem install --bindir /home/construct/.local/bin` (or add the gem bin dir to PATH in all 4 sync files).
+- The installer must NEVER write to `/usr/local/bin` at runtime — that is what keeps the two layers from corrupting each other.
 
 - `packages.toml` entry PRESENT → user-layer install on the bind → **shadows the baked baseline** → user controls the version (pin old, try new)
 - Entry ABSENT → baked baseline serves; nothing reinstalls it behind the user's back
@@ -189,14 +199,23 @@ PATH order decides: `/home/construct/.local/bin` and `/home/construct/.npm-globa
 
 ## Existing-user migration (the shadow trap)
 
-Existing home binds carry agent copies installed under the old model at `/home/construct/.local/bin` — those will shadow the new baked binaries forever. Add an entrypoint migration block (runs once, marker-gated) that removes bind copies of the TOOLS THAT ARE NOW BAKED, but ONLY for tools not present in `packages.toml` (a packages.toml entry is a deliberate override and must survive). The migration prints what it removed.
+Existing home binds carry agent copies installed under the old model — those will shadow the new baked binaries forever. Where they actually live (verified):
+
+- `/home/construct/.local/bin` — claude, amp (curl-installed)
+- `/home/construct/.npm-global/bin` + `/home/construct/.npm-global/lib/node_modules/` — codex, pi (npm)
+- `/home/construct/.opencode/bin` — opencode
+
+`packages.toml` is NOT mounted into the container (only the generated `install_user_packages.sh` is), so the migration sweep CANNOT live in `entrypoint.sh`. Generate it in Go inside `GenerateInstallScript()` (`internal/config/packages.go`), which has the parsed config: emit explicit deletion commands for each baked tool ABSENT from `packages.toml`, targeting all three path families above (binary + npm module dir), marker-gated to run once, printing what it removed. A packages.toml entry is a deliberate override and must survive.
 
 ## Build requirements
 
+- STRIP the baked set from `GenerateInstallScript()` — it currently hardcodes `apt-get update && apt-get install`, the Bun installer, brew `imagemagick`/`topgrade`/`libgit2`, and `cargo-update` (`internal/config/packages.go` ~176-256). Left in, every hash-change boot re-runs network installs and the <5 s goal dies. Post-bake, the installer emits ONLY packages.toml-defined items.
+- REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines; ship a migration note telling existing docker users to delete the stale volume.
+- REMOVE the baked-agent update commands from `GenerateTopgradeConfig()` (`claude update`, `pi update --all`, `agy update`) and their fallback loops in `update-all.sh`: as the construct user they either fail with EACCES on root-owned `/usr/local/bin` or silently redirect to `$HOME/.local/bin`, creating a rogue shadowing bind copy.
 - BuildKit cache mounts for `apt`, `npm`, and Homebrew caches (CI + docker-backend local build speed)
 - Layer order by churn: OS/apt → brew core → static binaries → language runtimes → core agents LAST (pull progress + cache reuse)
 - No recursive `chown` layers (`COPY --chown`)
-- zstd layer compression — BLOCKED on verifying the msb 0.7.2 puller handles zstd layers before switching from gzip
+- zstd layer compression — BLOCKED on verifying the msb 0.7.2 puller handles zstd layers before switching from gzip; also surface `msb pull` errors instead of falling through to a masked `docker save` fallback (`EnsureImage` currently swallows them)
 - Core agents update on the image cadence (accepted); `packages.toml` override is the user escape hatch for newer/older versions
 
 ## Instrumentation prerequisite
@@ -205,7 +224,7 @@ Existing home binds carry agent copies installed under the old model at `/home/c
 
 ## Verification gate (before dispatching `image.yml`)
 
-1. `scripts/lab-matrix.sh` green against the baked image (isolated HOME, 0.7.2 pair)
+1. `scripts/lab-matrix.sh` green against the baked image (isolated HOME, 0.7.2 pair) — EXTENDED with real assertions, not just `/bin/uname -sm`: each baked agent resolves to `/usr/local/bin/<name>`; a packages.toml codex entry shadows it; the migration sweep clears stale pre-bake copies from all three path families; `entrypoint_install_phase_sec < 5`; stale `construct-packages` volume absent from the compose output
 2. Fresh-home first run: agents usable without any install phase; `claude --version`, `codex --version`, `agy --version`, `pi --version`, `opencode --version` resolve to `/usr/local/bin`
 3. Override contract live: a `packages.toml` codex entry shadows the baked binary; removing the entry + recreating falls back to baked
 4. Migration sweep verified against a home bind containing stale pre-bake copies
@@ -214,14 +233,18 @@ Existing home binds carry agent copies installed under the old model at `/home/c
 ## Post-publish follow-ups
 
 - msb store garbage collection (keep `latest` + active images) — probe leftovers already demonstrated store growth
-- Refresh mechanism for cached images on existing installs (digest-check in `EnsureImage` or `construct sys image refresh`)
+- Refresh mechanism for cached images on existing installs (digest-check in `EnsureImage` or `construct sys image refresh`) — today microvm users only pull on first create; without this they never receive baked-baseline updates
 - Unify `construct sys update` across engines (currently compose-only, fails closed on microvm)
+
+## Peer review round (Agy, 2026-09-21)
+
+Verdict: adopt-with-changes. 3 blockers, 4 majors, 3 minors, 1 note — all folded into this section. Blockers: (1) idle-updater flock/session races (fixed in the updater section below); (2) `construct-packages` named volume shadowing the baked Homebrew baseline (docker named volumes never refresh from image after first creation); (3) migration sweep unimplementable in `entrypoint.sh` (packages.toml never mounted) and targeting the wrong paths. Majors: topgrade commands would EACCES/rogue-shadow baked agents; `GenerateInstallScript` still runs network installs post-bake; brew PATH precedence inverts the stated shadow contract; design text implied running topgrade twice. Minors: TODO §1 contradicted the bake (marked obsolete); lab-matrix.sh had no baked-image assertions; no image-refresh command for microvm users. Note: `EnsureImage` masks `msb pull` failures behind the docker-save fallback.
 
 ---
 
 # TODO: Idle-Window Package Updater (silent, background)
 
-Status: DESIGNED (2026-09-21), sequenced AFTER the Image Layering bake (the updater manages the optional layer; the baked baseline is image-cadence and must be excluded from it). Peer review of the mechanism: Agy round on the image-layering proposal endorsed the idle-window approach over scheduled timers (a fixed daily schedule would boot a stopped daemon, defeating `idle_stop_minutes`, and burn bandwidth on metered links).
+Status: DESIGNED (2026-09-21), sequenced AFTER the Image Layering bake (the updater manages the optional layer; the baked baseline is image-cadence and must be excluded from it). Peer review of the mechanism: Agy round on the image-layering proposal endorsed the idle-window approach over scheduled timers (a fixed daily schedule would boot a stopped daemon, defeating `idle_stop_minutes`, and burn bandwidth on metered links); the follow-up adversarial review (2026-09-21) redesigned the locking model — see Mechanism and the review note at the end of this section.
 
 ## Decision
 
@@ -230,8 +253,12 @@ Package updates for the sandbox run inside the daemon's idle window — the dead
 ## Mechanism
 
 1. Idle watcher arms after the last session unregisters (existing behavior).
-2. NEW: when the watcher's wait elapses with zero sessions, it runs the updater BEFORE stopping the daemon: `update-all.sh` (bind layer: optional agents + user packages) then the generated topgrade config (root-disk user additions), bounded by a 30-minute hard timeout, output appended to `logs/update.log` + one telemetry line (`update outcome=ok|failed duration=N`).
-3. Daemon stops as usual afterwards. A session arriving mid-update is unaffected — updates are additive installs; the stop waits for the update child to finish (bounded).
+2. NEW: when the watcher's wait elapses with zero sessions, it runs the updater BEFORE stopping the daemon. The single entry point is `update-all.sh` — it already invokes the generated topgrade config internally, so the updater does NOT run topgrade a second time. Bounded by a 30-minute hard timeout; output appended to `logs/update.log` + one telemetry line (`update outcome=ok|failed duration=N`).
+3. LOCKING MODEL (redesigned per review — the blocker):
+   - The update pass runs WITHOUT holding the daemon flock — holding it would block `EnsureMsbDaemon` for up to 30 minutes on any incoming session (the 250 ms wait-warning path becomes a hang).
+   - A dedicated update state (atomic flag file or in-process guard) makes the pass idempotent-safe and prevents two concurrent passes.
+   - The updater polls `LiveSessionCount()` during the pass; on `count > 0` it stands down (terminate the pass or let the current step finish, then exit WITHOUT stopping the daemon — the idle watcher re-arms normally).
+   - The daemon stop itself re-acquires `acquireDaemonLock()`, re-checks `LiveSessionCount() == 0` under the lock, and only then stops. This is the `StopMsbDaemonBestEffort` reference pattern.
 4. Failures are best-effort: logged, retried at the next idle window, never surfaced as run errors.
 
 ## Update scope
@@ -248,7 +275,7 @@ The topgrade pass must EXCLUDE the baked set (generated config carries the exclu
 
 - 30-minute hard timeout on the whole update pass
 - Best-effort: failures logged + retried next window; never block or break an agent run
-- Zero-session precondition: never runs while a session is live; a session arriving mid-update coexists (additive installs)
+- Zero-session precondition: the pass starts only at zero sessions and STANDS DOWN if a session appears mid-pass (a recreate during an active update would destroy the sandbox out from under the installer); the stop decision is re-evaluated under the flock
 - Flag: `daemon.auto_update_packages = true` default; `false` disables entirely
 - Known caveat: some agent CLIs self-update (Claude Code by default) — if double-update loops appear, exclude self-updating CLIs from the topgrade pass and rely on their built-in updaters
 
@@ -266,3 +293,7 @@ The topgrade pass must EXCLUDE the baked set (generated config carries the exclu
 - Guest-side cron/systemd timer: the microvm guest runs the entrypoint as its init workload — no scheduler exists to lean on
 - Host systemd timer calling a construct update command: boots a stopped daemon just to update — defeats idle-stop, wakes machines at a fixed hour
 - Update-on-boot staleness check: additive backstop option for always-on machines; not the primary mechanism
+
+## Peer review round (Agy, 2026-09-21)
+
+Found the blocker this section now encodes: running the update inside the flock hangs incoming sessions for the timeout; running it without coordination lets a concurrent recreate destroy the sandbox mid-update, and the original "stop afterwards regardless" step could kill a session that registered mid-pass. Fixes adopted: no-flock execution with a dedicated update guard, `LiveSessionCount()` polling with stand-down, stop re-decided under the flock. Also adopted: single entry point `update-all.sh` (topgrade already inside — no double run).
