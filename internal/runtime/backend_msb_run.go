@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	goruntime "runtime"
 	"sort"
 	"strings"
 	"time"
@@ -14,6 +16,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -575,12 +578,12 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 					ui.InfoLn("✓ MicroVM environment ready")
 					bootOutcome = msbBootWarm
 					bootReason = "ready marker missing; re-ran default workload"
-					msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
+					msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
 					return sb, nil
 				}
 				bootOutcome = msbBootReconnect
 				bootReason = "ready marker present"
-				msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
+				msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
 				return sb, nil
 			}
 			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
@@ -604,7 +607,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		ui.InfoLn("✓ MicroVM environment ready")
 		bootOutcome = msbBootWarm
 		bootReason = "stopped sandbox booted via StartDetached"
-		msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
+		msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
 		return sb, nil
 	}
 
@@ -633,7 +636,7 @@ create:
 	if bootOutcome != msbBootRecreate {
 		bootReason = "first create (no existing sandbox)"
 	}
-	msbLogBoot(bootOutcome, bootStart, bootReason, bootRoots)
+	msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
 	return sb, nil
 }
 
@@ -794,25 +797,101 @@ var msbBootMountCount = func(cfg *config.Config, projectDir string) int {
 	return len(msbSandboxMounts(cfg, projectDir))
 }
 
+// msbTelemetryEvent is the canonical (wide) event for one daemon boot.
+// Environment context travels with every measurement so a log bundle from
+// any machine is self-describing (which construct build, which host msb,
+// which platform). The msb_version field is what makes version-skew
+// regressions visible in the wild: the host CLI and the embedded SDK pin
+// must match exactly, and this field records the host side per boot.
+type msbTelemetryEvent struct {
+	Event            string `json:"event"`
+	TS               string `json:"ts"`
+	ConstructVersion string `json:"construct_version"`
+	MsbVersion       string `json:"msb_version"`
+	OS               string `json:"os"`
+	Arch             string `json:"arch"`
+	Outcome          string `json:"outcome"`
+	Seconds          int    `json:"seconds"`
+	Roots            int    `json:"roots"`
+	Reason           string `json:"reason"`
+}
+
+// msbHostVersion is the source for the telemetry msb_version field. One
+// cheap exec per boot event; failures degrade to "unknown" — skew
+// debugging needs the field present, never the run to fail.
+var msbHostVersion = func() string {
+	cmd := exec.Command("msb", "--version")
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
+	out, err := cmd.Output()
+	if err != nil {
+		return "unknown"
+	}
+	// `msb --version` prints "msb 0.6.15"; keep just the semver so the
+	// JSONL field parses without string surgery downstream.
+	return strings.TrimPrefix(strings.TrimSpace(string(out)), "msb ")
+}
+
+// telemetryEnabled reports whether local telemetry file collection is on.
+// A nil config means defaults, and telemetry defaults to true (opt-out).
+func telemetryEnabled(cfg *config.Config) bool {
+	return cfg == nil || cfg.Runtime.Telemetry
+}
+
 // msbLogBoot emits the structured `msb-boot:` line. Format is fixed so
 // downstream tooling can grep for `msb-boot:` and parse the fields
 // without coordinating on a new schema. The outcome + reason carry the
 // semantics; seconds + roots carry the measurements.
-func msbLogBoot(outcome string, start time.Time, reason string, rootCount int) {
+//
+// Locally it also appends two artifacts under <config>/logs/, both gated
+// by [runtime] telemetry (default true, local-only by design — nothing is
+// ever sent over the network):
+//   - msb-boot.log: the same line RFC3339-stamped (dogfood P0 greps)
+//   - msb-telemetry.jsonl: one canonical wide event per boot with the
+//     environment context (construct + host msb versions, os/arch) so a
+//     log bundle from any machine answers "which version pairing failed,
+//     how, how often" without another data source.
+func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason string, rootCount int) {
 	seconds := int(msbBootClock().Sub(start).Round(time.Second).Seconds())
 	if seconds < 0 {
 		seconds = 0
 	}
 	ui.InfoF("msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
 		outcome, seconds, rootCount, reason)
-	// Persistent copy: stderr is ephemeral, and the P6 gate greps
+	if !telemetryEnabled(cfg) {
+		return
+	}
+	// Persistent copies: stderr is ephemeral, and the P6 gate greps
 	// ~/.config/construct-cli/logs/*.log for these lines (dogfood guide
 	// P0). Without the append the medians are uncollectable.
-	if f, err := os.OpenFile(filepath.Join(config.GetConfigDir(), "logs", "msb-boot.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	logDir := filepath.Join(config.GetConfigDir(), "logs")
+	//nolint:errcheck // telemetry is best-effort; appends below degrade to no-ops
+	_ = os.MkdirAll(logDir, 0o755)
+	if f, err := os.OpenFile(filepath.Join(logDir, "msb-boot.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
 		//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
 		fmt.Fprintf(f, "%s msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
 			time.Now().Format(time.RFC3339), outcome, seconds, rootCount, reason)
 		//nolint:errcheck // telemetry is best-effort; stderr copy already fired
 		_ = f.Close()
+	}
+	// Wide event (canonical log line): single structured record per boot.
+	// Best-effort like the plain log: telemetry failures never fail the run.
+	if ev, err := json.Marshal(msbTelemetryEvent{
+		Event:            "msb-boot",
+		TS:               time.Now().Format(time.RFC3339),
+		ConstructVersion: constants.Version,
+		MsbVersion:       msbHostVersion(),
+		OS:               goruntime.GOOS,
+		Arch:             goruntime.GOARCH,
+		Outcome:          outcome,
+		Seconds:          seconds,
+		Roots:            rootCount,
+		Reason:           reason,
+	}); err == nil {
+		if f, ferr := os.OpenFile(filepath.Join(logDir, "msb-telemetry.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
+			//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
+			fmt.Fprintf(f, "%s\n", ev)
+			//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
+			_ = f.Close()
+		}
 	}
 }

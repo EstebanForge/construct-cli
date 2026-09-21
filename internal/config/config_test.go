@@ -203,6 +203,7 @@ func TestDefaultConfigExecAsHostUserEnabled(t *testing.T) {
 	if !cfg.Sandbox.ExecAsHostUser {
 		t.Error("Expected default exec_as_host_user to be true")
 	}
+
 	expectedEnvPassthrough := []string{
 		"GITHUB_TOKEN",
 		"CONTEXT7_API_KEY",
@@ -580,5 +581,16 @@ func TestFoldLegacyEngine(t *testing.T) {
 				t.Errorf("Engine not cleared after fold: %q", cfg.Runtime.Engine)
 			}
 		})
+	}
+}
+
+// TestDefaultConfigTelemetryEnabled pins the opt-out default: telemetry
+// collection is on unless the user sets [runtime] telemetry = false, and
+// Load() folds missing keys onto DefaultConfig so existing config.toml
+// files keep collecting without an edit.
+func TestDefaultConfigTelemetryEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Runtime.Telemetry {
+		t.Error("Expected default telemetry to be true (opt-out, local-only)")
 	}
 }

@@ -119,6 +119,19 @@ update_channel = "stable"         # Release channel: stable|beta
 - `stable`: Production releases only
 - `beta`: Includes pre-release features
 
+### Local Telemetry (microVM engine)
+
+```toml
+[runtime]
+telemetry = true  # Local-only diagnostics; set false to disable
+```
+
+When the microVM backend boots its daemon sandbox, Construct appends two diagnostic records under `~/.config/construct-cli/logs/`: the human-readable `msb-boot:` line in `msb-boot.log`, and one structured JSON event per boot in `msb-telemetry.jsonl` carrying the boot outcome, duration, mount count, recreate reason, and the construct + host `msb` versions.
+
+Telemetry is **local-only by design**: records are written to your machine and never sent anywhere — Construct makes no telemetry network calls. Share files from the logs directory manually when reporting issues; the version fields in each event are what make microsandbox version-skew problems diagnosable after the fact.
+
+Set `telemetry = false` to stop all telemetry file writes. The `msb-boot:` summary line still prints to stderr on every boot so you can watch boot behavior in the terminal.
+
 ## Sandbox Settings
 
 ### Home Directory Mount

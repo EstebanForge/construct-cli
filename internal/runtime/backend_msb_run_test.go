@@ -1,10 +1,12 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/constants"
 )
 
 func TestBuildMsbRunSpecMounts(t *testing.T) {
@@ -533,7 +536,7 @@ func TestMsbLogBootFormatOnePerOutcome(t *testing.T) {
 			t.Cleanup(func() { os.Stderr = origStderr })
 
 			msbBootClock = func() time.Time { return start.Add(tc.elapsed) }
-			msbLogBoot(tc.outcome, start, tc.reason, tc.roots)
+			msbLogBoot(nil, tc.outcome, start, tc.reason, tc.roots)
 
 			if cerr := w.Close(); cerr != nil {
 				t.Fatalf("close pipe write end: %v", cerr)
@@ -565,5 +568,101 @@ func TestMsbBootClockIsInjectable(t *testing.T) {
 	msbBootClock = func() time.Time { return fixed }
 	if got := msbBootClock(); !got.Equal(fixed) {
 		t.Fatalf("clock override did not take effect: got %v want %v", got, fixed)
+	}
+}
+
+// TestMsbTelemetryWideEvent verifies the canonical wide event: one valid
+// JSON line per boot in logs/msb-telemetry.jsonl carrying the environment
+// context (construct + overridden host msb version, os/arch) next to the
+// boot measurements. HOME is isolated like the format test so fixture
+// lines never pollute the real telemetry file.
+func TestMsbTelemetryWideEvent(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	origClock := msbBootClock
+	origVersion := msbHostVersion
+	t.Cleanup(func() { msbBootClock = origClock; msbHostVersion = origVersion })
+	start := time.Now()
+	msbBootClock = func() time.Time { return start.Add(7 * time.Second) }
+	msbHostVersion = func() string { return "0.6.15" }
+
+	msbLogBoot(nil, msbBootRecreate, start, "telemetry fixture", 4)
+
+	data, err := os.ReadFile(filepath.Join(config.GetConfigDir(), "logs", "msb-telemetry.jsonl"))
+	if err != nil {
+		t.Fatalf("read telemetry file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected exactly 1 event line, got %d", len(lines))
+	}
+	var ev msbTelemetryEvent
+	if err := json.Unmarshal([]byte(lines[0]), &ev); err != nil {
+		t.Fatalf("event line is not valid JSON: %v\nline: %s", err, lines[0])
+	}
+	if ev.Event != "msb-boot" {
+		t.Errorf("event = %q", ev.Event)
+	}
+	if ev.Outcome != msbBootRecreate {
+		t.Errorf("outcome = %q", ev.Outcome)
+	}
+	if ev.Seconds != 7 {
+		t.Errorf("seconds = %d", ev.Seconds)
+	}
+	if ev.Roots != 4 {
+		t.Errorf("roots = %d", ev.Roots)
+	}
+	if ev.Reason != "telemetry fixture" {
+		t.Errorf("reason = %q", ev.Reason)
+	}
+	if ev.MsbVersion != "0.6.15" {
+		t.Errorf("msb_version = %q", ev.MsbVersion)
+	}
+	if ev.ConstructVersion != constants.Version {
+		t.Errorf("construct_version = %q", ev.ConstructVersion)
+	}
+	if ev.OS != goruntime.GOOS || ev.Arch != goruntime.GOARCH {
+		t.Errorf("platform = %s/%s", ev.OS, ev.Arch)
+	}
+	if ev.TS == "" {
+		t.Error("ts is empty")
+	}
+}
+
+// TestMsbTelemetryOptOut verifies [runtime] telemetry = false suppresses
+// BOTH local telemetry files while the stderr line still fires for the
+// human watching the terminal (run-path output stays on stderr).
+func TestMsbTelemetryOptOut(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := config.DefaultConfig()
+	cfg.Runtime.Telemetry = false
+
+	origStderr := os.Stderr
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stderr = w
+	t.Cleanup(func() { os.Stderr = origStderr })
+
+	msbLogBoot(&cfg, msbBootReconnect, time.Now(), "opt-out", 1)
+
+	if cerr := w.Close(); cerr != nil {
+		t.Fatalf("close pipe write end: %v", cerr)
+	}
+	out, rerr := io.ReadAll(r)
+	if rerr != nil {
+		t.Fatalf("read pipe: %v", rerr)
+	}
+	if !strings.Contains(string(out), "msb-boot: outcome=reconnect") {
+		t.Error("stderr line must still fire when telemetry is opted out")
+	}
+
+	logDir := filepath.Join(config.GetConfigDir(), "logs")
+	for _, name := range []string{"msb-boot.log", "msb-telemetry.jsonl"} {
+		if _, serr := os.Stat(filepath.Join(logDir, name)); !os.IsNotExist(serr) {
+			t.Errorf("%s must not exist when telemetry is opted out", name)
+		}
 	}
 }
