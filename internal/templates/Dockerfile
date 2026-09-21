@@ -2,7 +2,7 @@
 FROM debian:trixie-slim
 
 # 1. Create non-root user and install system packages
-RUN useradd -m -s /bin/bash construct && \
+RUN useradd -u 1000 -m -s /bin/bash construct && \
     echo "construct:construct" | chpasswd && \
     apt-get update && apt-get install -y \
     build-essential git curl wget sudo gosu socat bubblewrap xvfb unzip \
@@ -58,7 +58,6 @@ RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     /home/linuxbrew/.linuxbrew/bin/brew --version
 # Prevent Homebrew from auto-updating and compiling Python
 ENV HOMEBREW_NO_AUTO_UPDATE=1
-ENV HOMEBREW_NO_INSTALL_FROM_API=1
 ENV HOMEBREW_NO_ENV_HINTS=1
 # Use standard Linux Homebrew paths for bottle compatibility
 ENV HOMEBREW_CELLAR=/home/linuxbrew/.linuxbrew/Cellar
@@ -80,7 +79,7 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # (PATH tier 1, OUTSIDE the home bind — /home/construct content is shadowed
 # by the persistent bind and must never hold baked state).
 # Network cost hits the BUILD only; guests get block-IO pulls.
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked \
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     brew tap shivammathur/extensions && \
     brew tap shivammathur/php && \
@@ -89,12 +88,12 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked \
       ast-grep yq sd fzf eza fd bat ripgrep jq curl wget tree unzip socat make htop netcat bind sshpass nano lftp tmux btop \
       gh git-lfs git-delta git-cliff rsync procs python-setuptools awscli cmake pkg-config direnv gum rtk \
       go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
-      node python@3 openssl@3 llvm gcc nasm yasm \
+      node python@3.12 python@3 openssl@3 llvm gcc nasm yasm \
       postgresql@16 mysql-client redis sqlite podman podman-compose \
       groovy scala elixir r micropython gleam ocaml swi-prolog \
       golangci-lint golangci-lint-langserver php-cs-fixer prettier shellcheck yamllint \
       yarn pnpm composer neovim gulp-cli ffmpeg \
-      php@8.2 php@8.3 php@8.4 php@8.5 php@8.6 wp-cli tailwindcss \
+      shivammathur/php/php@8.2 shivammathur/php/php@8.3 shivammathur/php/php@8.4 shivammathur/php/php@8.5 shivammathur/php/php@8.6 wp-cli tailwindcss \
       uv pipx vite webpack tlrc ninja gradle fastmod hugo zola \
       EstebanForge/tap/mcp-cli-ent EstebanForge/tap/md-over-here \
       shivammathur/extensions/pcov@8.2 shivammathur/extensions/pcov@8.3 \
@@ -103,14 +102,15 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked \
     # No `|| true`: a failed formula must fail the build (fail visible).
 
 # 3b. Bake remaining dev tooling to SYSTEM paths (root-owned).
-# Ruby gems -> brew ruby's site dir (tier-1 bin); Python tool -> /usr/local
-# (PEP 668 override is build-time only); bun binary -> /usr/local/bun with
-# runtime globals staying in ~/.bun (user tier); mise/asdf binaries baked,
-# their data dirs initialize in-home at runtime (cheap, no network).
+# Ruby gems -> brew ruby's site dir (tier-1 bin); Python tools via pipx ->
+# /usr/local/bin (tier 3, keeps user pipx overrides in $HOME/.local/bin
+# ahead of it); bun binary -> /usr/local/bun with runtime globals staying
+# in ~/.bun (user tier); mise/asdf binaries baked, their data dirs
+# initialize in-home at runtime (cheap, no network).
 USER root
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     gem install jekyll && \
-    pip3 install --break-system-packages litellm && \
+    PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin pipx install litellm && \
     curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/bun bash && \
     ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun && \
     ln -sf /usr/local/bun/bin/bunx /usr/local/bin/bunx && \
@@ -120,10 +120,7 @@ RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     git clone --depth 1 https://github.com/asdf-vm/asdf.git /usr/local/asdf && \
     ln -sf /usr/local/asdf/bin/asdf /usr/local/bin/asdf
 
-# 4. Switch to root to copy scripts to /usr/local/bin
-USER root
-
-# Copy entrypoint scripts
+# Copy entrypoint scripts (still USER root from step 3b)
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
 COPY network-filter.sh /usr/local/bin/network-filter.sh
@@ -156,15 +153,15 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # land them in tier-1 /home/linuxbrew, breaking the tier order.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
-    install -m0755 "$(find "$HOME" -type f -name claude -path '*bin*' | head -1)" /usr/local/bin/claude && \
+    install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
     curl -fsSL https://antigravity.google/cli/install.sh | bash && \
-    install -m0755 "$(find "$HOME" -type f -name agy -path '*bin*' | head -1)" /usr/local/bin/agy && \
+    install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name agy | sort | head -1)" /usr/local/bin/agy && \
     curl -fsSL https://opencode.ai/install | bash && \
-    install -m0755 "$(find "$HOME" -type f -name opencode -path '*bin*' | head -1)" /usr/local/bin/opencode && \
+    install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name opencode | sort | head -1)" /usr/local/bin/opencode && \
     npm install -g --prefix /usr/local @openai/codex && \
     npm install -g --prefix /usr/local @earendil-works/pi-coding-agent && \
     rm -rf "$HOME" && \
-    for c in claude agy opencode codex pi; do command -v "$c" >/dev/null || { echo "agent missing: $c" >&2; exit 1; }; done
+    for c in claude agy opencode codex pi; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
 
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
