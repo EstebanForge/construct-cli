@@ -976,6 +976,10 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	// this literal forces every existing override (computed before this field
 	// existed) to regenerate once, regardless of whether UsernsRemap changed.
 	writeHashString(h, "podman_keepid_userns:1")
+	// Cache key for the construct-packages named-volume removal: existing
+	// overrides still carry the mount and the compose file no longer declares
+	// the volume (compose would abort with an undefined-volume error).
+	writeHashString(h, "construct_packages_volume_removed:1")
 	writeHashString(h, "runtime:%s", inputs.Runtime)
 	writeHashString(h, "uid:%d", inputs.UID)
 	writeHashString(h, "gid:%d", inputs.GID)
@@ -1260,7 +1264,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
-		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 		// Mount global gitignore (read-only) if found on host
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
@@ -1292,7 +1295,6 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/entrypoint-hash.sh:/home/construct/.config/construct-cli/container/entrypoint-hash.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/update-all.sh:/home/construct/.config/construct-cli/container/update-all.sh%s\n", selinuxSuffix)
 		fmt.Fprintf(&override, "      - ~/.config/construct-cli/container/agent-patch.sh:/home/construct/.config/construct-cli/container/agent-patch.sh%s\n", selinuxSuffix)
-		override.WriteString("      - construct-packages:/home/linuxbrew/.linuxbrew\n")
 		// Mount global gitignore (read-only) if found on host
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",

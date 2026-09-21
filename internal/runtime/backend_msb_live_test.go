@@ -118,9 +118,8 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 // output. Reason: the full packages-generated script contains an
 // unguarded `curl -fsSL https://bun.sh/install | bash` plus `set -e`, which
 // aborts the script on the first network blip (msb's default egress
-// policy makes any intermittent 5xx terminal). The Docker path benefits
-// from a pre-warmed construct-packages volume so partial installs are
-// retried across runs; the msb one-shot model has no such retry. The full
+// policy makes any intermittent 5xx terminal). Partial installs are not
+// retried across runs; the full
 // install is therefore Step 7's persistent-sandbox retry loop's problem,
 // not Step 6's. This gate proves the install PATH works (mounts, network,
 // env, entrypoint, npm prefix, host-side persistence) on a tractable

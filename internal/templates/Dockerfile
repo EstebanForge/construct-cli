@@ -27,6 +27,11 @@ RUN useradd -u 1000 -m -s /bin/bash construct && \
 RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" >> /etc/sudoers.d/construct && \
     chmod 0440 /etc/sudoers.d/construct
 
+# Hash-gate dir (root-fs install gate): pre-created owned by construct so
+# non-root runtimes (non_root_strict, rootless podman) can write the gate
+# without the entrypoint's root phase.
+RUN mkdir -p /var/lib/construct-cli && chown construct:construct /var/lib/construct-cli
+
 # 2. Install Homebrew for Linux
 # Why Homebrew instead of relying solely on APT?
 #   1. Up-to-date packages: Debian stable/testing often lags behind latest versions;

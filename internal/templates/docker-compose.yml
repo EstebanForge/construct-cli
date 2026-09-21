@@ -21,10 +21,12 @@ services:
     tty: true
 
     # Persistent volumes for agent installations
+    # NOTE: the former construct-packages named volume is gone — Homebrew
+    # ships baked in the image and named volumes never refresh from image
+    # content after first creation (they would shadow it forever).
     volumes:
       - ${PWD}:${CONSTRUCT_PROJECT_PATH}                                      # Current project
       - ~/.config/construct-cli/home:/home/construct    # Entire home directory (configs, caches, etc.)
-      - construct-packages:/home/linuxbrew/.linuxbrew   # Homebrew packages & agents
 
     # Environment variables
     # NOTE: Keep this PATH list in sync with:
@@ -54,9 +56,3 @@ services:
 
     # Working directory
     working_dir: ${CONSTRUCT_PROJECT_PATH}
-
-    # Named volumes for persistent agent and packages storage
-    # CRITICAL: volumes must be owned by construct user (not root)
-    # This prevents brew/npm permission errors after updates
-volumes:
-  construct-packages:

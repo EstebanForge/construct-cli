@@ -120,7 +120,17 @@ else
 fi
 
 ENTRYPOINT_SCRIPT="/usr/local/bin/entrypoint.sh"
-HASH_FILE="$HOME/.local/.entrypoint_hash"
+# Guest hash gate lives on the root fs (resets on recreate); the bind copy
+# mirrors it for the host CLI. Gate write is best-effort: old images lack
+# /var/lib/construct-cli ownership, the mirror is what the host reads.
+GATE_DIR="/var/lib/construct-cli"
+mkdir -p "$GATE_DIR" 2>/dev/null || true
+if [ -w "$GATE_DIR" ]; then
+    HASH_FILE="$GATE_DIR/.entrypoint_hash"
+else
+    HASH_FILE="$HOME/.local/.entrypoint_hash"
+fi
+MIRROR_FILE="$HOME/.local/.entrypoint_hash"
 USER_INSTALL_SCRIPT="$HOME/.config/construct-cli/container/install_user_packages.sh"
 HASH_UTILS="$HOME/.config/construct-cli/container/entrypoint-hash.sh"
 if [ -f "$HASH_UTILS" ]; then
@@ -130,6 +140,7 @@ fi
 
 if command -v write_entrypoint_hash >/dev/null 2>&1; then
     write_entrypoint_hash "$HASH_FILE" "$ENTRYPOINT_SCRIPT" "$USER_INSTALL_SCRIPT"
+    write_entrypoint_hash "$MIRROR_FILE" "$ENTRYPOINT_SCRIPT" "$USER_INSTALL_SCRIPT" 2>/dev/null || true
 elif [ -f "$ENTRYPOINT_SCRIPT" ]; then
     CURRENT_HASH=$(sha256sum "$ENTRYPOINT_SCRIPT" | awk '{print $1}')
     if [ -f "$USER_INSTALL_SCRIPT" ]; then
@@ -138,6 +149,7 @@ elif [ -f "$ENTRYPOINT_SCRIPT" ]; then
     fi
     mkdir -p "$HOME/.local"
     echo "$CURRENT_HASH" > "$HASH_FILE"
+    echo "$CURRENT_HASH" > "$MIRROR_FILE" 2>/dev/null || true
 fi
 
 echo ""
