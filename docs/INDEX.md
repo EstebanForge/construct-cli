@@ -11,6 +11,9 @@ Complete documentation for The Construct CLI.
 - [Harness Path-Arg Staging](HARNESS-STAGING.md) - Run orchestrator-driven agents (Paseo & co.) inside the sandbox
 - [Using Construct with Agent Harnesses](HARNESSES.md) - Setup guide: shims, daemon mounts, PATH, troubleshooting
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
+- [microVM Plan & Status](VMsv2.md) - microVM hardening plan, phase checkboxes, dogfood numbers
+- [Credential Proxy Design](CREDS-PROXY.md) - Host-side provider-key broker design (phase 5)
+- [TODO](TODO.md) - GA checklist and parked follow-ups
 - [README](../README.md) - Project overview and quick start
 
 ## Getting Started
