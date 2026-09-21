@@ -100,6 +100,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
    - `docs/ARCHITECTURE-DESIGN.md` — Section 5 agent list.
    - `AGENTS.md` — Agent Additions Log (below).
 8. If the agent needs setup commands, add them in `[post_install].commands` in `internal/templates/packages.toml`.
+9. If the agent is BAKED into the image (Dockerfile core-agent layer), add its stale bind-copy paths to the migration table in `GenerateInstallScript` (`internal/config/packages.go`) and increment `bakeMigrationVersion` so existing homes sweep once more.
 9. If the agent requires first-run setup that should not be automated, gate the run in `internal/agent/runner.go` and use a marker file under Construct home (e.g., `~/.config/<agent>/.construct_configured`) to prompt once and record completion.
 
 ### Removing an Agent
