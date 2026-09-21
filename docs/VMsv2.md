@@ -2,7 +2,7 @@
 
 Status: approved direction, phased implementation. Owner: Esteban. Last updated: 2026-08-26 (phase 7 added; skills daemon-recreate gap closed).
 
-Scope: the microVM backend (`backend = "microvm"`, microsandbox SDK v0.6.10) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
+Scope: the microVM backend (`backend = "microvm"`, microsandbox SDK v0.7.2 as of 2026-09-21) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
 
 Provenance: the approach was derived from studying Docker Sandboxes (`sbx`, docs.docker.com/ai/sandboxes) and survived two adversarial peer-review rounds (isolated reviewer sessions). The review history is recorded in section 9. The code comments in `internal/runtime/backend_msb_run.go` cite a `docs/VMs.md` that does not exist in the repo; the shipped design baseline is `docs/ARCHITECTURE-DESIGN.md` section 4.1 plus everything tagged 1.16.2 in `CHANGELOG.md`. This file supersedes those references as the forward plan.
 
@@ -10,7 +10,7 @@ Provenance: the approach was derived from studying Docker Sandboxes (`sbx`, docs
 
 - ONE shared sandbox `construct-cli-daemon` backs all microVM runs. No per-workspace VMs, no per-agent images, no second execution model.
 - One generic image `construct-box:latest` (GHCR). Agents are NOT baked into images. Agents install into the host bind `/home/construct` (`~/.config/construct-cli/home`) via `install_user_packages.sh` generated from `internal/templates/packages.toml`, gated by the `.entrypoint_hash` marker on the same bind.
-- Mounts are create-time only in SDK v0.6.10 (`ModifyOptions` has no mounts field). Changing the mount set always means recreate. There is no hot-add. Do not search for one.
+- Mounts are create-time only in every SDK line tested through v0.7.2 (`ModifyOptions` has no mounts field). Changing the mount set always means recreate. There is no hot-add. Do not search for one.
 - Named sandboxes keep the root disk across stop/start. `Cleanup` (remove) destroys it. brew and apt state lives on the root disk and dies with it. npm and bun agent installs live on the host bind and survive everything.
 - `WithIdleTimeout(0)` and `WithMaxDuration(0)` stay zero forever: an idle REBOOT does not re-run the default workload and kills the daemon model (see comment at `internal/runtime/backend_msb_run.go` in `CreateMsbSandbox`). Idle behavior is implemented host-side (phase 3), never by the SDK idle timeout.
 - Run-path output goes to stderr (`ui.Info*`), never stdout (AGENTS.md "Run-Path Output").
