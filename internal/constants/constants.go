@@ -3,11 +3,15 @@ package constants
 
 // AppName and related constants define CLI identity, paths, and URLs.
 const (
-	AppName          = "construct"
-	ConfigDir        = ".config/construct-cli"
-	ImageName        = "construct-box"
-	DaemonName       = "construct-cli-daemon"
-	Version          = "1.16.4"
+	AppName    = "construct"
+	ConfigDir  = ".config/construct-cli"
+	ImageName  = "construct-box"
+	DaemonName = "construct-cli-daemon"
+	Version    = "1.16.4"
+	// MsbSdkPin mirrors the microsandbox SDK version pinned in go.mod.
+	// The host msb CLI must match exactly (schema migrations are one-way);
+	// `construct sys doctor` compares the host binary against this.
+	MsbSdkPin        = "0.7.2"
 	GithubAPIURL     = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
 	GithubRawURL     = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
 	GithubRawBetaURL = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION-BETA"

@@ -13,9 +13,10 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// prepullImageRef is the GHCR tag the prepuller pulls and re-tags as
-// construct-box:latest (matching EnsureImage's expectation).
-const prepullImageRef = "ghcr.io/estebanforge/construct-box:latest"
+// PrepullImageRef is the GHCR tag the prepuller (and doctor --fix) pull:
+// the full registry ref msb pull needs; the local candidate is re-tagged
+// as construct-box:latest (matching EnsureImage's expectation).
+const PrepullImageRef = "ghcr.io/estebanforge/construct-box:latest"
 
 // prepullLogName is the file under the construct logs dir where the
 // prepuller writes its output. Best-effort: missing logs dir is created.
@@ -89,7 +90,7 @@ func PrepullRun() {
 	}
 
 	logPrepull("prepull started")
-	pull := exec.Command("msb", "pull", prepullImageRef)
+	pull := exec.Command("msb", "pull", PrepullImageRef)
 	pull.Stdout = f
 	pull.Stderr = f
 	if err := pull.Run(); err != nil {

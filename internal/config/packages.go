@@ -128,6 +128,53 @@ func (c *PackagesConfig) SavePackages() error {
 // marker filename embeds it).
 const bakeMigrationVersion = 1
 
+// bakedCopy describes one baked agent's stale pre-bake bind copies.
+type bakedCopy struct {
+	binName  string
+	paths    []string // home-relative
+	keepWhen func(*PackagesConfig) bool
+}
+
+// bakedMigrationTable returns the stale-copy sweep table for cfg. Shared by
+// GenerateInstallScript (guest sweep) and StaleBakedCopyPaths (host-side
+// doctor detection), so both sides always agree on what is stale.
+func bakedMigrationTable() []bakedCopy {
+	return []bakedCopy{
+		{binName: "claude", paths: []string{".local/bin/claude"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "claude.ai/install.sh") }},
+		{binName: "codex", paths: []string{".npm-global/bin/codex", ".npm-global/lib/node_modules/@openai/codex"},
+			keepWhen: func(c *PackagesConfig) bool { return containsNpmPackage(c.Npm.Packages, "@openai/codex") }},
+		{binName: "agy", paths: []string{".local/bin/agy"},
+			keepWhen: func(c *PackagesConfig) bool {
+				return containsSubstr(c.PostInstall.Commands, "antigravity.google/cli/install.sh")
+			}},
+		{binName: "pi", paths: []string{".npm-global/bin/pi", ".npm-global/lib/node_modules/@earendil-works/pi-coding-agent"},
+			keepWhen: func(c *PackagesConfig) bool {
+				return containsNpmPackage(c.Npm.Packages, "@earendil-works/pi-coding-agent")
+			}},
+		{binName: "opencode", paths: []string{".opencode/bin/opencode"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "opencode.ai/install") }},
+	}
+}
+
+// StaleBakedCopyPaths returns the home-relative bind paths the bake
+// migration would remove for cfg — tools NOT re-declared in packages.toml
+// (declared tools are deliberate overrides and are kept). Exported for
+// `construct sys doctor` to detect and clean stale homes host-side.
+func StaleBakedCopyPaths(c *PackagesConfig) []string {
+	if c == nil {
+		c = &PackagesConfig{}
+	}
+	var out []string
+	for _, m := range bakedMigrationTable() {
+		if m.keepWhen(c) {
+			continue
+		}
+		out = append(out, m.paths...)
+	}
+	return out
+}
+
 // containsSubstr reports whether any non-comment entry of list contains
 // needle as a substring (post_install commands are full pipelines, e.g.
 // `curl -fsSL https://claude.ai/install.sh | bash`).
@@ -232,23 +279,6 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	// docs/TODO.md "Image Layering"). packages.toml-declared overrides are
 	// kept; agent config directories are never touched. Runs BEFORE the
 	// user-section installs so an override reinstalls a fresh bind copy.
-	type bakedCopy struct {
-		binName  string
-		paths    []string
-		keepWhen bool
-	}
-	migrations := []bakedCopy{
-		{binName: "claude", paths: []string{"$HOME/.local/bin/claude"},
-			keepWhen: containsSubstr(c.PostInstall.Commands, "claude.ai/install.sh")},
-		{binName: "codex", paths: []string{"$HOME/.npm-global/bin/codex", "$HOME/.npm-global/lib/node_modules/@openai/codex"},
-			keepWhen: containsNpmPackage(c.Npm.Packages, "@openai/codex")},
-		{binName: "agy", paths: []string{"$HOME/.local/bin/agy"},
-			keepWhen: containsSubstr(c.PostInstall.Commands, "antigravity.google/cli/install.sh")},
-		{binName: "pi", paths: []string{"$HOME/.npm-global/bin/pi", "$HOME/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent"},
-			keepWhen: containsNpmPackage(c.Npm.Packages, "@earendil-works/pi-coding-agent")},
-		{binName: "opencode", paths: []string{"$HOME/.opencode/bin/opencode"},
-			keepWhen: containsSubstr(c.PostInstall.Commands, "opencode.ai/install")},
-	}
 	b.WriteString("# Baked-baseline migration (one-shot, version-gated): remove stale\n")
 	b.WriteString("# pre-bake bind copies of tools now baked at /usr/local/bin.\n")
 	b.WriteString("# packages.toml overrides are kept; config dirs are never touched.\n")
@@ -265,13 +295,13 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("            fi\n")
 	b.WriteString("        fi\n")
 	b.WriteString("    }\n")
-	for _, m := range migrations {
-		if m.keepWhen {
+	for _, m := range bakedMigrationTable() {
+		if m.keepWhen(c) {
 			b.WriteString("    echo '  " + m.binName + ": kept (declared in packages.toml)'\n")
 			continue
 		}
 		for _, p := range m.paths {
-			b.WriteString("    remove_baked_copy \"" + p + "\"\n")
+			b.WriteString("    remove_baked_copy \"$HOME/" + p + "\"\n")
 		}
 	}
 	b.WriteString("    if [ -n \"$removed\" ]; then\n")
