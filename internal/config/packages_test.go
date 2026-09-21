@@ -62,6 +62,70 @@ mise = false
 	}
 }
 
+func TestGenerateInstallScriptBakeMigration(t *testing.T) {
+	// Default config sweeps all five baked tools' stale bind copies.
+	script := (&PackagesConfig{}).GenerateInstallScript()
+
+	if !strings.Contains(script, ".construct_bake_migration_v1") {
+		t.Error("Script should be gated by the v1 bake-migration marker")
+	}
+	for _, want := range []string{
+		`remove_baked_copy "$HOME/.local/bin/claude"`,
+		`remove_baked_copy "$HOME/.npm-global/bin/codex"`,
+		`remove_baked_copy "$HOME/.npm-global/lib/node_modules/@openai/codex"`,
+		`remove_baked_copy "$HOME/.local/bin/agy"`,
+		`remove_baked_copy "$HOME/.npm-global/bin/pi"`,
+		`remove_baked_copy "$HOME/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent"`,
+		`remove_baked_copy "$HOME/.opencode/bin/opencode"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("Script should sweep stale copy: %s", want)
+		}
+	}
+	// Config directories must never be sweep targets.
+	for _, forbidden := range []string{
+		`remove_baked_copy "$HOME/.claude`,
+		`remove_baked_copy "$HOME/.codex`,
+		`remove_baked_copy "$HOME/.pi/`,
+		`remove_baked_copy "$HOME/.antigravity`,
+		`remove_baked_copy "$HOME/.config`,
+	} {
+		if strings.Contains(script, forbidden) {
+			t.Errorf("Script must never sweep a config directory: %s", forbidden)
+		}
+	}
+
+	// packages.toml-declared overrides survive: codex re-declared -> its
+	// copies are kept while the other sweeps still run.
+	override := &PackagesConfig{
+		Npm: NpmConfig{Packages: []string{"@openai/codex@latest"}},
+	}
+	script = override.GenerateInstallScript()
+	if strings.Contains(script, `remove_baked_copy "$HOME/.npm-global/bin/codex"`) {
+		t.Error("Script must NOT sweep codex when packages.toml re-declares it (version tag included)")
+	}
+	if !strings.Contains(script, "codex: kept (declared in packages.toml)") {
+		t.Error("Script should note the kept override")
+	}
+	if !strings.Contains(script, `remove_baked_copy "$HOME/.local/bin/claude"`) {
+		t.Error("Script should still sweep undeclared tools")
+	}
+
+	// post_install overrides are substring-matched full command lines.
+	claudeOverride := &PackagesConfig{
+		PostInstall: PostInstallConfig{Commands: []string{
+			"if [ -x \"$HOME/.local/bin/claude\" ]; then echo skip; else curl -fsSL https://claude.ai/install.sh | bash; fi",
+		}},
+	}
+	script = claudeOverride.GenerateInstallScript()
+	if strings.Contains(script, `remove_baked_copy "$HOME/.local/bin/claude"`) {
+		t.Error("Script must NOT sweep claude when post_install re-declares it")
+	}
+	if !strings.Contains(script, "claude: kept (declared in packages.toml)") {
+		t.Error("Script should note the kept claude override")
+	}
+}
+
 func TestGenerateInstallScriptSudoDetection(t *testing.T) {
 	// Apt packages force the privileged path through the user-section loop;
 	// hardcoded system apt blocks were removed (baked into the image).

@@ -123,6 +123,39 @@ func (c *PackagesConfig) SavePackages() error {
 	return nil
 }
 
+// bakeMigrationVersion identifies the baked-tool set this CLI ships. Bump
+// when the image's baked set grows so existing homes sweep once more (the
+// marker filename embeds it).
+const bakeMigrationVersion = 1
+
+// containsSubstr reports whether any non-comment entry of list contains
+// needle as a substring (post_install commands are full pipelines, e.g.
+// `curl -fsSL https://claude.ai/install.sh | bash`).
+func containsSubstr(list []string, needle string) bool {
+	for _, item := range list {
+		trimmed := strings.TrimSpace(item)
+		if strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if strings.Contains(item, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsNpmPackage matches an npm declaration exactly or with a version/
+// tag suffix ("@openai/codex" matches "@openai/codex" and "@openai/codex@latest").
+func containsNpmPackage(list []string, pkg string) bool {
+	for _, item := range list {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == pkg || strings.HasPrefix(trimmed, pkg+"@") {
+			return true
+		}
+	}
+	return false
+}
+
 // GenerateInstallScript generates a bash script to install configured packages.
 func (c *PackagesConfig) GenerateInstallScript() string {
 	var b strings.Builder
@@ -192,6 +225,63 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("    echo \"npm global prefix: $(npm config get prefix 2>/dev/null || echo unknown)\"\n")
 	b.WriteString("else\n")
 	b.WriteString("    echo \"⚠️ npm not found; skipping npm prefix configuration\"\n")
+	b.WriteString("fi\n\n")
+
+	// Baked-baseline migration (one-shot, version-gated): remove stale
+	// pre-bake bind copies of tools now baked at /usr/local/bin (see
+	// docs/TODO.md "Image Layering"). packages.toml-declared overrides are
+	// kept; agent config directories are never touched. Runs BEFORE the
+	// user-section installs so an override reinstalls a fresh bind copy.
+	type bakedCopy struct {
+		binName  string
+		paths    []string
+		keepWhen bool
+	}
+	migrations := []bakedCopy{
+		{binName: "claude", paths: []string{"$HOME/.local/bin/claude"},
+			keepWhen: containsSubstr(c.PostInstall.Commands, "claude.ai/install.sh")},
+		{binName: "codex", paths: []string{"$HOME/.npm-global/bin/codex", "$HOME/.npm-global/lib/node_modules/@openai/codex"},
+			keepWhen: containsNpmPackage(c.Npm.Packages, "@openai/codex")},
+		{binName: "agy", paths: []string{"$HOME/.local/bin/agy"},
+			keepWhen: containsSubstr(c.PostInstall.Commands, "antigravity.google/cli/install.sh")},
+		{binName: "pi", paths: []string{"$HOME/.npm-global/bin/pi", "$HOME/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent"},
+			keepWhen: containsNpmPackage(c.Npm.Packages, "@earendil-works/pi-coding-agent")},
+		{binName: "opencode", paths: []string{"$HOME/.opencode/bin/opencode"},
+			keepWhen: containsSubstr(c.PostInstall.Commands, "opencode.ai/install")},
+	}
+	b.WriteString("# Baked-baseline migration (one-shot, version-gated): remove stale\n")
+	b.WriteString("# pre-bake bind copies of tools now baked at /usr/local/bin.\n")
+	b.WriteString("# packages.toml overrides are kept; config dirs are never touched.\n")
+	fmt.Fprintf(&b, "BAKE_MIGRATION_MARKER=\"$HOME/.local/.construct_bake_migration_v%d\"\n", bakeMigrationVersion)
+	b.WriteString("if [ ! -f \"$BAKE_MIGRATION_MARKER\" ]; then\n")
+	b.WriteString("    echo 'Migrating home to the baked-baseline layout...'\n")
+	b.WriteString("    removed=\"\"\n")
+	b.WriteString("    remove_baked_copy() {\n")
+	b.WriteString("        if [ -e \"$1\" ] || [ -L \"$1\" ]; then\n")
+	b.WriteString("            if rm -rf \"$1\"; then\n")
+	b.WriteString("                removed=\"$removed $1\"\n")
+	b.WriteString("            else\n")
+	b.WriteString("                echo \"⚠️ Failed to remove stale copy: $1\" >&2\n")
+	b.WriteString("            fi\n")
+	b.WriteString("        fi\n")
+	b.WriteString("    }\n")
+	for _, m := range migrations {
+		if m.keepWhen {
+			b.WriteString("    echo '  " + m.binName + ": kept (declared in packages.toml)'\n")
+			continue
+		}
+		for _, p := range m.paths {
+			b.WriteString("    remove_baked_copy \"" + p + "\"\n")
+		}
+	}
+	b.WriteString("    if [ -n \"$removed\" ]; then\n")
+	b.WriteString("        echo \"  Removed stale pre-bake copies:$removed\"\n")
+	b.WriteString("        echo \"  These tools now come from the image at /usr/local/bin.\"\n")
+	b.WriteString("    else\n")
+	b.WriteString("        echo '  No stale pre-bake copies found.'\n")
+	b.WriteString("    fi\n")
+	b.WriteString("    mkdir -p \"$HOME/.local\"\n")
+	b.WriteString("    touch \"$BAKE_MIGRATION_MARKER\"\n")
 	b.WriteString("fi\n\n")
 
 	b.WriteString("echo 'Installing Bun...'\n")
