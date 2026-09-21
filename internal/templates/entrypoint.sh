@@ -461,7 +461,14 @@ if [ -f "$FORCE_FILE" ]; then
     rm -f "$FORCE_FILE"
 fi
 
+# Install-phase instrumentation: measured across the gate decision so
+# skipped boots record install_ran=0. Written to the bind (host/matrix
+# visible) and echoed for session logs (docs/TODO.md "Instrumentation").
+INSTALL_PHASE_START=$(date +%s)
+INSTALL_RAN=0
+
 if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
+    INSTALL_RAN=1
     echo "🔧 Setup detected (First run or Update) - installing tools..."
     echo "   This might take a few minutes..."
     echo ""
@@ -515,9 +522,18 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     # /usr/local/bin and never appear in the bind's .local/bin).
     mkdir -p "$HOME/.local"
     touch "$HOME/.local/.construct_setup_complete"
+    INSTALL_PHASE_SEC=$(( $(date +%s) - INSTALL_PHASE_START ))
     echo ""
     echo "✅ Setup complete! Environment ready."
 fi
+
+# Install-phase record (always written; 0/ran=0 when the gate skipped;
+# best-effort — instrumentation must never fail the boot).
+INSTALL_PHASE_SEC=${INSTALL_PHASE_SEC:-0}
+if mkdir -p "$HOME/.local" 2>/dev/null; then
+	printf 'install_ran=%d phase=%d\n' "$INSTALL_RAN" "$INSTALL_PHASE_SEC" > "$HOME/.local/.construct_install_phase" 2>/dev/null || true
+fi
+echo "entrypoint_install_phase_sec=$INSTALL_PHASE_SEC"
 
 # Configure shell environment (aliases, prompt, etc.)
 setup_shell_environment() {
