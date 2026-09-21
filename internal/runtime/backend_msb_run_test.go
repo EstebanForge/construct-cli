@@ -666,3 +666,23 @@ func TestMsbTelemetryOptOut(t *testing.T) {
 		}
 	}
 }
+
+// TestMsbTelemetryUnwritableDir verifies that telemetry degrades gracefully
+// without panicking when the logs directory cannot be created or written to.
+func TestMsbTelemetryUnwritableDir(t *testing.T) {
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	// Make the config dir read-only so logs/ cannot be created.
+	cfgDir := config.GetConfigDir()
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	if err := os.Chmod(cfgDir, 0o500); err != nil {
+		t.Fatalf("chmod config: %v", err)
+	}
+	defer os.Chmod(cfgDir, 0o755) // restore for cleanup
+
+	// Should not panic or fail
+	msbLogBoot(nil, msbBootRecreate, time.Now(), "unwritable test", 1)
+}
