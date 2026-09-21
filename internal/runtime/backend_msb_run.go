@@ -11,6 +11,7 @@ import (
 	goruntime "runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -555,8 +556,8 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				bootOutcome = msbBootRecreate
 				bootReason = reason
 				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", reason)
-				_ = h.Stop(ctx)                   //nolint:errcheck // best-effort stop before recreate
-				_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // best-effort cleanup before recreate
+				_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort stop before recreate
+				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
 				goto create
 			}
 		}
@@ -819,17 +820,23 @@ type msbTelemetryEvent struct {
 // msbHostVersion is the source for the telemetry msb_version field. One
 // cheap exec per boot event; failures degrade to "unknown" — skew
 // debugging needs the field present, never the run to fail.
-var msbHostVersion = func() string {
-	cmd := exec.Command("msb", "--version")
+// msbHostVersion is the source for the telemetry msb_version field.
+// Memoized per process: at most one exec per construct invocation, and
+// bounded by the 2s context timeout. Failures degrade to "unknown" — skew
+// debugging needs the field present, never the run to fail.
+var msbHostVersion = sync.OnceValue(func() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "msb", "--version")
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
 	out, err := cmd.Output()
 	if err != nil {
 		return "unknown"
 	}
-	// `msb --version` prints "msb 0.6.15"; keep just the semver so the
+	// `msb --version` prints "msb 0.7.2"; keep just the semver so the
 	// JSONL field parses without string surgery downstream.
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), "msb ")
-}
+})
 
 // telemetryEnabled reports whether local telemetry file collection is on.
 // A nil config means defaults, and telemetry defaults to true (opt-out).
@@ -844,7 +851,8 @@ func telemetryEnabled(cfg *config.Config) bool {
 //
 // Locally it also appends two artifacts under <config>/logs/, both gated
 // by [runtime] telemetry (default true, local-only by design — nothing is
-// ever sent over the network):
+// ever sent over the network). Both files are size-capped (truncated at
+// 5 MB) so telemetry cannot grow without bound:
 //   - msb-boot.log: the same line RFC3339-stamped (dogfood P0 greps)
 //   - msb-telemetry.jsonl: one canonical wide event per boot with the
 //     environment context (construct + host msb versions, os/arch) so a
@@ -865,8 +873,18 @@ func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason stri
 	// P0). Without the append the medians are uncollectable.
 	logDir := filepath.Join(config.GetConfigDir(), "logs")
 	//nolint:errcheck // telemetry is best-effort; appends below degrade to no-ops
-	_ = os.MkdirAll(logDir, 0o755)
-	if f, err := os.OpenFile(filepath.Join(logDir, "msb-boot.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+	_ = os.MkdirAll(logDir, 0o700)
+
+	capLogSize := func(path string) {
+		if st, err := os.Stat(path); err == nil && st.Size() > 5*1024*1024 {
+			//nolint:errcheck // best-effort telemetry
+			_ = os.Rename(path, path+".1") // rotate: keep the last 5MB as <name>.1
+		}
+	}
+
+	bootLogPath := filepath.Join(logDir, "msb-boot.log")
+	capLogSize(bootLogPath)
+	if f, err := os.OpenFile(bootLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 		//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
 		fmt.Fprintf(f, "%s msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
 			time.Now().Format(time.RFC3339), outcome, seconds, rootCount, reason)
@@ -887,9 +905,11 @@ func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason stri
 		Roots:            rootCount,
 		Reason:           reason,
 	}); err == nil {
-		if f, ferr := os.OpenFile(filepath.Join(logDir, "msb-telemetry.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); ferr == nil {
+		telemetryPath := filepath.Join(logDir, "msb-telemetry.jsonl")
+		capLogSize(telemetryPath)
+		if f, ferr := os.OpenFile(telemetryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); ferr == nil {
 			//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
-			fmt.Fprintf(f, "%s\n", ev)
+			_, _ = f.Write(append(ev, '\n'))
 			//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
 			_ = f.Close()
 		}

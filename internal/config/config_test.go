@@ -593,4 +593,12 @@ func TestDefaultConfigTelemetryEnabled(t *testing.T) {
 	if !cfg.Runtime.Telemetry {
 		t.Error("Expected default telemetry to be true (opt-out, local-only)")
 	}
+
+	// Verify that a missing key in TOML retains the true default.
+	if err := toml.Unmarshal([]byte(""), &cfg); err != nil {
+		t.Fatalf("unmarshal empty config: %v", err)
+	}
+	if !cfg.Runtime.Telemetry {
+		t.Error("Expected telemetry to remain true after unmarshaling missing key")
+	}
 }
