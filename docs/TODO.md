@@ -280,7 +280,7 @@ Verdict: adopt-with-changes. 3 blockers, 4 majors, 3 minors, 1 note — all fold
 
 # TODO: Sys Doctor — Automated Migration (`construct sys doctor [--fix]`)
 
-Status: DESIGNED (2026-09-21). Ships in the SAME CLI release as the Image Layering bake and the `construct-packages` volume removal — the migration it automates only makes sense in that release, and the volume removal MUST NOT ship before the baked image is published on GHCR (otherwise compose drops the volume before the image carries brew). Doctor is the user-facing migration vehicle; the manual release-note steps are the fallback.
+Status: IMPLEMENTED (2026-09-21). Correction to the original design: `construct sys doctor` already existed (health checks + --fix); task 22 EXTENDED it with the migration checks rather than building from scratch. Check 7 (old hash-marker orphan) is SUPERSEDED: task 20 repurposed the bind-side `.entrypoint_hash` as the host mirror, so no orphan exists. Shipped checks: Stale Packages Volume (docker/podman, unreferenced-only rm), Baked Agent Bind Copies (host-side detection via config.StaleBakedCopyPaths, --fix removes host-side), Baked Image Freshness (msb, --fix = bounded 10m msb pull), Host CLI/SDK Skew (msb --version vs constants.MsbSdkPin, report-only). Plus --json (machine-readable, header suppressed) and exit 1 on errors for CI gating. Sequencing rule stands: the volume removal must not ship before the baked image is on GHCR.
 
 ## CLI shape
 

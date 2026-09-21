@@ -1366,3 +1366,33 @@ func TestCheckSkillsOverrideFootgun(t *testing.T) {
 		})
 	}
 }
+
+func TestLastVersionToken(t *testing.T) {
+	cases := map[string]string{
+		"msb 0.7.2":               "0.7.2",
+		"msb version 0.7.2":       "0.7.2",
+		"":                        "",
+		"no version here":         "",
+		"msb 0.7.2 (build 1.2.3)": "0.7.2", // first match wins
+	}
+	for input, want := range cases {
+		if got := lastVersionToken(input); got != want {
+			t.Errorf("lastVersionToken(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestIsStalePackagesVolumeName(t *testing.T) {
+	yes := []string{"construct-packages", "container_construct-packages", " myproj_construct-packages "}
+	no := []string{"", "my-construct-packages-extra", "construct-packages-old", "other"}
+	for _, name := range yes {
+		if !isStalePackagesVolumeName(name) {
+			t.Errorf("isStalePackagesVolumeName(%q) = false, want true", name)
+		}
+	}
+	for _, name := range no {
+		if isStalePackagesVolumeName(name) {
+			t.Errorf("isStalePackagesVolumeName(%q) = true, want false", name)
+		}
+	}
+}

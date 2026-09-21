@@ -3,8 +3,10 @@ package doctor
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
@@ -38,19 +41,19 @@ const (
 
 // CheckResult represents the result of a single diagnostic check
 type CheckResult struct {
-	Name       string
-	Status     CheckStatus
-	Message    string
-	Details    []string // Additional context lines
-	Suggestion string   // How to fix if failed
+	Name       string      `json:"name"`
+	Status     CheckStatus `json:"status"`
+	Message    string      `json:"message"`
+	Details    []string    `json:"details,omitempty"`
+	Suggestion string      `json:"suggestion,omitempty"`
 }
 
 // Report contains all health check results.
 type Report struct {
-	Checks      []CheckResult
-	Summary     string
-	HasErrors   bool
-	HasWarnings bool
+	Checks      []CheckResult `json:"checks"`
+	Summary     string        `json:"summary"`
+	HasErrors   bool          `json:"has_errors"`
+	HasWarnings bool          `json:"has_warnings"`
 }
 
 var execCombinedOutput = func(name string, args ...string) ([]byte, error) {
@@ -137,23 +140,36 @@ func constructHomeDir() string {
 
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
-	fmt.Println()
-	if ui.GumAvailable() {
-		cmd := ui.GetGumCommand("style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
-		cmd.Stdout = os.Stdout
-		if err := cmd.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
+	// Parse flags first: --json suppresses the human header/banner.
+	jsonRequested := false
+	for _, arg := range args {
+		if arg == "--json" {
+			jsonRequested = true
+			break
 		}
-	} else {
-		fmt.Println("=== The Construct Doctor ===")
 	}
-	fmt.Println()
+	if !jsonRequested {
+		fmt.Println()
+		if ui.GumAvailable() {
+			cmd := ui.GetGumCommand("style", "--border", "rounded", "--padding", "1 2", "--bold", "The Construct Doctor")
+			cmd.Stdout = os.Stdout
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render header: %v\n", err)
+			}
+		} else {
+			fmt.Println("=== The Construct Doctor ===")
+		}
+		fmt.Println()
+	}
 
 	checks := make([]CheckResult, 0, 15)
 	fixRequested := false
 	for _, arg := range args {
-		if arg == "--fix" {
+		switch arg {
+		case "--fix":
 			fixRequested = true
+		case "--json":
+			jsonRequested = true
 		}
 	}
 
@@ -724,6 +740,23 @@ func Run(args ...string) {
 	}
 	checks = append(checks, entrypointCheck)
 
+	// 11b. Stale Packages Volume (bake migration): the named volume is gone
+	// from compose; existing installs keep a stale, unmounted copy.
+	checks = append(checks, checkStalePackagesVolume(fixRequested, runtimeName))
+
+	// 11c. Baked Agent Bind Copies (bake migration): pre-bake copies in the
+	// home bind shadow the baked binaries by PATH. The in-guest sweep clears
+	// them on next init; --fix cleans host-side immediately.
+	checks = append(checks, checkBakedAgentBindCopies(fixRequested))
+
+	// 11d. Baked Image Freshness (microvm only): freshness vs GHCR is not
+	// cheaply detectable; --fix runs a bounded best-effort msb pull.
+	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested))
+
+	// 11e. Host CLI/SDK Skew (microvm only): the host msb binary must match
+	// the SDK pin exactly (schema migrations are one-way).
+	checks = append(checks, checkSdkSkew(msbBackend))
+
 	// 12. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
@@ -861,12 +894,44 @@ func Run(args ...string) {
 		checks = append(checks, hostExecCheck)
 	}
 
-	// Print Report
+	// Summarize + emit report
+	hasErrors, hasWarnings := false, false
 	for _, check := range checks {
-		printCheckResult(check)
+		switch check.Status {
+		case CheckStatusError:
+			hasErrors = true
+		case CheckStatusWarning:
+			hasWarnings = true
+		}
+	}
+	doctorTelemetry(cfg, fixRequested, len(checks), hasErrors, hasWarnings)
+
+	if jsonRequested {
+		report := Report{Checks: checks, HasErrors: hasErrors, HasWarnings: hasWarnings}
+		if hasErrors {
+			report.Summary = "issues found"
+		} else if hasWarnings {
+			report.Summary = "warnings found"
+		} else {
+			report.Summary = "all checks passed"
+		}
+		data, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "doctor: json marshal failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(data))
+	} else {
+		for _, check := range checks {
+			printCheckResult(check)
+		}
+		fmt.Println()
 	}
 
-	fmt.Println()
+	// Exit 1 on errors so scripts/CI can gate on doctor (warnings stay 0).
+	if hasErrors {
+		os.Exit(1)
+	}
 }
 
 // msbBackendCheck verifies the microsandbox backend prerequisites
@@ -934,6 +999,294 @@ func msbBackendCheck() CheckResult {
 		check.Details = append(check.Details, "msb doctor: host setup ready")
 	}
 	return check
+}
+
+// checkStalePackagesVolume detects stale construct-packages named volumes
+// left by pre-bake installs. The volume is gone from compose; an existing
+// copy is unmounted dead weight that would shadow the baked Homebrew if it
+// were ever re-declared. --fix removes unreferenced copies.
+func checkStalePackagesVolume(fix bool, resolvedRuntime string) CheckResult {
+	check := CheckResult{Name: "Stale Packages Volume"}
+	engine := resolvedRuntime
+	if engine != "docker" && engine != "podman" && engine != "container" {
+		// msb backend blanks the runtime; the stale volume may still live in
+		// a docker/podman daemon on this host (engine switchers).
+		if _, err := exec.LookPath("docker"); err == nil {
+			engine = "docker"
+		} else if _, err := exec.LookPath("podman"); err == nil {
+			engine = "podman"
+		} else {
+			check.Status = CheckStatusSkipped
+			check.Message = "No container runtime CLI found"
+			return check
+		}
+	}
+
+	out, err := execCombinedOutput(engine, "volume", "ls", "--format", "{{.Name}}")
+	if err != nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "Could not list volumes"
+		check.Details = append(check.Details, strings.TrimSpace(string(out)))
+		return check
+	}
+
+	var stale []string
+	for _, name := range strings.Split(string(out), "\n") {
+		name = strings.TrimSpace(name)
+		if !isStalePackagesVolumeName(name) {
+			continue
+		}
+		// Referenced check: any container (running or stopped) using it?
+		// Fail closed: an inspection error must not mark it unreferenced.
+		psOut, psErr := execCombinedOutput(engine, "ps", "-a", "--filter", "volume="+name, "--format", "{{.ID}}")
+		if psErr != nil {
+			check.Details = append(check.Details, fmt.Sprintf("%s: could not check references (%v), skipping", name, psErr))
+			continue
+		}
+		if strings.TrimSpace(string(psOut)) != "" {
+			check.Details = append(check.Details, fmt.Sprintf("%s: still referenced by a container, skipping", name))
+			continue
+		}
+		stale = append(stale, name)
+	}
+
+	if len(stale) == 0 {
+		check.Status = CheckStatusOK
+		check.Message = "No stale construct-packages volume"
+		return check
+	}
+
+	if !fix {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("Stale volume(s) from the pre-bake layout: %s", strings.Join(stale, ", "))
+		check.Suggestion = "Run 'construct sys doctor --fix' to remove them"
+		return check
+	}
+
+	var removed []string
+	var failures []string
+	for _, name := range stale {
+		if rmOut, rmErr := execCombinedOutput(engine, "volume", "rm", name); rmErr != nil {
+			failures = append(failures, fmt.Sprintf("%s: %s", name, strings.TrimSpace(string(rmOut))))
+			continue
+		}
+		removed = append(removed, name)
+	}
+	check.Details = append(check.Details, fmt.Sprintf("Removed: %s", strings.Join(removed, ", ")))
+	if len(failures) > 0 {
+		check.Status = CheckStatusWarning
+		check.Message = "Some stale volumes could not be removed"
+		check.Details = append(check.Details, failures...)
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Removed stale volume(s): %s", strings.Join(removed, ", "))
+	return check
+}
+
+// checkBakedAgentBindCopies detects pre-bake agent binaries in the home bind
+// that would shadow the baked /usr/local/bin copies by PATH. Shares the
+// sweep table with the guest installer (config.StaleBakedCopyPaths), so
+// packages.toml-declared overrides are respected. --fix removes them
+// host-side (same files the guest bind exposes).
+func checkBakedAgentBindCopies(fix bool) CheckResult {
+	check := CheckResult{Name: "Baked Agent Bind Copies"}
+	homeDir := constructHomeDir()
+	if homeDir == "" {
+		check.Status = CheckStatusSkipped
+		check.Message = "Config directory unavailable"
+		return check
+	}
+	pkgCfg, err := config.LoadPackages()
+	if err != nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "packages.toml unavailable; cannot resolve overrides"
+		check.Details = append(check.Details, err.Error())
+		return check
+	}
+
+	var present []string
+	for _, rel := range config.StaleBakedCopyPaths(pkgCfg) {
+		full := filepath.Join(homeDir, filepath.FromSlash(rel))
+		if _, err := os.Lstat(full); err == nil {
+			present = append(present, rel)
+		}
+	}
+	if len(present) == 0 {
+		check.Status = CheckStatusOK
+		check.Message = "No stale pre-bake copies in home bind"
+		return check
+	}
+
+	if !fix {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("%d stale pre-bake copy(ies) shadow the baked agents", len(present))
+		check.Details = append(check.Details, present...)
+		check.Suggestion = "Run 'construct sys doctor --fix' to remove them (configs are never touched)"
+		return check
+	}
+
+	var removed []string
+	var failures []string
+	for _, rel := range present {
+		full := filepath.Join(homeDir, filepath.FromSlash(rel))
+		if err := os.RemoveAll(full); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", rel, err))
+			continue
+		}
+		removed = append(removed, rel)
+	}
+	check.Details = append(check.Details, fmt.Sprintf("Removed: %s", strings.Join(removed, ", ")))
+	if len(failures) > 0 {
+		check.Status = CheckStatusWarning
+		check.Message = "Some stale copies could not be removed"
+		check.Details = append(check.Details, failures...)
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Removed %d stale pre-bake copy(ies); agents now resolve to /usr/local/bin", len(removed))
+	return check
+}
+
+// checkBakedImageFreshness verifies the local construct-box image is present
+// (microvm only). Remote-digest comparison is not cheaply available, so the
+// default status is informational; --fix runs a bounded best-effort msb pull
+// (prepull-style: exit-0 no-op when already current).
+func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
+	check := CheckResult{Name: "Baked Image Freshness"}
+	if !msbBackend {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend is not microvm)"
+		return check
+	}
+	imageRef := runtimepkg.PrepullImageRef
+	if _, err := exec.LookPath("msb"); err != nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "msb binary not found"
+		return check
+	}
+	if !fix {
+		check.Status = CheckStatusSkipped
+		check.Message = "Local image present; remote freshness not checked"
+		check.Suggestion = "Run 'construct sys doctor --fix' to pull the latest baked image (bounded, best-effort)"
+		return check
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "msb", "pull", runtimepkg.PrepullImageRef)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs
+	out, err := cmd.CombinedOutput()
+	if ctx.Err() == context.DeadlineExceeded {
+		check.Status = CheckStatusWarning
+		check.Message = "Image pull timed out after 10m (run again later)"
+		return check
+	}
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Image pull failed (kept local image)"
+		check.Details = append(check.Details, strings.TrimSpace(string(out)))
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Image %s up to date (pull completed)", imageRef)
+	return check
+}
+
+// checkSdkSkew compares the host msb CLI version against the SDK pin
+// (constants.MsbSdkPin, mirrors go.mod). Mismatch = schema-lockstep risk;
+// report-only by design: upgrading the host binary is a manual decision.
+func checkSdkSkew(msbBackend bool) CheckResult {
+	check := CheckResult{Name: "Host CLI/SDK Skew"}
+	if !msbBackend {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend is not microvm)"
+		return check
+	}
+	if _, err := exec.LookPath("msb"); err != nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "msb binary not found"
+		return check
+	}
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	cmd := exec.CommandContext(ctx2, "msb", "--version")
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs
+	out, err := cmd.Output()
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Could not read msb version"
+		check.Suggestion = fmt.Sprintf("Host msb must match the SDK pin (%s)", constants.MsbSdkPin)
+		return check
+	}
+	host := lastVersionToken(string(out))
+	if host == "" {
+		check.Status = CheckStatusWarning
+		check.Message = "Could not parse msb version"
+		check.Details = append(check.Details, strings.TrimSpace(string(out)))
+		return check
+	}
+	if host != constants.MsbSdkPin {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("Host msb %s != embedded SDK pin %s", host, constants.MsbSdkPin)
+		check.Details = append(check.Details, "Schema migrations between msb versions are one-way; lockstep is required")
+		check.Suggestion = "Upgrade the host msb CLI to the pinned version (see docs/VMsv2.md)"
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Host msb matches SDK pin (%s)", host)
+	return check
+}
+
+// lastVersionToken extracts the first x.y.z token from msb --version
+// output ("msb 0.7.2" -> "0.7.2"). First, not last: build metadata could
+// append further dotted tokens.
+func lastVersionToken(output string) string {
+	re := regexp.MustCompile(`\d+\.\d+\.\d+`)
+	match := re.FindString(output)
+	return match
+}
+
+// isStalePackagesVolumeName matches the compose-named volume and its
+// project-prefixed form (<project>_construct-packages) without matching
+// unrelated names that merely contain the fragment.
+func isStalePackagesVolumeName(name string) bool {
+	name = strings.TrimSpace(name)
+	return name == "construct-packages" || strings.HasSuffix(name, "_construct-packages")
+}
+
+// doctorTelemetry appends one canonical wide event per doctor run to
+// logs/doctor-telemetry.jsonl (best-effort; never fails the run).
+func doctorTelemetry(cfg *config.Config, fix bool, checkCount int, hasErrors, hasWarnings bool) {
+	// Respect [runtime].telemetry = false (same gate as msb-boot telemetry).
+	if cfg != nil && !cfg.Runtime.Telemetry {
+		return
+	}
+	logDir := config.GetLogsDir()
+	if logDir == "" {
+		return
+	}
+	ev := map[string]interface{}{
+		"time":         time.Now().UTC().Format(time.RFC3339),
+		"event":        "doctor",
+		"fix":          fix,
+		"checks":       checkCount,
+		"has_errors":   hasErrors,
+		"has_warnings": hasWarnings,
+	}
+	data, err := json.Marshal(ev)
+	if err != nil {
+		return
+	}
+	telemetryPath := filepath.Join(logDir, "doctor-telemetry.jsonl")
+	f, ferr := os.OpenFile(telemetryPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if ferr != nil {
+		return
+	}
+	//nolint:errcheck // telemetry is best-effort
+	_, _ = f.Write(append(data, '\n'))
+	//nolint:errcheck // telemetry is best-effort
+	_ = f.Close()
 }
 
 func runtimeVersion(runtimeName string) string {
