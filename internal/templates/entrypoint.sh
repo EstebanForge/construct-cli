@@ -106,6 +106,12 @@ if [ "$(id -u)" = "0" ]; then
         setcap cap_net_bind_service+ep /usr/bin/socat 2>/dev/null || true
     fi
 
+    # Hash-gate dir: the entrypoint install gate lives on the guest ROOT
+    # filesystem (resets on recreate, so declared packages re-provision).
+    # Prepared here as root so the construct-phase can write it; the
+    # construct phase falls back to the bind when unwritable (rootless).
+    mkdir -p /var/lib/construct-cli 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli 2>/dev/null || true
+
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
     # In remapped-userns mode keep namespace root to avoid host ownership drift.
@@ -420,7 +426,17 @@ ensure_ssh_config
 # Check if we need to run installation (First run or Script update)
 # We use the script hash plus install script hash to determine if a re-run is needed.
 USER_INSTALL_SCRIPT="/home/construct/.config/construct-cli/container/install_user_packages.sh"
-HASH_FILE="/home/construct/.local/.entrypoint_hash"
+# Hash gate: lives on the guest ROOT filesystem so it resets on recreate
+# (declared packages re-provision after recreate). Falls back to the bind
+# when /var/lib is not writable (rootless runtimes). The bind copy at
+# $HOME/.local is a MIRROR the host CLI reads to skip redundant setup boots.
+GATE_DIR="/var/lib/construct-cli"
+mkdir -p "$GATE_DIR" 2>/dev/null || true
+if [ ! -w "$GATE_DIR" ]; then
+    GATE_DIR="$HOME/.local"
+fi
+HASH_FILE="$GATE_DIR/.entrypoint_hash"
+MIRROR_FILE="$HOME/.local/.entrypoint_hash"
 HASH_UTILS="/home/construct/.config/construct-cli/container/entrypoint-hash.sh"
 if [ -f "$HASH_UTILS" ]; then
     # shellcheck source=/dev/null
@@ -485,11 +501,13 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
         echo "⚠️  Agent patch script not found at $PATCH_SCRIPT; skipping patching"
     fi
 
-    # Update hash file
+    # Update hash gate (root fs) + bind mirror (host CLI reads this)
     if command -v write_entrypoint_hash >/dev/null 2>&1; then
         write_entrypoint_hash "$HASH_FILE" "$0" "$USER_INSTALL_SCRIPT"
+        write_entrypoint_hash "$MIRROR_FILE" "$0" "$USER_INSTALL_SCRIPT" 2>/dev/null || true
     else
         echo "$CURRENT_HASH" > "$HASH_FILE"
+        echo "$CURRENT_HASH" > "$MIRROR_FILE" 2>/dev/null || true
     fi
 
     # Bind-side setup-completion marker: the host CLI's AreAgentsInstalled
