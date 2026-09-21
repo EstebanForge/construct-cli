@@ -13,6 +13,7 @@ Complete documentation for The Construct CLI.
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [microVM Plan & Status](VMsv2.md) - microVM hardening plan, phase checkboxes, dogfood numbers
 - [Credential Proxy Design](CREDS-PROXY.md) - Host-side provider-key broker design (phase 5)
+- [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - PENDING: sentinel substitution + egress proxy, design and peer review done
 - [TODO](TODO.md) - GA checklist and parked follow-ups
 - [README](../README.md) - Project overview and quick start
 
