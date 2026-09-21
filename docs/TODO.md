@@ -210,7 +210,43 @@ Existing home binds carry agent copies installed under the old model — those w
 ## Build requirements
 
 - STRIP the baked set from `GenerateInstallScript()` — it currently hardcodes `apt-get update && apt-get install`, the Bun installer, brew `imagemagick`/`topgrade`/`libgit2`, and `cargo-update` (`internal/config/packages.go` ~176-256). Left in, every hash-change boot re-runs network installs and the <5 s goal dies. Post-bake, the installer emits ONLY packages.toml-defined items.
-- REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines; ship a migration note telling existing docker users to delete the stale volume.
+- REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines.
+  - COMPANION FIX (required, same PR): relocate the installer hash marker out of the home bind. Today `HASH_FILE=/home/construct/.local/.entrypoint_hash` (`entrypoint.sh:423`) lives on the bind, so a recreate with unchanged hash skips the installer entirely — with the volume gone, declared `[brew]`/`[apt]` packages would then be lost on every recreate. Move the marker to the root filesystem (e.g. `/var/lib/construct-cli/.entrypoint_hash`): it then resets per root-disk lifetime, so the installer re-runs exactly once after each recreate. Post-bake that re-run is a near-no-op (existence guards skip everything installed) — seconds, and it re-provisions user-declared packages. Routine stop/start still skips (root persists).
+
+  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`):
+
+  ```text
+  Docker users: one-time cleanup after upgrading
+
+  Construct no longer mounts the construct-packages volume. Homebrew now
+  ships inside the image, identical on the Docker and microVM engines.
+
+  1. (Recommended, before upgrading) If you installed Homebrew packages
+     manually inside the container, list them:
+
+         docker compose exec construct brew list
+
+     Add anything you need to packages.toml [brew]. Declared packages
+     re-provision automatically after every container recreate.
+
+  2. Upgrade construct and run it once; the container rebuilds with the
+     baked image.
+
+  3. Delete the orphaned volume (find the exact name first):
+
+         docker volume ls | grep construct-packages
+         docker volume rm <project>_construct-packages
+
+     Skipping this is harmless — the volume is unused — but it keeps
+     consuming disk.
+
+  4. Verify: docker compose exec construct brew --version
+
+  Note: packages installed manually inside the container (not declared in
+  packages.toml) no longer survive a container recreate. This matches the
+  microVM engine, where the root disk resets on recreate. Declare what you
+  need; it comes back on its own.
+  ```
 - REMOVE the baked-agent update commands from `GenerateTopgradeConfig()` (`claude update`, `pi update --all`, `agy update`) and their fallback loops in `update-all.sh`: as the construct user they either fail with EACCES on root-owned `/usr/local/bin` or silently redirect to `$HOME/.local/bin`, creating a rogue shadowing bind copy.
 - BuildKit cache mounts for `apt`, `npm`, and Homebrew caches (CI + docker-backend local build speed)
 - Layer order by churn: OS/apt → brew core → static binaries → language runtimes → core agents LAST (pull progress + cache reuse)
