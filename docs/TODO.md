@@ -216,3 +216,53 @@ Existing home binds carry agent copies installed under the old model at `/home/c
 - msb store garbage collection (keep `latest` + active images) — probe leftovers already demonstrated store growth
 - Refresh mechanism for cached images on existing installs (digest-check in `EnsureImage` or `construct sys image refresh`)
 - Unify `construct sys update` across engines (currently compose-only, fails closed on microvm)
+
+---
+
+# TODO: Idle-Window Package Updater (silent, background)
+
+Status: DESIGNED (2026-09-21), sequenced AFTER the Image Layering bake (the updater manages the optional layer; the baked baseline is image-cadence and must be excluded from it). Peer review of the mechanism: Agy round on the image-layering proposal endorsed the idle-window approach over scheduled timers (a fixed daily schedule would boot a stopped daemon, defeating `idle_stop_minutes`, and burn bandwidth on metered links).
+
+## Decision
+
+Package updates for the sandbox run inside the daemon's idle window — the dead time between the last session ending and the idle watcher stopping the VM. Default on: `daemon.auto_update_packages = true` (opt out for metered or air-gapped machines). No cron, no guest systemd, no host timer: the daemon's own lifecycle is the scheduler.
+
+## Mechanism
+
+1. Idle watcher arms after the last session unregisters (existing behavior).
+2. NEW: when the watcher's wait elapses with zero sessions, it runs the updater BEFORE stopping the daemon: `update-all.sh` (bind layer: optional agents + user packages) then the generated topgrade config (root-disk user additions), bounded by a 30-minute hard timeout, output appended to `logs/update.log` + one telemetry line (`update outcome=ok|failed duration=N`).
+3. Daemon stops as usual afterwards. A session arriving mid-update is unaffected — updates are additive installs; the stop waits for the update child to finish (bounded).
+4. Failures are best-effort: logged, retried at the next idle window, never surfaced as run errors.
+
+## Update scope
+
+| Layer | Updated in-guest? | Why |
+|---|---|---|
+| Bind layer (optional agents from `packages.toml`, user installs) | YES — `update-all.sh` | Home bind persists; updates survive everything |
+| Root-disk user additions (apt/brew the user added) | YES — generated topgrade config | Survives stop/start; a recreate resets to the baked floor (self-healing, deterministic) |
+| Baked baseline (dev packages + core agents at `/usr/local/bin`) | NEVER in-guest | A recreate reverts to the image anyway — in-guest updates would be pure churn. Baked tools move on the image lane (GHCR push) |
+
+The topgrade pass must EXCLUDE the baked set (generated config carries the exclusion list) or it burns bandwidth diverging from the image.
+
+## Safety rails
+
+- 30-minute hard timeout on the whole update pass
+- Best-effort: failures logged + retried next window; never block or break an agent run
+- Zero-session precondition: never runs while a session is live; a session arriving mid-update coexists (additive installs)
+- Flag: `daemon.auto_update_packages = true` default; `false` disables entirely
+- Known caveat: some agent CLIs self-update (Claude Code by default) — if double-update loops appear, exclude self-updating CLIs from the topgrade pass and rely on their built-in updaters
+
+## Implementation checklist
+
+- [ ] `daemon.auto_update_packages` (default true) in `DaemonConfig` + `DefaultConfig` + config template comment + `docs/CONFIGURATION.md` (Daemon Settings)
+- [ ] Hook: idle-watch stop path runs the updater before `RequestStop` when the flag is on and sessions are zero
+- [ ] Bounded runner: 30-minute timeout, output to `logs/update.log`, one telemetry line per pass (`update outcome= duration=`)
+- [ ] Baked-set exclusion list in the generated topgrade config
+- [ ] `docs/CONFIGURATION.md`: Idle Stop section gains the updater paragraph (ordering: update, then stop)
+- [ ] Verification: idle window with flag on → updates run + daemon stops; flag off → no updates; session arrival mid-update safe; bind updates survive stop/start; recreate resets root-disk updates to baked (documented)
+
+## Rejected alternatives (for provenance)
+
+- Guest-side cron/systemd timer: the microvm guest runs the entrypoint as its init workload — no scheduler exists to lean on
+- Host systemd timer calling a construct update command: boots a stopped daemon just to update — defeats idle-stop, wakes machines at a fixed hour
+- Update-on-boot staleness check: additive backstop option for always-on machines; not the primary mechanism
