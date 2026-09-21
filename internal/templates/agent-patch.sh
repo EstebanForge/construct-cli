@@ -693,30 +693,39 @@ find_real_npm_binary() {
     local pkg="$2"
     local npm_bin
     npm_bin=$(npm bin -g 2>/dev/null || true)
-    
-    # Priority 1: Check in npm-global/lib/node_modules (authoritative location)
-    local lib_path="$HOME/.npm-global/lib/node_modules/$pkg"
-    if [[ -d "$lib_path" ]]; then
-        local bin_rel
-        bin_rel=$(jq -r ".bin[\"$cmd\"] // .bin" "$lib_path/package.json" 2>/dev/null || true)
-        if [[ -n "$bin_rel" ]] && [[ "$bin_rel" != "null" ]]; then
-            echo "$lib_path/$bin_rel"
-            return
-        fi
-    fi
 
-    # Priority 2: Candidates in npm-global/bin that are NOT already our wrapper.
+    # Baked agents live in /usr/local/lib/node_modules; runtime installs in
+    # $HOME/.npm-global. Runtime first so a user override wins.
+    local lib_root lib_path
+    for lib_root in "$HOME/.npm-global/lib/node_modules" "/usr/local/lib/node_modules"; do
+        lib_path="$lib_root/$pkg"
+        if [[ -d "$lib_path" ]]; then
+            local bin_rel
+            bin_rel=$(jq -r ".bin[\"$cmd\"] // .bin" "$lib_path/package.json" 2>/dev/null || true)
+            if [[ -n "$bin_rel" ]] && [[ "$bin_rel" != "null" ]]; then
+                echo "$lib_path/$bin_rel"
+                return
+            fi
+        fi
+    done
+
+    # Priority 2: runtime npm-global bin candidates that are NOT already our wrapper.
+    # /usr/local/bin is deliberately absent: that is where the ACTIVE binary
+    # lives for baked agents; returning it would make the wrapper call itself.
     for candidate in "$HOME/.npm-global/bin/$cmd" "${npm_bin}/$cmd"; do
         if [[ -f "$candidate" ]] && ! grep -q "construct-.*-wrapper" "$candidate" 2>/dev/null; then
             echo "$candidate"
             return
         fi
     done
-    
-    # Priority 3: Search within the package directory for the binary name.
-    if [[ -d "$lib_path" ]]; then
-        find -L "$lib_path" -type f -name "$cmd" 2>/dev/null | head -1
-    fi
+
+    # Priority 3: Search within the package directories for the binary name.
+    for lib_root in "$HOME/.npm-global/lib/node_modules" "/usr/local/lib/node_modules"; do
+        lib_path="$lib_root/$pkg"
+        if [[ -d "$lib_path" ]]; then
+            find -L "$lib_path" -type f -name "$cmd" 2>/dev/null | head -1
+        fi
+    done
 }
 
 echo "🔧 Patching clipboard support for agents..."
