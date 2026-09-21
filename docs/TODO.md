@@ -132,3 +132,28 @@ AI Agent (Pi, Claude, Codex, Antigravity)
 - Recursive file operations (`find /workspace`, `rg`, `git status`) inside the microVM execute at native ext4 speed with zero Virtiofs queue lag.
 - Files created or edited by the agent inside `/workspace` appear immediately on the host filesystem.
 - Zero risk of microVM freeze when running agents across large monorepos.
+
+---
+
+# TODO: smolvm Backend Spike (post-GA)
+
+Status: parked. Do not start before the MicroVM Engine GA checklist above ships.
+
+## Background
+
+Alternatives review, 2026-08-27. microsandbox (msb) stays the GA engine: it is the only local-first microVM option that satisfies all four construct constraints (macOS arm64 + Linux KVM, embeddable Go SDK, local-first, single shared daemon).
+
+The watch item is smol machines / smolvm ([smolmachines.com](https://smolmachines.com), [github.com/smol-machines/smolvm](https://github.com/smol-machines/smolvm), Apache-2.0, Rust). Feature superset relevant to us: VM fork with copy-on-write memory (would supersede the parked VMsv2 phase 6 snapshot fork), checkpoints/restore, portable stateful `.smolmachine` artifacts, first-class egress allowlist, networking off by default, OCI pulls with no Docker daemon, CUDA-over-vsock GPU remoting.
+
+Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integration paths: shell out to the `smolvm` CLI, thin REST client, or cgo bindings to the Rust crate. Any of these is a new backend implementation, not a rewrite: the `Backend` interface and conformance harness exist for exactly this.
+
+## Spike scope
+
+- [ ] Evaluate `smolvm` CLI/REST stability, mount semantics (vs the msb create-time-only mounts constraint), and daemon/lifecycle model on macOS arm64 + Linux KVM.
+- [ ] Prototype a smolvm `Backend` implementation (`internal/runtime/backend.go`) passing the existing conformance suite (`internal/runtime/conformance_test.go`) with no engine-specific forks of the harness.
+- [ ] Measure time-to-ready vs the msb warm/reconnect baselines in `docs/VMsv2.md` section 10 (requires P0.4 dogfood medians to exist first).
+- [ ] Confirm the egress allowlist + secret handling cover what `msbHostTransportRules` + network modes (permissive/strict/offline) do today, including the host loopback relays.
+
+## Decision gate
+
+Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave VMsv2 phase 6 parked under its own gate: if the spike passes, smolvm fork replaces phase 6; if not, the phase 6 gate still applies. Re-evaluate after GA ships + one dogfood week.
