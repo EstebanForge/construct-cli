@@ -30,6 +30,13 @@ update_channel = "stable"
 # manually. Default true.
 prepull_image = true
 
+# Local telemetry for the microVM engine: one structured line per daemon boot
+# (outcome, duration, mount count, host msb + construct versions) under
+# ~/.config/construct-cli/logs/msb-boot.log and msb-telemetry.jsonl.
+# Offline by design — telemetry is local-only and never sent anywhere; share
+# files from that directory manually when reporting issues. Default true.
+telemetry = true
+
 # Sandbox Settings
 [sandbox]
 # Mount the entire home directory? (Dangerous, default: false)

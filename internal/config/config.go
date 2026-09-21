@@ -49,6 +49,13 @@ type RuntimeConfig struct {
 	// ct invocation finds the image already staged. Default true; set
 	// false to skip the background pull (e.g. on a metered link).
 	PrepullImage bool `toml:"prepull_image"`
+	// Telemetry gates LOCAL diagnostic collection for the microVM engine:
+	// one structured line per daemon boot (outcome, duration, mount count,
+	// host msb + construct versions) under ~/.config/construct-cli/logs/.
+	// Offline by design: telemetry never leaves the machine, there are no
+	// network calls, and users share log files manually when reporting
+	// issues. Default true; set false to stop all telemetry file writes.
+	Telemetry bool `toml:"telemetry"`
 }
 
 // SandboxConfig holds sandbox options.
@@ -133,6 +140,7 @@ func DefaultConfig() Config {
 			UpdateCheckInterval: 86400,
 			UpdateChannel:       "stable",
 			PrepullImage:        true,
+			Telemetry:           true,
 		},
 		Sandbox: SandboxConfig{
 			MountHome:            false,
