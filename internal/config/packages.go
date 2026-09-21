@@ -173,19 +173,9 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("fi\n")
 	b.WriteString("echo '=================================='\n\n")
 
-	// Critical Packages (Safety check - ensure Dockerfile packages are present)
-	b.WriteString("# Critical Packages (only if sudo available)\n")
-	b.WriteString("if [ \"$SUDO_AVAILABLE\" = \"1\" ]; then\n")
-	b.WriteString("    echo 'Verifying critical packages...'\n")
-	b.WriteString("    $SUDO apt-get update\n")
-	b.WriteString("    $SUDO apt-get install -y build-essential git curl wget sudo gosu socat bubblewrap xvfb\n")
-	b.WriteString("fi\n\n")
-
-	// Core APT Packages (Always installed, only if sudo available)
-	b.WriteString("if [ \"$SUDO_AVAILABLE\" = \"1\" ]; then\n")
-	b.WriteString("    echo 'Installing core system packages...'\n")
-	b.WriteString("    $SUDO apt-get install -y procps file nano python3 python3-pip python3-venv python3-dev pipx ufw iptables dnsutils xclip xsel wl-clipboard\n")
-	b.WriteString("fi\n\n")
+	// System packages (apt tier) and the brew utilities (imagemagick for
+	// clipboard, topgrade for the updater, libgit2) are BAKED into the image
+	// (Dockerfile). The installer manages ONLY packages.toml-defined items.
 
 	// Initialize Homebrew environment
 	b.WriteString("# Initialize Homebrew environment\n")
@@ -213,46 +203,8 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("    curl -fsSL https://bun.sh/install | bash\n")
 	b.WriteString("fi\n\n")
 
-	// Standard Tools (Always installed)
-	b.WriteString("echo 'Installing Amp CLI...'\n")
-
-	b.WriteString("if [ -x \"/home/construct/.local/bin/amp\" ] || [ -x \"/home/construct/.amp/bin/amp\" ]; then\n")
-	b.WriteString("    echo \"Amp already installed; skipping.\"\n")
-	b.WriteString("else\n")
-	b.WriteString("    curl -fsSL https://ampcode.com/install.sh | bash\n")
-	b.WriteString("fi\n\n")
-
-	b.WriteString("if command -v brew &> /dev/null; then\n")
-	b.WriteString("    INSTALLED_BREW=$(brew list --formula -1 2>/dev/null || true)\n")
-
-	b.WriteString("    echo 'Installing imagemagick (required for clipboard)...'\n")
-	b.WriteString("    if echo \"$INSTALLED_BREW\" | grep -q \"^imagemagick$\"; then\n")
-	b.WriteString("        echo \"  ✓ imagemagick already installed\"\n")
-	b.WriteString("    else\n")
-	b.WriteString("        brew install --formula imagemagick || echo \"⚠️ Failed to install imagemagick\"\n")
-	b.WriteString("    fi\n\n")
-
-	b.WriteString("    echo 'Installing topgrade (system updater)...'\n")
-	b.WriteString("    if echo \"$INSTALLED_BREW\" | grep -q \"^topgrade$\"; then\n")
-	b.WriteString("        echo \"  ✓ topgrade already installed\"\n")
-	b.WriteString("    else\n")
-	b.WriteString("        brew install --formula topgrade || echo \"⚠️ Failed to install topgrade\"\n")
-	b.WriteString("    fi\n\n")
-
-	b.WriteString("    echo 'Installing libgit2 (dependency for cargo-update)...'\n")
-	b.WriteString("    if echo \"$INSTALLED_BREW\" | grep -q \"^libgit2$\"; then\n")
-	b.WriteString("        echo \"  ✓ libgit2 already installed\"\n")
-	b.WriteString("    else\n")
-	b.WriteString("        brew install --formula libgit2 || echo \"Warning: libgit2 installation failed\"\n")
-	b.WriteString("    fi\n")
-	b.WriteString("else\n")
-	b.WriteString("    echo \"⚠️ Homebrew not found; skipping core brew packages\"\n")
-	b.WriteString("fi\n\n")
-
-	b.WriteString("echo 'Installing cargo-update (enables cargo package updates)...'\n")
-	b.WriteString("if command -v cargo &> /dev/null; then\n")
-	b.WriteString("    cargo install cargo-update 2>/dev/null || echo \"Warning: cargo-update installation failed, cargo package updates disabled\"\n")
-	b.WriteString("fi\n\n")
+	// Amp CLI is an optional agent (packages.toml [post_install]); baked
+	// agents (claude/codex/agy/pi/opencode) come from the image.
 
 	// Specialized Tools (Priority)
 	if c.Tools.PhpBrew {
@@ -281,17 +233,25 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	}
 
 	if c.Tools.Asdf {
-		b.WriteString("echo 'Installing asdf via Homebrew...'\n")
-		b.WriteString("if command -v brew &> /dev/null; then\n")
-		b.WriteString("    brew install asdf || echo \"⚠️ Failed to install asdf\"\n")
+		b.WriteString("echo 'Ensuring asdf...'\n")
+		b.WriteString("if command -v asdf &> /dev/null; then\n")
+		b.WriteString("    echo \"asdf is baked into the image; skipping.\"\n")
 		b.WriteString("else\n")
-		b.WriteString("    echo \"⚠️ Homebrew not found; skipping asdf\"\n")
+		b.WriteString("    if command -v brew &> /dev/null; then\n")
+		b.WriteString("        brew install asdf || echo \"⚠️ Failed to install asdf\"\n")
+		b.WriteString("    else\n")
+		b.WriteString("        echo \"⚠️ Homebrew not found; skipping asdf\"\n")
+		b.WriteString("    fi\n")
 		b.WriteString("fi\n\n")
 	}
 
 	if c.Tools.Mise {
-		b.WriteString("echo 'Installing mise...'\n")
-		b.WriteString("curl https://mise.run | sh\n\n")
+		b.WriteString("echo 'Ensuring mise...'\n")
+		b.WriteString("if command -v mise &> /dev/null; then\n")
+		b.WriteString("    echo \"mise is baked into the image; skipping.\"\n")
+		b.WriteString("else\n")
+		b.WriteString("    curl https://mise.run | sh\n")
+		b.WriteString("fi\n\n")
 	}
 
 	if c.Tools.Volta {
@@ -433,7 +393,9 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 			case "agent-browser install --with-deps":
 				cmd = "if [ \"$(uname -m)\" = \"aarch64\" ] || [ \"$(uname -m)\" = \"arm64\" ]; then echo \"ℹ️ ARM64 detected: Configuring agent-browser to use system Chromium\"; mkdir -p ~/.local/bin; printf '#!/bin/bash\\nexec \"'\"$(npm config get prefix)\"'\"/bin/agent-browser --executable-path /usr/bin/chromium \"$@\"' > ~/.local/bin/agent-browser && chmod +x ~/.local/bin/agent-browser; else agent-browser install --with-deps; fi"
 			case "if [ -x \"$HOME/.opencode/bin/opencode\" ]; then echo \"OpenCode already installed\"; else curl -fsSL https://opencode.ai/install | bash; fi":
-				cmd = "curl -fsSL https://opencode.ai/install | bash"
+				// opencode is baked at /usr/local/bin; an unconditional install
+				// would drop a bind copy that shadows it.
+				cmd = "if command -v opencode >/dev/null 2>&1; then echo 'opencode is baked into the image; skipping'; else curl -fsSL https://opencode.ai/install | bash; fi"
 			}
 
 			b.WriteString(cmd + " || echo \"⚠️ Post-install command failed: " + cmd + "\"\n")
@@ -557,10 +519,9 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	b.WriteString("[composer]\n")
 	b.WriteString("self_update = false\n\n")
 
-	b.WriteString("[commands]\n")
-	b.WriteString("\"Claude Code\" = \"if command -v claude &> /dev/null; then claude update || true; fi\"\n")
-	b.WriteString("\"Pi Coding Agent\" = \"if command -v pi &> /dev/null; then pi update --all || true; fi\"\n")
-	b.WriteString("\"Antigravity Agent\" = \"if command -v agy &> /dev/null; then agy update || true; fi\"\n")
+	// Baked agents (claude/codex/agy/pi/opencode) update on the image lane.
+	// No [commands] section: in-guest self-updaters would EACCES on the
+	// root-owned /usr/local/bin or silently create shadowing bind copies.
 
 	return b.String()
 }

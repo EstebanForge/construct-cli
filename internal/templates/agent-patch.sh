@@ -451,7 +451,12 @@ patch_codex_paste_wrapper() {
     dbg "Real codex target: $real_target"
 
     local wrapper_path="$active_codex"
-    if [[ "$wrapper_path" == "$real_target" ]]; then
+    # Reroute when: the active binary IS the real target, OR the active path
+    # lives in the baked tier (/usr/local is image-owned — never modified at
+    # runtime), OR the location is not writable. Baked codex resolves to
+    # /usr/local/bin/codex, so this sends the wrapper to a shadow tier.
+    if [[ "$wrapper_path" == "$real_target" ]] || [[ "$wrapper_path" == /usr/local/* ]] \
+       || [[ ! -w "$(dirname "$wrapper_path")" ]] || { [[ -e "$wrapper_path" ]] && [[ ! -w "$wrapper_path" ]]; }; then
         if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
             wrapper_path="/home/linuxbrew/.linuxbrew/bin/codex"
         else

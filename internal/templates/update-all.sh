@@ -72,27 +72,16 @@ if command -v topgrade &> /dev/null; then
     if [ -f "$TOPGRADE_CONFIG" ]; then
         topgrade --config "$TOPGRADE_CONFIG"
     else
-        topgrade -y --disable system
+        topgrade -y --disable system,claude_code
     fi
 else
     echo "topgrade not found, falling back to manual updates..."
+    # NOTE: baked agents (claude/codex/agy/pi/opencode) update on the image
+    # lane — never in-guest. This fallback only refreshes root-disk state.
 
     if [ -n "$SUDO" ] || [ "$(id -u)" = "0" ]; then
         echo "Updating system packages (apt)..."
         $SUDO apt-get update -qq && $SUDO apt-get -y -qq dist-upgrade && $SUDO apt-get -y -qq autoremove && $SUDO apt-get -y -qq autoclean || true
-    fi
-
-    echo "Updating claude-code..."
-    claude update || true
-
-    echo "Updating Pi Coding Agent..."
-    if command -v pi &> /dev/null; then
-        pi update --all || true
-    fi
-
-    echo "Updating Antigravity Agent..."
-    if command -v agy &> /dev/null; then
-        agy update || true
     fi
 
     echo "Updating Homebrew packages..."
