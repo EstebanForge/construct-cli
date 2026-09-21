@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM debian:trixie-slim
 
 # 1. Create non-root user and install system packages
@@ -9,8 +10,11 @@ RUN useradd -m -s /bin/bash construct && \
     fonts-liberation libappindicator3-1 libasound2 libatk-bridge2.0-0 \
     libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \
     libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
-    gnome-keyring libsecret-1-0 dbus-x11 xdg-utils libcap2-bin && \
+    gnome-keyring libsecret-1-0 dbus-x11 xdg-utils libcap2-bin \
+    vim tmux nano && \
     rm -rf /var/lib/apt/lists/*
+    # [apt] from packages.toml is baked here (vim/tmux/nano; g++ ships in
+    # build-essential). The runtime installer no longer manages this tier.
     # NOTE: libcap2-bin provides the `setcap` binary used at runtime by
     # entrypoint.sh to grant socat the privileged-port bind cap. The file cap is
     # applied in the entrypoint (as root), NOT here: BuildKit's default sandbox
@@ -70,10 +74,51 @@ ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 3. Install essential runtime dependencies only
-# Note: CLI tools will be installed via entrypoint.sh to ensure proper PATH setup
+# 3. Bake the packages.toml dev baseline (brew tier)
+# Source of truth for this list: internal/templates/packages.toml [brew]
+# (2026-09-21 snapshot, deduped). Baked binaries land in /home/linuxbrew
+# (PATH tier 1, OUTSIDE the home bind — /home/construct content is shadowed
+# by the persistent bind and must never hold baked state).
+# Network cost hits the BUILD only; guests get block-IO pulls.
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    brew tap shivammathur/extensions && \
+    brew tap shivammathur/php && \
+    brew tap EstebanForge/tap && \
+    brew install \
+      ast-grep yq sd fzf eza fd bat ripgrep jq curl wget tree unzip socat make htop netcat bind sshpass nano lftp tmux btop \
+      gh git-lfs git-delta git-cliff rsync procs python-setuptools awscli cmake pkg-config direnv gum rtk \
+      go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
+      node python@3 openssl@3 llvm gcc nasm yasm \
+      postgresql@16 mysql-client redis sqlite podman podman-compose \
+      groovy scala elixir r micropython gleam ocaml swi-prolog \
+      golangci-lint golangci-lint-langserver php-cs-fixer prettier shellcheck yamllint \
+      yarn pnpm composer neovim gulp-cli ffmpeg \
+      php@8.2 php@8.3 php@8.4 php@8.5 php@8.6 wp-cli tailwindcss \
+      uv pipx vite webpack tlrc ninja gradle fastmod hugo zola \
+      EstebanForge/tap/mcp-cli-ent EstebanForge/tap/md-over-here \
+      shivammathur/extensions/pcov@8.2 shivammathur/extensions/pcov@8.3 \
+      shivammathur/extensions/pcov@8.4 shivammathur/extensions/pcov@8.5 \
+      shivammathur/extensions/pcov@8.6
+    # No `|| true`: a failed formula must fail the build (fail visible).
+
+# 3b. Bake remaining dev tooling to SYSTEM paths (root-owned).
+# Ruby gems -> brew ruby's site dir (tier-1 bin); Python tool -> /usr/local
+# (PEP 668 override is build-time only); bun binary -> /usr/local/bun with
+# runtime globals staying in ~/.bun (user tier); mise/asdf binaries baked,
+# their data dirs initialize in-home at runtime (cheap, no network).
+USER root
 RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    brew install node python@3 || true
+    gem install jekyll && \
+    pip3 install --break-system-packages litellm && \
+    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/bun bash && \
+    ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun && \
+    ln -sf /usr/local/bun/bin/bunx /usr/local/bin/bunx && \
+    BUN_INSTALL=/usr/local/bun /usr/local/bin/bun add -g @tobilu/qmd && \
+    ln -sf /usr/local/bun/bin/qmd /usr/local/bin/qmd && \
+    curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh && \
+    git clone --depth 1 https://github.com/asdf-vm/asdf.git /usr/local/asdf && \
+    ln -sf /usr/local/asdf/bin/asdf /usr/local/bin/asdf
 
 # 4. Switch to root to copy scripts to /usr/local/bin
 USER root
@@ -102,6 +147,24 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
     if [ -f /usr/bin/xsel ]; then mv /usr/bin/xsel /usr/bin/xsel-real; fi && \
     ln -sf /usr/local/bin/clipper /usr/bin/xsel && \
     if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -sf /usr/local/bin/clipper /usr/bin/wl-paste; fi
+
+# 6. Bake core agents (LAST: most frequently updated layer)
+# Each installs via its official installer into a throwaway HOME, then the
+# binary is placed at /usr/local/bin — root-owned and OUTSIDE the home bind,
+# so bind-tier copies shadow it by PATH (the override contract).
+# npm installs force --prefix /usr/local: brew node's default prefix would
+# land them in tier-1 /home/linuxbrew, breaking the tier order.
+RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
+    curl -fsSL https://claude.ai/install.sh | bash && \
+    install -m0755 "$(find "$HOME" -type f -name claude -path '*bin*' | head -1)" /usr/local/bin/claude && \
+    curl -fsSL https://antigravity.google/cli/install.sh | bash && \
+    install -m0755 "$(find "$HOME" -type f -name agy -path '*bin*' | head -1)" /usr/local/bin/agy && \
+    curl -fsSL https://opencode.ai/install | bash && \
+    install -m0755 "$(find "$HOME" -type f -name opencode -path '*bin*' | head -1)" /usr/local/bin/opencode && \
+    npm install -g --prefix /usr/local @openai/codex && \
+    npm install -g --prefix /usr/local @earendil-works/pi-coding-agent && \
+    rm -rf "$HOME" && \
+    for c in claude agy opencode codex pi; do command -v "$c" >/dev/null || { echo "agent missing: $c" >&2; exit 1; }; done
 
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
