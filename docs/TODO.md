@@ -213,7 +213,7 @@ Existing home binds carry agent copies installed under the old model — those w
 - REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines.
   - COMPANION FIX (required, same PR): relocate the installer hash marker out of the home bind. Today `HASH_FILE=/home/construct/.local/.entrypoint_hash` (`entrypoint.sh:423`) lives on the bind, so a recreate with unchanged hash skips the installer entirely — with the volume gone, declared `[brew]`/`[apt]` packages would then be lost on every recreate. Move the marker to the root filesystem (e.g. `/var/lib/construct-cli/.entrypoint_hash`): it then resets per root-disk lifetime, so the installer re-runs exactly once after each recreate. Post-bake that re-run is a near-no-op (existence guards skip everything installed) — seconds, and it re-provisions user-declared packages. Routine stop/start still skips (root persists).
 
-  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`):
+  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`; AUTOMATED by `construct sys doctor --fix` — see the Sys Doctor section — the steps below are the manual fallback):
 
   ```text
   Docker users: one-time cleanup after upgrading
@@ -275,6 +275,47 @@ Existing home binds carry agent copies installed under the old model — those w
 ## Peer review round (Agy, 2026-09-21)
 
 Verdict: adopt-with-changes. 3 blockers, 4 majors, 3 minors, 1 note — all folded into this section. Blockers: (1) idle-updater flock/session races (fixed in the updater section below); (2) `construct-packages` named volume shadowing the baked Homebrew baseline (docker named volumes never refresh from image after first creation); (3) migration sweep unimplementable in `entrypoint.sh` (packages.toml never mounted) and targeting the wrong paths. Majors: topgrade commands would EACCES/rogue-shadow baked agents; `GenerateInstallScript` still runs network installs post-bake; brew PATH precedence inverts the stated shadow contract; design text implied running topgrade twice. Minors: TODO §1 contradicted the bake (marked obsolete); lab-matrix.sh had no baked-image assertions; no image-refresh command for microvm users. Note: `EnsureImage` masks `msb pull` failures behind the docker-save fallback.
+
+---
+
+# TODO: Sys Doctor — Automated Migration (`construct sys doctor [--fix]`)
+
+Status: DESIGNED (2026-09-21). Ships in the SAME CLI release as the Image Layering bake and the `construct-packages` volume removal — the migration it automates only makes sense in that release, and the volume removal MUST NOT ship before the baked image is published on GHCR (otherwise compose drops the volume before the image carries brew). Doctor is the user-facing migration vehicle; the manual release-note steps are the fallback.
+
+## CLI shape
+
+```text
+construct sys doctor           # read-only diagnosis: report + exit 0 clean / 1 issues found
+construct sys doctor --fix     # diagnosis + apply the enumerated safe fixes, then re-report
+construct sys doctor --json    # machine-readable report (lab-matrix assertions, CI)
+```
+
+## Checks and fixes
+
+| # | Check (read-only) | Detects | `--fix` action | Engine |
+|---|---|---|---|---|
+| 1 | Stale package volume | `*_construct-packages` docker volume exists and is referenced by NO container of the current project | `docker volume rm` (only when unreferenced; skip with a warning if a container still mounts it) | docker |
+| 2 | Compose layout currency | running container's compose config hash ≠ generated config | trigger the existing template-hash recreate path | docker |
+| 3 | Baked agents resolve | exec `command -v <agent>` for claude/codex/agy/pi/opencode → expected `/usr/local/bin/<agent>` | report only (resolution is fixed by the image lane or check 4) | both |
+| 4 | Guest sweep pending | bind copies of baked agents present in the three path families (`.local/bin`, `.npm-global/bin` + `lib/node_modules`, `.opencode/bin`) for tools NOT in `packages.toml` | run the generated installer once in the guest (it carries the Go-generated migration sweep; existence guards make this safe to repeat) | both |
+| 5 | Image freshness | local msb image digest ≠ GHCR `latest` digest | `msb pull` (bounded, prepull-style, best-effort) | msb |
+| 6 | Host CLI/SDK skew | `msbHostVersion()` ≠ SDK pin | report + doc link; NEVER auto-updates the host binary (schema lockstep is a manual decision) | msb |
+| 7 | Old hash-marker orphan | guest `~/.local/.entrypoint_hash` present while the relocated root-disk marker is authoritative | delete the orphan file | both |
+| 8 | Config template drift | user config missing newly introduced keys (`daemon.auto_update_packages`, …) | report the exact lines to add; never rewrite user config content | both |
+
+## Safety rails
+
+- Without `--fix`: pure read-only. No exec with side effects, no deletes, no pulls.
+- `--fix` is idempotent (safe to re-run) and prints every mutation as it happens; one wide-event telemetry line per run (`doctor outcome= actions=N skipped=N`).
+- Destructive surface is CLOSED: the only deletions are check 1 (unreferenced volume) and check 7 (orphan marker file). Everything else is report-only or additive (pull, recreate via the existing gate).
+- Session-safety: read-only checks may run during live sessions; `--fix` actions that touch daemon state (recreate, pull) follow the same flock/LiveSessionCount rules as the idle updater — stand down if sessions are live.
+- Engine-aware: checks scoped to the active backend; unknown/missing engine components are `skipped`, never errors.
+
+## Implementation notes
+
+- New `internal/doctor` package; reuses `msbHostVersion` (telemetry helper), the daemon flock, and the generated installer for check 4. Each check = one function returning (status, detail, fix-fn); `--fix` runs the fix-fns of failed checks.
+- `lab-matrix.sh` gains a doctor stage: seed a stale-layout fixture (old volume name + stale bind copies) → `doctor --fix` → assert report clean and volume gone. This becomes part of the Image Layering verification gate.
+- Docs: `docs/CONFIGURATION.md` gains a "Sys Doctor" section (check table + `--fix` semantics); release notes for the layering release lead with `construct sys doctor --fix` as THE upgrade step.
 
 ---
 
