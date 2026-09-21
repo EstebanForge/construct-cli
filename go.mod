@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/charmbracelet/gum v0.17.0
 	github.com/pelletier/go-toml/v2 v2.4.3
-	github.com/superradcompany/microsandbox/sdk/go v0.6.18
+	github.com/superradcompany/microsandbox/sdk/go v0.7.2
 	golang.org/x/term v0.46.0
 )
 

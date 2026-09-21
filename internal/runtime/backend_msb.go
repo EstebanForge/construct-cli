@@ -36,7 +36,7 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 	if _, err := exec.LookPath("msb"); err == nil {
 		return true, nil
 	}
-	return msb.IsInstalled(), nil
+	return msb.IsRuntimeInstalled(msb.RuntimeConfig{}), nil
 }
 
 // constructImageRefCandidates lists the refs the construct image may be
@@ -216,8 +216,13 @@ func (m *MsbBackend) Cleanup(ctx context.Context, name string) error {
 		return nil // already gone
 	}
 	if h.Status() == msb.SandboxStatusRunning {
-		if err := h.Stop(ctx); err != nil {
-			return fmt.Errorf("stop sandbox %s: %w", name, err)
+		if err := h.Stop(ctx, msb.WithStopTimeout(30*time.Second)); err != nil {
+			// Convergent Stop bounds itself, but a wedged guest falls back to
+			// Kill so recreate is never blocked indefinitely — the root disk
+			// is about to be removed anyway.
+			if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
+				return fmt.Errorf("stop sandbox %s: %w (kill fallback: %v)", name, err, killErr)
+			}
 		}
 	}
 	// Re-resolve until fully stopped: the handle's status is a snapshot and
