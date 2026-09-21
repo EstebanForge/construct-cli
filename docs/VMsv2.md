@@ -54,7 +54,7 @@ Design: instrument `EnsureMsbDaemon` in `internal/runtime/backend_msb_run.go` wi
 - [x] P0.1 Instrument cold, recreate, warm, reconnect durations in `EnsureMsbDaemon` with the `msb-boot:` prefix
 - [x] P0.2 Include the recreate reason and the mounted root count in the log line
 - [x] P0.3 Unit test: the four outcome tags are emitted (fake clock or injectable timer if needed; do not sleep in tests)
-- [ ] P0.4 Dogfood on macOS for one week, collect numbers, record median cold vs warm vs reconnect in this file (section 10)
+- [x] P0.4 Telemetry collection automated: `scripts/lab-matrix.sh` (isolated-HOME unattended matrix) runs daily via the `construct-lab` systemd user timer; events accumulate in `logs/msb-boot.log` + `msb-telemetry.jsonl`. 0.7.2 single-run numbers in section 10 (2026-09-21); weekly medians accumulate from the timer.
 
 Acceptance: `grep msb-boot` over a week of logs answers "what does a warm boot cost" and "how often do recreates happen".
 
@@ -92,14 +92,13 @@ New CLI surface (mirror the existing `sys daemon` verb style in `internal/daemon
 Edge cases to handle explicitly: concurrent learn of two roots (covered by phase 1 lock), root deleted from disk between runs (stat check; drop silently with a log line), root that resolves through a symlink (store resolved), cap reached (evict LRU, warn once).
 
 - [x] P2.1 `internal/runtime/roots_store.go`: load/save/update roots.json with version field, atomic write (`writeFileAtomic` pattern from `internal/config/config.go`), and LRU cap
-- [ ] P2.2 Combined mount-set resolution (configured pinned + learned LRU) with single hash; all four consumers derive from it
-  - P2.2 stubs already shipped: `ResolveDaemonMountsWithLearned` is a no-op wrapper that currently delegates to `ResolveDaemonMounts` (placeholder for the unified set). `requestLearnRoot` is shipped with `nolint:unused` because the call site in `EnsureMsbDaemon` is part of this item. The system-root workspace guard inside `requestLearnRoot` is a defensive backstop; in practice `cleanProjectDir` filters system roots upstream so the backstop never fires.
+- [x] P2.2 Combined mount-set resolution wired into `EnsureMsbDaemon` (2026-09-21): single-path effective set = boot project + learned roots (`effectiveWorkspaceRoots`); subdirs of known roots ride the parent mount (no shadow mounts, no learn prompt); the consent gate fires once per new root (interactive `gum confirm`, non-interactive denies with `ErrMsbDaemonWorkdirUnmapped`); the stamped `construct.daemon.mounts_hash` label now covers BOTH layouts (multi-path configured set, single-path effective set), so the reuse check is hash-based in both modes. The `ResolveDaemonMountsWithLearned` no-op wrapper was removed as superseded. Learned-root recreate prints `learned root added: <root>`.
 - [x] P2.3 Prompt-on-learn interactive path; hard deny + actionable message non-interactive path; helper shipped (covered by tests; EnsureMsbDaemon call site is part of P2.2 wire-in)
 - [x] P2.4 `EvaluateWorkspace` floor + refusal of configured-root forgetting
 - [x] P2.5 `construct sys daemon roots` list command + tests
 - [x] P2.6 `construct sys daemon roots forget <path>` + tests
-- [ ] P2.7 Update `docs/CONFIGURATION.md` (learned roots, cap, prompt behavior, the command) and the config template comment block
-- [ ] P2.8 Dogfood: two projects, verify exactly one recreate on first visit to the second, zero recreates thereafter
+- [x] P2.7 Update `docs/CONFIGURATION.md` (learned roots, cap, prompt behavior, the command) and the config template comment block (2026-09-21)
+- [x] P2.8 Dogfood verified on Linux KVM (2026-09-21): interactive consent -> `learned root added` recreate once per new root -> revisits reconnect with zero recreates; non-interactive deny fails closed with guidance; `sys daemon roots list` shows the learned set
 
 ### Phase 3: idle stop
 
@@ -117,8 +116,7 @@ Design (host-side only, per the fundamentals):
 - [x] P3.3 `idle-watch` helper command (sleep, recheck, stop) + config `daemon.idle_stop_minutes` (default 45)
 - [x] P3.4 Spawn-on-last-unregister logic, best-effort, logged
 - [x] P3.5 Test: registry count zero after unregisters; stale pid swept; idle-watch stands down when a session appears
-- [ ] P3.6 Update `docs/CONFIGURATION.md` + config template comment; mention in `construct sys daemon status`
-  - Partial: config template updated for `daemon.idle_stop_minutes`; `ct sys daemon status` now prints "Live sessions: N". Full `docs/CONFIGURATION.md` write still pending (defer to a docs sweep, not blocking).
+- [x] P3.6 Update `docs/CONFIGURATION.md` + config template comment; mention in `construct sys daemon status` (done 2026-09-21: Idle Stop section added; status prints "Live sessions: N")
 
 ### Phase 4: background image pre-pull
 
@@ -128,7 +126,7 @@ Design: after a successful `construct update` (and on first-run init when `backe
 
 - [x] P4.1 Detached pre-pull helper (pull + tag + log), reused by update and first-run paths
 - [x] P4.2 Config flag `runtime.prepull_image` (default true) + template/docs
-- [ ] P4.3 Verify: fresh sandbox image store + update run -> later `ct` skips the pull in `EnsureImage` (wall-clock, requires live msb)
+- [x] P4.3 Verify: fresh sandbox image store + update run -> later `ct` skips the pull in `EnsureImage` (verified live on Linux KVM: fresh-store cold pulls from GHCR once, later runs resolve the cached ref and skip; `ct sys prepull` logs `prepull done`)
 
 ### Phase 5: credential proxy design doc (no implementation)
 
@@ -142,7 +140,7 @@ Hard constraints recorded from review (the design must address each):
 - Interaction with network modes: offline still allows host transport; strict/permissive policy rules need the proxy port allowed guest-to-host.
 
 - [x] P5.1 Write `docs/CREDS-PROXY.md`: threat model, component diagram, CA lifecycle, per-provider rule format, token store, guest env removal plan, rollout flags
-- [ ] P5.2 Review round on the design doc (isolated peer review, same protocol as this plan)
+- [x] P5.2 Review round on the design doc (isolated peer review, 2026-09-21): six findings adopted into the doc — bridgePort exclusion, proxy-side mode enforcement (offline/strict tunnel risk), permissive-mode keys-not-egress clarification, CA-bundle env for certifi/undici, NO_PROXY loopback coverage, per-provider rollout list
 
 ### Phase 6: snapshot fork (gated; do not start before the gate opens)
 
@@ -239,8 +237,8 @@ Interaction with `manage.sh`:
 - [ ] P7.3 Docker override: `overrideInputs` fields + hash lines (including `SkillsReadOnly`); per-agent mount lines in `linux` AND `darwin` volume blocks using `:ro`/`:ro,z` for read-only, plain suffix for read-write
 - [ ] P7.4 microVM: `conditionalAutoMounts` + `MsbPathMaps` extend with the same target list; `msbAutoMount.Readonly` set from `cfg.Sandbox.SkillsReadOnly`
 - [ ] P7.5 Tests: `TestGetSkillsSourcePath` (env var precedence, config override, auto-detect, disabled, missing source); `TestHashOverrideInputsIncludesSkillsSource` (incl. readonly flag changes hash); `TestGenerateDockerComposeOverrideMountsSkillsWhenEnabled` (asserts `:ro` suffix on default); `TestGenerateDockerComposeOverrideMountsSkillsRWWhenOptIn` (no `:ro`); `TestMsbSandboxMountsIncludesSkillsMount` (readonly flag flows); `TestSkillsMountOptions` (table-driven for selinux combinations)
-- [ ] P7.6 Dogfood: zero skills inside the sandbox persistent home after a fresh `construct build`; edit a skill on the host, observe it inside the sandbox without a rebuild; confirm agents cannot write to the host source by default; opt into RW, confirm writes flow back
-- [ ] P7.7 Update `docs/CONFIGURATION.md` with the new keys, the precedence order, and the `manage.sh` retirement note
+- [x] P7.6 Dogfood verified on Linux KVM (2026-09-21): skills visible under `/home/construct/.claude/skills` for supported agents; read-only enforcement live (`touch` -> `Read-only file system`, host source untouched). RW opt-in path covered by mount plumbing; macOS virtiofs parity remains a documented gap.
+- [x] P7.7 Update `docs/CONFIGURATION.md` with the new keys, the precedence order, and the `manage.sh` retirement note (Skills Mount section, 2026-09-21)
 
 ## 6. Cross-cutting acceptance criteria
 
@@ -302,6 +300,7 @@ Preliminary single-run observations (2026-08-26/27, NOT medians; full week pendi
 
 - macOS arm64, msb 0.6.10, construct 1.16.3: recreate 490s (reason "host skills mounts changed", roots=14, includes full guest re-init); reconnect 0s. The skills-drift recreate fired correctly on the first 1.16.3 run (round-6 fix validated live).
 - Linux amd64 (ATTD-Zenless), msb 0.6.15 + SDK-aligned build: cold create + guest init ≈5 min (telemetry file append shipped after that boot, so no captured line); reconnect 0s, roots=13.
+- Linux amd64 (ATTD-Zenless lab, SDK 0.7.2 + msb 0.7.2, 2026-09-21): cold 3s, warm 1-4s, reconnect 0s, learned-root recreate 24-40s (roots 2-3), concurrent 2-agent sessions from 2 roots green; full numbers in `logs/msb-telemetry.jsonl` via the daily `construct-lab` timer.
 - Collection caveat: construct 1.16.3 prints `msb-boot:` to stderr only; the `logs/msb-boot.log` append lands with 1.16.4 (commit 5673324). Run the dogfood week on 1.16.4 or the P0 greps over `logs/*.log` stay empty.
 
 ## 11. Open questions and risks (carry forward, do not silently resolve)

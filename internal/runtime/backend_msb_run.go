@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	goruntime "runtime"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -86,11 +87,19 @@ func msbSandboxMounts(cfg *config.Config, projectDir string) map[string]msb.Moun
 				StatVirtualization: msb.StatVirtualizationOff,
 			})
 		}
-	} else if dir := cleanProjectDir(projectDir); dir != "" {
-		dest := GetMsbWorkspaceMountDest(dir)
-		mounts[dest] = msb.Mount.Bind(dir, msb.MountOptions{
-			StatVirtualization: msb.StatVirtualizationOff,
-		})
+	} else {
+		// Single-path + learned roots: mount every effective workspace root
+		// (boot project + learned set) at its own /workspaces/<name> dest.
+		store, err := LoadRootsStore()
+		if err != nil {
+			store = RootsStore{Version: rootsStoreVersion}
+		}
+		for _, dir := range effectiveWorkspaceRoots(projectDir, store) {
+			dest := GetMsbWorkspaceMountDest(dir)
+			mounts[dest] = msb.Mount.Bind(dir, msb.MountOptions{
+				StatVirtualization: msb.StatVirtualizationOff,
+			})
+		}
 	}
 
 	for _, m := range conditionalAutoMounts(cfg) {
@@ -122,9 +131,15 @@ func MsbPathMaps(cfg *config.Config, projectDir string) []MsbPathMap {
 		for _, m := range dm.Mounts {
 			maps = append(maps, MsbPathMap{Guest: m.ContainerPath, Host: m.HostPath})
 		}
-	} else if dir := cleanProjectDir(projectDir); dir != "" {
-		dest := GetMsbWorkspaceMountDest(dir)
-		maps = append(maps, MsbPathMap{Guest: dest, Host: dir})
+	} else {
+		// Single-path + learned roots: one map entry per effective root.
+		store, err := LoadRootsStore()
+		if err != nil {
+			store = RootsStore{Version: rootsStoreVersion}
+		}
+		for _, dir := range effectiveWorkspaceRoots(projectDir, store) {
+			maps = append(maps, MsbPathMap{Guest: GetMsbWorkspaceMountDest(dir), Host: dir})
+		}
 	}
 	for _, m := range conditionalAutoMounts(cfg) {
 		maps = append(maps, MsbPathMap{Guest: m.Dest, Host: m.Src})
@@ -281,10 +296,20 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	labels := map[string]string{
 		"construct.project_dir": cleanProjectDir(projectDir),
 	}
-	// Multi-path parity (Docker): stamp the mount-set hash so the daemon
-	// reuse check detects config changes without re-deriving mounts.
+	// Mount-set hash, stamped in BOTH layouts so the daemon reuse check
+	// detects changes without re-deriving mounts: multi-path uses the
+	// configured daemon.mount_paths set; single-path uses the effective
+	// workspace set (boot project + learned roots).
 	if dm := ResolveDaemonMounts(cfg); dm.Enabled {
 		labels[DaemonMountsLabelKey] = dm.Hash
+	} else {
+		store, err := LoadRootsStore()
+		if err != nil {
+			store = RootsStore{Version: rootsStoreVersion}
+		}
+		if roots := effectiveWorkspaceRoots(projectDir, store); len(roots) > 0 {
+			labels[DaemonMountsLabelKey] = hashDaemonMountPaths(roots)
+		}
 	}
 	// Skills hash (separate label so a skills-only toggle does not require a
 	// multi-path daemon). Stamped whenever skills mounts are enabled, even
@@ -481,21 +506,49 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 		}
 		return false, ""
 	}
-	currentProjectDir, hasLabel := sandboxLabels["construct.project_dir"]
-	dest := GetMsbWorkspaceMountDest(currentProjectDir)
-	mounts := parseMsbConfigMounts(configJSON)
-	switch {
-	case !hasLabel || currentProjectDir == "":
-		return true, "daemon has no workspace label"
-	case mounts[dest] != currentProjectDir:
-		return true, "workspace label does not match mounted state"
-	case !allowHome && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome:
-		return true, "mounted workspace is no longer allowed"
+	// Single-path: the mount set is the effective workspace roots (boot
+	// project + learned roots). The stamped hash decides — a learned root
+	// added or evicted changes the hash and recreates exactly once.
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		store = RootsStore{Version: rootsStoreVersion}
 	}
-	if projectDir != "" {
-		if _, ok := MapDaemonWorkdir(projectDir, currentProjectDir, dest); !ok {
-			return true, "current directory is not under the mounted workspace"
+	currentProjectDir, hasProjectLabel := sandboxLabels["construct.project_dir"]
+	mounts := parseMsbConfigMounts(configJSON)
+
+	// Rebuild the effective root set as the RUNNING daemon sees it: the
+	// boot project stays mounted, learned roots join it, and the current
+	// cwd joins only when no existing root already covers it (subdirs ride
+	// their parent mount).
+	roots := store.Paths()
+	if cleaned := cleanProjectDir(projectDir); cleaned != "" {
+		covered := currentProjectDir != "" && containsPath(currentProjectDir, cleaned)
+		if !covered {
+			for _, r := range roots {
+				if containsPath(r, cleaned) {
+					covered = true
+					break
+				}
+			}
 		}
+		if !covered {
+			roots = append(roots, cleaned)
+		}
+	}
+	if currentProjectDir != "" && !slices.Contains(roots, currentProjectDir) {
+		roots = append(roots, currentProjectDir)
+	}
+	sort.Strings(roots)
+
+	switch {
+	case !hasProjectLabel && len(roots) == 0:
+		return true, "daemon has no workspace label"
+	case sandboxLabels[DaemonMountsLabelKey] != hashDaemonMountPaths(roots):
+		return true, "workspace roots changed (learned root added, removed, or evicted)"
+	case currentProjectDir != "" && mounts[GetMsbWorkspaceMountDest(currentProjectDir)] != currentProjectDir:
+		return true, "workspace label does not match mounted state"
+	case !allowHome && currentProjectDir != "" && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome:
+		return true, "mounted workspace is no longer allowed"
 	}
 	return false, ""
 }
@@ -544,6 +597,40 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		}
 	}
 
+	// Learned roots (single-path, phase 2.2): learn-or-touch the cwd, then
+	// let the mount-set hash decide whether the daemon recreates. All store
+	// access is inside the flock critical section.
+	learnedRoot := ""
+	if !dm.Enabled && projectDir != "" {
+		if cleaned := cleanProjectDir(projectDir); cleaned != "" {
+			store, lerr := LoadRootsStore()
+			if lerr == nil {
+				// A cwd already covered by a known root (the root itself or a
+				// subdir) just refreshes that root's last_used — it rides the
+				// existing mount and must never be learned as a shadow root.
+				touched := ""
+				for _, r := range store.Paths() {
+					if cleaned == r || strings.HasPrefix(cleaned+string(os.PathSeparator), r+string(os.PathSeparator)) {
+						touched = r
+						break
+					}
+				}
+				if touched != "" {
+					store.TouchRoot(touched, time.Now())
+					_ = SaveRootsStore(store) //nolint:errcheck // best-effort last_used update; continue with in-memory set
+				} else {
+					learned, lerr2 := requestLearnRoot(cfg, projectDir)
+					if lerr2 != nil {
+						return nil, lerr2
+					}
+					if learned {
+						learnedRoot = cleaned
+					}
+				}
+			}
+		}
+	}
+
 	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
 		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
 			needRecreate := sbc.MemoryMiB < 2048
@@ -555,7 +642,10 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			if needRecreate {
 				bootOutcome = msbBootRecreate
 				bootReason = reason
-				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", reason)
+				if learnedRoot != "" {
+					bootReason = "learned root added: " + learnedRoot
+				}
+				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", bootReason)
 				_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
 				goto create

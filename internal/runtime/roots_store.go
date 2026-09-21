@@ -175,24 +175,42 @@ func (s RootsStore) Paths() []string {
 	return out
 }
 
-// ResolveDaemonMountsWithLearned returns the combined mount set: configured
-// (pinned) + learned (LRU-capped) roots. Hashes the union; configured roots
-// stay ahead of learned ones in the sorted order so the hash is stable
-// across order-only drift. The caller (EnsureMsbDaemon) is inside the
-// flock critical section, so writes are serialized.
-//
-// When MultiPathsEnabled is false but the user has no mount_paths AND no
-// learned roots, the returned set is empty (single-path mode still mounts
-// just projectDir). When MultiPathsEnabled is true, this function falls
-// through to ResolveDaemonMounts (learned roots are a single-path feature).
-func ResolveDaemonMountsWithLearned(cfg *config.Config, _ RootsStore) DaemonMounts {
-	if cfg == nil || !cfg.Daemon.MultiPathsEnabled {
-		return ResolveDaemonMounts(cfg)
+// Has reports whether the exact cleaned path is already a learned root.
+func (s RootsStore) Has(cleaned string) bool {
+	for _, r := range s.Roots {
+		if r.Path == cleaned {
+			return true
+		}
 	}
-	// (Defensive: today the learned-roots feature only matters in single-
-	// path mode, but the wrapper exists for future MultiPathsEnabled +
-	// learned-root support.)
-	return ResolveDaemonMounts(cfg)
+	return false
+}
+
+// effectiveWorkspaceRoots returns the single-path mount set for this run:
+// the current project dir (always present, even when its learn was
+// declined — the run still needs its mount) plus every learned root that
+// still exists on disk. Sorted and deduplicated so the hash is stable.
+// The caller is inside the daemon flock critical section.
+// effectiveWorkspaceRoots returns the single-path mount set for this run:
+// every learned root that still exists, plus the current project dir — but
+// only when it is NOT already covered by a learned root (a subdir of a
+// mounted root rides the parent mount instead of shadowing it). Sorted and
+// deduplicated so the hash is stable. The caller is inside the daemon
+// flock critical section.
+func effectiveWorkspaceRoots(projectDir string, store RootsStore) []string {
+	roots := store.Paths()
+	cleaned := cleanProjectDir(projectDir)
+	covered := false
+	for _, r := range roots {
+		if containsPath(r, cleaned) {
+			covered = true
+			break
+		}
+	}
+	if cleaned != "" && !covered {
+		roots = append(roots, cleaned)
+	}
+	sort.Strings(roots)
+	return roots
 }
 
 // requestLearnRoot prompts the user (interactive only) to add a new root to
@@ -207,8 +225,6 @@ func ResolveDaemonMountsWithLearned(cfg *config.Config, _ RootsStore) DaemonMoun
 // MUST be called inside the daemon flock critical section (phase 1) so
 // concurrent ct invocations learning different roots never produce
 // last-write-wins root loss.
-//
-//nolint:unused // wired into EnsureMsbDaemon as part of phase 2.2 (combined mount-set resolution); kept here with full tests so the helper is reviewed alongside its data layer
 func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 	resolved := cleanProjectDir(projectDir)
 	if resolved == "" {
