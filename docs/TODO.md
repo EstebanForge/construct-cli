@@ -256,7 +256,7 @@ Existing home binds carry agent copies installed under the old model — those w
 
 ## Instrumentation prerequisite
 
-`entrypoint.sh` emits `entrypoint_install_phase_sec` (via the guest log the host already collects) so install-phase time is separable from boot time. Success criteria: install phase drops from >300 s to <5 s on hash-change boots; image pull grows by <60 s.
+`entrypoint.sh` emits `entrypoint_install_phase_sec` (bind record `~/.local/.construct_install_phase` as `install_ran=N phase=N`, echoed for session logs) so install-phase time is separable from boot time. Success criteria: install phase drops from >300 s to <5 s on hash-change boots; image pull grows by <60 s. NOTE: the <5 s gate is NOT asserted by the lab matrix yet — a force-rerun reinstalls the optional `[npm]` agents unconditionally (no existence guards), so hash-change boots cost network minutes until those guards land. The matrix asserts the honest invariant today: warm/reconnect boots record `install_ran=0` (no reinstall).
 
 ## Verification gate (before dispatching `image.yml`)
 

@@ -587,6 +587,16 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		return nil, err
 	}
 
+	// Regenerate the guest installer from the current packages.toml on
+	// every daemon start: agent runs and first-run do this elsewhere
+	// (PrepareBackendAgnostic / MsbInstallAgents), but a plain `daemon
+	// start` (or sys exec) never did, so packages.toml edits would not
+	// reach the guest until an agent run. Best-effort: a write failure
+	// must not block the daemon (the previous script stays in place).
+	if err := writeMsbInstallScript(); err != nil {
+		ui.InfoF("⚠️  Could not regenerate install script: %v (using the previous one)\n", err)
+	}
+
 	// Multi-path mode (Docker parity): the mount set is static config. A cwd
 	// outside every configured root is a hard error, never a recreate — the
 	// daemon state survives and the user gets an actionable message instead.
