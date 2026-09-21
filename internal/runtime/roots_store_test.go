@@ -1,10 +1,13 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
 )
 
 // withRootsTestHome isolates HOME so roots.json lands in a temp dir.
@@ -173,5 +176,29 @@ func TestRootsPathsDropsMissing(t *testing.T) {
 	paths := s.Paths()
 	if len(paths) != 1 || paths[0] != realDir {
 		t.Errorf("Paths() = %v, want only the live dir", paths)
+	}
+}
+
+// TestRequestLearnRootNonInteractiveDeny pins the consent gate: with no
+// TTY on stdin, an unknown root must NOT be learned — the caller gets
+// ErrMsbDaemonWorkdirUnmapped and the store stays untouched.
+func TestRequestLearnRootNonInteractiveDeny(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	newDir := t.TempDir()
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, newDir)
+	if !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+		t.Fatalf("err = %v, want ErrMsbDaemonWorkdirUnmapped", err)
+	}
+	if learned {
+		t.Error("learned must be false on the non-interactive deny path")
+	}
+	store, rerr := LoadRootsStore()
+	if rerr != nil {
+		t.Fatalf("load store: %v", rerr)
+	}
+	if store.Has(cleanProjectDir(newDir)) {
+		t.Error("denied root must not be persisted")
 	}
 }

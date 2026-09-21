@@ -203,11 +203,59 @@ func TestBuildMsbRunSpecMountsHashLabel(t *testing.T) {
 	single := config.DefaultConfig()
 	specSingle := BuildMsbRunSpec(&single, "sb", "", nil)
 	if _, ok := specSingle.Labels[DaemonMountsLabelKey]; ok {
-		t.Error("single-path spec must not carry the mounts hash label")
+		t.Error("single-path spec with no project and no learned roots must not carry the mounts hash label")
+	}
+}
+
+// TestMsbSandboxMountsLearnedRoots verifies the single-path mount set
+// includes every learned root at its own /workspaces/<name> dest alongside
+// the boot project, and that a cwd covered by a learned root stays inside
+// the existing set (no shadow mount, no hash drift).
+func TestMsbSandboxMountsLearnedRoots(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectA := t.TempDir()
+	projectB := t.TempDir()
+
+	// Seed the store with both roots learned (projectA would have been
+	// learned when the daemon first booted from it).
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	store.TouchRoot(cleanProjectDir(projectA), msbBootClock())
+	store.TouchRoot(cleanProjectDir(projectB), msbBootClock())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.MountSkills = false
+	mounts := msbSandboxMounts(&cfg, projectA)
+
+	destA := GetMsbWorkspaceMountDest(projectA)
+	destB := GetMsbWorkspaceMountDest(projectB)
+	if _, ok := mounts[destA]; !ok {
+		t.Errorf("boot project mount %s missing", destA)
+	}
+	if _, ok := mounts[destB]; !ok {
+		t.Errorf("learned root mount %s missing", destB)
+	}
+
+	// A subdir of a learned root is covered by that root's mount: it must
+	// not join the effective set (no shadow mount, no hash drift).
+	sub := filepath.Join(projectA, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir sub: %v", err)
+	}
+	if roots := effectiveWorkspaceRoots(sub, store); len(roots) != 2 {
+		t.Errorf("covered subdir changed the effective set: %v", roots)
 	}
 }
 
 func TestMsbDaemonNeedsRecreate(t *testing.T) {
+	// The single-path recreate check loads the learned-roots store; isolate
+	// HOME so machine state cannot leak into the hash computation.
+	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
@@ -217,7 +265,14 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 
 	dest := GetMsbWorkspaceMountDest(root)
 	cfgJSON := fmt.Sprintf(`{"mounts":[{"type":"Bind","host":%q,"guest":%q}]}`, root, dest)
-	singleLabels := map[string]string{"construct.project_dir": root}
+	// Single-path reuse requires the stamped mount-set hash to match the
+	// effective roots (boot project; the store is empty under the isolated
+	// HOME). The subdir case computes the same set: a subdir rides the
+	// parent mount instead of becoming a shadow root.
+	singleLabels := map[string]string{
+		"construct.project_dir": root,
+		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{root}),
+	}
 
 	multi := DaemonMounts{Enabled: true, Hash: "abc", Mounts: []DaemonMount{{HostPath: root, ContainerPath: "/workspaces/x"}}}
 	multiLabels := map[string]string{DaemonMountsLabelKey: "abc"}
@@ -263,6 +318,9 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 // are pre-populated so the skills check is the only variable; a failure
 // here cannot be masked by an unrelated recreate trigger.
 func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
+	// The single-path recreate check loads the learned-roots store; isolate
+	// HOME so machine state cannot leak into the hash computation.
+	t.Setenv("HOME", t.TempDir())
 	planted := t.TempDir()
 	plantedSkills := filepath.Join(planted, "skills")
 	if err := os.MkdirAll(plantedSkills, 0o755); err != nil {
@@ -369,6 +427,14 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 					if mode == "multi" {
 						dm = DaemonMounts{Enabled: true, Hash: "multi-hash"}
 						labelsForMode[DaemonMountsLabelKey] = "multi-hash"
+					} else {
+						// Single-path stamps the effective-roots hash; stamp the
+						// matching value so the skills check is the only variable.
+						store, err := LoadRootsStore()
+						if err != nil {
+							store = RootsStore{Version: rootsStoreVersion}
+						}
+						labelsForMode[DaemonMountsLabelKey] = hashDaemonMountPaths(effectiveWorkspaceRoots(workspaceRoot, store))
 					}
 					got, reason := msbDaemonNeedsRecreate(dm, labelsForMode, cfgJSON, workspaceRoot, false, &cfg)
 					if got != wantRecreate {

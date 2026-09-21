@@ -136,6 +136,19 @@ Set `telemetry = false` to stop all telemetry file writes. The `msb-boot:` summa
 
 ## Sandbox Settings
 
+### Skills Mount (microVM)
+
+```toml
+[sandbox]
+mount_skills = true       # Bind-mount the host skills library into every supported agent's skills dir
+skills_read_only = true   # Read-only mount: agents can consume skills but never write to the host source
+skills_source = ""        # Override the auto-detected source path; empty = auto-detect
+```
+
+Source resolution precedence: `$CONSTRUCT_SKILLS_SOURCE` env var, then `skills_source`, then auto-detect in order (`~/Dev/EstebanForge/AGENTS/skills`, `~/AGENTS/skills`, `~/.config/construct-cli/skills`, `$XDG_DATA_HOME/construct/skills`). No source found means no mount and no error.
+
+Each supported agent gets its own skills directory (for example `/home/construct/.claude/skills`); the mount is read-only by default — agents cannot modify the host library. Opt into read-write with `skills_read_only = false`; that is the same trust level as the persistent home bind. Changing any skills key recreates the daemon sandbox once on the next run.
+
 ### Home Directory Mount
 
 ```toml
@@ -404,7 +417,38 @@ auto_start = true  # Auto-start daemon on first agent run
 - Persistent daemon across multiple runs
 - Resource efficient
 
-### Multi-Root Mounts
+### Learned Roots (single-path)
+
+Without `multi_paths_enabled`, the daemon mounts one project at a time and would normally recreate on every project switch. Learned roots fix that: the first interactive run from a new project asks
+
+```
+Add /path/to/project to the daemon's mounted roots? [Y/n]
+```
+
+Accept once and the root joins the daemon's mount set permanently — later runs from that project (or any subdirectory) reconnect with zero recreates. The learned set lives in `~/.config/construct-cli/roots.json`, is capped by LRU, and non-interactive sessions (agents, CI) from unknown directories fail closed with guidance instead of prompting.
+
+```toml
+[daemon]
+max_learned_roots = 8  # LRU cap on learned roots; oldest is evicted when exceeded
+```
+
+Manage the learned set:
+
+```bash
+construct sys daemon roots list            # show learned + configured roots
+construct sys daemon roots forget <path>   # unlearn a root (next run recreates)
+```
+
+Each root added or evicted recreates the daemon sandbox exactly once (guest init re-runs); visits to known roots never recreate.
+
+### Idle Stop
+
+```toml
+[daemon]
+idle_stop_minutes = 45  # Stop the daemon after N minutes with zero live sessions; 0 disables
+```
+
+When the last construct session tears down, a detached watcher waits `idle_stop_minutes` and stops the daemon if no new session appeared. Idle is session-based, never CPU-based: a long-running agent keeps its session registered and the daemon alive. `construct sys daemon status` shows the current live-session count. Stopped-state bridges (SSH proxy, clipboard, host-exec) disappear with the VM, shrinking the attack surface to zero while idle.
 
 ```toml
 [daemon]
