@@ -157,3 +157,62 @@ Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integrat
 ## Decision gate
 
 Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave VMsv2 phase 6 parked under its own gate: if the spike passes, smolvm fork replaces phase 6; if not, the phase 6 gate still applies. Re-evaluate after GA ships + one dogfood week.
+
+---
+
+# TODO: Image Layering — Bake Dev Baseline + Core Agents (prerequisite for the first GHCR publish)
+
+Status: DECIDED (owner, 2026-09-21). The first `image.yml` publish carries this; a base-only image will not be published. Image size is accepted (~3-4 GiB) — users receive a complete, secure work environment. Sequencing note: this lands BEFORE the GA checklist's image-publish item; `scripts/lab-matrix.sh` re-runs against the baked image before dispatch.
+
+## Decision
+
+Move EVERYTHING dev-oriented from `packages.toml` into the image, and pre-install the five core agents users are certain to use. Both engines consume the same Dockerfile, so one bake serves Docker (local build, auto-rebuilt on template-hash change) and microVM (GHCR pull).
+
+**Baked into the image (build time):**
+
+- All `[apt]`, `[brew]`, `[cargo]`, `[pip]`, `[gems]`, `[tools]` dev packages — the full baseline
+- Core agents, installed via their official installers at `/usr/local/bin` (root-owned, NOT the bind path): **claude, codex, agy, pi, opencode**
+
+**Stays in `packages.toml` (optional layer, runs at guest init, installs to the home bind):**
+
+- Remaining agents: amp, copilot, crush, goose, kilocode, qwen, cline (+ any future additions)
+- User-defined packages and `[post_install]` commands
+
+## The override contract (bind vs baked)
+
+PATH order decides: `/home/construct/.local/bin` and `/home/construct/.npm-global/bin` (bind) precede `/usr/local/bin` (baked).
+
+- `packages.toml` entry PRESENT → user-layer install on the bind → **shadows the baked baseline** → user controls the version (pin old, try new)
+- Entry ABSENT → baked baseline serves; nothing reinstalls it behind the user's back
+- Entry REMOVED → the bind copy is NOT auto-deleted (the installer never sweeps user-layer installs — users keep their own manual tools there); documented one-liner: delete the bind copy to fall back to baked
+- The installer must NEVER write to `/usr/local/bin` at runtime — that is what keeps the two layers from corrupting each other
+
+## Existing-user migration (the shadow trap)
+
+Existing home binds carry agent copies installed under the old model at `/home/construct/.local/bin` — those will shadow the new baked binaries forever. Add an entrypoint migration block (runs once, marker-gated) that removes bind copies of the TOOLS THAT ARE NOW BAKED, but ONLY for tools not present in `packages.toml` (a packages.toml entry is a deliberate override and must survive). The migration prints what it removed.
+
+## Build requirements
+
+- BuildKit cache mounts for `apt`, `npm`, and Homebrew caches (CI + docker-backend local build speed)
+- Layer order by churn: OS/apt → brew core → static binaries → language runtimes → core agents LAST (pull progress + cache reuse)
+- No recursive `chown` layers (`COPY --chown`)
+- zstd layer compression — BLOCKED on verifying the msb 0.7.2 puller handles zstd layers before switching from gzip
+- Core agents update on the image cadence (accepted); `packages.toml` override is the user escape hatch for newer/older versions
+
+## Instrumentation prerequisite
+
+`entrypoint.sh` emits `entrypoint_install_phase_sec` (via the guest log the host already collects) so install-phase time is separable from boot time. Success criteria: install phase drops from >300 s to <5 s on hash-change boots; image pull grows by <60 s.
+
+## Verification gate (before dispatching `image.yml`)
+
+1. `scripts/lab-matrix.sh` green against the baked image (isolated HOME, 0.7.2 pair)
+2. Fresh-home first run: agents usable without any install phase; `claude --version`, `codex --version`, `agy --version`, `pi --version`, `opencode --version` resolve to `/usr/local/bin`
+3. Override contract live: a `packages.toml` codex entry shadows the baked binary; removing the entry + recreating falls back to baked
+4. Migration sweep verified against a home bind containing stale pre-bake copies
+5. Image size + pull time recorded in `docs/VMsv2.md` section 10
+
+## Post-publish follow-ups
+
+- msb store garbage collection (keep `latest` + active images) — probe leftovers already demonstrated store growth
+- Refresh mechanism for cached images on existing installs (digest-check in `EnsureImage` or `construct sys image refresh`)
+- Unify `construct sys update` across engines (currently compose-only, fails closed on microvm)
