@@ -89,8 +89,5 @@ pull_predefined = false
 # Don't self-update composer (managed via brew)
 self_update = false
 
-# Custom commands for tools topgrade doesn't natively support
-[commands]
-"Claude Code" = "if command -v claude &> /dev/null; then claude update || true; fi"
-"Pi Coding Agent" = "if command -v pi &> /dev/null; then pi update --all || true; fi"
-"Antigravity Agent" = "if command -v agy &> /dev/null; then agy update || true; fi"
+# Baked agents (claude/codex/agy/pi/opencode) update on the image lane;
+# no [commands] section here (matches GenerateTopgradeConfig).

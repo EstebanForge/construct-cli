@@ -421,9 +421,16 @@ func shouldSkipImageBuild() bool {
 	return value == "1" || value == "true" || value == "yes"
 }
 
-// AreAgentsInstalled checks if agent binaries exist in the config directory
+// AreAgentsInstalled reports whether first-run guest setup has completed.
+// Baked agents live at /usr/local/bin inside the image and never appear in
+// the bind's .local/bin, so detection uses the bind-side completion marker
+// the entrypoint writes at the end of setup (legacy fallback: any agent
+// binary present in the bind, for homes set up by older images).
 func AreAgentsInstalled() bool {
 	configDir := config.GetConfigDir()
+	if _, err := os.Stat(filepath.Join(configDir, "home", ".local", ".construct_setup_complete")); err == nil {
+		return true
+	}
 	binDir := filepath.Join(configDir, "home", ".local", "bin")
 
 	candidates := []string{

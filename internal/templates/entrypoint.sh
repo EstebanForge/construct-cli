@@ -491,6 +491,12 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     else
         echo "$CURRENT_HASH" > "$HASH_FILE"
     fi
+
+    # Bind-side setup-completion marker: the host CLI's AreAgentsInstalled
+    # uses this to detect first-run completion (baked agents live at
+    # /usr/local/bin and never appear in the bind's .local/bin).
+    mkdir -p "$HOME/.local"
+    touch "$HOME/.local/.construct_setup_complete"
     echo ""
     echo "✅ Setup complete! Environment ready."
 fi

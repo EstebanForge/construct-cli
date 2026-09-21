@@ -11,6 +11,8 @@ RUN useradd -u 1000 -m -s /bin/bash construct && \
     libatk1.0-0 libcups2 libdbus-1-3 libdrm2 libgbm1 libgtk-3-0 \
     libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxdamage1 libxrandr2 \
     gnome-keyring libsecret-1-0 dbus-x11 xdg-utils libcap2-bin \
+    procps file ufw iptables bind9-dnsutils xclip xsel wl-clipboard \
+    python3 python3-pip python3-venv python3-dev \
     vim tmux nano && \
     rm -rf /var/lib/apt/lists/*
     # [apt] from packages.toml is baked here (vim/tmux/nano; g++ ships in
@@ -86,6 +88,7 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid
     brew tap EstebanForge/tap && \
     brew install \
       ast-grep yq sd fzf eza fd bat ripgrep jq curl wget tree unzip socat make htop netcat bind sshpass nano lftp tmux btop \
+      imagemagick topgrade libgit2 \
       gh git-lfs git-delta git-cliff rsync procs python-setuptools awscli cmake pkg-config direnv gum rtk \
       go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
       node python@3.12 python@3 openssl@3 llvm gcc nasm yasm \

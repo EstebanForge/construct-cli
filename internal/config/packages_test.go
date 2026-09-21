@@ -63,7 +63,13 @@ mise = false
 }
 
 func TestGenerateInstallScriptSudoDetection(t *testing.T) {
-	config := &PackagesConfig{}
+	// Apt packages force the privileged path through the user-section loop;
+	// hardcoded system apt blocks were removed (baked into the image).
+	config := &PackagesConfig{
+		Apt: AptConfig{
+			Packages: []string{"htop"},
+		},
+	}
 	script := config.GenerateInstallScript()
 
 	// Verify sudo detection block is present
@@ -134,10 +140,10 @@ func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	}
 	script := config.GenerateInstallScript()
 
-	if !strings.Contains(script, "brew install --formula imagemagick || echo") {
+	if !strings.Contains(script, "if ! brew install --formula imagemagick; then") {
 		t.Error("Script should guard imagemagick install failures")
 	}
-	if !strings.Contains(script, "brew install --formula topgrade || echo") {
+	if !strings.Contains(script, "if ! brew install --formula topgrade; then") {
 		t.Error("Script should guard topgrade install failures")
 	}
 	if !strings.Contains(script, "INSTALLED_BREW=$(brew list --formula -1") {
@@ -208,13 +214,20 @@ func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
 	}
 	result := config.GenerateTopgradeConfig()
 
-	// claude update exits non-zero when already up-to-date; topgrade would mark
-	// it FAILED without || true even though no update was needed.
-	if !strings.Contains(result, `"Claude Code" = "if command -v claude &> /dev/null; then claude update || true; fi"`) {
-		t.Error("topgrade config must use guarded 'claude update || true' to avoid false FAILED status")
+	// Baked agents live at root-owned /usr/local/bin and update on the image
+	// lane. In-guest self-updaters would EACCES or create shadowing bind
+	// copies, so the generated config must carry NO [commands] for them.
+	if strings.Contains(result, "claude update") {
+		t.Error("topgrade config must not update baked claude in-guest")
 	}
-	if !strings.Contains(result, `"Antigravity Agent" = "if command -v agy &> /dev/null; then agy update || true; fi"`) {
-		t.Error("topgrade config must use guarded 'agy update || true' to avoid false FAILED status")
+	if strings.Contains(result, "agy update") {
+		t.Error("topgrade config must not update baked agy in-guest")
+	}
+	if strings.Contains(result, "pi update") {
+		t.Error("topgrade config must not update baked pi in-guest")
+	}
+	if strings.Contains(result, "[commands]") {
+		t.Error("topgrade config must not carry a [commands] section for baked agents")
 	}
 	if !strings.Contains(result, `"claude_code",`) {
 		t.Error("topgrade config must disable built-in claude_code step to avoid duplicate/conflicting Claude update runs")

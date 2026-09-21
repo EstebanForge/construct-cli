@@ -88,6 +88,7 @@ volta = false
 # Commands to run after all package managers finish
 [post_install]
 commands = [
+  "if [ -x \"$HOME/.local/bin/amp\" ] || [ -x \"$HOME/.amp/bin/amp\" ]; then echo \"Amp already installed\"; else curl -fsSL https://ampcode.com/install.sh | bash; fi",
   "if [ \"$(uname -m)\" = \"aarch64\" ] || [ \"$(uname -m)\" = \"arm64\" ]; then echo \"ℹ️ ARM64 detected: Configuring agent-browser to use system Chromium\"; mkdir -p ~/.local/bin; printf '#!/bin/bash\\nexec \"'\"$(npm config get prefix)\"'\"/bin/agent-browser --executable-path /usr/bin/chromium \"$@\"' > ~/.local/bin/agent-browser && chmod +x ~/.local/bin/agent-browser; else agent-browser install --with-deps; fi",
   "if command -v goose &>/dev/null; then echo \"Goose already installed\"; else curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash; fi",
   "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
