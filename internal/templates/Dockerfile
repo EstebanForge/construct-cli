@@ -205,23 +205,20 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid
     done
 
 
-# dart-sdk + swift in their OWN layer: swift's dependency tree is heavy and
-# would push a combined languages layer past msb's 10 GiB per-layer limit.
+# dart-sdk in its own small layer. swift, zig, erlang, elixir, gleam and
+# the graphics chain they pulled (wxwidgets/gtk+3/mesa -> unversioned llvm)
+# were REMOVED 2026-09-22 for image size (owner decision; ~8.4 GiB of
+# Cellar weight) - users restore them via packages.toml [brew] entries
+# (docs/PACKAGES.md).
 RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     (brew install \
       dart-sdk \
-      swift \
       perl \
-      zig \
-      erlang \
       gnucobol) || \
       echo "⚠️ brew install exited non-zero; verifying kegs"; \
     for f in dart-sdk \
-      swift \
       perl \
-      zig \
-      erlang \
       gnucobol; do \
       brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
     done
@@ -262,10 +259,8 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid
       podman-compose \
       groovy \
       scala \
-      elixir \
       r \
       micropython \
-      gleam \
       ocaml \
       swi-prolog) || \
       echo "⚠️ brew install exited non-zero; verifying kegs"; \
@@ -277,10 +272,8 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid
       podman-compose \
       groovy \
       scala \
-      elixir \
       r \
       micropython \
-      gleam \
       ocaml \
       swi-prolog; do \
       brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
