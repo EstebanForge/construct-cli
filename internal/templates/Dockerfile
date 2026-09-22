@@ -67,16 +67,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # fd/bat: Debian ships fd-find/bat as fdfind/batcat; the symlinks restore
 # the upstream names agents and humans expect.
 
-# 4. Vendor repositories: gh (GitHub), dart (Google), nodejs 24 (NodeSource).
+# 4. Vendor repositories: gh (GitHub), nodejs 24 (NodeSource).
 # Each is the vendor's own documented, signed apt path for current releases.
+# (dart was removed 2026-09-22 for image weight, ~640 MB — restore via the
+# Google apt repo per dart.dev/get-dart; see docs/PACKAGES.md restore table.)
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg && \
     chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
-    curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/dart.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/dart.gpg] https://storage.googleapis.com/download.dartlang.org/linux/debian stable main" > /etc/apt/sources.list.d/dart.list && \
     curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh && \
     bash /tmp/nodesource_setup.sh && \
-    apt-get install -y --no-install-recommends gh dart nodejs && \
+    apt-get install -y --no-install-recommends gh nodejs && \
     rm -f /tmp/nodesource_setup.sh && rm -rf /var/lib/apt/lists/*
 
 # 5. Go from the official go.dev tarball (current; trixie's golang is 1.24).
