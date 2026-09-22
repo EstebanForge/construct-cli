@@ -249,14 +249,6 @@ RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid
     done
 
 
-# llvm in its OWN layer: ~7 GB alone, and msb rejects any layer over
-# 10 GiB - sharing a layer with gcc/node left under 400 MB headroom.
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      llvm) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    brew list --versions "llvm" >/dev/null 2>&1 || { echo "FATAL: keg missing: llvm" >&2; exit 1; }
 
 
 RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
