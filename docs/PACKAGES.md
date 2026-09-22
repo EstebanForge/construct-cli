@@ -28,7 +28,7 @@ Construct supports installing additional packages inside the sandbox environment
 
 Construct ships a **baked baseline** inside the `construct-box` image: the system
 toolchain (apt: awscli, podman, openjdk 25, php 8.4 + composer, ffmpeg, hugo,
-neovim, and the full CLI set), vendor-repo tools (`gh`, `dart`, `nodejs` 24), Go
+neovim, and the full CLI set), vendor-repo tools (`gh`, `nodejs` 24), Go
 from the official tarball, the mise github: tier (`yq`, `topgrade`, `git-cliff`,
 `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`), jekyll, litellm, qmd, bun,
 mise, asdf, and the five core agents — `claude`, `codex`, `agy`, `pi`, `opencode`
@@ -78,6 +78,7 @@ away — add them to your `packages.toml` user layer:
 | `zig` | 2026-09-22 image trim | ~2.6 GB with its llvm dependency | `[mise] packages = ["zig"]` |
 | `erlang`, `elixir`, `gleam` | 2026-09-22 image trim | ~3.5 GB with the graphics/llvm chain they pulled | `[apt] packages = ["erlang", "elixir"]`; gleam via `[mise]` |
 | `fastmod` | 2026-09-22 brew exit | no release assets to fetch | `cargo install fastmod` |
+| `dart` | 2026-09-22 size trim | ~640 MB, heaviest apt package; nothing in the image depends on it | Google's signed apt repo per dart.dev/get-dart: `curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub \| gpg --dearmor -o /usr/share/keyrings/dart.gpg && echo "deb [signed-by=/usr/share/keyrings/dart.gpg] https://storage.googleapis.com/download.dartlang.org/linux/debian stable main" \| tee /etc/apt/sources.list.d/dart.list && sudo apt-get update && sudo apt-get install -y dart` |
 | `kotlin`, `scala`, `groovy`, `gradle`, `rust` | 2026-09-22 brew exit | language runtimes moved on-demand | `[mise] packages = ["kotlin", "scala", ...]` |
 
 ```toml

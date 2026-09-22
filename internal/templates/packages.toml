@@ -3,7 +3,7 @@
 # BAKED BASELINE (2026-09-22, brew exited - see docs/BREW-EXIT.md): the
 # standard dev toolset is baked INTO the image (internal/templates/Dockerfile)
 # — [apt] system packages + the dev toolchain (awscli, podman, openjdk 25,
-# php 8.4 + composer, ffmpeg, hugo...), vendor-repo gh/dart/nodejs 24,
+# php 8.4 + composer, ffmpeg, hugo...), vendor-repo gh/nodejs 24,
 # go 1.27 tarball, the mise github: tier (yq, topgrade, git-cliff, zola,
 # tlrc, rtk, mcp-cli-ent, md-over-here), jekyll, litellm, @tobilu/qmd, bun,
 # mise, asdf, and the core agents (claude, codex, agy, pi, opencode at
