@@ -30,7 +30,9 @@ Construct ships a **baked baseline** inside the `construct-box` image: the syste
 toolchain (apt: awscli, podman, openjdk 25, php 8.4 + composer, ffmpeg, hugo,
 neovim, and the full CLI set), vendor-repo tools (`gh`, `nodejs` 24), Go
 from the official tarball, the mise github: tier (`yq`, `topgrade`, `git-cliff`,
-`zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`), jekyll, litellm, qmd, bun,
+`zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`), the npm tier
+(`typescript`, `prettier`, `@ast-grep/cli`, `vite`, `webpack`, and the agent
+CLIs `acpx` and `codegraph`), jekyll, litellm, qmd, bun,
 mise, asdf, and the five core agents — `claude`, `codex`, `agy`, `pi`, `opencode`
 at `/usr/local/bin`. The baseline updates with image updates, not per-sandbox
 installs. See docs/BREW-EXIT.md for the full package-channel mapping.
