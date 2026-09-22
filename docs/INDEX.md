@@ -12,6 +12,7 @@ Complete documentation for The Construct CLI.
 - [Using Construct with Agent Harnesses](HARNESSES.md) - Setup guide: shims, daemon mounts, PATH, troubleshooting
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [microVM Plan & Status](VMsv2.md) - microVM hardening plan, phase checkboxes, dogfood numbers
+- [Brew Exit Analysis](BREW-EXIT.md) - package-by-package Homebrew-to-Debian migration analysis
 - [Credential Proxy Design](CREDS-PROXY.md) - Host-side provider-key broker design (phase 5)
 - [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - PENDING: sentinel substitution + egress proxy, design and peer review done
 - [TODO](TODO.md) - GA checklist and parked follow-ups
