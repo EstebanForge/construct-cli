@@ -88,8 +88,10 @@ Notes:
 - Brew formulae pour into the sandbox disk at guest init. Expect a one-time
   multi-minute pour on the next boot after you add a large formula.
 - Need the compilers without the full llvm suite? The baseline already ships
-  `gcc` (brew) and `build-essential` (apt). `rust` and `zig` bundle their own
-  LLVM internally, so rustc and zig work with no extra install.
+  `gcc` (brew) and `build-essential` (apt). Caveat: brew's `rust` and `zig`
+  formulae each pull their own llvm major as a dependency on Linux (llvm@22
+  and llvm@21), so those toolchains keep llvm in the image even after the
+  baseline `llvm` trim.
 - Future disk-driven removals will be recorded in this table. Check it after
   image updates if a tool you use stops resolving.
 
