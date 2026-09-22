@@ -602,3 +602,29 @@ func TestDefaultConfigTelemetryEnabled(t *testing.T) {
 		t.Error("Expected telemetry to remain true after unmarshaling missing key")
 	}
 }
+
+// TestDefaultConfigAutoUpdatePackages pins the idle-window updater default:
+// on unless the user sets [daemon] auto_update_packages = false, and the
+// default survives unmarshaling existing config.toml files that predate
+// the key (zero-value TOML decoding must not silently disable it).
+func TestDefaultConfigAutoUpdatePackages(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Daemon.AutoUpdatePackages {
+		t.Error("Expected default auto_update_packages to be true")
+	}
+
+	if err := toml.Unmarshal([]byte(""), &cfg); err != nil {
+		t.Fatalf("unmarshal empty config: %v", err)
+	}
+	if !cfg.Daemon.AutoUpdatePackages {
+		t.Error("Expected auto_update_packages to remain true after unmarshaling missing key")
+	}
+
+	// Explicit false must stick (opt-out works).
+	if err := toml.Unmarshal([]byte("[daemon]\nauto_update_packages = false\n"), &cfg); err != nil {
+		t.Fatalf("unmarshal opt-out config: %v", err)
+	}
+	if cfg.Daemon.AutoUpdatePackages {
+		t.Error("Expected explicit auto_update_packages = false to be honored")
+	}
+}
