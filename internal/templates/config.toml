@@ -76,7 +76,7 @@ ssh_pin_identities = []
 propagate_git_identity = true
 
 # Enforce strict non-root runtime behavior by forcing container user mapping (default: false)
-# WARNING: On Docker this can break first-run package installs (Homebrew/npm permission issues)
+# WARNING: On Docker this can break first-run package installs (npm permission issues)
 # because root bootstrap permission-fixes are bypassed.
 # Enable only for strict compliance environments where non-root is mandatory.
 non_root_strict = false

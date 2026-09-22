@@ -16,8 +16,6 @@ import (
 // - internal/templates/docker-compose.yml
 // - internal/templates/Dockerfile
 var PathComponents = []string{
-	"/home/linuxbrew/.linuxbrew/bin",
-	"/home/linuxbrew/.linuxbrew/sbin",
 	"$HOME/.local/bin",
 	"$HOME/.npm-global/bin",
 	"$HOME/.cargo/bin",
@@ -37,6 +35,8 @@ var PathComponents = []string{
 	"$HOME/.nix-profile/bin",
 	"/nix/var/nix/profiles/default/bin",
 	"$HOME/.phpbrew/bin",
+	"/usr/local/share/mise/shims",
+	"/usr/local/go/bin",
 	"/usr/local/sbin",
 	"/usr/local/bin",
 	"/usr/sbin",

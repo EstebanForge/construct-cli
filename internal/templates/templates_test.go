@@ -21,8 +21,11 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Dockerfile, "FROM debian:trixie-slim") {
 		t.Error("Dockerfile template missing base image declaration")
 	}
-	if !strings.Contains(Dockerfile, "brew install") {
-		t.Error("Dockerfile template missing Homebrew installation")
+	if !strings.Contains(Dockerfile, "apt-get install -y --no-install-recommends") {
+		t.Error("Dockerfile template missing the baked apt toolchain tier")
+	}
+	if !strings.Contains(Dockerfile, "mise install") {
+		t.Error("Dockerfile template missing the baked mise github: tool tier")
 	}
 	if !strings.Contains(Dockerfile, "WORKDIR /projects") {
 		t.Error("Dockerfile template missing WORKDIR /projects")
@@ -145,17 +148,8 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "npm config set prefix \"$HOME/.npm-global\"") {
 		t.Error("update-all.sh should configure npm global prefix before npm updates")
 	}
-	// Casks are macOS-only; on Linux the homebrew/cask tap crashes `brew upgrade`
-	// (arch-conditional sha256 resolves to nil, e.g. Casks/0/0-ad). Both update
-	// scripts must untap it defensively on Linux.
-	if !strings.Contains(UpdateAll, "brew untap homebrew/cask") {
-		t.Error("update-all.sh should untap homebrew/cask on Linux to avoid sha256:nil crash")
-	}
-	if !strings.Contains(UpdateAll, "\"$(uname -s)\" = \"Linux\"") {
-		t.Error("update-all.sh cask untap should be guarded to Linux")
-	}
-	if !strings.Contains(Entrypoint, "brew untap homebrew/cask") {
-		t.Error("entrypoint.sh should untap homebrew/cask on Linux so manual topgrade runs are safe")
+	if !strings.Contains(UpdateAll, "mise upgrade --yes") {
+		t.Error("update-all.sh fallback path should update mise tools now that brew is gone")
 	}
 	// Test agent patch template
 	if AgentPatch == "" {
@@ -322,13 +316,13 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 	}
 
 	// npm-global candidate — the real copilot binary found here avoids Node relative-import
-	// issues that break when using readlink -f through the Homebrew symlink.
+	// issues that break when using readlink -f through a symlinked shim path.
 	if !strings.Contains(AgentPatch, "$HOME/.npm-global/bin/$cmd") {
 		t.Error("agent-patch.sh: missing '$HOME/.npm-global/bin/$cmd' candidate; _REAL resolution broken")
 	}
 
 	// rm -f before install — must remove symlink/file before cat > to avoid writing
-	// through a Homebrew symlink and corrupting the npm package binary.
+	// through a symlinked shim path and corrupting the npm package binary.
 	if !strings.Contains(AgentPatch, `rm -f "$wrapper_path"`) {
 		t.Error("agent-patch.sh: missing 'rm -f $wrapper_path' before wrapper install; stale wrapper can break launch")
 	}
@@ -340,15 +334,15 @@ func TestAgentPatchCopilotPTYWrapper(t *testing.T) {
 	}
 
 	// PATH-priority install location — wrapper must be at the path command -v copilot resolves
-	// to (Homebrew bin), not at ~/.local/bin which is shadowed by Homebrew.
+	// to (~/.local/bin), which shadows /usr/local/bin and ~/.npm-global/bin.
 	if !strings.Contains(AgentPatch, "command -v copilot") {
 		t.Error("agent-patch.sh: missing 'command -v copilot' for PATH-priority install location detection")
 	}
 
 	// Python shebang — must use absolute path; /usr/bin/env python3 may not find the
-	// Homebrew python3 in the restricted entrypoint environment.
-	if !strings.Contains(AgentPatch, "#!/home/linuxbrew/.linuxbrew/bin/python3") {
-		t.Error("agent-patch.sh: PTY wrapper shebang must use absolute Homebrew python3 path")
+	// Debian python3 in the restricted entrypoint environment.
+	if !strings.Contains(AgentPatch, "#!/usr/bin/python3") {
+		t.Error("agent-patch.sh: PTY wrapper shebang must use absolute Debian python3 path")
 	}
 
 	// Always-on log path — must write to home dir bind-mount, not /tmp.
@@ -433,7 +427,6 @@ func TestClipperShimFilePathMode(t *testing.T) {
 func TestEntrypointUsernsRemapSkipsRecursiveChown(t *testing.T) {
 	guard := `if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then`
 	chownHome := `chown -R "$RUN_AS_CHOWN" /home/construct`
-	chownBrew := `chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew`
 
 	guardIdx := strings.Index(Entrypoint, guard)
 	if guardIdx == -1 {
@@ -444,12 +437,8 @@ func TestEntrypointUsernsRemapSkipsRecursiveChown(t *testing.T) {
 	if chownHomeIdx == -1 {
 		t.Fatalf("entrypoint regression: missing home recursive chown: %s", chownHome)
 	}
-	chownBrewIdx := strings.Index(Entrypoint, chownBrew)
-	if chownBrewIdx == -1 {
-		t.Fatalf("entrypoint regression: missing brew recursive chown: %s", chownBrew)
-	}
 
-	if chownHomeIdx < guardIdx || chownBrewIdx < guardIdx {
+	if chownHomeIdx < guardIdx {
 		t.Fatalf("entrypoint regression: recursive chown must be gated by SKIP_RECURSIVE_CHOWN")
 	}
 }

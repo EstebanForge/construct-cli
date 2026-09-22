@@ -47,16 +47,6 @@ if [ "$(id -u)" = "0" ]; then
     fi
 
     if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then
-        # Fix Homebrew volume ownership. Idempotence probe: a recursive chown over
-        # a fresh VM disk takes 100-300s (D state); skip it when the tree is
-        # already owned by the runtime user (warm volume).
-        if [ -d /home/linuxbrew/.linuxbrew ]; then
-            if [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%u:%g' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" = "$RUN_AS_CHOWN" ]; then
-                :
-            else
-                chown -R "$RUN_AS_CHOWN" /home/linuxbrew/.linuxbrew 2>/dev/null || true
-            fi
-        fi
 
         # Fix home directory permissions. Idempotence probe: on microVM
         # backends the recursive chown goes through a per-file xattr overlay
@@ -131,10 +121,6 @@ else
         # populated home; skip when ownership is already correct.
         if [ -d /home/construct/.local ] && [ "$(stat -c '%u:%g' /home/construct/.local 2>/dev/null)" != "$(id -u):$(id -g)" ]; then
             sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
-        fi
-
-        if [ -d /home/linuxbrew/.linuxbrew ] && [ -e /home/linuxbrew/.linuxbrew/bin/brew ] && [ "$(stat -c '%u:%g' /home/linuxbrew/.linuxbrew/bin/brew 2>/dev/null)" != "$(id -u):$(id -g)" ]; then
-            sudo chown -R "$(id -u):$(id -g)" /home/linuxbrew/.linuxbrew 2>/dev/null || true
         fi
 
     fi
@@ -220,8 +206,6 @@ add_path() {
     fi
 }
 
-add_path "/home/linuxbrew/.linuxbrew/bin"
-add_path "/home/linuxbrew/.linuxbrew/sbin"
 add_path "$HOME/.local/bin"
 add_path "$HOME/.npm-global/bin"
 add_path "$HOME/.cargo/bin"
@@ -241,6 +225,8 @@ add_path "$HOME/.config/composer/vendor/bin"
 add_path "$HOME/.nix-profile/bin"
 add_path "/nix/var/nix/profiles/default/bin"
 add_path "$HOME/.phpbrew/bin"
+add_path "/usr/local/share/mise/shims"
+add_path "/usr/local/go/bin"
 add_path "/usr/local/sbin"
 add_path "/usr/local/bin"
 add_path "/usr/sbin"
@@ -264,19 +250,11 @@ fi
 export PATH
 export CONSTRUCT_PATH="$PATH"
 
-# Casks are macOS-only; on Linux the homebrew/cask tap only breaks `brew upgrade`
-# (arch-conditional sha256 resolves to nil, e.g. Casks/0/0-ad). Untap defensively
-# so manual topgrade/brew runs are safe too. Idempotent; no-op if already untapped.
-if [ "$(uname -s)" = "Linux" ] && command -v brew >/dev/null 2>&1; then
-    brew untap homebrew/cask >/dev/null 2>&1 || true
-fi
-
 construct_profile="$HOME/.construct-path.sh"
 cat > "$construct_profile" <<EOF
 # construct-managed: true
 export CONSTRUCT_PATH="$CONSTRUCT_PATH"
 export PATH="$CONSTRUCT_PATH"
-export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:\$LD_LIBRARY_PATH"
 export NODE_NO_WARNINGS=1
 export CGO_ENABLED="${CGO_ENABLED:-1}"
 EOF
@@ -314,8 +292,6 @@ if [ -w "$profile_file" ] && ! grep -q "construct-path.sh" "$profile_file" 2>/de
     printf '\n# Construct PATH\nif [ -f "$HOME/.construct-path.sh" ]; then\n  . "$HOME/.construct-path.sh"\nfi\n' >> "$profile_file"
 fi
 export NVM_DIR="$HOME/.nvm"
-# Ensure library path includes Homebrew (for libgit2, etc.)
-export LD_LIBRARY_PATH="/home/linuxbrew/.linuxbrew/lib:$LD_LIBRARY_PATH"
 # Suppress Node.js deprecation warnings (punycode in Node 21+, etc.)
 export NODE_NO_WARNINGS=1
 export CGO_ENABLED="${CGO_ENABLED:-1}"
@@ -652,7 +628,7 @@ if [ $# -gt 0 ]; then
         echo "🔍 Current PATH: $PATH"
         echo "🔍 Searching for $1 in expected locations..."
         find /home/construct/.local/bin -name "$1*" 2>/dev/null | head -5
-        find /home/linuxbrew/.linuxbrew/bin -name "$1*" 2>/dev/null | head -5
+        find /usr/local/bin /usr/local/share/mise/shims -name "$1*" 2>/dev/null | head -5
         exit 1
     fi
 fi

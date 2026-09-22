@@ -27,17 +27,18 @@ import (
 // matching Docker's compose, so installed agent binaries persist on the
 // host and AreAgentsInstalled() keeps working unchanged.
 //
-// /home/linuxbrew is deliberately NOT volume-backed: msb does not copy
-// image content into an empty named volume on first mount (Docker does),
-// so a fresh volume shadows the image's linuxbrew entirely. Instead, brew
-// state persists in the sandbox root disk: sandboxes are named, kept
-// across runs (stopped, not removed), and stop/start preserves the root
-// disk (verified 2026-08-19).
+// Baked tooling lives on the sandbox root disk (apt, /usr/local) and is
+// deliberately NOT volume-backed: msb does not copy image content into an
+// empty named volume on first mount (Docker does), so a fresh volume would
+// shadow the image's toolchain entirely. Root-fs state persists because
+// sandboxes are named, kept across runs (stopped, not removed), and
+// stop/start preserves the root disk (verified 2026-08-19).
 const msbHomeMountDest = "/home/construct"
 
 // EnsureMsbVolumes is kept for API compatibility; the packages volume was
-// removed (it shadowed the image's linuxbrew — msb has no Docker-style
-// copy-image-content-into-empty-volume behavior). No named volumes remain.
+// removed (it would have shadowed the image's baked toolchain — msb has no
+// Docker-style copy-image-content-into-empty-volume behavior). No named
+// volumes remain.
 func EnsureMsbVolumes(_ context.Context) error { return nil }
 
 func cleanProjectDir(projectDir string) string {
@@ -71,8 +72,8 @@ func GetMsbWorkspaceMountDest(projectDir string) string {
 // then either the configured multi-path daemon mounts (daemon.mount_paths,
 // Docker parity: every root mounted under /workspaces/<hash>) or the single
 // project dir bind -> /workspaces/<name>, plus conditional auto-mounts
-// (qmd models) when the host path exists. linuxbrew stays on the sandbox
-// root disk.
+// (qmd models) when the host path exists. Baked tooling (apt, /usr/local)
+// stays on the sandbox root disk.
 func msbSandboxMounts(cfg *config.Config, projectDir string) map[string]msb.MountConfig {
 	mounts := map[string]msb.MountConfig{}
 	if home := msbHostConstructHome(); home != "" {
@@ -470,15 +471,15 @@ func parseMsbConfigMounts(configJSON string) map[string]string {
 
 // msbDaemonName is the persistent sandbox backing the daemon mode under
 // the msb backend (Docker analog: construct-cli-daemon container). Named
-// sandboxes persist across stop/start, so agent installs and brew state on
-// the root disk survive daemon restarts (docs/VMs.md §7.1).
+// sandboxes persist across stop/start, so agent installs and root-disk
+// toolchain state survive daemon restarts (docs/VMs.md §7.1).
 const msbDaemonName = "construct-cli-daemon"
 
 // ErrMsbDaemonWorkdirUnmapped reports that the requested project dir falls
 // outside every configured daemon.mount_paths root. Callers must not
 // recreate the daemon sandbox in this case: the mount set is static config
 // (Docker parity), and recreation would needlessly destroy the guest root
-// disk (installs, brew state).
+// disk (installs, toolchain state).
 var ErrMsbDaemonWorkdirUnmapped = errors.New("msb daemon: current directory is outside the configured daemon mount paths")
 
 // msbDaemonNeedsRecreate decides whether an existing daemon sandbox can

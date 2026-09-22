@@ -86,7 +86,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 	}
 
 	out, code, err = m.Exec(ctx, ExecOptions{Name: name, User: "construct", Command: []string{"sh", "-c", "echo $PATH"}})
-	if err != nil || code != 0 || !strings.Contains(out, "/home/linuxbrew/.linuxbrew/bin") {
+	if err != nil || code != 0 || !strings.Contains(out, "/usr/local/share/mise/shims") {
 		t.Fatalf("Exec PATH: code=%d out=%q err=%v", code, out, err)
 	}
 
