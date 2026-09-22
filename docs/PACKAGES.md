@@ -70,6 +70,9 @@ away — add them to your `packages.toml` user layer:
 | Tool | Removed | Why | Restore with |
 |------|---------|-----|--------------|
 | `llvm` (clang/clangd/lld) | 2026-09-22 image trim | ~4-7 GB pour; most users compile with the Debian gcc toolchain or toolchain-managed runtimes | `[brew] packages = ["llvm"]` |
+| `swift` | 2026-09-22 image trim | ~2.2 GB toolchain; rarely used, heavy bottle | `[brew] packages = ["swift"]` |
+| `zig` | 2026-09-22 image trim | ~2.6 GB with its llvm@21 dependency | `[brew] packages = ["zig"]` |
+| `erlang`, `elixir`, `gleam` (+ graphics chain) | 2026-09-22 image trim | ~3.5 GB with the wxwidgets/gtk+3/mesa/llvm dependency chain they pulled in | `[brew] packages = ["erlang", "elixir", "gleam"]` (dependencies re-pour automatically) |
 
 ```toml
 [brew]
@@ -88,10 +91,10 @@ Notes:
 - Brew formulae pour into the sandbox disk at guest init. Expect a one-time
   multi-minute pour on the next boot after you add a large formula.
 - Need the compilers without the full llvm suite? The baseline already ships
-  `gcc` (brew) and `build-essential` (apt). Caveat: brew's `rust` and `zig`
-  formulae each pull their own llvm major as a dependency on Linux (llvm@22
-  and llvm@21), so those toolchains keep llvm in the image even after the
-  baseline `llvm` trim.
+  `gcc` (brew) and `build-essential` (apt). Caveat: brew's `rust` formula
+  pulls llvm@22 as a dependency on Linux, so rust keeps one llvm major in
+  the image even after the baseline `llvm` trim. `zig` was removed for this
+  reason (it pulled llvm@21); restore it via the table above if you need it.
 - Future disk-driven removals will be recorded in this table. Check it after
   image updates if a tool you use stops resolving.
 
