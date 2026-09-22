@@ -256,6 +256,12 @@ max_learned_roots = 8
 # entirely (the daemon runs until manually stopped).
 idle_stop_minutes = 45
 
+# Runs package updates inside the sandbox during the daemon's idle window
+# (after the last session ends, before idle stop). Updates the optional
+# agents/packages layer only; the baked baseline updates with the image.
+# Set false for metered or air-gapped machines.
+auto_update_packages = true
+
 # Network Isolation (Optional)
 [network]
 # Mode: "permissive" (default), "strict" (block all except allowed), "offline" (no network)

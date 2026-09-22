@@ -52,7 +52,15 @@ func (m *MsbBackend) ExecStream(ctx context.Context, opts ExecOptions) (int, err
 	defer func() {
 		_ = h.Close() //nolint:errcheck // stream already drained
 	}()
-	return msbDrain(h, os.Stdout, os.Stderr)
+	stdout := io.Writer(os.Stdout)
+	stderr := io.Writer(os.Stderr)
+	if opts.Stdout != nil {
+		stdout = opts.Stdout
+	}
+	if opts.Stderr != nil {
+		stderr = opts.Stderr
+	}
+	return msbDrain(ctx, h, stdout, stderr)
 }
 
 // ExecInteractive runs a command with full interactive stdio: host stdin
@@ -141,16 +149,31 @@ func (m *MsbBackend) ExecInteractive(ctx context.Context, opts ExecOptions) (int
 
 	// Under a PTY, both stdout and stderr belong to the single terminal stream.
 	if stdTTY {
-		return msbDrain(h, os.Stdout, os.Stdout)
+		return msbDrain(ctx, h, os.Stdout, os.Stdout)
 	}
-	return msbDrain(h, os.Stdout, os.Stderr)
+	return msbDrain(ctx, h, os.Stdout, os.Stderr)
 }
 
 // msbDrain pumps ExecStream events to the host streams until the process
-// exits and returns its exit code.
-func msbDrain(h *msb.ExecHandle, stdout, stderr io.Writer) (int, error) {
+// exits and returns its exit code. ctx-aware: cancellation kills the guest
+// process (h.Close does NOT signal it - sdk/go/exec.go), then the drain
+// continues until the exit event confirms termination.
+func msbDrain(ctx context.Context, h *msb.ExecHandle, stdout, stderr io.Writer) (int, error) {
 	for {
-		ev, err := h.Recv(context.Background())
+		ev, err := h.Recv(ctx)
+		if ctx.Err() != nil {
+			// Canceled: terminate the guest process explicitly, then keep
+			// draining until the exit event confirms it is gone.
+			_ = h.Kill(context.Background()) //nolint:errcheck // best-effort kill during cancellation
+			ev, err = h.Recv(context.Background())
+			if err != nil {
+				return 1, fmt.Errorf("msb exec stream: %w", err)
+			}
+			if ev.Kind == msb.ExecEventExited {
+				return ev.ExitCode, nil
+			}
+			continue
+		}
 		if err != nil {
 			return 1, fmt.Errorf("msb exec stream: %w", err)
 		}

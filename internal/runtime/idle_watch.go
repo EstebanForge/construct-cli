@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -105,11 +106,37 @@ func IdleWatchRun(minutes int) {
 		<-tick.C
 	}
 	// Final check before stopping: a session may have appeared in the
-	// last 30s window.
+	// Last 30s window.
 	if LiveSessionCount() > 0 {
 		ui.InfoLn("idle-watch: a session appeared in the final window, standing down")
 		return
 	}
+
+	// Idle-window package update: refresh the optional layer before the
+	// stop (docs/TODO.md "Idle-Window Package Updater"). Runs WITHOUT the
+	// daemon flock; polls sessions and stands down if work arrives. The
+	// stop below re-checks under the flock, so a session that appeared
+	// mid-update keeps the daemon. Config is loaded here because the
+	// idle-watch is a detached process (no cfg is passed in).
+	if cfg, _, cerr := config.Load(); cerr == nil && cfg != nil && cfg.Daemon.AutoUpdatePackages {
+		ui.InfoLn("⏳ idle-watch: running package updates before stop")
+		if uerr := IdleWindowUpdate(cfg); uerr != nil {
+			if errors.Is(uerr, ErrUpdateStoodDown) {
+				// A session appeared: real work arrived. Do NOT stop the
+				// daemon - the next last-unregister re-arms this watcher.
+				ui.InfoLn("idle-watch: update stood down for a new session; daemon stays up")
+				return
+			}
+			ui.InfoF("⚠️ idle-watch: update pass failed (retried next window): %v\n", uerr)
+		}
+		if LiveSessionCount() > 0 {
+			ui.InfoLn("idle-watch: a session appeared during the update, standing down")
+			return
+		}
+	} else if cerr != nil {
+		ui.InfoF("⚠️ idle-watch: config load failed, skipping package update: %v\n", cerr)
+	}
+
 	ui.InfoLn("💤 idle-watch: zero sessions past the deadline; stopping the daemon")
 	if err := StopMsbDaemonBestEffort(); err != nil {
 		ui.InfoF("⚠️  idle-watch: stop failed: %v\n", err)

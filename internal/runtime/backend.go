@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"io"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
@@ -71,5 +72,7 @@ type ExecOptions struct {
 	Command []string // argv
 	Env     []string // ordered; callers may mutate in place (engine.go masking)
 	Workdir string
-	User    string // empty = backend default
+	User    string    // empty = backend default
+	Stdout  io.Writer // nil = os.Stdout
+	Stderr  io.Writer // nil = os.Stderr
 }

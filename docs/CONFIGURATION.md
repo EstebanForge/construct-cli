@@ -450,6 +450,8 @@ idle_stop_minutes = 45  # Stop the daemon after N minutes with zero live session
 
 When the last construct session tears down, a detached watcher waits `idle_stop_minutes` and stops the daemon if no new session appeared. Idle is session-based, never CPU-based: a long-running agent keeps its session registered and the daemon alive. `construct sys daemon status` shows the current live-session count. Stopped-state bridges (SSH proxy, clipboard, host-exec) disappear with the VM, shrinking the attack surface to zero while idle.
 
+Idle-window package updates (`auto_update_packages`, default `true`): right before that idle stop, the daemon runs the package updater inside the sandbox (update-all.sh, which includes the generated topgrade pass). Only the optional layer updates — the baked baseline moves with image updates. A session appearing mid-update stands the update down; failures are logged to `logs/update.log` and retried at the next idle window. Set `false` for metered or air-gapped machines.
+
 ```toml
 [daemon]
 multi_paths_enabled = false

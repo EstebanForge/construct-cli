@@ -108,11 +108,12 @@ type AgentsConfig struct {
 
 // DaemonConfig holds daemon behavior settings.
 type DaemonConfig struct {
-	AutoStart         bool     `toml:"auto_start"`          // Auto-start daemon on first agent run (default: true)
-	MultiPathsEnabled bool     `toml:"multi_paths_enabled"` // Enable multi-path daemon mounts (default: false)
-	MountPaths        []string `toml:"mount_paths"`         // Multi-path daemon mount roots (opt-in)
-	MaxLearnedRoots   int      `toml:"max_learned_roots"`   // LRU cap on roots.json learned entries (default 8; 0 disables learning)
-	IdleStopMinutes   int      `toml:"idle_stop_minutes"`   // Phase 3: stop daemon after N minutes of zero registered sessions (default 45; 0 disables)
+	AutoStart          bool     `toml:"auto_start"`           // Auto-start daemon on first agent run (default: true)
+	MultiPathsEnabled  bool     `toml:"multi_paths_enabled"`  // Enable multi-path daemon mounts (default: false)
+	MountPaths         []string `toml:"mount_paths"`          // Multi-path daemon mount roots (opt-in)
+	MaxLearnedRoots    int      `toml:"max_learned_roots"`    // LRU cap on roots.json learned entries (default 8; 0 disables learning)
+	IdleStopMinutes    int      `toml:"idle_stop_minutes"`    // Phase 3: stop daemon after N minutes of zero registered sessions (default 45; 0 disables)
+	AutoUpdatePackages bool     `toml:"auto_update_packages"` // Run package updates inside the sandbox during the idle window before idle stop (default: true)
 }
 
 // ClaudeConfig stores Claude provider configuration.
@@ -209,11 +210,12 @@ func DefaultConfig() Config {
 			ClipboardImagePatch: true,
 		},
 		Daemon: DaemonConfig{
-			AutoStart:         true,
-			MultiPathsEnabled: false,
-			MountPaths:        []string{},
-			MaxLearnedRoots:   8,
-			IdleStopMinutes:   45,
+			AutoStart:          true,
+			MultiPathsEnabled:  false,
+			MountPaths:         []string{},
+			MaxLearnedRoots:    8,
+			IdleStopMinutes:    45,
+			AutoUpdatePackages: true,
 		},
 		Security: SecurityConfig{
 			HideSecrets:                false,
