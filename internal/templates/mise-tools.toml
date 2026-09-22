@@ -1,0 +1,37 @@
+# Baked GitHub-release tools (mise github: backend).
+# System-level config: read by /usr/local/bin/mise for every user.
+# Pins verified against latest releases 2026-09-22; bump deliberately,
+# matrix-gated (docs/BREW-EXIT.md). mise verifies GitHub Artifact
+# Attestations by default where a release publishes them.
+[tools]
+"github:mikefarah/yq" = "v4.53.6"
+"github:topgrade-rs/topgrade" = "v17.7.0"
+"github:orhun/git-cliff" = "v2.14.2"
+"github:getzola/zola" = "v0.23.6"
+
+# tlrc: pick the tar.gz archives, not the .deb twins
+[tools."github:tldr-pages/tlrc"]
+version = "v1.13.1"
+matching = "tar.gz"
+
+# rtk: x86_64 ships musl-only (static, runs on glibc trixie); aarch64 is
+# gnu and autodetected.
+[tools."github:rtk-ai/rtk"]
+version = "v0.49.0"
+[tools."github:rtk-ai/rtk".platforms.linux-x64]
+asset_pattern = "rtk-x86_64-unknown-linux-musl.tar.gz"
+
+# Raw single-binary assets sit next to .tar.gz twins; pin the archive.
+[tools."github:EstebanForge/mcp-cli-ent"]
+version = "1.4.0"
+[tools."github:EstebanForge/mcp-cli-ent".platforms.linux-x64]
+asset_pattern = "mcp-cli-ent-linux-amd64.tar.gz"
+[tools."github:EstebanForge/mcp-cli-ent".platforms.linux-arm64]
+asset_pattern = "mcp-cli-ent-linux-arm64.tar.gz"
+
+[tools."github:EstebanForge/md-over-here"]
+version = "1.0.0"
+[tools."github:EstebanForge/md-over-here".platforms.linux-x64]
+asset_pattern = "md-over-here-linux-amd64.tar.gz"
+[tools."github:EstebanForge/md-over-here".platforms.linux-arm64]
+asset_pattern = "md-over-here-linux-arm64.tar.gz"

@@ -12,7 +12,7 @@ import (
 // PackagesConfig represents the user-defined packages configuration.
 type PackagesConfig struct {
 	Apt         AptConfig         `toml:"apt"`
-	Brew        BrewConfig        `toml:"brew"`
+	Mise        MiseConfig        `toml:"mise"`
 	Bun         BunConfig         `toml:"bun"`
 	Cargo       CargoConfig       `toml:"cargo"`
 	Npm         NpmConfig         `toml:"npm"`
@@ -28,9 +28,9 @@ type AptConfig struct {
 	Packages []string `toml:"packages"`
 }
 
-// BrewConfig holds Homebrew package and tap settings.
-type BrewConfig struct {
-	Taps     []string `toml:"taps"`
+// MiseConfig holds mise tool settings (runtimes and GitHub-release
+// binaries, mise syntax: "node@24", "github:owner/repo@v1.2.3").
+type MiseConfig struct {
 	Packages []string `toml:"packages"`
 }
 
@@ -231,19 +231,10 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("echo \"HOME: $HOME\"\n")
 	b.WriteString("echo \"SHELL: ${SHELL:-unknown}\"\n")
 	b.WriteString("echo \"PATH: $PATH\"\n")
-	b.WriteString("if [ -d /home/linuxbrew/.linuxbrew ]; then\n")
-	b.WriteString("    if [ -w /home/linuxbrew/.linuxbrew ]; then\n")
-	b.WriteString("        echo \"Homebrew dir writable: /home/linuxbrew/.linuxbrew\"\n")
-	b.WriteString("    else\n")
-	b.WriteString("        echo \"⚠️ Homebrew dir not writable by current user: /home/linuxbrew/.linuxbrew\"\n")
-	b.WriteString("        ls -ld /home/linuxbrew/.linuxbrew 2>/dev/null || true\n")
-	b.WriteString("    fi\n")
-	b.WriteString("fi\n")
-	b.WriteString("if command -v brew &> /dev/null; then\n")
-	b.WriteString("    echo \"brew: $(command -v brew)\"\n")
-	b.WriteString("    brew --version | head -1 || true\n")
+	b.WriteString("if command -v mise &> /dev/null; then\n")
+	b.WriteString("    echo \"mise: $(mise --version 2>/dev/null | head -1)\"\n")
 	b.WriteString("else\n")
-	b.WriteString("    echo \"brew: not found\"\n")
+	b.WriteString("    echo \"mise: not found\"\n")
 	b.WriteString("fi\n")
 	b.WriteString("if command -v npm &> /dev/null; then\n")
 	b.WriteString("    echo \"npm: $(command -v npm)\"\n")
@@ -253,15 +244,10 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("fi\n")
 	b.WriteString("echo '=================================='\n\n")
 
-	// System packages (apt tier) and the brew utilities (imagemagick for
-	// clipboard, topgrade for the updater, libgit2) are BAKED into the image
-	// (Dockerfile). The installer manages ONLY packages.toml-defined items.
-
-	// Initialize Homebrew environment
-	b.WriteString("# Initialize Homebrew environment\n")
-	b.WriteString("if [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then\n")
-	b.WriteString("    eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"\n")
-	b.WriteString("fi\n\n")
+	// System packages (apt tier), the vendor-repo tools (gh, dart, nodejs),
+	// the go tarball, and the mise github: tier are BAKED into the image
+	// (Dockerfile, docs/BREW-EXIT.md). The installer manages ONLY
+	// packages.toml-defined items.
 
 	// Configure npm before global installs to avoid EACCES on /usr/local with non-root UIDs
 	b.WriteString("echo 'Configuring npm global prefix...'\n")
@@ -334,7 +320,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		b.WriteString("chmod +x phpbrew.phar\n")
 		b.WriteString("mv phpbrew.phar $HOME/.local/bin/phpbrew\n")
 		b.WriteString("phpbrew init\n")
-		b.WriteString("phpbrew lookup-prefix homebrew\n\n")
+		b.WriteString("phpbrew lookup-prefix debian\n\n")
 	}
 
 	if c.Tools.Nix {
@@ -357,11 +343,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		b.WriteString("if command -v asdf &> /dev/null; then\n")
 		b.WriteString("    echo \"asdf is baked into the image; skipping.\"\n")
 		b.WriteString("else\n")
-		b.WriteString("    if command -v brew &> /dev/null; then\n")
-		b.WriteString("        brew install asdf || echo \"⚠️ Failed to install asdf\"\n")
-		b.WriteString("    else\n")
-		b.WriteString("        echo \"⚠️ Homebrew not found; skipping asdf\"\n")
-		b.WriteString("    fi\n")
+		b.WriteString("    git clone --depth 1 https://github.com/asdf-vm/asdf.git \"$HOME/.asdf\" || echo \"⚠️ Failed to install asdf\"\n")
 		b.WriteString("fi\n\n")
 	}
 
@@ -392,31 +374,17 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		b.WriteString("fi\n\n")
 	}
 
-	// Brew
-	if len(c.Brew.Taps) > 0 || len(c.Brew.Packages) > 0 {
-		b.WriteString("echo 'Installing Homebrew packages...'\n")
-		b.WriteString("if command -v brew &> /dev/null; then\n")
-		for _, tap := range c.Brew.Taps {
-			b.WriteString("    if ! brew tap " + tap + "; then\n")
-			b.WriteString("        echo \"⚠️ Failed to tap " + tap + "\"\n")
+	// Mise (replaces the former [brew] tier; brew exited 2026-09-22)
+	if len(c.Mise.Packages) > 0 {
+		b.WriteString("echo 'Installing mise tools...'\n")
+		b.WriteString("if command -v mise &> /dev/null; then\n")
+		for _, pkg := range c.Mise.Packages {
+			b.WriteString("    if ! mise use -g \"" + pkg + "\" --yes; then\n")
+			b.WriteString("        echo \"⚠️ Failed to install " + pkg + "\"\n")
 			b.WriteString("    fi\n")
 		}
-		if len(c.Brew.Packages) > 0 {
-			b.WriteString("    # Get list of installed formulae to avoid noise\n")
-			b.WriteString("    INSTALLED_BREW=$(brew list --formula -1 2>/dev/null || true)\n")
-			for _, pkg := range c.Brew.Packages {
-				// Use --formula to avoid disambiguation errors with tap-qualified names
-				b.WriteString("    if echo \"$INSTALLED_BREW\" | grep -q \"^" + pkg + "$\"; then\n")
-				b.WriteString("        echo \"  ✓ " + pkg + " already installed\"\n")
-				b.WriteString("    else\n")
-				b.WriteString("        if ! brew install --formula " + pkg + "; then\n")
-				b.WriteString("            echo \"⚠️ Failed to install " + pkg + "\"\n")
-				b.WriteString("        fi\n")
-				b.WriteString("    fi\n")
-			}
-		}
 		b.WriteString("else\n")
-		b.WriteString("    echo \"⚠️ Homebrew not found; skipping Homebrew packages\"\n")
+		b.WriteString("    echo \"⚠️ mise not found; skipping mise tools\"\n")
 		b.WriteString("fi\n")
 		b.WriteString("\n")
 	}
@@ -622,10 +590,6 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 		fmt.Fprintf(&b, "    %q,\n", step)
 	}
 	b.WriteString("]\n\n")
-
-	b.WriteString("[brew]\n")
-	b.WriteString("autoremove = true\n")
-	b.WriteString("greedy_cask = true\n\n")
 
 	b.WriteString("[npm]\n")
 	b.WriteString("use_sudo = false\n\n")

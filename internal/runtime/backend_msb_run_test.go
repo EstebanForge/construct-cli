@@ -35,8 +35,8 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if spec.Image != "construct-box:latest" {
 		t.Errorf("Image = %q", spec.Image)
 	}
-	if mounts := spec.Mounts; mounts["/home/linuxbrew/.linuxbrew"].Named != "" {
-		t.Error("linuxbrew must not be volume-backed (shadows image brew)")
+	if mounts := spec.Mounts; mounts["/usr/local/share/mise"].Named != "" {
+		t.Error("baked mise tooling must not be volume-backed (shadows image tools)")
 	}
 	if mounts := spec.Mounts; mounts[msbHomeMountDest].Bind == "" {
 		t.Errorf("home bind mount missing: %+v", mounts[msbHomeMountDest])

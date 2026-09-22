@@ -1,6 +1,13 @@
 # Brew Exit: Package-by-Package Replacement Analysis
 
-Status: ANALYSIS, approved direction not yet executed.
+Status: EXECUTED 2026-09-22 (same-day). The Dockerfile, packages.toml ([mise]
+replaces [brew]), update-all.sh, entrypoint.sh, topgrade config, agent-patch,
+compose PATH, and env.go PathComponents are all migrated; the [mise] user tier
+installs via `mise use -g`. Owner calls resolved: Node via NodeSource 24, Go
+via go.dev tarball 1.27.x, rust/kotlin/scala/groovy/gradle on demand via mise,
+niceties kept where apt provides them, fastmod dropped (no release assets).
+Restore-table recipes in PACKAGES.md now use apt/mise. This document is kept
+as the analysis record; the execution deltas live in the git history.
 
 Owner decision 2026-09-22: Homebrew leaves the baked image. Every declared brew formula migrates to Debian official packaging (trixie) where adequate, or to that package's own official install channel where not. This document preserves the full analysis so the migration loses nothing.
 

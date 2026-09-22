@@ -10,10 +10,10 @@ dbg() {
 fix_clipboard_libs() {
     # Strategy: Find the directory where clipboardy expects xsel to be.
     # The path usually ends in .../clipboardy/fallbacks/linux
-    # We search both linuxbrew and npm-global (for qwen, etc.)
+    # We search npm-global (for qwen, etc.) and the shared npm prefix.
 
     # 1. Standard clipboardy structure
-    find -L /home/linuxbrew/.linuxbrew "$HOME/.npm-global" -type d -path "*/clipboardy/fallbacks/linux" 2>/dev/null | while read -r dir; do
+    find -L /usr/local/lib/node_modules "$HOME/.npm-global" -type d -path "*/clipboardy/fallbacks/linux" 2>/dev/null | while read -r dir; do
         # Shim xsel
         local xsel_bin="$dir/xsel"
         if [ -L "$xsel_bin" ] && [[ "$(readlink "$xsel_bin")" == *"/clipper"* ]]; then
@@ -45,7 +45,7 @@ fix_clipboard_libs() {
 patch_agent_code() {
     # Find all JS files that might contain the platform check
     # We look for files containing 'process.platform' and 'darwin'
-    find -L /home/linuxbrew/.linuxbrew "$HOME/.npm-global" -type f -name "*.js" 2>/dev/null | xargs grep -l "process.platform" 2>/dev/null | xargs grep -l "darwin" 2>/dev/null | while read -r js_file; do
+    find -L /usr/local/lib/node_modules "$HOME/.npm-global" -type f -name "*.js" 2>/dev/null | xargs grep -l "process.platform" 2>/dev/null | xargs grep -l "darwin" 2>/dev/null | while read -r js_file; do
         if grep -q "process.platform !== \"darwin\"" "$js_file"; then
             # Replace platform check with a dummy 'false' to allow the code to run on Linux
             sed -i 's/process.platform !== \"darwin\"/false/g' "$js_file"
@@ -56,8 +56,8 @@ patch_agent_code() {
 }
 
 patch_copilot_clipboard() {
-    # Search in npm-global, Homebrew, and GitHub CLI extensions
-    find -L "$HOME/.npm-global" /home/linuxbrew/.linuxbrew "$HOME/.local/share/gh/extensions" -type f -path "*/@teddyzhu/clipboard/index.js" 2>/dev/null | while read -r js_file; do
+    # Search in npm-global, shared npm prefix, and GitHub CLI extensions
+    find -L "$HOME/.npm-global" /usr/local/lib/node_modules "$HOME/.local/share/gh/extensions" -type f -path "*/@teddyzhu/clipboard/index.js" 2>/dev/null | while read -r js_file; do
         if grep -q "construct-copilot-clipboard-bridge-v3" "$js_file"; then
             dbg "Copilot clipboard bridge already patched: $js_file"
             continue
@@ -236,14 +236,12 @@ patch_copilot_paste_wrapper() {
     dbg "Real copilot target: $real_target"
 
     # Choose wrapper install location. Never overwrite the real npm-global copilot binary.
+    # The wrapper must live where it shadows the real binary by PATH:
+    # $HOME/.local/bin comes first in the construct PATH order.
     local wrapper_path="$active_copilot"
     if [[ "$wrapper_path" == "$real_target" ]]; then
-        if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
-            wrapper_path="/home/linuxbrew/.linuxbrew/bin/copilot"
-        else
-            wrapper_path="$HOME/.local/bin/copilot"
-            mkdir -p "$HOME/.local/bin"
-        fi
+        wrapper_path="$HOME/.local/bin/copilot"
+        mkdir -p "$HOME/.local/bin"
     fi
 
     # Skip if our wrapper is already in place (idempotent guard on version string).
@@ -259,7 +257,7 @@ patch_copilot_paste_wrapper() {
 
     dbg "Installing Copilot clipboard PTY wrapper at $wrapper_path (real: $real_target)"
     cat > "$wrapper_path" << 'PYEOF'
-#!/home/linuxbrew/.linuxbrew/bin/python3
+#!/usr/bin/python3
 # construct-copilot-wrapper-v10
 # PTY interceptor: catches Ctrl+V, saves clipboard image to .construct-clipboard/,
 # and injects the file path as text into Copilot's input.
@@ -454,15 +452,12 @@ patch_codex_paste_wrapper() {
     # Reroute when: the active binary IS the real target, OR the active path
     # lives in the baked tier (/usr/local is image-owned — never modified at
     # runtime), OR the location is not writable. Baked codex resolves to
-    # /usr/local/bin/codex, so this sends the wrapper to a shadow tier.
+    # /usr/local/bin/codex; the wrapper goes to $HOME/.local/bin, which
+    # shadows it by PATH (first entry in the construct PATH order).
     if [[ "$wrapper_path" == "$real_target" ]] || [[ "$wrapper_path" == /usr/local/* ]] \
        || [[ ! -w "$(dirname "$wrapper_path")" ]] || { [[ -e "$wrapper_path" ]] && [[ ! -w "$wrapper_path" ]]; }; then
-        if [[ -d /home/linuxbrew/.linuxbrew/bin ]] && [[ -w /home/linuxbrew/.linuxbrew/bin ]]; then
-            wrapper_path="/home/linuxbrew/.linuxbrew/bin/codex"
-        else
-            wrapper_path="$HOME/.local/bin/codex"
-            mkdir -p "$HOME/.local/bin"
-        fi
+        wrapper_path="$HOME/.local/bin/codex"
+        mkdir -p "$HOME/.local/bin"
     fi
 
     if grep -q "construct-codex-wrapper-v2" "$wrapper_path" 2>/dev/null; then
@@ -475,7 +470,7 @@ patch_codex_paste_wrapper() {
 
     dbg "Installing Codex clipboard PTY wrapper at $wrapper_path (real: $real_target)"
     cat > "$wrapper_path" << 'PYEOF'
-#!/home/linuxbrew/.linuxbrew/bin/python3
+#!/usr/bin/python3
 # construct-codex-wrapper-v2
 # PTY interceptor: catches Ctrl+V and injects image file path into Codex input.
 import fcntl, os, pty, select, signal, struct, subprocess, sys, termios, time, tty

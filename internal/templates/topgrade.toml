@@ -9,7 +9,7 @@ assume_yes = true
 # Don't retry failed steps (avoids hanging on errors)
 no_retry = true
 
-# Don't attempt to self-update (managed by brew)
+# Don't attempt to self-update (managed upstream)
 no_self_update = true
 
 # Cache sudo credentials upfront (apt uses passwordless sudo in construct)
@@ -22,7 +22,7 @@ disable = [
     "snap",          # Not installed in construct
     "containers",    # Avoid recursive container updates
     "claude_code",   # Avoid duplicate Claude step; use guarded custom command
-    "pnpm",          # Managed by Homebrew; topgrade step is redundant
+    "pnpm",          # pnpm itself is npm-managed; no pnpm globals are baked
     "sdkman",        # Not used by default
     "vagrant",       # Not used in container
     "wsl",           # Not applicable (we're inside Linux)
@@ -55,12 +55,9 @@ display_time = true
 # Keep updates moving when mise hits transient GitHub API/rate-limit errors
 ignore_failures = ["mise"]
 
-[brew]
-# Auto-remove unused dependencies after upgrade
-autoremove = true
-
-# Use greedy upgrade for casks (upgrade even if auto-updates enabled)
-greedy_cask = true
+# brew exited 2026-09-22 - no [brew] section. apt updates run through the
+# [linux] step; mise tools via the mise step; baked release tools update on
+# the image lane only.
 
 [npm]
 # npm is installed to user space in construct, no sudo needed
@@ -86,7 +83,7 @@ use_sudo = false
 pull_predefined = false
 
 [composer]
-# Don't self-update composer (managed via brew)
+# Don't self-update composer (managed via apt)
 self_update = false
 
 # Baked agents (claude/codex/agy/pi/opencode) update on the image lane;

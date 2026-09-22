@@ -14,9 +14,8 @@ func TestPackagesConfigParsing(t *testing.T) {
 [apt]
 packages = ["htop", "vim"]
 
-[brew]
-taps = ["common-family/homebrew-tap"]
-packages = ["fastlane"]
+[mise]
+packages = ["github:mikefarah/yq@v4.53.6"]
 
 [bun]
 packages = ["@tobilu/qmd"]
@@ -48,8 +47,8 @@ mise = false
 	if len(config.Apt.Packages) != 2 || config.Apt.Packages[0] != "htop" {
 		t.Errorf("Apt packages parsing failed")
 	}
-	if len(config.Brew.Taps) != 1 || config.Brew.Taps[0] != "common-family/homebrew-tap" {
-		t.Errorf("Brew taps parsing failed")
+	if len(config.Mise.Packages) != 1 || config.Mise.Packages[0] != "github:mikefarah/yq@v4.53.6" {
+		t.Errorf("Mise packages parsing failed")
 	}
 	if len(config.Bun.Packages) != 1 || config.Bun.Packages[0] != "@tobilu/qmd" {
 		t.Errorf("Bun packages parsing failed")
@@ -190,10 +189,10 @@ func TestGenerateInstallScriptWithAptPackages(t *testing.T) {
 	}
 }
 
-func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
+func TestGenerateInstallScriptContinuesOnMiseFailures(t *testing.T) {
 	config := &PackagesConfig{
-		Brew: BrewConfig{
-			Packages: []string{"imagemagick", "topgrade"},
+		Mise: MiseConfig{
+			Packages: []string{"github:mikefarah/yq@v4.53.6", "rust@1.90.0"},
 		},
 		Bun: BunConfig{
 			Packages: []string{"@tobilu/qmd"},
@@ -204,17 +203,14 @@ func TestGenerateInstallScriptContinuesOnBrewFailures(t *testing.T) {
 	}
 	script := config.GenerateInstallScript()
 
-	if !strings.Contains(script, "if ! brew install --formula imagemagick; then") {
-		t.Error("Script should guard imagemagick install failures")
+	if !strings.Contains(script, "if ! mise use -g \"github:mikefarah/yq@v4.53.6\" --yes; then") {
+		t.Error("Script should guard mise yq install failures")
 	}
-	if !strings.Contains(script, "if ! brew install --formula topgrade; then") {
-		t.Error("Script should guard topgrade install failures")
+	if !strings.Contains(script, "if ! mise use -g \"rust@1.90.0\" --yes; then") {
+		t.Error("Script should guard mise rust install failures")
 	}
-	if !strings.Contains(script, "INSTALLED_BREW=$(brew list --formula -1") {
-		t.Error("Script should pre-check installed brew packages")
-	}
-	if !strings.Contains(script, "if command -v brew &> /dev/null; then") {
-		t.Error("Script should check for brew before brew installs")
+	if !strings.Contains(script, "if command -v mise &> /dev/null; then") {
+		t.Error("Script should check for mise before mise installs")
 	}
 	if !strings.Contains(script, "if command -v bun &> /dev/null; then") {
 		t.Error("Script should check for bun before bun installs")
@@ -238,8 +234,8 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 	if !strings.Contains(script, "=== Construct setup diagnostics ===") {
 		t.Error("Script should include setup diagnostics header")
 	}
-	if !strings.Contains(script, "Homebrew dir not writable by current user") {
-		t.Error("Script should include Homebrew writability diagnostics")
+	if !strings.Contains(script, "mise: $(mise --version") {
+		t.Error("Script should include mise version diagnostics")
 	}
 	if !strings.Contains(script, "Configuring npm global prefix") {
 		t.Error("Script should configure npm prefix before npm installs")

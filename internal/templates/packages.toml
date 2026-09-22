@@ -1,10 +1,13 @@
 # Construct User-Defined Packages Configuration
 #
-# BAKED BASELINE (2026-09-21): the standard dev toolset is baked INTO the
-# image (internal/templates/Dockerfile) — [apt] system packages, the full
-# [brew] tier (all languages/linters/web tools/php@8.x + pcov), jekyll,
-# litellm, @tobilu/qmd, bun, mise, asdf, and the core agents
-# (claude, codex, agy, pi, opencode at /usr/local/bin).
+# BAKED BASELINE (2026-09-22, brew exited - see docs/BREW-EXIT.md): the
+# standard dev toolset is baked INTO the image (internal/templates/Dockerfile)
+# — [apt] system packages + the dev toolchain (awscli, podman, openjdk 25,
+# php 8.4 + composer, ffmpeg, hugo...), vendor-repo gh/dart/nodejs 24,
+# go 1.27 tarball, the mise github: tier (yq, topgrade, git-cliff, zola,
+# tlrc, rtk, mcp-cli-ent, md-over-here), jekyll, litellm, @tobilu/qmd, bun,
+# mise, asdf, and the core agents (claude, codex, agy, pi, opencode at
+# /usr/local/bin).
 # Entries BELOW are the OPTIONAL/USER-OVERRIDE layer: everything listed
 # installs at guest init into the home bind and SHADOWS its baked
 # equivalent by PATH. Remove the entry (and the bind copy) to fall back
@@ -15,17 +18,13 @@
 [apt]
 packages = []
 
-# Homebrew packages and taps
-# The curated baseline is BAKED (Dockerfile step 3). Add only NEW packages
-# here — they install at guest init into the brew prefix and shadow the
-# baked set. Taps stay (fast no-ops when already added; needed for user
-# additions like further shivammathur extensions).
-[brew]
-taps = [
-  "shivammathur/extensions",  # PHP extensions (required for pcov)
-  "shivammathur/php",  # PHP versions (php@8.x)
-  "EstebanForge/tap",
-]
+# mise tools (language runtimes and GitHub-release binaries).
+# Installed as `mise use -g <entry>`; entries use mise syntax: "node@24",
+# "rust@1.90", "github:owner/repo@v1.2.3". Installs land in the home bind
+# (~/.local/share/mise) and shadow baked equivalents by PATH. Kotlin,
+# scala, groovy, gradle, rust are intentionally NOT baked - add them here
+# to fetch on demand:
+[mise]
 packages = []
 
 # Rust tools installed via Cargo

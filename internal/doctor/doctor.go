@@ -281,7 +281,7 @@ func Run(args ...string) {
 	}
 	if cfg != nil && cfg.Sandbox.NonRootStrict {
 		envCheck.Details = append(envCheck.Details, "non_root_strict: enabled")
-		envCheck.Details = append(envCheck.Details, "Limitation: root bootstrap permission fixes are disabled; brew/npm setup may fail")
+		envCheck.Details = append(envCheck.Details, "Limitation: root bootstrap permission fixes are disabled; npm/toolchain setup may fail")
 	} else {
 		envCheck.Details = append(envCheck.Details, "non_root_strict: disabled")
 	}
@@ -1003,7 +1003,7 @@ func msbBackendCheck() CheckResult {
 
 // checkStalePackagesVolume detects stale construct-packages named volumes
 // left by pre-bake installs. The volume is gone from compose; an existing
-// copy is unmounted dead weight that would shadow the baked Homebrew if it
+// copy is unmounted dead weight that would shadow the baked toolchain if it
 // were ever re-declared. --fix removes unreferenced copies.
 func checkStalePackagesVolume(fix bool, resolvedRuntime string) CheckResult {
 	check := CheckResult{Name: "Stale Packages Volume"}

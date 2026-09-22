@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 FROM debian:trixie-slim
 
 # 1. Create non-root user and install system packages
@@ -13,7 +12,7 @@ RUN useradd -u 1000 -m -s /bin/bash construct && \
     gnome-keyring libsecret-1-0 dbus-x11 xdg-utils libcap2-bin \
     procps file ufw iptables bind9-dnsutils xclip xsel wl-clipboard \
     python3 python3-pip python3-venv python3-dev \
-    vim tmux nano && \
+    gnupg vim tmux nano && \
     rm -rf /var/lib/apt/lists/*
     # [apt] from packages.toml is baked here (vim/tmux/nano; g++ ships in
     # build-essential). The runtime installer no longer manages this tier.
@@ -32,343 +31,124 @@ RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/
 # without the entrypoint's root phase.
 RUN mkdir -p /var/lib/construct-cli && chown construct:construct /var/lib/construct-cli
 
-# 2. Install Homebrew for Linux
-# Why Homebrew instead of relying solely on APT?
-#   1. Up-to-date packages: Debian stable/testing often lags behind latest versions;
-#      Homebrew provides bleeding-edge tools critical for modern development workflows.
-#   2. Sudoless installation: User-space package management enables automatic, configuration-free
-#      setup without requiring root privileges - making it safe and easy for newcomers.
-#   3. Binary bottles: Pre-compiled packages download and install in seconds vs minutes of compilation.
-#   4. Cross-platform consistency: Same package names and versions work identically on Linux and macOS,
-#      simplifying multi-platform development and documentation.
-#   5. Larger ecosystem: Many modern CLI tools, language runtimes, and dev utilities are available
-#      in Homebrew but missing or severely outdated in Debian repositories.
-#   6. No system pollution: Everything installs to /home/linuxbrew, keeping the base system clean
-#      and avoiding conflicts with system packages or other containerized environments.
-#   7. Easy version management: Simple syntax for pinning versions (package@version) or using latest,
-#      with straightforward rollback capabilities if needed.
-#
-# Follow official installer pattern: create directory as root, clone, then hand over to user
-RUN mkdir -p /home/linuxbrew && \
-    git clone --depth 1 https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew && \
-    chown -R construct:construct /home/linuxbrew
-
-# Create construct user's .local directory with proper ownership
-RUN mkdir -p /home/construct/.local/{bin,lib,node_modules,share} && \
-    chown -R construct:construct /home/construct/.local
-
-USER construct
-WORKDIR /home/construct
-
-# Set up Homebrew environment (run as construct user)
-RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    /home/linuxbrew/.linuxbrew/bin/brew --version
-# Prevent Homebrew from auto-updating and compiling Python
-ENV HOMEBREW_NO_AUTO_UPDATE=1
-ENV HOMEBREW_NO_ENV_HINTS=1
-# Use standard Linux Homebrew paths for bottle compatibility
-ENV HOMEBREW_CELLAR=/home/linuxbrew/.linuxbrew/Cellar
-ENV HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew
+# 2. Base environment (brew exited 2026-09-22; see docs/BREW-EXIT.md).
+# Every former brew formula now ships from trixie, a vendor repo, an
+# official install script/phar, npm, or the baked mise github: tier.
 # NOTE: Keep this PATH list in sync with:
 # - internal/env/env.go (BuildConstructPath)
 # - internal/templates/entrypoint.sh
 # - internal/templates/docker-compose.yml
-ENV PATH="/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.opencode/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/home/construct/.volta/bin:/home/construct/.local/share/pnpm:/home/construct/.yarn/bin:/home/construct/.config/yarn/global/node_modules/.bin:/home/construct/go/bin:/home/construct/.composer/vendor/bin:/home/construct/.config/composer/vendor/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-# Force node-gyp to use python3.12 to avoid compat issues with 3.13/3.14
-ENV PYTHON=/home/linuxbrew/.linuxbrew/bin/python3.12
+# User-level dirs lead (user installs shadow baked baseline); system mise
+# shims and go follow; distro paths last.
+ENV PATH="/home/construct/.local/bin:/home/construct/.npm-global/bin:/home/construct/.cargo/bin:/home/construct/.bun/bin:/home/construct/.opencode/bin:/home/construct/.asdf/bin:/home/construct/.asdf/shims:/home/construct/.local/share/mise/bin:/home/construct/.local/share/mise/shims:/home/construct/.volta/bin:/home/construct/.local/share/pnpm:/home/construct/.yarn/bin:/home/construct/.config/yarn/global/node_modules/.bin:/home/construct/go/bin:/home/construct/.composer/vendor/bin:/home/construct/.config/composer/vendor/bin:/home/construct/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/home/construct/.phpbrew/bin:/usr/local/share/mise/shims:/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# node-gyp python hook (Debian python3; the old brew python3.12 pin is gone)
+ENV PYTHON=/usr/bin/python3
 # Configure Puppeteer to use system Chromium (prevents arch mismatch on arm64)
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
-# 3. Bake the packages.toml dev baseline (brew tier)
-# Source of truth for this list: internal/templates/packages.toml [brew]
-# (2026-09-21 snapshot, deduped). Baked binaries land in /home/linuxbrew
-# (PATH tier 1, OUTSIDE the home bind — /home/construct content is shadowed
-# by the persistent bind and must never hold baked state).
-# Network cost hits the BUILD only; guests get block-IO pulls.
-# Baked brew baseline: SPLIT INTO MULTIPLE LAYERS - msb rejects any single
-# layer over 10 GiB on `msb load`, and one monolithic brew layer exceeds it.
-# Chunk order: stable/large first, fast-moving last. Each layer verifies its
-# kegs (brew install has been observed exiting 1 with no error text even
-# when every keg poured - tolerate the exit code, fail visibly on kegs).
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    brew tap shivammathur/extensions && \
-    brew tap shivammathur/php && \
-    brew tap EstebanForge/tap && \
-    brew trust shivammathur/extensions && \
-    brew trust shivammathur/php && \
-    brew trust EstebanForge/tap && \
-    (brew install \
-      ast-grep \
-      yq \
-      sd \
-      fzf \
-      eza \
-      fd \
-      bat \
-      ripgrep \
-      jq \
-      curl \
-      wget \
-      tree \
-      unzip \
-      socat \
-      make \
-      htop \
-      netcat \
-      bind \
-      sshpass \
-      nano \
-      lftp \
-      tmux \
-      btop \
-      imagemagick \
-      topgrade \
-      libgit2 \
-      gh \
-      git-lfs \
-      git-delta \
-      git-cliff \
-      rsync \
-      procs \
-      python-setuptools \
-      awscli \
-      cmake \
-      pkg-config \
-      direnv \
-      gum \
-      rtk) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in ast-grep \
-      yq \
-      sd \
-      fzf \
-      eza \
-      fd \
-      bat \
-      ripgrep \
-      jq \
-      curl \
-      wget \
-      tree \
-      unzip \
-      socat \
-      make \
-      htop \
-      netcat \
-      bind \
-      sshpass \
-      nano \
-      lftp \
-      tmux \
-      btop \
-      imagemagick \
-      topgrade \
-      libgit2 \
-      gh \
-      git-lfs \
-      git-delta \
-      git-cliff \
-      rsync \
-      procs \
-      python-setuptools \
-      awscli \
-      cmake \
-      pkg-config \
-      direnv \
-      gum \
-      rtk; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
+# 3. Bake the dev baseline - apt tier (replaces the brew chunks).
+# All versions verified live in trixie on 2026-09-22 (docs/BREW-EXIT.md has
+# the full per-formula mapping). Single layer: apt layers are small and the
+# msb 10 GiB per-layer limit is nowhere near.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sd fzf eza fd-find bat ripgrep jq htop netcat-openbsd sshpass lftp \
+    btop imagemagick git-lfs git-delta procs python3-setuptools awscli \
+    cmake pkgconf direnv gum \
+    lua5.4 ruby-full ruby-dev gnucobol3 nasm yasm \
+    postgresql-client-17 default-mysql-client redis-server redis-tools \
+    sqlite3 podman podman-compose micropython ocaml swi-prolog r-base \
+    shellcheck yamllint composer neovim ffmpeg ninja-build hugo pipx \
+    php8.4-cli php8.4-mbstring php8.4-xml php8.4-curl php8.4-intl \
+    php8.4-pcov openjdk-25-jdk && \
+    ln -sf /usr/bin/fdfind /usr/local/bin/fd && \
+    ln -sf /usr/bin/batcat /usr/local/bin/bat && \
+    rm -rf /var/lib/apt/lists/*
+# fd/bat: Debian ships fd-find/bat as fdfind/batcat; the symlinks restore
+# the upstream names agents and humans expect.
 
+# 4. Vendor repositories: gh (GitHub), dart (Google), nodejs 24 (NodeSource).
+# Each is the vendor's own documented, signed apt path for current releases.
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list && \
+    curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/dart.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/dart.gpg] https://storage.googleapis.com/download.dartlang.org/linux/debian stable main" > /etc/apt/sources.list.d/dart.list && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x -o /tmp/nodesource_setup.sh && \
+    bash /tmp/nodesource_setup.sh && \
+    apt-get install -y --no-install-recommends gh dart nodejs && \
+    rm -f /tmp/nodesource_setup.sh && rm -rf /var/lib/apt/lists/*
 
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      go \
-      openjdk \
-      typescript \
-      rust \
-      kotlin \
-      lua \
-      ruby) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in go \
-      openjdk \
-      typescript \
-      rust \
-      kotlin \
-      lua \
-      ruby; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
+# 5. Go from the official go.dev tarball (current; trixie's golang is 1.24).
+ARG GO_VERSION=1.27.1
+RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" -o /tmp/go.tgz && \
+    tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz && \
+    /usr/local/go/bin/go version
 
-
-# dart-sdk in its own small layer. swift, zig, erlang, elixir, gleam and
-# the graphics chain they pulled (wxwidgets/gtk+3/mesa -> unversioned llvm)
-# were REMOVED 2026-09-22 for image size (owner decision; ~8.4 GiB of
-# Cellar weight) - users restore them via packages.toml [brew] entries
-# (docs/PACKAGES.md).
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      dart-sdk \
-      perl \
-      gnucobol) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in dart-sdk \
-      perl \
-      gnucobol; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
-
-
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      node \
-      python@3.12 \
-      python@3 \
-      openssl@3 \
-      gcc \
-      nasm \
-      yasm) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in node \
-      python@3.12 \
-      python@3 \
-      openssl@3 \
-      gcc \
-      nasm \
-      yasm; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
-
-
-
-
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      postgresql@16 \
-      mysql-client \
-      redis \
-      sqlite \
-      podman \
-      podman-compose \
-      groovy \
-      scala \
-      r \
-      micropython \
-      ocaml \
-      swi-prolog) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in postgresql@16 \
-      mysql-client \
-      redis \
-      sqlite \
-      podman \
-      podman-compose \
-      groovy \
-      scala \
-      r \
-      micropython \
-      ocaml \
-      swi-prolog; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
-
-
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    (brew install \
-      golangci-lint \
-      golangci-lint-langserver \
-      php-cs-fixer \
-      prettier \
-      shellcheck \
-      yamllint \
-      yarn \
-      pnpm \
-      composer \
-      neovim \
-      gulp-cli \
-      ffmpeg \
-      wp-cli \
-      tailwindcss \
-      uv \
-      pipx \
-      vite \
-      webpack \
-      tlrc \
-      ninja \
-      gradle \
-      fastmod \
-      hugo \
-      zola \
-      EstebanForge/tap/mcp-cli-ent \
-      EstebanForge/tap/md-over-here) || \
-      echo "⚠️ brew install exited non-zero; verifying kegs"; \
-    for f in golangci-lint \
-      golangci-lint-langserver \
-      php-cs-fixer \
-      prettier \
-      shellcheck \
-      yamllint \
-      yarn \
-      pnpm \
-      composer \
-      neovim \
-      gulp-cli \
-      ffmpeg \
-      wp-cli \
-      tailwindcss \
-      uv \
-      pipx \
-      vite \
-      webpack \
-      tlrc \
-      ninja \
-      gradle \
-      fastmod \
-      hugo \
-      zola \
-      EstebanForge/tap/mcp-cli-ent \
-      EstebanForge/tap/md-over-here; do \
-      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
-    done
-
-
-RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
-    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    for v in 8.2 8.3 8.4 8.5 8.6; do \
-      brew install "shivammathur/php/php@$v" || true; \
-      brew list --versions "php@$v" >/dev/null 2>&1 || { echo "FATAL: keg missing: php@$v" >&2; exit 1; }; \
-      brew install "shivammathur/extensions/pcov@$v" || true; \
-      brew list --versions "pcov@$v" >/dev/null 2>&1 || { echo "FATAL: keg missing: pcov@$v" >&2; exit 1; }; \
-      brew unlink "shivammathur/php/php@$v" || true; \
+# 6. mise: the manager binary, then the baked GitHub-release tool tier.
+# The system config pins exact versions; mise verifies GitHub Artifact
+# Attestations by default where a release publishes them. Installs land in
+# /usr/local/share/mise (root fs, recreated per sandbox; root-owned is
+# fine — runtime users only exec the symlinked binaries).
+COPY mise-tools.toml /etc/mise/config.toml
+# GITHUB_TOKEN comes in as a buildkit secret (never baked into the image);
+# authenticated API requests avoid the 60/hr anonymous rate limit. Without
+# the secret the tier still installs, just unauthenticated.
+# Tools install into /usr/local/share/mise then their binaries are
+# symlinked into /usr/local/bin — no shims, so runtime mise (user data dir)
+# never needs to resolve the baked tier, and user-layer mise tools still
+# shadow these via the earlier ~/.local/share/mise/shims PATH entry.
+RUN --mount=type=secret,id=github_token \
+    if [ -f /run/secrets/github_token ]; then export GITHUB_TOKEN="$(cat /run/secrets/github_token)"; fi && \
+    curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh && \
+    MISE_CONFIG_DIR=/etc/mise MISE_DATA_DIR=/usr/local/share/mise mise install && \
+    for spec in github:mikefarah/yq@4.53.6 github:topgrade-rs/topgrade@17.7.0 github:orhun/git-cliff@2.14.2 github:getzola/zola@0.23.6 github:tldr-pages/tlrc@1.13.1 github:rtk-ai/rtk@0.49.0 github:EstebanForge/mcp-cli-ent@1.4.0 github:EstebanForge/md-over-here@1.0.0; do \
+      bindir=$(MISE_CONFIG_DIR=/etc/mise MISE_DATA_DIR=/usr/local/share/mise mise bin-paths "$spec") && \
+      find "$bindir" -maxdepth 1 -executable ! -type d ! -name "*man-page*" -exec ln -sf {} /usr/local/bin/ \; || exit 1; \
     done && \
-    # Exactly ONE version stays linked (default php for composer/wp-cli/
-    # php-cs-fixer); switchers manage the rest at runtime.
-    brew link --overwrite "shivammathur/php/php@8.4" || true
+    rm -f /usr/local/bin/yq_linux_* && \
+    yq_dir="$(MISE_CONFIG_DIR=/etc/mise MISE_DATA_DIR=/usr/local/share/mise mise bin-paths github:mikefarah/yq@4.53.6)" && \
+    yq_bin="$(find "$yq_dir" -maxdepth 1 -type f -name 'yq_linux_*' -executable | head -1)" && \
+    ln -sf "$yq_bin" /usr/local/bin/yq && \
+    for t in yq topgrade git-cliff zola tldr rtk mcp-cli-ent md-over-here; do \
+      command -v "$t" >/dev/null 2>&1 || { echo "FATAL: baked tool missing: $t" >&2; exit 1; }; \
+    done
 
-# 3b. Bake remaining dev tooling to SYSTEM paths (root-owned).
-# Ruby gems -> brew ruby's site dir (tier-1 bin); Python tools via pipx ->
-# /usr/local/bin (tier 3, keeps user pipx overrides in $HOME/.local/bin
-# ahead of it); bun binary -> /usr/local/bun with runtime globals staying
-# in ~/.bun (user tier); mise/asdf binaries baked, their data dirs
-# initialize in-home at runtime (cheap, no network).
+# 7. npm tier (NodeSource node; upstream prefix /usr/local)
+RUN npm install -g --prefix /usr/local \
+    typescript prettier @ast-grep/cli yarn pnpm gulp-cli tailwindcss \
+    vite webpack
+
+# 8. PHP tooling: composer ships in the apt tier (uses php8.4-cli); wp-cli
+# and php-cs-fixer via their official phars. One php (8.4) is the baseline;
+# multi-version users go mise (documented in PACKAGES.md).
+RUN curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /usr/local/bin/wp && \
+    chmod +x /usr/local/bin/wp && \
+    curl -fsSL https://cs.symfony.com/download/php-cs-fixer-v3.phar -o /usr/local/bin/php-cs-fixer && \
+    chmod +x /usr/local/bin/php-cs-fixer && \
+    php -v | head -1 && wp --version --allow-root && php-cs-fixer --version
+
+# 9. Vendor-script installs: uv (astral) and golangci-lint (official
+# install script), plus the golangci-lint LSP via go install.
+RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh && \
+    curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.13.2 && \
+    GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/nametake/golangci-lint-langserver@latest && \
+    uv --version && golangci-lint --version | head -1
+
+# 10. Bake remaining dev tooling to SYSTEM paths (root-owned).
+# Ruby gems -> apt ruby's site dir; Python tools via pipx -> /usr/local/bin
+# (keeps user pipx overrides in $HOME/.local/bin ahead of it); bun binary ->
+# /usr/local/bun with runtime globals staying in ~/.bun (user tier); asdf
+# binary baked, its data dir initializes in-home at runtime (cheap, no
+# network). mise itself is installed in step 6.
 USER root
-RUN eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
-    gem install jekyll && \
+RUN gem install jekyll && \
     PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin pipx install litellm && \
     curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/bun bash && \
     ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun && \
     ln -sf /usr/local/bun/bin/bunx /usr/local/bin/bunx && \
     BUN_INSTALL=/usr/local/bun /usr/local/bin/bun add -g @tobilu/qmd && \
     ln -sf /usr/local/bun/bin/qmd /usr/local/bin/qmd && \
-    curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh && \
     git clone --depth 1 https://github.com/asdf-vm/asdf.git /usr/local/asdf && \
     ln -sf /usr/local/asdf/bin/asdf /usr/local/bin/asdf
 
@@ -401,8 +181,6 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # Each installs via its official installer into a throwaway HOME, then the
 # binary is placed at /usr/local/bin — root-owned and OUTSIDE the home bind,
 # so bind-tier copies shadow it by PATH (the override contract).
-# npm installs force --prefix /usr/local: brew node's default prefix would
-# land them in tier-1 /home/linuxbrew, breaking the tier order.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \

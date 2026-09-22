@@ -1141,7 +1141,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 					return nil
 				}
 				fmt.Fprintln(os.Stderr, "Warning: docker-compose.override.yml contains a manual 'user:' mapping for Docker.")
-				fmt.Fprintln(os.Stderr, "Warning: This may cause Homebrew/npm permission errors. Regenerating override without 'user:'.")
+				fmt.Fprintln(os.Stderr, "Warning: This may cause npm/toolchain permission errors. Regenerating override without 'user:'.")
 			} else {
 				// Inputs unchanged and no unsafe manual override - skip regeneration.
 				return nil
@@ -1227,7 +1227,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			ui.InfoF("✓ Container (podman) will run as user %d:%d\n", hostUID, hostGID)
 		} else {
 			ui.InfoF("⚠️  non_root_strict enabled: Docker container will run as user %d:%d\n", hostUID, hostGID)
-			ui.InfoLn("⚠️  Limitations: root bootstrap permission fixes are disabled; brew/npm installs may fail on first run.")
+			ui.InfoLn("⚠️  Limitations: root bootstrap permission fixes are disabled; npm/toolchain installs may fail on first run.")
 			ui.InfoLn("⚠️  Recommendation: prefer runtime.engine='podman' for strict non-root workflows.")
 		}
 	}

@@ -19,7 +19,7 @@ Customize your Construct sandbox with user-defined packages via `packages.toml`.
 Construct supports installing additional packages inside the sandbox environment through `packages.toml`. This allows you to customize your development environment without rebuilding containers.
 
 **Key features:**
-- **Multiple package managers**: apt, brew, bun, npm, pip
+- **Multiple package managers**: apt, mise, bun, npm, pip
 - **Baked baseline + user layer**: common tools ship in the image; `packages.toml` adds what is yours
 - **Applies at guest init**: new installs run when the sandbox boots; `construct sys packages --install` applies them live
 - **Custom toolchains**: Optional development tools (nix, asdf, mise, vmr, etc.)
@@ -27,10 +27,13 @@ Construct supports installing additional packages inside the sandbox environment
 ## Baked Baseline and the User Layer
 
 Construct ships a **baked baseline** inside the `construct-box` image: the system
-toolchain (apt), the Homebrew tier (languages, linters, web tools, php@8.x + pcov),
-jekyll, litellm, qmd, bun, mise, asdf, and the five core agents — `claude`, `codex`,
-`agy`, `pi`, `opencode` at `/usr/local/bin`. The baseline updates with image updates,
-not per-sandbox installs.
+toolchain (apt: awscli, podman, openjdk 25, php 8.4 + composer, ffmpeg, hugo,
+neovim, and the full CLI set), vendor-repo tools (`gh`, `dart`, `nodejs` 24), Go
+from the official tarball, the mise github: tier (`yq`, `topgrade`, `git-cliff`,
+`zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`), jekyll, litellm, qmd, bun,
+mise, asdf, and the five core agents — `claude`, `codex`, `agy`, `pi`, `opencode`
+at `/usr/local/bin`. The baseline updates with image updates, not per-sandbox
+installs. See docs/BREW-EXIT.md for the full package-channel mapping.
 
 Everything you list in `packages.toml` is the **user layer**. It installs at guest
 init on top of the baseline. Where each manager lands and what persists:
@@ -38,19 +41,20 @@ init on top of the baseline. Where each manager lands and what persists:
 | Manager | Installs into | Persisted across sandbox recreations |
 |---------|---------------|--------------------------------------|
 | apt | system directories (sandbox disk) | no — reinstalled at next sandbox boot |
-| brew | `/home/linuxbrew/.linuxbrew` (sandbox disk) | no — re-poured at next sandbox boot |
+| mise | `~/.local/share/mise` (home bind) | yes |
 | npm | home directory (`~/.config/construct-cli/home` bind) | yes |
 | bun | `~/.bun` (home bind) | yes |
 | pip | home bind | yes |
 
 The home bind is a host directory. Sandbox recreation wipes the sandbox disk, never
-your home. That is why brew/apt additions re-pour at boot (minutes for large
-formulae) while npm/bun/pip additions survive untouched.
+your home. That is why apt additions re-pour at boot while mise/npm/bun/pip additions
+survive untouched. Prefer mise for anything version-pinned.
 
 Rules of thumb:
 
 - **Add new tools here, do not re-list baseline tools.** Listing a baseline package
-  is a no-op at best. Check `brew list` inside the sandbox before adding a brew name.
+  is a no-op at best. Check `apt list --installed` and `mise ls` inside the sandbox
+  before adding a name.
 - **Never list the core agents under `[npm]`.** A user-layer `claude`, `codex`, `agy`,
   `pi`, or `opencode` shadows the baked binary with a bind copy that stops tracking
   image updates. Optional agents (`qwen`, `copilot`, `crush`, `cline`, ...) belong
@@ -69,32 +73,33 @@ away — add them to your `packages.toml` user layer:
 
 | Tool | Removed | Why | Restore with |
 |------|---------|-----|--------------|
-| `llvm` (clang/clangd/lld) | 2026-09-22 image trim | ~4-7 GB pour; most users compile with the Debian gcc toolchain or toolchain-managed runtimes | `[brew] packages = ["llvm"]` |
-| `swift` | 2026-09-22 image trim | ~2.2 GB toolchain; rarely used, heavy bottle | `[brew] packages = ["swift"]` |
-| `zig` | 2026-09-22 image trim | ~2.6 GB with its llvm@21 dependency | `[brew] packages = ["zig"]` |
-| `erlang`, `elixir`, `gleam` (+ graphics chain) | 2026-09-22 image trim | ~3.5 GB with the wxwidgets/gtk+3/mesa/llvm dependency chain they pulled in | `[brew] packages = ["erlang", "elixir", "gleam"]` (dependencies re-pour automatically) |
+| `llvm` (clang/clangd/lld) | 2026-09-22 image trim | ~4-7 GB; most users compile with the Debian gcc toolchain or toolchain-managed runtimes | `[apt] packages = ["clang"]` (shared libLLVM) |
+| `swift` | 2026-09-22 image trim | ~2.2 GB toolchain; rarely used, heavy | swift.org tarball or the swiftly installer, via `[tools]` |
+| `zig` | 2026-09-22 image trim | ~2.6 GB with its llvm dependency | `[mise] packages = ["zig"]` |
+| `erlang`, `elixir`, `gleam` | 2026-09-22 image trim | ~3.5 GB with the graphics/llvm chain they pulled | `[apt] packages = ["erlang", "elixir"]`; gleam via `[mise]` |
+| `fastmod` | 2026-09-22 brew exit | no release assets to fetch | `cargo install fastmod` |
+| `kotlin`, `scala`, `groovy`, `gradle`, `rust` | 2026-09-22 brew exit | language runtimes moved on-demand | `[mise] packages = ["kotlin", "scala", ...]` |
 
 ```toml
-[brew]
-taps = [
-  "shivammathur/extensions",
-  "shivammathur/php",
-  "EstebanForge/tap",
-]
+[mise]
 packages = [
-  "llvm",   # clang, clangd, lld — full brew toolchain
+  "zig",        # ziglang.org tarball via mise
+  "rust",       # current stable, on demand
+]
+
+[apt]
+packages = [
+  "clang",      # shared libLLVM — a fraction of the brew llvm suite
 ]
 ```
 
 Notes:
 
-- Brew formulae pour into the sandbox disk at guest init. Expect a one-time
-  multi-minute pour on the next boot after you add a large formula.
-- Need the compilers without the full llvm suite? The baseline already ships
-  `gcc` (brew) and `build-essential` (apt). Caveat: brew's `rust` formula
-  pulls llvm@22 as a dependency on Linux, so rust keeps one llvm major in
-  the image even after the baseline `llvm` trim. `zig` was removed for this
-  reason (it pulled llvm@21); restore it via the table above if you need it.
+- mise entries install into the home bind at guest init and persist across
+  sandbox recreations; first use of a large toolchain downloads over the
+  network once.
+- The compilers stay baked: `gcc`/`g++` (build-essential) and `clang` is one
+  apt line away if you need it.
 - Future disk-driven removals will be recorded in this table. Check it after
   image updates if a tool you use stops resolving.
 
@@ -104,8 +109,8 @@ Notes:
 
 | Manager | Description | Usage |
 |---------|-------------|-------|
-| **apt** | Debian/Ubuntu packages | System libraries, CLI tools |
-| **brew** | Homebrew (macOS/Linux) | Development tools, languages |
+| **apt** | Debian packages | System libraries, CLI tools, dev toolchain |
+| **mise** | Runtime and binary manager | Language runtimes, GitHub-release tools |
 | **bun** | Bun package manager | JavaScript runtime and packages |
 | **npm** | Node Package Manager | Node.js packages and CLIs |
 | **pip** | Python Package Manager | Python packages and modules |
@@ -114,7 +119,7 @@ Notes:
 
 **Installation order:**
 1. apt (system packages)
-2. brew (Homebrew packages)
+2. mise (runtimes and release binaries)
 3. bun (JavaScript runtime)
 4. npm (Node.js packages)
 5. pip (Python packages)
@@ -141,12 +146,12 @@ packages = [
     "htop"
 ]
 
-# Homebrew packages
-[brew]
+# mise tools (runtime + GitHub-release syntax)
+[mise]
 packages = [
-    "node",
-    "python@3.11",
-    "go"
+    "node@24",
+    "python@3.13",
+    "github:jesseduffield/lazygit@latest"
 ]
 
 # Bun packages
@@ -178,7 +183,7 @@ packages = [
 
 The lists below are illustrative. Everything in the [baked baseline](#baked-baseline-and-the-user-layer)
 is already present — list only **additions** in `packages.toml`. To check what the
-sandbox already has: `construct sys exec -- brew list` (brew tier) or
+sandbox already has: `construct sys exec -- apt list --installed` (apt tier) or
 `construct sys exec -- apt list --installed` (system tier).
 
 ### System Packages (apt)
@@ -213,34 +218,24 @@ packages = [
 ]
 ```
 
-### Development Tools (brew)
+### Development Tools (mise)
 
-**Languages and runtimes:**
+**Languages and runtimes (on demand — the baked baseline covers common ones):**
 ```toml
-[brew]
+[mise]
 packages = [
-    "node",             # Node.js
-    "python@3.11",      # Python 3.11
-    "go",               # Go
-    "rust",             # Rust
-    "java",             # Java
+    "rust",             # current stable via mise
+    "kotlin",           # JVM language
+    "erlang",           # or: [apt] packages = ["erlang"]
 ]
 ```
 
-**Development tools:**
+**GitHub-release tools:**
 ```toml
-[brew]
+[mise]
 packages = [
-    "git",              # Version control
-    "gh",               # GitHub CLI
-    "jq",               # JSON processor
-    "yq",               # YAML processor
-    "fd",               # Fast file finder
-    "ripgrep",          # Fast content search
-    "bat",              # Better cat
-    "eza",              # Better ls
-    "delta",            # Better git diff
-    "tldr",             # Simplified man pages
+    "github:jesseduffield/lazygit@latest",
+    "github:ajeetdsouza/zoxide@latest",
 ]
 ```
 
@@ -335,13 +330,13 @@ packages = [
 ]
 ```
 
-**brew (versioned packages):**
+**mise (versioned tools):**
 ```toml
-[brew]
+[mise]
 packages = [
-    "python@3.11",      # Version 3.11
-    "node@18",           # Node 18.x
-    "go@1.20",          # Go 1.20
+    "python@3.13",      # Version 3.13
+    "node@24",          # Node 24.x
+    "go@1.27",          # Go 1.27
 ]
 ```
 
@@ -441,7 +436,7 @@ vmr = true            # Enabled
    ```bash
    # Search for package
    apt search python3
-   brew search node
+   mise ls-remote node
    npm search typescript
    pip search requests
    ```
@@ -518,8 +513,7 @@ vmr = true            # Enabled
 - Document any special setup required
 
 **4. Use appropriate package manager**
-- apt for system packages
-- brew for development tools
+- apt for system packages, mise for runtimes and release tools
 - npm for Node.js projects
 - pip for Python projects
 
@@ -531,7 +525,7 @@ vmr = true            # Enabled
 
 **2. Don't mix package managers unnecessarily**
 - Use npm for Node.js, not apt
-- Use pip for Python, not brew
+- Use pip for Python, not apt
 - Avoid version conflicts
 
 **3. Don't forget to update packages**
@@ -551,9 +545,9 @@ packages = [
     "build-essential"
 ]
 
-[brew]
+[mise]
 packages = [
-    "node",
+    "node@24",
     "yarn"
 ]
 
@@ -598,9 +592,9 @@ packages = [
     "curl"
 ]
 
-[brew]
+[mise]
 packages = [
-    "go",
+    "go@1.27",
     "gopls",
     "gotools"
 ]
@@ -627,18 +621,12 @@ packages = [
     "mysql-client"
 ]
 
-[brew]
+[mise]
 packages = [
-    "node",
-    "go",
-    "python@3.11",
-    "terraform",
-    "gh",
-    "fd",
-    "ripgrep",
-    "bat",
-    "eza",
-    "delta"
+    "node@24",
+    "go@1.27",
+    "python@3.13",
+    "terraform"
 ]
 
 [npm]
@@ -680,7 +668,7 @@ construct sys config    # Edit configuration
 ```
 
 **Documentation:**
-- [Package manager docs](https://docs.brew.sh/) (Homebrew)
+- [mise docs](https://mise.jdx.dev/)
 - [npm documentation](https://docs.npmjs.com/)
 - [pip documentation](https://pip.pypa.io/)
 - [Debian packages](https://packages.debian.org/)

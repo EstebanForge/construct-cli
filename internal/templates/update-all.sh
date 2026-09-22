@@ -18,19 +18,10 @@ echo "User names: user=$(id -un 2>/dev/null || echo unknown) group=$(id -gn 2>/d
 echo "HOME: $HOME"
 echo "SHELL: ${SHELL:-unknown}"
 echo "PATH: $PATH"
-if [ -d /home/linuxbrew/.linuxbrew ]; then
-    if [ -w /home/linuxbrew/.linuxbrew ]; then
-        echo "Homebrew dir writable: /home/linuxbrew/.linuxbrew"
-    else
-        echo "⚠️  Homebrew dir not writable by current user: /home/linuxbrew/.linuxbrew"
-        ls -ld /home/linuxbrew/.linuxbrew 2>/dev/null || true
-    fi
-fi
-if command -v brew &> /dev/null; then
-    echo "brew: $(command -v brew)"
-    brew --version | head -1 || true
+if command -v mise &> /dev/null; then
+    echo "mise: $(mise --version 2>/dev/null | head -1)"
 else
-    echo "brew: not found"
+    echo "mise: not found"
 fi
 if command -v npm &> /dev/null; then
     echo "npm: $(command -v npm)"
@@ -45,16 +36,6 @@ else
 fi
 echo "==================================="
 echo ""
-
-eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" || true
-
-# Casks are macOS-only (.app into /Applications). On Linux the homebrew/cask tap
-# only breaks `brew upgrade`: arch-conditional sha256 (arm:/intel:) resolves to
-# nil for non-macOS systems, aborting the run (e.g. Casks/0/0-ad). Untap defensively.
-# Runtime may re-tap it (HOMEBREW_NO_INSTALL_FROM_API mode), so clear each update.
-if [ "$(uname -s)" = "Linux" ] && command -v brew >/dev/null 2>&1; then
-    brew untap homebrew/cask >/dev/null 2>&1 || true
-fi
 
 # Sudo detection: use empty string if root, test if sudo works, otherwise skip
 if [ "$(id -u)" = "0" ]; then
@@ -84,8 +65,10 @@ else
         $SUDO apt-get update -qq && $SUDO apt-get -y -qq dist-upgrade && $SUDO apt-get -y -qq autoremove && $SUDO apt-get -y -qq autoclean || true
     fi
 
-    echo "Updating Homebrew packages..."
-    brew update && brew upgrade --greedy && brew cleanup && brew autoremove || true
+    if command -v mise &> /dev/null; then
+        echo "Updating mise tools..."
+        mise upgrade --yes || true
+    fi
 fi
 
 # Upgrade npm global packages to latest (npm update -g doesn't cross semver boundaries)
