@@ -5,6 +5,8 @@ Customize your Construct sandbox with user-defined packages via `packages.toml`.
 ## Table of Contents
 
 - [Overview](#overview)
+- [Baked Baseline and the User Layer](#baked-baseline-and-the-user-layer)
+- [Restoring Tools Removed from the Image](#restoring-tools-removed-from-the-image)
 - [Package Managers](#package-managers)
 - [Configuration](#configuration)
 - [Available Packages](#available-packages)
@@ -18,9 +20,78 @@ Construct supports installing additional packages inside the sandbox environment
 
 **Key features:**
 - **Multiple package managers**: apt, brew, bun, npm, pip
-- **Persistent installation**: Packages persist across container runs
-- **Easy updates**: Apply new packages with `construct sys packages --install`
+- **Baked baseline + user layer**: common tools ship in the image; `packages.toml` adds what is yours
+- **Applies at guest init**: new installs run when the sandbox boots; `construct sys packages --install` applies them live
 - **Custom toolchains**: Optional development tools (nix, asdf, mise, vmr, etc.)
+
+## Baked Baseline and the User Layer
+
+Construct ships a **baked baseline** inside the `construct-box` image: the system
+toolchain (apt), the Homebrew tier (languages, linters, web tools, php@8.x + pcov),
+jekyll, litellm, qmd, bun, mise, asdf, and the five core agents — `claude`, `codex`,
+`agy`, `pi`, `opencode` at `/usr/local/bin`. The baseline updates with image updates,
+not per-sandbox installs.
+
+Everything you list in `packages.toml` is the **user layer**. It installs at guest
+init on top of the baseline. Where each manager lands and what persists:
+
+| Manager | Installs into | Persisted across sandbox recreations |
+|---------|---------------|--------------------------------------|
+| apt | system directories (sandbox disk) | no — reinstalled at next sandbox boot |
+| brew | `/home/linuxbrew/.linuxbrew` (sandbox disk) | no — re-poured at next sandbox boot |
+| npm | home directory (`~/.config/construct-cli/home` bind) | yes |
+| bun | `~/.bun` (home bind) | yes |
+| pip | home bind | yes |
+
+The home bind is a host directory. Sandbox recreation wipes the sandbox disk, never
+your home. That is why brew/apt additions re-pour at boot (minutes for large
+formulae) while npm/bun/pip additions survive untouched.
+
+Rules of thumb:
+
+- **Add new tools here, do not re-list baseline tools.** Listing a baseline package
+  is a no-op at best. Check `brew list` inside the sandbox before adding a brew name.
+- **Never list the core agents under `[npm]`.** A user-layer `claude`, `codex`, `agy`,
+  `pi`, or `opencode` shadows the baked binary with a bind copy that stops tracking
+  image updates. Optional agents (`qwen`, `copilot`, `crush`, `cline`, ...) belong
+  there; the core five do not.
+- **Changes apply at the next guest init** (fresh sandbox boot) or immediately via
+  `construct sys packages --install` in a running sandbox.
+- **Idle-window updates keep your layer current.** With `auto_update_packages = true`
+  (default), the daemon runs `update-all.sh` over the user layer right before an
+  idle stop.
+
+## Restoring Tools Removed from the Image
+
+The image stays lean on purpose: a smaller image pulls faster and msb rejects any
+single layer over 10 GiB. Tools cut from the baseline for disk reasons stay one line
+away — add them to your `packages.toml` user layer:
+
+| Tool | Removed | Why | Restore with |
+|------|---------|-----|--------------|
+| `llvm` (clang/clangd/lld) | 2026-09-22 image trim | ~4-7 GB pour; most users compile with the Debian gcc toolchain or toolchain-managed runtimes | `[brew] packages = ["llvm"]` |
+
+```toml
+[brew]
+taps = [
+  "shivammathur/extensions",
+  "shivammathur/php",
+  "EstebanForge/tap",
+]
+packages = [
+  "llvm",   # clang, clangd, lld — full brew toolchain
+]
+```
+
+Notes:
+
+- Brew formulae pour into the sandbox disk at guest init. Expect a one-time
+  multi-minute pour on the next boot after you add a large formula.
+- Need the compilers without the full llvm suite? The baseline already ships
+  `gcc` (brew) and `build-essential` (apt). `rust` and `zig` bundle their own
+  LLVM internally, so rustc and zig work with no extra install.
+- Future disk-driven removals will be recorded in this table. Check it after
+  image updates if a tool you use stops resolving.
 
 ## Package Managers
 
@@ -99,6 +170,11 @@ packages = [
 ```
 
 ## Available Packages
+
+The lists below are illustrative. Everything in the [baked baseline](#baked-baseline-and-the-user-layer)
+is already present — list only **additions** in `packages.toml`. To check what the
+sandbox already has: `construct sys exec -- brew list` (brew tier) or
+`construct sys exec -- apt list --installed` (system tier).
 
 ### System Packages (apt)
 
