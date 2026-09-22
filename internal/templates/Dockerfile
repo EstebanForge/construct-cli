@@ -117,7 +117,7 @@ RUN --mount=type=secret,id=github_token \
 # 7. npm tier (NodeSource node; upstream prefix /usr/local)
 RUN npm install -g --prefix /usr/local \
     typescript prettier @ast-grep/cli yarn pnpm gulp-cli tailwindcss \
-    vite webpack
+    vite webpack acpx @colbymchenry/codegraph
 
 # 8. PHP tooling: composer ships in the apt tier (uses php8.4-cli); wp-cli
 # and php-cs-fixer via their official phars. One php (8.4) is the baseline;
