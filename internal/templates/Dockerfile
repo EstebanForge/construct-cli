@@ -50,7 +50,7 @@ RUN mkdir -p /var/lib/construct-cli && chown construct:construct /var/lib/constr
 #
 # Follow official installer pattern: create directory as root, clone, then hand over to user
 RUN mkdir -p /home/linuxbrew && \
-    git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew && \
+    git clone --depth 1 https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew && \
     chown -R construct:construct /home/linuxbrew
 
 # Create construct user's .local directory with proper ownership
@@ -86,28 +86,287 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # (PATH tier 1, OUTSIDE the home bind — /home/construct content is shadowed
 # by the persistent bind and must never hold baked state).
 # Network cost hits the BUILD only; guests get block-IO pulls.
+# Baked brew baseline: SPLIT INTO MULTIPLE LAYERS - msb rejects any single
+# layer over 10 GiB on `msb load`, and one monolithic brew layer exceeds it.
+# Chunk order: stable/large first, fast-moving last. Each layer verifies its
+# kegs (brew install has been observed exiting 1 with no error text even
+# when every keg poured - tolerate the exit code, fail visibly on kegs).
 RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
     eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
     brew tap shivammathur/extensions && \
     brew tap shivammathur/php && \
     brew tap EstebanForge/tap && \
-    brew install \
-      ast-grep yq sd fzf eza fd bat ripgrep jq curl wget tree unzip socat make htop netcat bind sshpass nano lftp tmux btop \
-      imagemagick topgrade libgit2 \
-      gh git-lfs git-delta git-cliff rsync procs python-setuptools awscli cmake pkg-config direnv gum rtk \
-      go openjdk typescript rust kotlin lua ruby dart-sdk swift perl zig erlang gnucobol \
-      node python@3.12 python@3 openssl@3 llvm gcc nasm yasm \
-      postgresql@16 mysql-client redis sqlite podman podman-compose \
-      groovy scala elixir r micropython gleam ocaml swi-prolog \
-      golangci-lint golangci-lint-langserver php-cs-fixer prettier shellcheck yamllint \
-      yarn pnpm composer neovim gulp-cli ffmpeg \
-      shivammathur/php/php@8.2 shivammathur/php/php@8.3 shivammathur/php/php@8.4 shivammathur/php/php@8.5 shivammathur/php/php@8.6 wp-cli tailwindcss \
-      uv pipx vite webpack tlrc ninja gradle fastmod hugo zola \
-      EstebanForge/tap/mcp-cli-ent EstebanForge/tap/md-over-here \
-      shivammathur/extensions/pcov@8.2 shivammathur/extensions/pcov@8.3 \
-      shivammathur/extensions/pcov@8.4 shivammathur/extensions/pcov@8.5 \
-      shivammathur/extensions/pcov@8.6
-    # No `|| true`: a failed formula must fail the build (fail visible).
+    brew trust shivammathur/extensions && \
+    brew trust shivammathur/php && \
+    brew trust EstebanForge/tap && \
+    (brew install \
+      ast-grep \
+      yq \
+      sd \
+      fzf \
+      eza \
+      fd \
+      bat \
+      ripgrep \
+      jq \
+      curl \
+      wget \
+      tree \
+      unzip \
+      socat \
+      make \
+      htop \
+      netcat \
+      bind \
+      sshpass \
+      nano \
+      lftp \
+      tmux \
+      btop \
+      imagemagick \
+      topgrade \
+      libgit2 \
+      gh \
+      git-lfs \
+      git-delta \
+      git-cliff \
+      rsync \
+      procs \
+      python-setuptools \
+      awscli \
+      cmake \
+      pkg-config \
+      direnv \
+      gum \
+      rtk) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in ast-grep \
+      yq \
+      sd \
+      fzf \
+      eza \
+      fd \
+      bat \
+      ripgrep \
+      jq \
+      curl \
+      wget \
+      tree \
+      unzip \
+      socat \
+      make \
+      htop \
+      netcat \
+      bind \
+      sshpass \
+      nano \
+      lftp \
+      tmux \
+      btop \
+      imagemagick \
+      topgrade \
+      libgit2 \
+      gh \
+      git-lfs \
+      git-delta \
+      git-cliff \
+      rsync \
+      procs \
+      python-setuptools \
+      awscli \
+      cmake \
+      pkg-config \
+      direnv \
+      gum \
+      rtk; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      go \
+      openjdk \
+      typescript \
+      rust \
+      kotlin \
+      lua \
+      ruby) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in go \
+      openjdk \
+      typescript \
+      rust \
+      kotlin \
+      lua \
+      ruby; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+# dart-sdk + swift in their OWN layer: swift's dependency tree is heavy and
+# would push a combined languages layer past msb's 10 GiB per-layer limit.
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      dart-sdk \
+      swift \
+      perl \
+      zig \
+      erlang \
+      gnucobol) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in dart-sdk \
+      swift \
+      perl \
+      zig \
+      erlang \
+      gnucobol; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      node \
+      python@3.12 \
+      python@3 \
+      openssl@3 \
+      gcc \
+      nasm \
+      yasm) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in node \
+      python@3.12 \
+      python@3 \
+      openssl@3 \
+      gcc \
+      nasm \
+      yasm; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+# llvm in its OWN layer: ~7 GB alone, and msb rejects any layer over
+# 10 GiB - sharing a layer with gcc/node left under 400 MB headroom.
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      llvm) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    brew list --versions "llvm" >/dev/null 2>&1 || { echo "FATAL: keg missing: llvm" >&2; exit 1; }
+
+
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      postgresql@16 \
+      mysql-client \
+      redis \
+      sqlite \
+      podman \
+      podman-compose \
+      groovy \
+      scala \
+      elixir \
+      r \
+      micropython \
+      gleam \
+      ocaml \
+      swi-prolog) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in postgresql@16 \
+      mysql-client \
+      redis \
+      sqlite \
+      podman \
+      podman-compose \
+      groovy \
+      scala \
+      elixir \
+      r \
+      micropython \
+      gleam \
+      ocaml \
+      swi-prolog; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    (brew install \
+      golangci-lint \
+      golangci-lint-langserver \
+      php-cs-fixer \
+      prettier \
+      shellcheck \
+      yamllint \
+      yarn \
+      pnpm \
+      composer \
+      neovim \
+      gulp-cli \
+      ffmpeg \
+      wp-cli \
+      tailwindcss \
+      uv \
+      pipx \
+      vite \
+      webpack \
+      tlrc \
+      ninja \
+      gradle \
+      fastmod \
+      hugo \
+      zola \
+      EstebanForge/tap/mcp-cli-ent \
+      EstebanForge/tap/md-over-here) || \
+      echo "⚠️ brew install exited non-zero; verifying kegs"; \
+    for f in golangci-lint \
+      golangci-lint-langserver \
+      php-cs-fixer \
+      prettier \
+      shellcheck \
+      yamllint \
+      yarn \
+      pnpm \
+      composer \
+      neovim \
+      gulp-cli \
+      ffmpeg \
+      wp-cli \
+      tailwindcss \
+      uv \
+      pipx \
+      vite \
+      webpack \
+      tlrc \
+      ninja \
+      gradle \
+      fastmod \
+      hugo \
+      zola \
+      EstebanForge/tap/mcp-cli-ent \
+      EstebanForge/tap/md-over-here; do \
+      brew list --versions "$f" >/dev/null 2>&1 || { echo "FATAL: keg missing: $f" >&2; exit 1; }; \
+    done
+
+
+RUN --mount=type=cache,target=/home/construct/.cache/Homebrew,sharing=locked,uid=1000,gid=1000 \
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" && \
+    for v in 8.2 8.3 8.4 8.5 8.6; do \
+      brew install "shivammathur/php/php@$v" || true; \
+      brew list --versions "php@$v" >/dev/null 2>&1 || { echo "FATAL: keg missing: php@$v" >&2; exit 1; }; \
+      brew install "shivammathur/extensions/pcov@$v" || true; \
+      brew list --versions "pcov@$v" >/dev/null 2>&1 || { echo "FATAL: keg missing: pcov@$v" >&2; exit 1; }; \
+      brew unlink "shivammathur/php/php@$v" || true; \
+    done && \
+    # Exactly ONE version stays linked (default php for composer/wp-cli/
+    # php-cs-fixer); switchers manage the rest at runtime.
+    brew link --overwrite "shivammathur/php/php@8.4" || true
 
 # 3b. Bake remaining dev tooling to SYSTEM paths (root-owned).
 # Ruby gems -> brew ruby's site dir (tier-1 bin); Python tools via pipx ->

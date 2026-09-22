@@ -84,7 +84,33 @@ echo "ok: unmapped fail-closed"
 # lives in the bind or is absent in a fresh lab home).
 cd "$LAB/projA"
 baked_claude=$("$BIN" sys exec -- sh -c 'command -v claude' </dev/null 2>/dev/null | tail -1 || true)
+# restart_daemon_fresh: stop + REMOVE the sandbox + start. msb stop/start
+# RESUMES the sandbox (the entrypoint does not re-run), so force-file and
+# sweep triggers need a recreate: fresh root disk, gate absent, installer
+# runs (optional agents reinstall from the network - minutes).
+restart_daemon_fresh() {
+	"$BIN" sys daemon stop >/dev/null 2>&1
+	msb rm -f construct-cli-daemon >/dev/null 2>&1 || true
+	"$BIN" sys daemon start >/dev/null 2>&1
+}
+
 if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
+	# a0. Reset the fixture: the lab packages.toml may predate the trim and
+	# declare baked agents (overrides are KEPT by design, which would poison
+	# the assertions). Clear declarations + marker, force a pass so the
+	# sweep runs against a clean config.
+	printf '[apt]\npackages = []\n\n[brew]\ntaps = []\npackages = []\n\n[bun]\npackages = []\n\n[npm]\npackages = []\n\n[pip]\npackages = []\n\n[gems]\npackages = []\n' > "$LAB/.config/construct-cli/packages.toml"
+	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
+	restart_daemon_fresh
+
+	# a0 proves the recreate re-ran the installer (gate lives on the fresh
+	# root disk): the phase record must say install_ran=1.
+	ph=$("$BIN" sys exec -- cat /home/construct/.local/.construct_install_phase </dev/null 2>/dev/null || true)
+	case "$ph" in
+		install_ran=1*) echo "ok: recreate re-ran the installer ($ph)";;
+		*) fail "expected install_ran=1 after recreate, got: '$ph'";;
+	esac
+
 	# a. All five core agents resolve to the baked tier.
 	for c in claude codex agy pi opencode; do
 		p=$("$BIN" sys exec -- sh -c "command -v $c" </dev/null 2>/dev/null | tail -1 || true)
@@ -92,24 +118,22 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 	done
 	echo "ok: baked agents resolve to /usr/local/bin"
 
-	# b. Warm boots skip the install phase (gate lives on the root fs).
+	# b. Resume boots (stop/start) do NOT re-run the entrypoint: the phase
+	# record must be byte-identical across the restart.
+	before=$("$BIN" sys exec -- cat /home/construct/.local/.construct_install_phase </dev/null 2>/dev/null || true)
 	"$BIN" sys daemon stop >/dev/null 2>&1
 	sleep 2
 	"$BIN" sys daemon start >/dev/null 2>&1
 	assert_outcome warm
-	ph=$("$BIN" sys exec -- cat /home/construct/.local/.construct_install_phase </dev/null 2>/dev/null || true)
-	case "$ph" in
-		install_ran=0*) echo "ok: warm boot skips install ($ph)";;
-		*) fail "expected install_ran=0 on warm boot, got: '$ph'";;
-	esac
+	after=$("$BIN" sys exec -- cat /home/construct/.local/.construct_install_phase </dev/null 2>/dev/null || true)
+	[ -n "$before" ] && [ "$before" = "$after" ] || fail "resume changed or empty record: '$before' -> '$after'"
+	echo "ok: resume boot skips install ($after)"
 
 	# c. Migration sweep: seed stale pre-bake copies, clear the marker,
 	#    force a reinstall pass; the sweep must clear them and re-mark.
 	"$BIN" sys exec -- sh -c 'mkdir -p ~/.local/bin ~/.opencode/bin; printf "#!/bin/sh\n" > ~/.local/bin/claude; chmod +x ~/.local/bin/claude; printf "#!/bin/sh\n" > ~/.opencode/bin/opencode; chmod +x ~/.opencode/bin/opencode' </dev/null >/dev/null 2>&1
 	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
-	"$BIN" sys daemon stop >/dev/null 2>&1
-	sleep 2
-	"$BIN" sys daemon start >/dev/null 2>&1
+	restart_daemon_fresh
 	for f in /home/construct/.local/bin/claude /home/construct/.opencode/bin/opencode; do
 		if "$BIN" sys exec -- sh -c "[ -e '$f' ]" </dev/null >/dev/null 2>&1; then
 			fail "migration sweep left stale copy: $f"
@@ -127,9 +151,7 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 	#    bind copy that wins by PATH.
 	printf '[npm]\npackages = ["@openai/codex@latest"]\n' > "$LAB/.config/construct-cli/packages.toml"
 	"$BIN" sys exec -- sh -c 'touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
-	"$BIN" sys daemon stop >/dev/null 2>&1
-	sleep 2
-	"$BIN" sys daemon start >/dev/null 2>&1
+	restart_daemon_fresh
 	p=$("$BIN" sys exec -- sh -c 'command -v codex' </dev/null 2>/dev/null | tail -1 || true)
 	case "$p" in */.npm-global/bin/codex) echo "ok: packages.toml codex shadows baked";; *) fail "codex override not shadowing, got: '$p'";; esac
 
