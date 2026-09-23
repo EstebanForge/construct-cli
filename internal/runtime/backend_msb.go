@@ -333,7 +333,7 @@ func DetectBackend(cfg *config.Config) (Backend, error) {
 		}
 		m := NewMsbBackend()
 		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
-			return nil, errors.New("runtime backend = \"microvm\" but microsandbox is not installed. Install it: curl -fsSL https://msb.sh | sh (Apple Silicon macOS or Linux with KVM)")
+			return nil, errors.New("runtime backend = \"microvm\" but microsandbox is not installed. Install it: curl -fsSL https://install.microsandbox.dev | sh (Apple Silicon macOS or Linux with KVM)")
 		}
 		return m, nil
 	default:

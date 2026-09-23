@@ -71,7 +71,7 @@ brew install EstebanForge/tap/construct-cli
 - Auto-detected if available
 
 **Option 4: MicroVM Isolation (Experimental)**
-- Install microsandbox: `curl -fsSL https://msb.sh | sh`
+- Install microsandbox: `curl -fsSL https://install.microsandbox.dev | sh`
 - Set `backend = "microvm"` in `~/.config/construct-cli/config.toml` under `[runtime]`
 - Runs sandboxes with dedicated Linux guest kernels via Apple Hypervisor.framework
 
@@ -128,7 +128,7 @@ sudo usermod -aG docker $USER
 
 ```bash
 # Install microsandbox
-curl -fsSL https://msb.sh | sh
+curl -fsSL https://install.microsandbox.dev | sh
 
 # Ensure KVM access (/dev/kvm)
 sudo usermod -aG kvm $USER
