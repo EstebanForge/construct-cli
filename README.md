@@ -55,6 +55,9 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 # One-line installer (macOS & Linux)
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
 
+# Or manage with mise
+mise use -g github:EstebanForge/construct-cli
+
 # Or with Homebrew
 brew install EstebanForge/tap/construct-cli
 ```

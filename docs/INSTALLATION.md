@@ -12,6 +12,7 @@ Detailed installation instructions for The Construct CLI across different platfo
 - [Installation Methods](#installation-methods)
   - [Homebrew](#homebrew)
   - [One-Line Script](#one-line-script)
+  - [mise](#mise)
   - [Manual Binary](#manual-binary)
 - [Post-Installation](#post-installation)
   - [First Run Setup](#first-run-setup)
@@ -200,6 +201,23 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 # Install beta version
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | CHANNEL=beta bash
 ```
+
+### mise
+
+**macOS & Linux (mise 2026.9+)**
+
+```bash
+# Install globally (or drop -g to pin per-project)
+mise use -g github:EstebanForge/construct-cli
+
+# Update to the latest release
+mise upgrade github:EstebanForge/construct-cli
+
+# Uninstall
+mise uninstall github:EstebanForge/construct-cli
+```
+
+mise resolves the GitHub release assets directly (per-platform tarballs, no tap or plugin needed). New releases appear once they age past mise's `minimum_release_age` supply-chain guard.
 
 ### Manual Binary Download
 
