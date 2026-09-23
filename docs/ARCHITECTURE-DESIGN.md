@@ -11,12 +11,12 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ## 2. Goals & Requirements
 - **Zero-trace host**: Containers run with `--rm`; only named volumes persist installs/state.
 - **Flexible runtime support**: User-configurable isolation backend with auto-detection and auto-start capabilities.
-- **Fast subsequent runs**: Agents and tools live in a persistent named volume (`construct-packages`); optional daemon mode enables instant agent startup (~100ms) via container reuse.
+- **Fast subsequent runs**: User-tier installs persist in the bind-mounted construct home and baked tooling ships inside the image; optional daemon mode enables instant agent startup via a persistent sandbox.
 - **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, including first-class env passthrough controls in `[sandbox]`.
 - **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home volume.
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
-- **Packages customization**: `packages.toml` drives tool installs (apt, brew, npm, pip, cargo, gems), post-install hooks, and topgrade config generation.
+- **Packages customization**: `packages.toml` drives user-tier tool installs (mise, npm, bun, pipx, cargo, gems), post-install hooks, and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
 - **Agent rules + shims**: Global AGENTS.md management, plus PATH shims: `<slug>` routes agents through the sandbox, `ns-<slug>` runs the real host binary, and orchestrator host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to container paths ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
 - **Yolo mode**: Optional per-agent or global "yolo" flags injected on launch.
@@ -26,7 +26,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
-- **Toolchain**: Default `packages.toml` installs brew/cargo/npm tools like `ripgrep`, `fd`, `eza`, `bat`, `jq`, `yq`, `sd`, `fzf`, `gh`, `git-delta`, `git-cliff`, `shellcheck`, `yamllint`, `neovim`, `uv`, `vite`, `webpack`, agent-browser, language runtimes (Go, Rust, Python, Node, Java, PHP, Kotlin, Lua, Ruby, Dart, Perl, etc.), and agents/tools (`agy` (Antigravity CLI), `opencode`, `block-goose-cli`, `@openai/codex`, `@qwen-code/qwen-code`, `@github/copilot`, `cline`, `@charmland/crush`, `@kilocode/cli`, `@mariozechner/pi-coding-agent`, `mcp-cli-ent`, `md-over-here`, `url-to-markdown-cli-tool`).
+- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the five baked agents `claude`, `codex`, `agy`, `pi`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that (kotlin, scala, groovy, gradle) install on demand via the `[mise]` user tier in `packages.toml`; anything else arrives through `[mise]`/`[npm]`/`[bun]`/`[pipx]` user entries and shadows baked equivalents by PATH.
 
 ---
 
@@ -41,7 +41,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - Claude provider system for configurable API endpoints with environment variable management.
   - Self-update mechanism with channel-aware version marker checks, release download, and atomic binary replacement (including Homebrew installs via user-local override).
 - **Templates**: `internal/templates/`
-  - Dockerfile uses `debian:trixie-slim` + Homebrew (non-root) for tools; installs Chromium and Puppeteer-compatible deps; disables brew auto-update.
+  - Dockerfile uses `debian:trixie-slim` with the apt tier, three vendor repos (`gh`, `nodejs 24`; dart removed 2026-09-22), the go.dev tarball, rustup, and the pinned mise github: tier; every baked tool is execute-verified in-build on both amd64 and arm64.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
   - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, and starts login forwarders when enabled.
   - network-filter script for strict mode; update-all for maintenance.
@@ -77,7 +77,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `home/.local/.entrypoint_hash` (entrypoint patch tracking)
   - `.login_bridge` (temporary login callback forwarding flag)
   - `home/.construct-path.sh` (construct-managed PATH exports for login shells)
-- **Volumes**: `construct-packages` (persists Homebrew installs, npm globals, cargo, and caches). `construct-agents` is legacy and only referenced for cleanup in reset scripts.
+- **Volumes**: no packages volume exists anymore (removed with the baked baseline; user installs persist via the construct home bind). `construct-agents` is legacy and only referenced for cleanup in reset scripts.
 
 ---
 
@@ -121,10 +121,9 @@ Construct supports microVM hardware isolation as an opt-in runtime backend (`bac
   - The microVM engine manages a persistent, detached guest sandbox named `construct-cli-daemon` (`WithDetached()`, `WithIdleTimeout(0)`, `WithMaxDuration(0)`).
   - **Resource Allocations**: Configured to 4 vCPUs and 4096 MiB RAM (`CPUs: 4, MemoryMiB: 4096`), ensuring multi-threaded JS/TS CLI agents (Claude Code, Pi extensions, Codex, OpenCode) operate without memory pressure or Linux OOM termination.
   - **Startup Sequencing**: The guest entrypoint creates `/tmp/.construct_entrypoint_ready` on tmpfs when initialization completes. The backend probes this readiness marker before routing agent executions.
-  - **Agent Installation**: First-run agent installation runs inside the VM via `MsbInstallAgents`, persisting installed toolchains and Node/Homebrew environments on the sandbox root disk.
+  - **Agent Installation**: First-run agent installation runs inside the VM via `MsbInstallAgents`, persisting user-tier installs in the home bind while the baked baseline ships in the image.
   - **Image Distribution & GA Release Plan**:
-    - Image readiness probes local cache, pulls published multi-arch images from `ghcr.io/estebanforge/construct-box`, or imports local images via `docker save` -> `msb load`.
-    - **General Availability (GA) Prerequisite**: Before graduating `backend = "microvm"` out of experimental, the multi-arch `construct-box:latest` image must be published to GHCR (`ghcr.io/estebanforge/construct-box:latest` via the manual image workflow, `.github/workflows/image.yml`) so end users run without requiring a local Docker installation. Local Docker compilation + `msb load` transition remains preserved strictly as an offline and development fallback.
+    - Image readiness probes local cache, pulls the published multi-arch image from `ghcr.io/estebanforge/construct-box` (live since 2026-09-23, dual-arch amd64+arm64 via `.github/workflows/image.yml`), or imports local images via `docker save` -> `msb load`. Local Docker compilation + `msb load` transition remains preserved strictly as an offline and development fallback.
 
 - **Guest-to-Host Transport & Bridge Networking**:
   - All host bridges communicate across the microVM boundary through the DNS alias `host.microsandbox.internal`:
@@ -202,8 +201,7 @@ API_TIMEOUT_MS = "3000000"
 - **Updates** (`sys update` → `templates/update-all.sh`):
   - apt update/upgrade (via topgrade or fallback).
   - `claude update` (fallback path when topgrade is missing).
-  - Homebrew: `brew update/upgrade/cleanup` (all packages).
-  - Topgrade: runs if installed with generated config; falls back to manual updates.
+  - mise + topgrade: `update-all.sh` refreshes the user tier (npm globals, mise tools, gems, pipx) through topgrade; the baked baseline never updates in-guest and moves with image updates.
   - npm: `npm update -g` (all globals).
 - **Update Check** (`sys check-update` / automatic):
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
@@ -264,7 +262,7 @@ make cross-compile   # all platforms
 
 ## 9. Implementation Details
 - Version string is defined in `internal/constants/constants.go` (`Version` constant) and must match the release tag.
-- Homebrew auto-update disabled (`HOMEBREW_NO_AUTO_UPDATE=1`); updates are explicit.
+- Guest updates are explicit only: `construct sys update` drives topgrade + mise; nothing auto-updates in the guest except the opt-in idle-window updater (`[daemon] auto_update_packages`).
 - Network override file (`docker-compose.override.yml`) is generated per run for UID/GID, SELinux, and network mode.
 - Error reporting via `ConstructError` with categories; doctor command aggregates checks.
 - Migrations track installed version and template hashes, merge config files with backups, and regenerate topgrade config.
@@ -380,7 +378,7 @@ Construct implements a secure "Host-Wrapper" bridge to enable rich media (images
   - **Runtime Patching**: `agent-patch.sh` patches agent source code at session start to bypass `process.platform !== 'darwin'` checks that would otherwise disable clipboard support on Linux. It also replaces `@teddyzhu/clipboard`'s native NAPI-RS addon with a pure-JS HTTP bridge for agents that use that library.
 - **Copilot PTY Wrapper** (primary Copilot image paste path):
   - Copilot's native clipboard addon fails in headless containers; its Ink TUI paste handler never fires reliably over a Docker PTY. The JS bridge and keybinding patches are applied as a fallback layer but are not the primary mechanism.
-  - `agent-patch.sh` installs a Python 3 PTY wrapper at the Homebrew bin path (`/home/linuxbrew/.linuxbrew/bin/copilot`, which takes PATH priority). The real copilot binary path is resolved via npm-global candidates and injected at install time via `sed`.
+  - `agent-patch.sh` installs a Python 3 PTY wrapper at `$HOME/.local/bin/copilot` (first on PATH, ahead of the npm-global original). The real copilot binary path is resolved via npm-global candidates and injected at install time via `sed`.
   - The wrapper spawns the real copilot process on an inner PTY and bridges the outer Docker stdin, intercepting paste keystrokes before Copilot ever sees them.
   - Intercepted sequences: legacy `\x16` (Ctrl+V) plus Kitty Keyboard Protocol variants `\x1b[118;5u` (Ctrl+V in KKP) and `\x1b[118;9u` (Cmd+V in KKP). Modern terminals such as Ghostty send KKP sequences exclusively — `\x16` is never sent.
 - **Codex PTY Wrapper** (primary Codex image paste path):

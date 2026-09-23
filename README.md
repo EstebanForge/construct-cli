@@ -39,8 +39,13 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot code agent with access to all Copilot supported models
 - **Pi Coding Agent** (`pi`) – Earendil Works minimal extensible coding agent
 - **OpenCode** (`opencode`) – OpenCode's coding agent, fast and full of open weights models
+- **Amp CLI** (`amp`) – Sourcegraph's coding agent
 - **Qwen Code** (`qwen`) – Alibaba's coding agent for Qwen models
+- **Cline** (`cline`) – Autonomous coding agent for VS Code and the CLI
+- **Droid CLI** (`droid`) – Factory's coding agent
+- **Goose CLI** (`goose`) – Block's coding agent
 - **Crush CLI** (`crush`) – Charmbracelet's coding agent
+- **Kilo Code CLI** (`kilocode`) – Kilo Code's coding agent
 - **Claude Code** with other providers: Zai GLM, MiniMax M2, Kimi K2, Qwen, Mimo
 - [Full agent list →](docs/AGENTS.md)
 

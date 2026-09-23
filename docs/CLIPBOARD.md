@@ -144,7 +144,7 @@ Replaces clipboard tool binaries inside npm packages so that their bundled `xsel
 Some npm packages (notably `clipboardy`) bundle their own copies of `xsel` or `xclip` under `lib/node_modules/<pkg>/fallbacks/linux/`. Without this fix, those agents use their own bundled binary and never touch `/usr/bin/xsel` (our symlink).
 
 **What it does:**
-- Searches `~/.npm-global` and `/home/linuxbrew/.linuxbrew` for `clipboardy/fallbacks/linux/` directories.
+- Searches `~/.npm-global` and `/usr/local/lib/node_modules` for `clipboardy/fallbacks/linux/` directories.
 - For each found: replaces `xsel` and `xclip` with symlinks to `/usr/local/bin/clipper`.
 - Also does an aggressive search for any loose `xsel` binary in `~/.npm-global` and replaces it.
 
@@ -202,7 +202,7 @@ Patches Copilot's TUI input handler so Ctrl+V works on Linux (in addition to Met
 
 **Version string:** `construct-copilot-wrapper-v9`
 
-This is the main Copilot image paste mechanism. Installs a Python 3 PTY wrapper in place of the Homebrew `copilot` binary that intercepts paste keystrokes before Copilot's process ever sees them.
+This is the main Copilot image paste mechanism. Installs a Python 3 PTY wrapper at `$HOME/.local/bin/copilot` (first on PATH, ahead of the npm-global original) that intercepts paste keystrokes before Copilot's process ever sees them.
 
 See [Copilot: The Full Story](#copilot-the-full-story) for the complete explanation.
 
@@ -348,10 +348,10 @@ _PASTE_TRIGGERS = [b'\x16', b'\x1b[118;5u', b'\x1b[118;9u']
 
 **Installation:**
 
-1. `command -v copilot` finds the active copilot binary (e.g., `/home/linuxbrew/.linuxbrew/bin/copilot`).
+1. `command -v copilot` finds the active copilot binary (typically `~/.npm-global/bin/copilot`; the wrapper lands beside the resolution path at `~/.local/bin/copilot`, which PATH orders first).
 2. Idempotency check: skip if `construct-copilot-wrapper-v9` already in the file.
 3. Find real copilot binary via npm-global: `~/.npm-global/bin/copilot` (a symlink into the npm package dir — Node resolves relative imports from the symlink's target directory, which is why we cannot use `readlink -f` here).
-4. `rm -f <homebrew-bin>` — removes symlink or file.
+4. `rm -f <resolved-bin-path>` removes the symlink or file.
 5. Write Python wrapper to that path.
 6. `sed -i "s|__CONSTRUCT_REAL_COPILOT__|${real_target}|"` — inject the real copilot path.
 7. `chmod +x`.
@@ -429,11 +429,11 @@ Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash
 **Ghostty / KKP terminals:**
 Modern terminals using the Kitty Keyboard Protocol never send `\x16` for Ctrl+V or Cmd+V. They send `\x1b[118;5u` and `\x1b[118;9u` respectively. If adding key interception elsewhere, always check for KKP variants. The key code (118 = Unicode `v`) and modifier encoding (bitmask+1) follow the KKP spec.
 
-**Homebrew vs npm-global PATH order:**
-`/home/linuxbrew/.linuxbrew/bin` comes before `~/.npm-global/bin` in PATH. Any wrapper installed at `~/.local/bin` or `~/.npm-global/bin` will be silently bypassed by the Homebrew copy. Always install at the path that `command -v copilot` actually resolves to.
+**PATH order: `~/.local/bin` wins:**
+`~/.local/bin` comes before `~/.npm-global/bin` in the guest PATH. The wrapper installs at `~/.local/bin/copilot` so it shadows the npm-global original while the real binary is still reached via the injected absolute path. Always install at the path that `command -v copilot` actually resolves to first, and keep the real binary's absolute path independent.
 
 **Never `cat >` through a symlink to install a wrapper:**
-If the target path is a symlink (e.g., Homebrew bin → npm package bin script), `cat > target` writes through the symlink and corrupts the original package binary. Always `rm -f` the symlink first, then create a new regular file. The original package is found independently and referenced by absolute path.
+If the target path is a symlink (e.g., an npm-global bin launcher pointing into the package), `cat > target` writes through the symlink and corrupts the original package binary. Always `rm -f` the symlink first, then create a new regular file. The original package is found independently and referenced by absolute path.
 
 **Never use `readlink -f` to find the real binary then copy it:**
 The Homebrew copilot bin script does `import('./index.js')` relative to its own directory. If you copy it to a different directory (even the same one as `copilot-real`), Node resolves `./index.js` relative to the copy's location, not the original package. Use the npm-global symlink as `_REAL` — it's a symlink into the npm package directory so Node imports resolve correctly.

@@ -499,10 +499,10 @@ ANTHROPIC_AUTH_TOKEN = "${CNSTR_MINIMAX_API_KEY}"
 Configure additional packages in `packages.toml`:
 
 ```toml
-[brew]
+[mise]
 packages = [
-    "node",
-    "python@3.11"
+    "node@24",
+    "github:mikefarah/yq@v4.53.6"
 ]
 
 [npm]
