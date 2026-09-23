@@ -4,10 +4,10 @@
 # standard dev toolset is baked INTO the image (internal/templates/Dockerfile)
 # — [apt] system packages + the dev toolchain (awscli, podman, openjdk 25,
 # php 8.4 + composer, ffmpeg, hugo...), vendor-repo gh/nodejs 24,
-# go 1.27 tarball, the mise github: tier (yq, topgrade, git-cliff, zola,
-# tlrc, rtk, mcp-cli-ent, md-over-here), jekyll, litellm, @tobilu/qmd, bun,
-# mise, asdf, and the core agents (claude, codex, agy, pi, opencode at
-# /usr/local/bin).
+# go 1.27 tarball, rust 1.98 via rustup, the mise github: tier (yq,
+# topgrade, git-cliff, zola, tlrc, rtk, mcp-cli-ent, md-over-here),
+# jekyll, litellm, bun, mise, asdf, and the core agents (claude, codex,
+# agy, pi, opencode at /usr/local/bin).
 # Entries BELOW are the OPTIONAL/USER-OVERRIDE layer: everything listed
 # installs at guest init into the home bind and SHADOWS its baked
 # equivalent by PATH. Remove the entry (and the bind copy) to fall back
@@ -20,9 +20,9 @@ packages = []
 
 # mise tools (language runtimes and GitHub-release binaries).
 # Installed as `mise use -g <entry>`; entries use mise syntax: "node@24",
-# "rust@1.90", "github:owner/repo@v1.2.3". Installs land in the home bind
+# "zig@0.14", "github:owner/repo@v1.2.3". Installs land in the home bind
 # (~/.local/share/mise) and shadow baked equivalents by PATH. Kotlin,
-# scala, groovy, gradle, rust are intentionally NOT baked - add them here
+# scala, groovy, gradle are intentionally NOT baked - add them here
 # to fetch on demand:
 [mise]
 packages = []

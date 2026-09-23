@@ -18,7 +18,7 @@ packages = ["htop", "vim"]
 packages = ["github:mikefarah/yq@v4.53.6"]
 
 [bun]
-packages = ["@tobilu/qmd"]
+packages = ["zod"]
 
 [npm]
 packages = ["typescript"]
@@ -50,7 +50,7 @@ mise = false
 	if len(config.Mise.Packages) != 1 || config.Mise.Packages[0] != "github:mikefarah/yq@v4.53.6" {
 		t.Errorf("Mise packages parsing failed")
 	}
-	if len(config.Bun.Packages) != 1 || config.Bun.Packages[0] != "@tobilu/qmd" {
+	if len(config.Bun.Packages) != 1 || config.Bun.Packages[0] != "zod" {
 		t.Errorf("Bun packages parsing failed")
 	}
 	if config.Tools.PhpBrew != true || config.Tools.Vmr != false || config.Tools.Nix != true || config.Tools.Nvm != true {
@@ -195,7 +195,7 @@ func TestGenerateInstallScriptContinuesOnMiseFailures(t *testing.T) {
 			Packages: []string{"github:mikefarah/yq@v4.53.6", "rust@1.90.0"},
 		},
 		Bun: BunConfig{
-			Packages: []string{"@tobilu/qmd"},
+			Packages: []string{"zod"},
 		},
 		Npm: NpmConfig{
 			Packages: []string{"@github/copilot", "cline"},
@@ -215,7 +215,7 @@ func TestGenerateInstallScriptContinuesOnMiseFailures(t *testing.T) {
 	if !strings.Contains(script, "if command -v bun &> /dev/null; then") {
 		t.Error("Script should check for bun before bun installs")
 	}
-	if !strings.Contains(script, "bun install -g @tobilu/qmd || echo") {
+	if !strings.Contains(script, "bun install -g zod || echo") {
 		t.Error("Script should install bun packages individually with failure guards")
 	}
 
