@@ -32,13 +32,14 @@ func (d *DockerBackend) Available(_ context.Context) (bool, error) {
 	return IsRuntimeRunning(d.rt), nil
 }
 
-// EnsureImage delegates to BuildImage, which reports build failure itself
-// (existing behavior; it does not return a status). The msb backend must
-// return a real error here instead.
-// EnsureImage delegates to BuildImage for the construct image.
+// EnsureImage resolves the construct image through the engine-uniform
+// flow in image_resolve.go: local store, published GHCR image, then a
+// user-confirmed local build (never a silent ~15-minute build). The
+// shared helper returns a real error on decline/pull-failure paths;
+// BuildImage reports its own build failure and exits the process
+// (existing behavior).
 func (d *DockerBackend) EnsureImage(cfg *config.Config) error {
-	BuildImage(cfg)
-	return nil
+	return EnsureConstructImage(cfg)
 }
 
 // Exec runs a command in a live container. Exit-code fidelity: docker exec
