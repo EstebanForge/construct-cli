@@ -71,8 +71,10 @@ func msbImageCached(ref string) bool {
 }
 
 // EnsureImage transitions the construct image into msb: probes local msb
-// image first, attempts pulling from ghcr.io/estebanforge/construct-box:latest,
-// and falls back to docker save to a temp archive + msb load.
+// image first, attempts pulling the published image (PrepullImageRef),
+// reuses a local docker/podman image when present, and otherwise builds only
+// after a user confirmation. It then transitions via container-runtime save
+// + msb load.
 func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	if m.imageLoaded() {
 		return nil
@@ -85,18 +87,22 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// down to the bare name); imageLoaded and the run spec resolve cached
 	// refs via constructImageRefCandidates.
 	ui.InfoLn("→ Attempting to pull construct-box image from GHCR...")
-	pull := exec.Command("msb", "pull", "ghcr.io/estebanforge/construct-box:latest")
+	pull := exec.Command("msb", "pull", PrepullImageRef)
 	pull.Stdin = nil
 	if _, err := pull.CombinedOutput(); err == nil {
-		if msbImageCached("ghcr.io/estebanforge/construct-box:latest") {
+		if msbImageCached(PrepullImageRef) {
 			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 			return nil
 		}
 	}
 
-	// Build local image if not present in docker before attempting save
-	if !m.dockerImageExists(cfg) {
-		ui.InfoLn("→ Local construct-box image not found. Building with Docker first (this may take a few minutes)...")
+	// Reuse a local docker/podman image when present; otherwise the local
+	// build only runs after an explicit user confirmation (engine-uniform
+	// acquisition flow, see image_resolve.go).
+	if !LocalConstructImageExists(cfg) {
+		if err := ConfirmConstructImageBuild(); err != nil {
+			return err
+		}
 		BuildImage(cfg)
 	}
 
@@ -112,7 +118,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 		return fmt.Errorf("msb image transition: %w", err)
 	}
 
-	save := exec.Command("docker", "save", "-o", tmp.Name(), "construct-box:latest")
+	save := exec.Command(imageCliBinary(ResolveContainerRuntime(cfg)), "save", "-o", tmp.Name(), "construct-box:latest")
 	if out, err := save.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker save construct-box: %w: %s", err, out)
 	}
@@ -130,14 +136,6 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	}
 	ui.InfoLn("✓ MicroVM image loaded")
 	return nil
-}
-
-func (m *MsbBackend) dockerImageExists(cfg *config.Config) bool {
-	containerRuntime := ResolveContainerRuntime(cfg)
-	checkCmdArgs := GetCheckImageCommand(containerRuntime)
-	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
-	checkCmd.Dir = config.GetContainerDir()
-	return checkCmd.Run() == nil
 }
 
 // imageLoaded probes msb for the construct image under any of its cached

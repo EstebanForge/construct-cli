@@ -291,7 +291,9 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	}
 
 	// 3. Final Build & Run
-	e.ensureImageExists()
+	if err := runtime.EnsureConstructImage(e.cfg); err != nil {
+		return 1, err
+	}
 	return e.runNewContainer(containerName, mergedProviderEnv)
 }
 
@@ -880,17 +882,6 @@ func (e *RuntimeEngine) promptForAttachOrRestart() (string, error) {
 		return "restart", nil
 	default:
 		return "abort", fmt.Errorf("aborted")
-	}
-}
-
-func (e *RuntimeEngine) ensureImageExists() {
-	checkCmdArgs := runtime.GetCheckImageCommand(e.containerRuntime)
-	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
-	checkCmd.Dir = config.GetContainerDir()
-	if err := checkCmd.Run(); err != nil {
-		ui.InfoLn("Construct image not found. Building...")
-		runtime.BuildImage(e.cfg)
-		ui.InfoLn()
 	}
 }
 

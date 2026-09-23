@@ -570,6 +570,16 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	bootReason := ""
 	bootRoots := msbBootMountCount(cfg, projectDir)
 
+	// Provision the image BEFORE the daemon lock: acquisition may now
+	// block on an interactive build-confirmation prompt, and holding the
+	// lock through it would stall every concurrent construct invocation.
+	// Image provisioning never reads or mutates daemon state, so it needs
+	// no serialization.
+	m := NewMsbBackend()
+	if err := m.EnsureImage(cfg); err != nil {
+		return nil, err
+	}
+
 	// Serialize all daemon state mutations across concurrent ct
 	// invocations. The critical section wraps read-state, decide, write-
 	// state, and the recreate/boot itself so two invocations learning
@@ -582,11 +592,6 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		return nil, fmt.Errorf("acquire daemon lock: %w", err)
 	}
 	defer releaseLock()
-
-	m := NewMsbBackend()
-	if err := m.EnsureImage(cfg); err != nil {
-		return nil, err
-	}
 
 	// Regenerate the guest installer from the current packages.toml on
 	// every daemon start: agent runs and first-run do this elsewhere
