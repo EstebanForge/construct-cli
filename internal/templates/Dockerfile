@@ -128,7 +128,7 @@ RUN --mount=type=secret,id=github_token \
     yq_bin="$(find "$yq_dir" -maxdepth 1 -type f -name 'yq_linux_*' -executable | head -1)" && \
     ln -sf "$yq_bin" /usr/local/bin/yq && \
     for t in yq topgrade git-cliff zola tldr rtk mcp-cli-ent md-over-here; do \
-      command -v "$t" >/dev/null 2>&1 || { echo "FATAL: baked tool missing: $t" >&2; exit 1; }; \
+      "$t" --version >/dev/null 2>&1 || { echo "FATAL: baked tool not executable: $t" >&2; exit 1; }; \
     done
 
 # 7. npm tier (NodeSource node; upstream prefix /usr/local)
@@ -137,11 +137,19 @@ RUN npm install -g --prefix /usr/local \
     vite webpack acpx @colbymchenry/codegraph
 
 # 8. PHP tooling: composer ships in the apt tier (uses php8.4-cli); wp-cli
-# and php-cs-fixer via their official phars. One php (8.4) is the baseline;
-# multi-version users go mise (documented in PACKAGES.md).
-RUN curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar -o /usr/local/bin/wp && \
+# and php-cs-fixer via their official phars, pinned to tagged releases and
+# verified against the sha256 recorded at pin time (wp-cli also publishes
+# .sha256 per release; the embedded constant must match it). Baked pins
+# never gate users: a newer phar in ~/.local/bin shadows these by PATH.
+# One php (8.4) is the baseline; multi-version users go mise (documented
+# in PACKAGES.md).
+ARG WP_CLI_VERSION=2.12.0
+ARG PHP_CS_FIXER_VERSION=3.95.27
+RUN curl -fsSL "https://github.com/wp-cli/wp-cli/releases/download/v${WP_CLI_VERSION}/wp-cli-${WP_CLI_VERSION}.phar" -o /usr/local/bin/wp && \
+    echo "ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c  /usr/local/bin/wp" | sha256sum -c - && \
     chmod +x /usr/local/bin/wp && \
-    curl -fsSL https://cs.symfony.com/download/php-cs-fixer-v3.phar -o /usr/local/bin/php-cs-fixer && \
+    curl -fsSL "https://github.com/PHP-CS-Fixer/PHP-CS-Fixer/releases/download/v${PHP_CS_FIXER_VERSION}/php-cs-fixer.phar" -o /usr/local/bin/php-cs-fixer && \
+    echo "47231757eefdd08778e2bd047d98a63dfaad881006c8c1d1bc870d63be7f6a9b  /usr/local/bin/php-cs-fixer" | sha256sum -c - && \
     chmod +x /usr/local/bin/php-cs-fixer && \
     php -v | head -1 && wp --version --allow-root && php-cs-fixer --version
 
@@ -149,23 +157,30 @@ RUN curl -fsSL https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-
 # install script), plus the golangci-lint LSP via go install.
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh && \
     curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.13.2 && \
-    GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/nametake/golangci-lint-langserver@latest && \
+    GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/nametake/golangci-lint-langserver@v0.0.12 && \
     uv --version && golangci-lint --version | head -1
 
 # 10. Bake remaining dev tooling to SYSTEM paths (root-owned).
-# Ruby gems -> apt ruby's site dir; Python tools via pipx -> /usr/local/bin
-# (keeps user pipx overrides in $HOME/.local/bin ahead of it); bun binary ->
+# Ruby gems -> apt ruby's site dir (jekyll version-pinned; users shadow
+# via gem install into the home bind); Python tools via pipx -> /usr/local/bin
+# (litellm version-pinned with the proxy extra — the CLI needs its deps;
+# keeps user pipx overrides in $HOME/.local/bin ahead of it); bun binary ->
 # /usr/local/bun with runtime globals staying in ~/.bun (user tier); asdf
-# binary baked, its data dir initializes in-home at runtime (cheap, no
-# network). mise itself is installed in step 6.
+# baked from the tagged release tarball (asdf's Go rewrite ships a compiled
+# binary — cloning the repo gives source, not a tool). Its data dir
+# initializes in-home at runtime (cheap, no network). mise itself is
+# installed in step 6.
+ARG ASDF_VERSION=0.20.2
 USER root
-RUN gem install jekyll && \
-    PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin pipx install litellm && \
+RUN gem install jekyll -v 4.4.1 && \
+    PIPX_HOME=/usr/local/pipx PIPX_BIN_DIR=/usr/local/bin pipx install "litellm[proxy]==1.102.0" && \
     curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/bun bash && \
     ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun && \
     ln -sf /usr/local/bun/bin/bunx /usr/local/bin/bunx && \
-    git clone --depth 1 https://github.com/asdf-vm/asdf.git /usr/local/asdf && \
-    ln -sf /usr/local/asdf/bin/asdf /usr/local/bin/asdf
+    bun --version && \
+    curl -fsSL "https://github.com/asdf-vm/asdf/releases/download/v${ASDF_VERSION}/asdf-v${ASDF_VERSION}-linux-$(dpkg --print-architecture).tar.gz" -o /tmp/asdf.tgz && \
+    tar -C /usr/local/bin -xzf /tmp/asdf.tgz && rm -f /tmp/asdf.tgz && \
+    asdf --version && litellm --version | head -1 && jekyll --version
 
 # Copy entrypoint scripts (still USER root from step 3b)
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh

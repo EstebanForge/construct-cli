@@ -4,8 +4,10 @@ Status: EXECUTED 2026-09-22 (same-day). The Dockerfile, packages.toml ([mise]
 replaces [brew]), update-all.sh, entrypoint.sh, topgrade config, agent-patch,
 compose PATH, and env.go PathComponents are all migrated; the [mise] user tier
 installs via `mise use -g`. Owner calls resolved: Node via NodeSource 24, Go
-via go.dev tarball 1.27.x, rust/kotlin/scala/groovy/gradle on demand via mise,
+via go.dev tarball 1.27.x, kotlin/scala/groovy/gradle on demand via mise,
 niceties kept where apt provides them, fastmod dropped (no release assets).
+Post-execution deltas: rust moved from mise-on-demand to baked rustup 1.98
+(commit dcc0aa6); dart and qmd later removed from the baseline (owner trims).
 Restore-table recipes in PACKAGES.md now use apt/mise. This document is kept
 as the analysis record; the execution deltas live in the git history.
 
