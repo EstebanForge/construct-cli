@@ -2,6 +2,35 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.0 -->
+## [1.17.0] - 2026-09-23
+
+### Changed
+
+- **The baked image exits Homebrew (image is 24.6 GB → 7.7 GiB, −69%)**: `construct-box` is rebuilt on Debian apt plus three vendor repos (gh, dart, nodejs 24) and mise for pinned GitHub-release tools (yq, topgrade, git-cliff, zola, tlrc, rtk, mcp-cli-ent, md-over-here). Go ships via the go.dev tarball (1.27.1), PHP collapses to apt php8.4 + composer, and rust 1.98 is baked via rustup. **Migration:** the user-installable tier key in `config.toml` changed from `[brew] packages = [...]` to `[mise] packages = [...]` with mise syntax (`node@24`, `github:owner/repo@v1.2.3`). An old `[brew]` block is ignored on upgrade: move your entries to `[mise]` or your user tools stop installing. User mise installs live in the home bind, so they survive sandbox recreations and shadow the baked tier by PATH.
+- **msb SDK pinned at 0.7.2**: upgrade the host `msb` CLI to 0.7.x in the same window as this construct upgrade (schema migrations are one-way; `construct sys doctor` compares the host binary against the pin). Guest sys-exec workdirs now map onto the daemon mount layout.
+- **Baked tooling is pinned**: wp-cli 2.12.0 and php-cs-fixer 3.95.27 phars ship with embedded sha256 verification (user-tier installs shadow them by PATH, so pins never gate updates), asdf installs from its tagged release tarball, litellm installs as `litellm[proxy]` (the plain pipx install had a broken CLI), and golangci-lint-langserver pins v0.0.12.
+
+### Added
+
+- **Engine-uniform image acquisition**: every backend resolves the construct image the same way: local store first, then the published GHCR image, then a build that asks for explicit confirmation (~15 min) instead of starting silently. Non-interactive sessions fail closed with instructions. `CONSTRUCT_SKIP_IMAGE_BUILD=1` still declares an externally provisioned image.
+- **Published GHCR image**: `ghcr.io/estebanforge/construct-box:latest` is real now, multi-arch (amd64 + arm64), with every baked tool executed and version-asserted in-build on both platforms. Previously the only published image was a stale placeholder.
+- **Idle-window package updater**: with the daemon idle and `[daemon] auto_update_packages = true` (default), `topgrade` refreshes the user layer inside the sandbox, standing down the moment a session appears. The baked baseline never updates in-guest.
+- **Doctor bake-migration checks**: stale packages volume, stale baked-agent bind copies, image freshness, and msb SDK skew, with `--fix`, `--json`, and local wide-event telemetry.
+- **acpx and codegraph agent CLIs baked**: sandbox agents can drive peer agent CLIs headlessly and codegraph ships in-image for the codegraph-enhanced workflow.
+
+### Removed
+
+- **From the baked image** (each restores via one config entry, recipes in `docs/PACKAGES.md`): swift, zig, the erlang/elixir/gleam cluster, dart, llvm, qmd, and the web-build-runner npm tier. All are user-installable on demand.
+
+### Fixed
+
+- **CI image builds could never run**: the workflow never forwarded the github_token build secret while the Dockerfile consumed it unconditionally. Both sides fixed; the mise github: tier needs the token for attestation-verified installs.
+- **asdf was silently broken in the image** since its v0.16 Go rewrite: the repo-clone install produced a dangling symlink. The tagged tarball install plus per-layer execute-verification now makes that class of breakage a loud build failure.
+- `construct sys help` lists the roots and prepull commands again.
+
+<!-- RELEASE:END 1.17.0 -->
+
 <!-- RELEASE:START 1.16.4 -->
 ## [1.16.4] - 2026-08-27
 
