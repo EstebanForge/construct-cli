@@ -79,12 +79,17 @@ if [ "$(id -u)" = "0" ]; then
         done
     fi
 
-    # Patch /etc/profile to preserve PATH
+    # Patch /etc/profile to preserve PATH. The sed pattern matches trixie's
+    # literal root-PATH block; if upstream rewords it, the sed silently
+    # no-ops — so detect that shape and warn loudly instead.
     if ! grep -q "# Construct: PATH management disabled" /etc/profile 2>/dev/null; then
         sed -i '/^if \[ "$(id -u)" -eq 0 \]; then$/,/^export PATH$/ {
             i# Construct: PATH management disabled - PATH is set by docker-compose.yml and entrypoint.sh
             s/^/# /
         }' /etc/profile 2>/dev/null || true
+        if grep -qF 'if [ "$(id -u)" -eq 0 ]; then' /etc/profile 2>/dev/null; then
+            echo "construct: WARNING: /etc/profile root-PATH block still unpatched (upstream wording drift?)" >&2
+        fi
     fi
 
     # Grant socat the file cap to bind privileged ports (<1024) as the non-root

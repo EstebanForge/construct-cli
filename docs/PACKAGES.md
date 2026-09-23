@@ -32,8 +32,9 @@ neovim, and the full CLI set), vendor-repo tools (`gh`, `nodejs` 24), Go
 from the official tarball, rust via the official rustup (pinned stable,
 minimal profile + rustfmt/clippy), the mise github: tier (`yq`, `topgrade`,
 `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`), the npm tier
-(`typescript`, `prettier`, `@ast-grep/cli`, `vite`, `webpack`, and the agent
-CLIs `acpx` and `codegraph`), jekyll, litellm, bun,
+(`typescript`, `prettier`, `@ast-grep/cli`, `yarn`, `pnpm`, `gulp-cli`,
+`tailwindcss`, `vite`, `webpack`, and the agent CLIs `acpx` and `codegraph`),
+jekyll, litellm, bun,
 mise, asdf, and the five core agents — `claude`, `codex`, `agy`, `pi`, `opencode`
 at `/usr/local/bin`. The baseline updates with image updates, not per-sandbox
 installs. See docs/BREW-EXIT.md for the full package-channel mapping.
@@ -80,6 +81,7 @@ away — add them to your `packages.toml` user layer:
 | `swift` | 2026-09-22 image trim | ~2.2 GB toolchain; rarely used, heavy | swift.org tarball or the swiftly installer, via `[tools]` |
 | `zig` | 2026-09-22 image trim | ~2.6 GB with its llvm dependency | `[mise] packages = ["zig"]` |
 | `erlang`, `elixir`, `gleam` | 2026-09-22 image trim | ~3.5 GB with the graphics/llvm chain they pulled | `[apt] packages = ["erlang", "elixir"]`; gleam via `[mise]` |
+| `qmd` | 2026-09-22 size trim | ~950 MB semantic-search backend; largest non-agent tree | `[bun] packages = ["@tobilu/qmd"]` (the qmd GGUF cache mount keeps working for user installs) |
 | `fastmod` | 2026-09-22 brew exit | no release assets to fetch | `cargo install fastmod` |
 | `dart` | 2026-09-22 size trim | ~640 MB, heaviest apt package; nothing in the image depends on it | Google's signed apt repo per dart.dev/get-dart: `curl -fsSL https://dl-ssl.google.com/linux/linux_signing_key.pub \| gpg --dearmor -o /usr/share/keyrings/dart.gpg && echo "deb [signed-by=/usr/share/keyrings/dart.gpg] https://storage.googleapis.com/download.dartlang.org/linux/debian stable main" \| tee /etc/apt/sources.list.d/dart.list && sudo apt-get update && sudo apt-get install -y dart` |
 | `kotlin`, `scala`, `groovy`, `gradle` | 2026-09-22 brew exit | language runtimes moved on-demand | `[mise] packages = ["kotlin", "scala", ...]` |
