@@ -85,6 +85,23 @@ RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architect
     tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz && \
     /usr/local/go/bin/go version
 
+# 5b. Rust via the official rustup, pinned stable; minimal profile (no
+# docs) plus rustfmt and clippy. The real toolchain binaries are
+# symlinked into /usr/local/bin (same pattern as the mise tier) so no
+# RUSTUP_HOME/CARGO_HOME env leaks into runtime — a user rustup keeps
+# working under $HOME/.rustup and its ~/.cargo/bin shadows the baked
+# tier by PATH. Globs make the layer arch-agnostic (x86_64/aarch64).
+ARG RUST_VERSION=1.98.1
+RUN curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh && \
+    RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo \
+      sh /tmp/rustup.sh -y --profile minimal --default-toolchain "${RUST_VERSION}" -c rustfmt -c clippy --no-modify-path && \
+    rm -f /tmp/rustup.sh && \
+    ln -sf /usr/local/rustup/toolchains/*/bin/* /usr/local/bin/ && \
+    for t in rustc cargo rustfmt cargo-clippy; do \
+      command -v "$t" >/dev/null 2>&1 || { echo "FATAL: rust tool missing: $t" >&2; exit 1; }; \
+    done && \
+    rustc --version | grep -q "${RUST_VERSION}" || { echo "FATAL: rustc version mismatch: $(rustc --version)" >&2; exit 1; }
+
 # 6. mise: the manager binary, then the baked GitHub-release tool tier.
 # The system config pins exact versions; mise verifies GitHub Artifact
 # Attestations by default where a release publishes them. Installs land in
@@ -147,8 +164,6 @@ RUN gem install jekyll && \
     curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local/bun bash && \
     ln -sf /usr/local/bun/bin/bun /usr/local/bin/bun && \
     ln -sf /usr/local/bun/bin/bunx /usr/local/bin/bunx && \
-    BUN_INSTALL=/usr/local/bun /usr/local/bin/bun add -g @tobilu/qmd && \
-    ln -sf /usr/local/bun/bin/qmd /usr/local/bin/qmd && \
     git clone --depth 1 https://github.com/asdf-vm/asdf.git /usr/local/asdf && \
     ln -sf /usr/local/asdf/bin/asdf /usr/local/bin/asdf
 

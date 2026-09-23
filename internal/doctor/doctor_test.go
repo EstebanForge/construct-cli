@@ -64,7 +64,7 @@ asdf = true
 packages = ["vim"]
 
 [bun]
-packages = ["@tobilu/qmd"]
+packages = ["zod"]
 
 [tools]
 asdf = true
@@ -99,7 +99,7 @@ mise = false
 
 	templatePackages := []byte(`
 [bun]
-packages = ["@tobilu/qmd"]
+packages = ["zod"]
 
 [tools]
 asdf = true
@@ -111,7 +111,7 @@ mise = true
 		t.Fatalf("findMissingPackagesTemplatePaths returned error: %v", err)
 	}
 
-	want := []string{"bun.packages[] missing @tobilu/qmd"}
+	want := []string{"bun.packages[] missing zod"}
 	if !slices.Equal(missing, want) {
 		t.Fatalf("unexpected missing paths: got %v want %v", missing, want)
 	}
@@ -122,7 +122,7 @@ func TestFindMissingPackagesTemplatePathsIgnoresUserExtrasAndValueChanges(t *tes
 	packagesPath := filepath.Join(tmpDir, "packages.toml")
 	userPackages := `
 [bun]
-packages = ["@tobilu/qmd", "@acme/custom-tool"]
+packages = ["zod", "@acme/custom-tool"]
 
 [tools]
 asdf = false
@@ -134,7 +134,7 @@ mise = false
 
 	templatePackages := []byte(`
 [bun]
-packages = ["@tobilu/qmd"]
+packages = ["zod"]
 
 [tools]
 asdf = true
