@@ -943,7 +943,7 @@ func msbBackendCheck() CheckResult {
 	if _, err := exec.LookPath("msb"); err != nil {
 		check.Status = CheckStatusError
 		check.Message = "msb binary not found"
-		check.Suggestion = "Install microsandbox: curl -fsSL https://msb.sh | sh"
+		check.Suggestion = "Install microsandbox: curl -fsSL https://install.microsandbox.dev | sh"
 		return check
 	}
 	check.Status = CheckStatusOK
