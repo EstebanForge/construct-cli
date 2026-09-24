@@ -49,7 +49,7 @@ func acquireUpdateLock() (*os.File, error) {
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close() //nolint:errcheck // best-effort close on lock failure
-		return nil, fmt.Errorf("another update pass is running: %w", err)
+		return nil, fmt.Errorf("another update pass is running: %w (lock: %s; holder is likely the idle-window updater or a concurrent 'construct sys update'; see update.log next to this lock; passes are bounded to 30 minutes)", err, p)
 	}
 	return f, nil
 }
