@@ -14,6 +14,32 @@ import (
 
 // UpdateAgents runs the update-all script inside the container.
 func UpdateAgents(cfg *config.Config) {
+	// Microvm backend: run the update pass inside the daemon sandbox
+	// (update-all.sh via msb exec). The compose-based path below is
+	// docker/podman-only.
+	if cfg == nil {
+		loaded, _, loadErr := config.Load()
+		if loadErr != nil {
+			ui.LogError(loadErr)
+			os.Exit(1)
+		}
+		cfg = loaded
+	}
+	if cfg.Runtime.Backend == "microvm" {
+		if err := runtime.RunForegroundUpdate(cfg); err != nil {
+			ui.LogError(&cerrors.ConstructError{
+				Category:   cerrors.ErrorCategoryRuntime,
+				Operation:  "update guest packages",
+				Runtime:    "microvm",
+				Err:        err,
+				Suggestion: "Run 'construct doctor' to diagnose",
+			})
+			os.Exit(1)
+		}
+		ui.GumSuccess("All agents updated successfully!")
+		return
+	}
+
 	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 	configPath := config.GetConfigDir()
 

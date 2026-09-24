@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -143,7 +144,7 @@ func IdleWindowUpdate(cfg *config.Config) error {
 	}
 	seconds := int(time.Since(start).Seconds())
 	logLine("update %s (duration=%ds)", outcome, seconds)
-	updateTelemetry(cfg, outcome, seconds)
+	updateTelemetry(cfg, outcome, seconds, "idle")
 
 	if standDown {
 		return ErrUpdateStoodDown
@@ -151,9 +152,89 @@ func IdleWindowUpdate(cfg *config.Config) error {
 	return res.err
 }
 
+// RunForegroundUpdate is the manual `construct sys update` path for the
+// microvm backend: it brings the daemon sandbox up if needed and runs
+// update-all.sh with output streamed to the terminal (teeed into
+// update.log, same as the idle-window pass). Unlike the idle path there is
+// no stand-down and no zero-session precondition: the user asked for the
+// update, and additive installs coexist with live sessions. The
+// update.lock guard is shared with the idle watcher; contention surfaces
+// as an error instead of a silent skip.
+func RunForegroundUpdate(cfg *config.Config) error {
+	start := time.Now()
+
+	lockF, err := acquireUpdateLock()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = syscall.Flock(int(lockF.Fd()), syscall.LOCK_UN) //nolint:errcheck // best-effort unlock
+		_ = lockF.Close()                                   //nolint:errcheck // best-effort close
+	}()
+
+	logDir := config.GetLogsDir()
+	if logDir == "" {
+		logDir = filepath.Join(config.GetConfigDir(), "logs")
+	}
+	if err := os.MkdirAll(logDir, 0o700); err != nil {
+		return fmt.Errorf("update log dir: %w", err)
+	}
+	lf, err := os.OpenFile(filepath.Join(logDir, "update.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open update log: %w", err)
+	}
+	defer lf.Close() //nolint:errcheck // best-effort log close
+	logLine := func(format string, args ...interface{}) {
+		ts := time.Now().UTC().Format(time.RFC3339)
+		//nolint:errcheck // best-effort log line
+		fmt.Fprintf(lf, "%s %s\n", ts, fmt.Sprintf(format, args...))
+	}
+
+	// projectDir is deliberately empty: the update pass is workspace-
+	// independent (it only execs update-all.sh in the guest), so neither
+	// the multi-path unmapped-cwd rejection nor single-path root learning
+	// (which can consent-and-recreate a running daemon) may trigger.
+	ctx, cancel := context.WithTimeout(context.Background(), updatePassTimeout)
+	defer cancel()
+	sb, err := EnsureMsbDaemon(ctx, cfg, "")
+	if err != nil {
+		return fmt.Errorf("prepare microvm sandbox: %w", err)
+	}
+	// ExecStream opens its own connection; release this one.
+	_ = sb.Detach(context.Background()) //nolint:errcheck // best-effort detach
+
+	fmt.Println("Updating agents and packages inside the microVM sandbox...")
+	logLine("manual update started")
+
+	m := NewMsbBackend()
+	code, execErr := m.ExecStream(ctx, ExecOptions{
+		Name:    msbDaemonName,
+		Command: []string{"bash", "/home/construct/.config/construct-cli/container/update-all.sh"},
+		Stdout:  io.MultiWriter(os.Stdout, lf),
+		Stderr:  io.MultiWriter(os.Stderr, lf),
+	})
+
+	outcome := "ok"
+	if execErr != nil || code != 0 {
+		outcome = "failed"
+	}
+	seconds := int(time.Since(start).Seconds())
+	logLine("update %s (duration=%ds, source=manual)", outcome, seconds)
+	updateTelemetry(cfg, outcome, seconds, "manual")
+
+	fmt.Printf("Update log: %s\n", filepath.Join(logDir, "update.log"))
+	if execErr != nil {
+		return execErr
+	}
+	if code != 0 {
+		return fmt.Errorf("update script exited %d (see update.log)", code)
+	}
+	return nil
+}
+
 // updateTelemetry appends one canonical update event to
 // logs/update-telemetry.jsonl (best-effort; respects [runtime].telemetry).
-func updateTelemetry(cfg *config.Config, outcome string, seconds int) {
+func updateTelemetry(cfg *config.Config, outcome string, seconds int, source string) {
 	if cfg != nil && !cfg.Runtime.Telemetry {
 		return
 	}
@@ -166,6 +247,7 @@ func updateTelemetry(cfg *config.Config, outcome string, seconds int) {
 		"event":    "update",
 		"outcome":  outcome,
 		"duration": seconds,
+		"source":   source,
 	}
 	data, err := json.Marshal(ev)
 	if err != nil {
