@@ -757,6 +757,12 @@ func Run(args ...string) {
 	// the SDK pin exactly (schema migrations are one-way).
 	checks = append(checks, checkSdkSkew(msbBackend))
 
+	// 11f. msb libkrunfw Resolution (microvm only): msb 0.7.2 resolves the
+	// lib via ../lib of the UN-RESOLVED invocation path, so the official
+	// installer's symlinked msb breaks resolution despite a correct
+	// MSB_HOME/lib. --fix links the lib into the searched location.
+	checks = append(checks, checkMsbLibkrunfwResolution(msbBackend, fixRequested))
+
 	// 12. Image Check
 	imageCheck := CheckResult{Name: "Construct Image"}
 	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
@@ -1245,6 +1251,115 @@ func lastVersionToken(output string) string {
 	re := regexp.MustCompile(`\d+\.\d+\.\d+`)
 	match := re.FindString(output)
 	return match
+}
+
+// msbLibkrunfwState describes the probe outcome for the upstream msb
+// resolution bug: msb (verified 0.7.2, macOS 2026-09-23) resolves
+// libkrunfw via ../lib of the UN-RESOLVED invocation path, so the official
+// installer's symlinked binary (~/.local/bin/msb -> ~/.microsandbox/bin/msb)
+// finds nothing even though MSB_HOME/lib is correctly populated.
+type msbLibkrunfwState struct {
+	Issue     bool   // defect present and repairable via a symlink
+	Manual    bool   // repair blocked; the target exists and is not ours to touch
+	TargetDir string // ../lib of the msb invocation path
+	LibDir    string // populated MSB_HOME/lib
+	Reason    string // human detail when Manual
+}
+
+// msbLibkrunfwProbe classifies the install layout. Absent MSB_HOME lib or a
+// non-symlinked binary are healthy-or-other-problem shapes this check must
+// not touch; only the symlinked-invocation + populated-lib + unresolvable
+// combination is the known defect.
+func msbLibkrunfwProbe(msbPath, msbHome string) msbLibkrunfwState {
+	var st msbLibkrunfwState
+	libDir := filepath.Join(msbHome, "lib")
+	libHits, libErr := filepath.Glob(filepath.Join(libDir, "libkrunfw*"))
+	if libErr != nil || len(libHits) == 0 {
+		return st // unreadable or empty: a different problem, relayed by msb doctor
+	}
+	info, err := os.Lstat(msbPath)
+	if err != nil || info.Mode()&os.ModeSymlink == 0 {
+		return st // real binary: native beside/../lib resolution applies
+	}
+	st.TargetDir = filepath.Clean(filepath.Join(filepath.Dir(msbPath), "..", "lib"))
+	st.LibDir = libDir
+	targetHits, targetErr := filepath.Glob(filepath.Join(st.TargetDir, "libkrunfw*"))
+	if targetErr == nil && len(targetHits) > 0 {
+		return st // already resolvable from the invocation path
+	}
+	st.Issue = true
+	if fi, err := os.Lstat(st.TargetDir); err == nil {
+		st.Manual = true
+		if fi.Mode()&os.ModeSymlink != 0 {
+			st.Reason = fmt.Sprintf("%s is a symlink; retarget it to %s manually", st.TargetDir, st.LibDir)
+		} else {
+			st.Reason = fmt.Sprintf("%s is a real directory; link or copy libkrunfw into it manually", st.TargetDir)
+		}
+	}
+	return st
+}
+
+// checkMsbLibkrunfwResolution detects the upstream resolution bug and, with
+// --fix, links MSB_HOME/lib into the location msb actually searches.
+func checkMsbLibkrunfwResolution(msbBackend, fix bool) CheckResult {
+	check := CheckResult{Name: "msb libkrunfw Resolution"}
+	if !msbBackend {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend is not microvm)"
+		return check
+	}
+	msbPath, err := exec.LookPath("msb")
+	if err != nil {
+		check.Status = CheckStatusSkipped
+		check.Message = "msb binary not found"
+		return check
+	}
+	msbHome := os.Getenv("MSB_HOME")
+	if msbHome == "" {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			check.Status = CheckStatusSkipped
+			check.Message = "Could not resolve home directory"
+			return check
+		}
+		msbHome = filepath.Join(home, ".microsandbox")
+	}
+	return msbLibkrunfwRepair(fix, msbPath, msbHome)
+}
+
+// msbLibkrunfwRepair applies the symlink workaround for a probed defect;
+// split from the check so tests can drive it with fixture layouts.
+func msbLibkrunfwRepair(fix bool, msbPath, msbHome string) CheckResult {
+	check := CheckResult{Name: "msb libkrunfw Resolution"}
+	st := msbLibkrunfwProbe(msbPath, msbHome)
+	if !st.Issue {
+		check.Status = CheckStatusOK
+		check.Message = "libkrunfw resolves from the msb binary location"
+		return check
+	}
+	check.Details = append(check.Details,
+		fmt.Sprintf("msb resolves libkrunfw via %s but the lib lives in %s", st.TargetDir, st.LibDir))
+	if !fix {
+		check.Status = CheckStatusWarning
+		check.Message = "msb cannot resolve libkrunfw (install layout is correct; resolution is not)"
+		check.Suggestion = "Run 'construct sys doctor --fix' to link the lib into place"
+		return check
+	}
+	if st.Manual {
+		check.Status = CheckStatusWarning
+		check.Message = "libkrunfw resolution needs a manual step"
+		check.Suggestion = st.Reason
+		return check
+	}
+	if err := os.Symlink(st.LibDir, st.TargetDir); err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Could not create the lib symlink"
+		check.Suggestion = fmt.Sprintf("ln -s %s %s", st.LibDir, st.TargetDir)
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Linked %s -> %s", st.TargetDir, st.LibDir)
+	return check
 }
 
 // isStalePackagesVolumeName matches the compose-named volume and its

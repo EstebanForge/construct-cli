@@ -1396,3 +1396,136 @@ func TestIsStalePackagesVolumeName(t *testing.T) {
 		}
 	}
 }
+
+// fixture for the libkrunfw resolution tests: a symlinked msb pointing at
+// a real binary elsewhere, mirroring the official installer layout.
+func msbLibkrunfwFixture(t *testing.T) (msbPath, msbHome string) {
+	t.Helper()
+	root := t.TempDir()
+	binDir := filepath.Join(root, "local", "bin")
+	msbHome = filepath.Join(root, "msbhome")
+	for _, dir := range []string{binDir, filepath.Join(msbHome, "bin"), filepath.Join(msbHome, "lib")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	realBin := filepath.Join(msbHome, "bin", "msb.real")
+	if err := os.WriteFile(realBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	msbPath = filepath.Join(binDir, "msb")
+	if err := os.Symlink(realBin, msbPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(msbHome, "lib", "libkrunfw.5.dylib"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return msbPath, msbHome
+}
+
+func TestMsbLibkrunfwProbeDetectsDefect(t *testing.T) {
+	msbPath, msbHome := msbLibkrunfwFixture(t)
+	st := msbLibkrunfwProbe(msbPath, msbHome)
+	if !st.Issue || st.Manual {
+		t.Fatalf("Issue = %v, Manual = %v, want Issue true Manual false", st.Issue, st.Manual)
+	}
+	wantTarget := filepath.Clean(filepath.Join(filepath.Dir(msbPath), "..", "lib"))
+	if st.TargetDir != wantTarget {
+		t.Errorf("TargetDir = %q, want %q", st.TargetDir, wantTarget)
+	}
+}
+
+func TestMsbLibkrunfwProbeHealthyShapes(t *testing.T) {
+	msbPath, msbHome := msbLibkrunfwFixture(t)
+
+	// already resolvable: ../lib beside the invocation path carries the lib
+	targetDir := filepath.Clean(filepath.Join(filepath.Dir(msbPath), "..", "lib"))
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "libkrunfw.5.so"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st := msbLibkrunfwProbe(msbPath, msbHome); st.Issue {
+		t.Errorf("Issue = true with populated ../lib, want false")
+	}
+	if err := os.RemoveAll(targetDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// genuinely absent lib: not this bug
+	homeLib := filepath.Join(msbHome, "lib")
+	if err := os.RemoveAll(homeLib); err != nil {
+		t.Fatal(err)
+	}
+	if st := msbLibkrunfwProbe(msbPath, msbHome); st.Issue {
+		t.Errorf("Issue = true with empty MSB_HOME lib, want false")
+	}
+
+	// real (non-symlink) binary: native resolution applies
+	msbHome2 := t.TempDir()
+	for _, dir := range []string{filepath.Join(msbHome2, "lib"), filepath.Join(msbHome2, "bin")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	realMsb := filepath.Join(msbHome2, "bin", "msb")
+	if err := os.WriteFile(realMsb, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(msbHome2, "lib", "libkrunfw.5.dylib"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if st := msbLibkrunfwProbe(realMsb, msbHome2); st.Issue {
+		t.Errorf("Issue = true for a real binary, want false")
+	}
+}
+
+func TestMsbLibkrunfwRepairLinksLib(t *testing.T) {
+	msbPath, msbHome := msbLibkrunfwFixture(t)
+	res := msbLibkrunfwRepair(true, msbPath, msbHome)
+	if res.Status != CheckStatusOK {
+		t.Fatalf("status = %v, want OK (%s)", res.Status, res.Message)
+	}
+	targetDir := filepath.Clean(filepath.Join(filepath.Dir(msbPath), "..", "lib"))
+	info, err := os.Lstat(targetDir)
+	if err != nil {
+		t.Fatalf("target dir not created: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("target dir is not a symlink")
+	}
+	if resolved, err := filepath.EvalSymlinks(targetDir); err != nil || resolved != filepath.Join(msbHome, "lib") {
+		t.Errorf("symlink resolves to %q (err %v), want %q", resolved, err, filepath.Join(msbHome, "lib"))
+	}
+	// re-running the check on the repaired layout reports healthy
+	if res := msbLibkrunfwRepair(false, msbPath, msbHome); res.Status != CheckStatusOK {
+		t.Errorf("post-fix status = %v (%s), want OK", res.Status, res.Message)
+	}
+}
+
+func TestMsbLibkrunfwRepairManualAndWarn(t *testing.T) {
+	msbPath, msbHome := msbLibkrunfwFixture(t)
+
+	// existing real dir at the target: blocked, never mutated
+	targetDir := filepath.Clean(filepath.Join(filepath.Dir(msbPath), "..", "lib"))
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res := msbLibkrunfwRepair(true, msbPath, msbHome)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "manually") {
+		t.Errorf("status = %v, suggestion = %q, want warning with manual suggestion", res.Status, res.Suggestion)
+	}
+	if entries, err := os.ReadDir(targetDir); err != nil || len(entries) != 0 {
+		t.Errorf("target dir was mutated: entries=%d err=%v", len(entries), err)
+	}
+	if err := os.Remove(targetDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// detection without --fix: warning pointing at doctor --fix
+	res = msbLibkrunfwRepair(false, msbPath, msbHome)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
+		t.Errorf("status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	}
+}
