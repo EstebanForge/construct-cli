@@ -23,10 +23,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
 // updatePassTimeout bounds the whole update pass.
@@ -52,6 +54,48 @@ func acquireUpdateLock() (*os.File, error) {
 		return nil, fmt.Errorf("another update pass is running: %w (lock: %s; holder is likely the idle-window updater or a concurrent 'construct sys update'; see update.log next to this lock; passes are bounded to 30 minutes)", err, p)
 	}
 	return f, nil
+}
+
+// updateAbandonGrace extends updatePassTimeout into the hard process
+// bound below. The exec-level ctx normally ends the pass, but the SDK's
+// post-cancel drain (h.Kill + Recv on a background ctx) has been
+// observed to hang indefinitely, wedging the whole process while it
+// still holds update.lock and burning CPU inside the FFI library. The
+// watchdog below is the only bound that survives that state.
+const updateAbandonGrace = 2 * time.Minute
+
+// updateAbandonExit is the termination seam; a var so tests can observe
+// the fire path without killing the test process.
+var updateAbandonExit = os.Exit
+
+// armUpdateAbandonWatchdog bounds one update pass at the process level.
+// If the pass is still running after bound (exec stuck in a blocking FFI
+// call, drain never returning), the watchdog logs "update abandoned",
+// records telemetry, prints a stderr notice, and exits the process:
+// flock release happens at process death and the orphaned goroutines die
+// with it. Go timers run on runtime threads, which stay schedulable even
+// when user goroutines are parked in cgo. The caller must defer the
+// returned disarm on every normal return path.
+func armUpdateAbandonWatchdog(cfg *config.Config, source string, started time.Time, lf *os.File, bound time.Duration) (disarm func()) {
+	var ended atomic.Bool
+	t := time.AfterFunc(bound, func() {
+		if ended.Load() {
+			return
+		}
+		seconds := int(time.Since(started).Seconds())
+		if lf != nil {
+			//nolint:errcheck // best-effort log line during teardown
+			fmt.Fprintf(lf, "%s update abandoned: pass exceeded the %s hard bound; exiting to release update.lock (duration=%ds)\n",
+				time.Now().UTC().Format(time.RFC3339), bound, seconds)
+		}
+		updateTelemetry(cfg, "abandoned", seconds, source)
+		ui.InfoF("⛔ update abandoned: the pass did not return within %s; releasing update.lock by exiting.\n", bound)
+		updateAbandonExit(1)
+	})
+	return func() {
+		ended.Store(true)
+		t.Stop()
+	}
 }
 
 // IdleWindowUpdate runs update-all.sh inside the daemon sandbox. It is
@@ -88,6 +132,8 @@ func IdleWindowUpdate(cfg *config.Config) error {
 		_ = syscall.Flock(int(lockF.Fd()), syscall.LOCK_UN) //nolint:errcheck // best-effort unlock
 		_ = lockF.Close()                                   //nolint:errcheck // best-effort close
 	}()
+	disarm := armUpdateAbandonWatchdog(cfg, "idle", start, lf, updatePassTimeout+updateAbandonGrace)
+	defer disarm()
 
 	// Zero-session precondition (the caller also checked; re-verify).
 	if LiveSessionCount() > 0 {
@@ -189,6 +235,8 @@ func RunForegroundUpdate(cfg *config.Config) error {
 		//nolint:errcheck // best-effort log line
 		fmt.Fprintf(lf, "%s %s\n", ts, fmt.Sprintf(format, args...))
 	}
+	disarm := armUpdateAbandonWatchdog(cfg, "manual", start, lf, updatePassTimeout+updateAbandonGrace)
+	defer disarm()
 
 	// projectDir is deliberately empty: the update pass is workspace-
 	// independent (it only execs update-all.sh in the guest), so neither
