@@ -670,9 +670,16 @@ func Run(args ...string) {
 	}
 	checks = append(checks, setupCheck)
 
-	// 8. Update Log Check
+	// 8. Update Log Check. The microvm updater (backend_msb_update.go)
+	// appends to the fixed logs/update.log; the compose era wrote dated
+	// update_*.log files. Prefer the fixed log when it exists.
 	updateCheck := CheckResult{Name: "Update Log"}
 	updateLogPath, err := latestLogFile(logDir, "update_*.log")
+	fixedUpdateLog := filepath.Join(logDir, "update.log")
+	if _, ferr := os.Stat(fixedUpdateLog); ferr == nil {
+		updateLogPath = fixedUpdateLog
+		err = nil
+	}
 	if err != nil || updateLogPath == "" {
 		updateCheck.Status = CheckStatusSkipped
 		updateCheck.Message = "No update log found"
@@ -763,17 +770,25 @@ func Run(args ...string) {
 	// MSB_HOME/lib. --fix links the lib into the searched location.
 	checks = append(checks, checkMsbLibkrunfwResolution(msbBackend, fixRequested))
 
-	// 12. Image Check
+	// 12. Image Check. On the microvm backend the image lives in the msb
+	// store, not docker; probing it here always fails and reports a false
+	// "Image missing". The VM Backend and Baked Image Freshness checks
+	// already cover msb image presence natively.
 	imageCheck := CheckResult{Name: "Construct Image"}
-	checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
-	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
-	if err := checkCmd.Run(); err == nil {
-		imageCheck.Status = CheckStatusOK
-		imageCheck.Message = "Image exists (construct-box:latest)"
+	if msbBackend {
+		imageCheck.Status = CheckStatusSkipped
+		imageCheck.Message = "Not applicable (runtime backend = microvm); see VM Backend and Baked Image Freshness"
 	} else {
-		imageCheck.Status = CheckStatusWarning
-		imageCheck.Message = "Image missing"
-		imageCheck.Suggestion = "Run 'construct sys init' or run any agent to build"
+		checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
+		checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
+		if err := checkCmd.Run(); err == nil {
+			imageCheck.Status = CheckStatusOK
+			imageCheck.Message = "Image exists (construct-box:latest)"
+		} else {
+			imageCheck.Status = CheckStatusWarning
+			imageCheck.Message = "Image missing"
+			imageCheck.Suggestion = "Run 'construct sys init' or run any agent to build"
+		}
 	}
 	checks = append(checks, imageCheck)
 
