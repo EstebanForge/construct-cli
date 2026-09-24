@@ -2,6 +2,23 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.1 -->
+## [1.17.1] - 2026-09-23
+
+### Added
+
+- **`construct sys update` works on the microvm backend**: the command previously rejected the microsandbox backend outright, leaving the idle-window updater as the only update path. It now runs the same update script inside the daemon sandbox with live output (also logged to `logs/update.log`), boots the sandbox if needed, and shares the update lock with the idle watcher. Safe to run from any directory: workspace mounts are not touched.
+- **Doctor detects and repairs the msb libkrunfw resolution bug**: msb 0.7.x resolves `libkrunfw` relative to the invoked path and never follows the `~/.local/bin/msb` symlink, so a correct install reports "runtime could not be resolved". `construct sys doctor` now recognizes the exact defect shape and `--fix` creates the `../lib` symlink repair automatically.
+- **`construct sys daemon install` offers to start the unit now** (Linux/systemd): after install, a terminal prompt starts the unit through `systemctl` so it enters systemd supervision. Non-interactive runs and declines fall back to the printed manual command. macOS launchd keeps the print-only behavior because `RunAtLoad` already starts the service at load.
+- **mise is a documented install method** for the construct CLI (`mise use -g github:EstebanForge/construct-cli`), alongside the curl script and the Homebrew tap.
+
+### Fixed
+
+- The documented microsandbox installer URL is dead (`msb.sh` hangs everywhere); docs, doctor suggestions, and error messages now point at `https://install.microsandbox.dev`.
+- Docs synced with the baked-image reality (architecture, clipboard wrapper mechanics, packages configuration, VM size history).
+
+<!-- RELEASE:END 1.17.1 -->
+
 <!-- RELEASE:START 1.17.0 -->
 ## [1.17.0] - 2026-09-23
 
