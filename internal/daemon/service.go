@@ -139,6 +139,31 @@ func installLaunchd() {
 	fmt.Println("To remove: construct sys daemon uninstall")
 }
 
+// promptStartNowSystemd offers to start the freshly installed systemd
+// unit immediately via systemctl, so the unit enters systemd supervision
+// (calling daemon.Start() directly would leave the unit inactive and
+// collide with the later login-time start). Non-interactive contexts
+// (piped stdin, scripts) skip the prompt and fall back to the printed
+// hint: stdin is never read unless it is a terminal.
+func promptStartNowSystemd() {
+	fmt.Println()
+	if !ui.StdinIsTerminal() {
+		fmt.Println("To start it now: construct sys daemon start")
+		return
+	}
+	if !ui.GumConfirm("Start the daemon now?") {
+		fmt.Println("To start it now: construct sys daemon start")
+		return
+	}
+	cmd := exec.Command("systemctl", "--user", "start", systemdUnit)
+	if err := cmd.Run(); err != nil {
+		ui.GumError(fmt.Sprintf("Failed to start service: %v", err))
+		fmt.Println("To start it now: construct sys daemon start")
+		return
+	}
+	ui.GumSuccess("Daemon service started")
+}
+
 func uninstallLaunchd() {
 	plistPath := getLaunchdPlistPath()
 
@@ -259,11 +284,11 @@ WantedBy=default.target
 	ui.GumSuccess("Daemon service installed")
 	fmt.Println()
 	fmt.Println("The daemon will start automatically on login.")
-	fmt.Println("To start it now: construct sys daemon start")
 	fmt.Println("To remove: construct sys daemon uninstall")
 	fmt.Println()
 	fmt.Println("Note: You may need to enable lingering for the service to run without login:")
 	fmt.Println("  loginctl enable-linger $USER")
+	promptStartNowSystemd()
 }
 
 func uninstallSystemd() {
