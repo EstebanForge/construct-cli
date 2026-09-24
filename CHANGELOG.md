@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.2 -->
+## [1.17.2] - 2026-09-23
+
+### Fixed
+
+- **Doctor's Construct Image check no longer false-alarms on the microvm backend**: it probed `docker image inspect construct-box:latest`, which never exists on an msb-only host, so doctor warned "Image missing" while the VM Backend and Baked Image Freshness checks showed the real GHCR image loaded. The check now skips on microvm; those two checks cover image presence natively.
+- **Doctor's Update Log check reads the microvm update log**: it globbed dated `update_*.log` files from the compose era, so it reported "No update log found" while the microvm updater was actively appending to the fixed `logs/update.log`. The fixed log wins when it exists.
+- **The update lock contention error explains itself**: `construct sys update` failed with a bare EAGAIN when the idle-window updater held `update.lock`. The error now names the lock file, the likely holders, the log to check, and the 30-minute pass bound.
+- **Update passes carry a hard process bound**: in a live macOS incident the exec-level 30-minute ctx fired on time, but the msb SDK's post-cancel drain hung forever, wedging the idle watcher while it kept holding `update.lock` and burning CPU inside the FFI library. Both update passes now arm a process-level watchdog at 30 minutes plus 2 minutes of grace: on fire, the pass logs "update abandoned" to `logs/update.log`, records telemetry, and exits the process, releasing the lock at process death.
+
+<!-- RELEASE:END 1.17.2 -->
+
 <!-- RELEASE:START 1.17.1 -->
 ## [1.17.1] - 2026-09-23
 
