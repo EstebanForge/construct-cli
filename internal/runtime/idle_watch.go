@@ -68,6 +68,50 @@ func MaybeSpawnIdleWatcher(cfg *config.Config) {
 	ui.InfoLn("⏳ Spawned idle-watch (daemon stops after zero sessions for the configured interval).")
 }
 
+// Seams for StopDaemonForUpdate so tests can fake daemon state.
+var (
+	updateDaemonRunning = func() bool {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		h, err := msb.GetSandbox(ctx, msbDaemonName)
+		if err != nil {
+			return false
+		}
+		fresh, ferr := h.Refresh(ctx)
+		if ferr != nil {
+			return false
+		}
+		return fresh.Status() == msb.SandboxStatusRunning
+	}
+	updateDaemonSessions = LiveSessionCount
+	updateDaemonStop     = StopMsbDaemonBestEffort
+)
+
+// StopDaemonForUpdate arms the post-update rebuild. Sandbox setup (sudoers
+// policy, mounts, skills) applies at build time only, so a daemon that was
+// running during a self-update keeps the old setup until it is rebuilt.
+// Stops the daemon when it is running idle; reports busy when live sessions
+// hold it. An absent or already-stopped daemon needs nothing: the next ct
+// command rebuilds (stale labels) or boots normally. Returns (stopped,
+// busy, error).
+func StopDaemonForUpdate() (stopped, busy bool, err error) {
+	if !updateDaemonRunning() {
+		return false, false, nil
+	}
+	if updateDaemonSessions() > 0 {
+		return false, true, nil
+	}
+	if err := updateDaemonStop(); err != nil {
+		return false, false, err
+	}
+	// StopMsbDaemonBestEffort stands down (returns nil) when a session
+	// appeared under the flock; re-probe so the user gets honest output.
+	if updateDaemonRunning() {
+		return false, true, nil
+	}
+	return true, false, nil
+}
+
 // LiveSessionCount returns the number of currently live sessions.
 func LiveSessionCount() int {
 	sessions, err := ActiveSessions()

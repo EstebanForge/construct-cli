@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"testing"
 	"time"
@@ -75,5 +76,59 @@ func TestIdleWatchRunStandsDownWhenSessionLive(t *testing.T) {
 	// still flags a hang (>30s) without flaking on a slow CI.
 	if elapsed > 5*time.Second {
 		t.Errorf("IdleWatchRun took %v with a live session; should stand down in <5s", elapsed)
+	}
+}
+
+// TestStopDaemonForUpdate walks the post-update daemon decision: absent or
+// stopped daemons need nothing, idle running daemons get stopped, live
+// sessions defer to the user, and a stand-down race reports busy.
+func TestStopDaemonForUpdate(t *testing.T) {
+	origRunning, origSessions, origStop := updateDaemonRunning, updateDaemonSessions, updateDaemonStop
+	t.Cleanup(func() {
+		updateDaemonRunning, updateDaemonSessions, updateDaemonStop = origRunning, origSessions, origStop
+	})
+
+	cases := []struct {
+		name       string
+		running    []bool // consumed per probe: entry check, then post-stop re-probe
+		sessions   int
+		stopErr    error
+		wantStop   bool
+		wantBusy   bool
+		wantErr    bool
+		wantStopOp bool // was the stop actually invoked?
+	}{
+		{"absent daemon does nothing", []bool{false}, 0, nil, false, false, false, false},
+		{"busy daemon is left alone", []bool{true}, 2, nil, false, true, false, false},
+		{"idle daemon is stopped", []bool{true, false}, 0, nil, true, false, false, true},
+		{"stop error surfaces", []bool{true}, 0, errors.New("boom"), false, false, true, true},
+		{"stand-down race reports busy", []bool{true, true}, 0, nil, false, true, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			probe := 0
+			updateDaemonRunning = func() bool {
+				if probe >= len(tc.running) {
+					return false
+				}
+				v := tc.running[probe]
+				probe++
+				return v
+			}
+			updateDaemonSessions = func() int { return tc.sessions }
+			stopCalled := false
+			updateDaemonStop = func() error { stopCalled = true; return tc.stopErr }
+
+			stopped, busy, err := StopDaemonForUpdate()
+			if (err != nil) != tc.wantErr {
+				t.Errorf("err = %v, wantErr %v", err, tc.wantErr)
+			}
+			if stopped != tc.wantStop || busy != tc.wantBusy {
+				t.Errorf("got (stopped=%t busy=%t), want (stopped=%t busy=%t)", stopped, busy, tc.wantStop, tc.wantBusy)
+			}
+			if stopCalled != tc.wantStopOp {
+				t.Errorf("stop invoked = %t, want %t", stopCalled, tc.wantStopOp)
+			}
+		})
 	}
 }
