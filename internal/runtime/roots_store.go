@@ -76,6 +76,24 @@ func LoadRootsStore() (RootsStore, error) {
 	if s.Version == 0 {
 		s.Version = rootsStoreVersion
 	}
+	// Sanitize any legacy home entries: home is never a persistable learned root
+	// and never a persistable decline record.
+	if len(s.Roots) > 0 {
+		cleanRoots := make([]LearnedRoot, 0, len(s.Roots))
+		for _, r := range s.Roots {
+			if !isUserHome(r.Path) {
+				cleanRoots = append(cleanRoots, r)
+			}
+		}
+		s.Roots = cleanRoots
+	}
+	if len(s.Declined) > 0 {
+		for k := range s.Declined {
+			if isUserHome(k) {
+				delete(s.Declined, k)
+			}
+		}
+	}
 	return s, nil
 }
 
@@ -120,6 +138,9 @@ func SaveRootsStore(s RootsStore) error {
 // Caller is responsible for: prompt-on-learn (interactive only), LRU
 // eviction, workspace guard, cap enforcement, atomic persist.
 func (s *RootsStore) TouchRoot(path string, now time.Time) {
+	if isUserHome(path) {
+		return
+	}
 	for i := range s.Roots {
 		if s.Roots[i].Path == path {
 			s.Roots[i].LastUsed = now
@@ -167,10 +188,13 @@ func (s *RootsStore) EvictLRU(maxN int) []string {
 // Paths returns the resolved paths in stable order (sorted) so the hash
 // and the daemon mount set are deterministic. Drops entries whose host
 // path no longer exists (silent, matches the existing single-path mapper's
-// "drop silently with a log line" contract).
+// "drop silently with a log line" contract). Home itself is filtered out.
 func (s RootsStore) Paths() []string {
 	out := make([]string, 0, len(s.Roots))
 	for _, r := range s.Roots {
+		if isUserHome(r.Path) {
+			continue
+		}
 		info, err := os.Stat(r.Path)
 		if err != nil || !info.IsDir() {
 			continue
@@ -201,15 +225,18 @@ func (s RootsStore) IsDeclined(cleaned string) bool {
 // DeclineKeyFor returns the persisted decline record that covers cleaned
 // (exact match or a declined ancestor), "" when none. The record key is
 // what error messages should name: it is what the user originally said no
-// to, and what `roots add` reverses.
+// to, and what `roots add` reverses. Home itself is never a valid decline.
 func (s RootsStore) DeclineKeyFor(cleaned string) string {
-	if cleaned == "" {
+	if cleaned == "" || isUserHome(cleaned) {
 		return ""
 	}
 	if _, ok := s.Declined[cleaned]; ok {
 		return cleaned
 	}
 	for declined := range s.Declined {
+		if isUserHome(declined) {
+			continue
+		}
 		if containsPath(declined, cleaned) {
 			return declined
 		}
@@ -220,6 +247,9 @@ func (s RootsStore) DeclineKeyFor(cleaned string) string {
 // DeclineRoot records a user "no" for the exact cleaned path so later
 // runs skip the learn prompt instead of re-asking.
 func (s *RootsStore) DeclineRoot(path string, now time.Time) {
+	if isUserHome(path) {
+		return
+	}
 	if s.Declined == nil {
 		s.Declined = make(map[string]time.Time, 1)
 	}
@@ -265,6 +295,8 @@ func effectiveWorkspaceRoots(projectDir string, store RootsStore) []string {
 var (
 	learnRootInteractive = func() bool { return ui.GumAvailable() && term.IsTerminal(int(os.Stdin.Fd())) }
 	learnRootConfirm     = ui.GumConfirm
+	// Default-NO variant for high-blast-radius confirmations ($HOME).
+	learnRootConfirmDanger = ui.GumConfirmNoDefault
 )
 
 // declinedError builds the actionable error for a declined folder: the run
@@ -274,19 +306,26 @@ func declinedError(record string) error {
 	return fmt.Errorf("%w: %s. Construct will not ask about this folder again. To mount it later: construct sys daemon roots add %s", ErrMsbDaemonWorkdirDeclined, record, record)
 }
 
-// requestLearnRoot adds a new root to the daemon's learned roots. Two
+// requestLearnRoot adds a new root to the daemon's learned roots. Three
 // regimes:
 //
 //   - Inside the user's home directory: consent is implied by the
 //     invocation itself (the mounted folder is the folder the user ran ct
 //     from; the Docker backend mounts any cwd unconditionally). The root
 //     is learned and persisted with NO prompt, interactive or headless.
-//     Everyday ~/... flows never ask. The home directory ITSELF is not
-//     "inside": learning it would mount the whole home, so it keeps the
-//     human checkpoint.
+//     Everyday ~/... flows never ask. Sensitive home trees (hidden
+//     top-level dirs, ~/Library) and the home directory ITSELF are not
+//     "inside": sensitive trees keep the human checkpoint, and home is
+//     always warned and asked about, every run, with nothing remembered.
 //   - Outside home: interactive runs get the gum prompt (a NO persists a
 //     decline that never re-prompts); headless runs fail closed with
 //     ErrMsbDaemonWorkdirUnmapped and the config hint.
+//
+// Return contract:
+//   - (true, nil): root newly learned and saved to disk.
+//   - (false, nil): proceed with one-off cwd mount without persisting
+//     (home directory confirmed by human, or defensive system-root backstop).
+//   - (false, err): mounting was refused, declined, or unmapped.
 //
 // Both regimes honor the manual exclusion list first: a declined folder
 // returns ErrMsbDaemonWorkdirDeclined (carrying the `roots add` command)
@@ -310,13 +349,39 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 		return false, nil
 	}
 
+	// The home directory itself is a different beast: mounting it hands
+	// the sandbox read-write access to every user file in the system,
+	// ~/.ssh included. Nothing is EVER remembered (no persisted acceptance
+	// and no persisted refusal), so every run from $HOME warns and asks
+	// again. This check runs BEFORE exclusion checks so a stale or manual
+	// decline on home never blocks the warning and prompt. Acceptance
+	// mounts via the run's own cwd (one-off), never as a learned root;
+	// `roots add` refuses home for the same reason.
+	if isUserHome(resolved) {
+		if !learnRootInteractive() {
+			ui.InfoF("Refusing to mount %s without a human decision: mounting the entire home directory exposes every user file (including ~/.ssh private keys, browser data, and credentials) to the sandbox.\n", resolved)
+			ui.InfoF("Run construct from a project directory instead, or add a narrower root to [daemon] mount_paths.\n")
+			return false, ErrMsbDaemonWorkdirUnmapped
+		}
+		ui.InfoF("WARNING: %s is your ENTIRE home directory.\n", resolved)
+		ui.InfoF("Mounting it gives the sandbox read-write access to every user file in the system: SSH keys, browser profiles, credential stores, documents. Everything.\n")
+		ui.InfoF("A narrower root (a project directory) is almost always the safer choice.\n")
+		prompt := "Mount your ENTIRE home directory into the VM anyway?"
+		if !learnRootConfirmDanger(prompt) {
+			return false, fmt.Errorf("%w: %s (nothing was remembered; construct will warn and ask again on the next run from this folder)", ErrMsbDaemonWorkdirDeclined, resolved)
+		}
+		// Accepted: proceed with the one-off cwd mount, persist nothing.
+		ui.InfoF("Home mounted for this run only. Construct will ask again next time.\n")
+		return false, nil
+	}
+
 	store, err := LoadRootsStore()
 	if err != nil {
 		return false, err
 	}
 	// The exclusion list wins everywhere: a declined folder never
-	// re-prompts and never auto-learns — for the folder itself OR anything
-	// below it (declining ~/Secret excludes ~/Secret/sub). The error names
+	// re-prompts and never auto-learns (for the folder itself OR anything
+	// below it: declining ~/Secret excludes ~/Secret/sub). The error names
 	// the record the user originally declined, which `roots add` reverses.
 	if record := store.DeclineKeyFor(resolved); record != "" {
 		return false, declinedError(record)
@@ -330,7 +395,7 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 		return false, ErrMsbDaemonWorkdirUnmapped
 	}
 
-	// Everyday case: inside home, learn silently and get on with the run —
+	// Everyday case: inside home, learn silently and get on with the run,
 	// EXCEPT sensitive home locations (hidden top-level dirs like ~/.ssh,
 	// ~/.aws, ~/.gnupg, ~/.cache; macOS ~/Library), which route to the
 	// checkpoint regime below: auto-mounting host credentials into a
@@ -392,34 +457,6 @@ func learnRoot(cfg *config.Config, resolved string) error {
 	return SaveRootsStore(store)
 }
 
-// insideUserHome reports whether resolved lies strictly BELOW the user's
-// home directory. The home directory itself does not count (learning it
-// would mount the entire home; that keeps the checkpoint flow). Both the
-// raw and the symlink-resolved home are accepted as containment roots:
-// resolved comes from cleanProjectDir (EvalSymlinks), so on hosts where
-// /home is a symlink (Fedora Atomic, /var/root under macOS root) the
-// raw-home comparison alone would miss every path. Unknown home counts
-// as outside.
-func insideUserHome(resolved string) bool {
-	home := hostHomeDir()
-	if home == "" {
-		return false
-	}
-	candidates := []string{filepath.Clean(home)}
-	if r, err := filepath.EvalSymlinks(home); err == nil && r != candidates[0] {
-		candidates = append(candidates, r)
-	}
-	for _, h := range candidates {
-		if resolved == h {
-			return false // home itself is never "inside home"
-		}
-		if containsPath(h, resolved) {
-			return true
-		}
-	}
-	return false
-}
-
 // isSensitiveHomePath reports whether resolved lives inside a sensitive
 // home tree: a directly-nested hidden directory (credential and cache
 // trees like ~/.ssh, ~/.aws, ~/.gnupg, ~/.cache — anything below them
@@ -429,15 +466,7 @@ func insideUserHome(resolved string) bool {
 // the tree (~/projects/.env-tooling) are deliberate project locations
 // and stay auto-learnable.
 func isSensitiveHomePath(resolved string) bool {
-	home := hostHomeDir()
-	if home == "" {
-		return false
-	}
-	candidates := []string{filepath.Clean(home)}
-	if r, err := filepath.EvalSymlinks(home); err == nil && r != candidates[0] {
-		candidates = append(candidates, r)
-	}
-	for _, h := range candidates {
+	for _, h := range homeCandidates() {
 		if resolved == h || !containsPath(h, resolved) {
 			continue
 		}
@@ -454,6 +483,52 @@ func isSensitiveHomePath(resolved string) bool {
 		}
 	}
 	return false
+}
+
+// insideUserHome reports whether resolved lies strictly BELOW the user's
+// home directory. The home directory itself does not count (learning it
+// would mount the entire home; that keeps the checkpoint flow). Both the
+// raw and the symlink-resolved home are accepted as containment roots:
+// resolved comes from cleanProjectDir (EvalSymlinks), so on hosts where
+// /home is a symlink (Fedora Atomic, /var/root under macOS root) the
+// raw-home comparison alone would miss every path. Unknown home counts
+// as outside.
+func insideUserHome(resolved string) bool {
+	if isUserHome(resolved) {
+		return false
+	}
+	for _, h := range homeCandidates() {
+		if containsPath(h, resolved) {
+			return true
+		}
+	}
+	return false
+}
+
+// isUserHome reports whether resolved IS the home directory itself (raw
+// or symlink-resolved). Home gets its own regime: always warned, always
+// asked, never remembered.
+func isUserHome(resolved string) bool {
+	for _, h := range homeCandidates() {
+		if resolved == h {
+			return true
+		}
+	}
+	return false
+}
+
+// homeCandidates returns the cleaned raw home plus its symlink-resolved
+// form when that differs. Callers must treat an empty result as unknown.
+func homeCandidates() []string {
+	home := hostHomeDir()
+	if home == "" {
+		return nil
+	}
+	candidates := []string{filepath.Clean(home)}
+	if r, err := filepath.EvalSymlinks(home); err == nil && r != candidates[0] {
+		candidates = append(candidates, r)
+	}
+	return candidates
 }
 
 // DaemonRootsList prints the daemon's learned roots (phase 2). Pinned
@@ -562,6 +637,14 @@ func DaemonRootsAdd(cfg *config.Config, path string) {
 	}
 	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
 		ui.GumError(fmt.Sprintf("Cannot mount %s: not an existing directory.", path))
+		os.Exit(1)
+	}
+	// Home is never persistable as a root: a home mount hands the sandbox
+	// every user file, so it must stay a per-run, warned decision. If we
+	// learned it here, later runs from $HOME would silently skip the
+	// always-ask checkpoint.
+	if isUserHome(resolved) {
+		ui.GumError(fmt.Sprintf("Refusing to add %s: mounting the entire home directory exposes every user file (SSH keys, browser profiles, credentials) to the sandbox. Construct will warn and ask every time you run from it; add a narrower project directory instead.", resolved))
 		os.Exit(1)
 	}
 	// Serialize behind the daemon lock BEFORE touching the store (even the

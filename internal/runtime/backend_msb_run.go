@@ -646,7 +646,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 						break
 					}
 				}
-				if touched != "" {
+				if touched != "" && !isUserHome(cleaned) {
 					store.TouchRoot(touched, time.Now())
 					_ = SaveRootsStore(store) //nolint:errcheck // best-effort last_used update; continue with in-memory set
 				} else {

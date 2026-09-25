@@ -211,6 +211,22 @@ func GumConfirm(prompt string) bool {
 	return err == nil
 }
 
+// GumConfirmNoDefault prompts like GumConfirm but a bare Enter means NO,
+// for high-blast-radius confirmations where an accidental acceptance is
+// the dangerous outcome.
+func GumConfirmNoDefault(prompt string) bool {
+	if !GumAvailable() || shouldUsePlainConfirm() {
+		return plainConfirm(prompt, false)
+	}
+
+	cmd := GetGumCommand("confirm", prompt, "--default=no")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	err := cmd.Run()
+	return err == nil
+}
+
 func shouldUsePlainConfirm() bool {
 	if strings.TrimSpace(os.Getenv("CONSTRUCT_FORCE_GUM_CONFIRM")) == "1" {
 		return false
