@@ -757,7 +757,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	cfgJSONHomeBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home)
 
 	// Run 2: Consecutive home run with empty store -> should reuse (no recreate)
-	recreate, reason := msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	recreate, reason := msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg, "")
 	if recreate {
 		t.Fatalf("consecutive home run should reuse daemon, got recreate with reason: %s", reason)
 	}
@@ -770,7 +770,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	}
 
 	// Run 3: Run from subproject -> daemon booted from home needs recreate
-	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, sub, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, sub, cfg.Sandbox.AllowHomeWorkspace, &cfg, "")
 	if !recreate {
 		t.Fatal("running subproject on home daemon must recreate")
 	}
@@ -784,7 +784,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	cfgJSONSubBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, subDest, sub)
 
 	// Run 4: Run from home again -> needs recreate because home is unmounted
-	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsSubBoot, cfgJSONSubBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsSubBoot, cfgJSONSubBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg, "")
 	if !recreate {
 		t.Fatal("running home on subproject daemon must recreate to mount home")
 	}
@@ -802,7 +802,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	cfgJSONCombinedBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q},{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home, subDest, sub)
 
 	// Run 5: Subsequent home run -> reuses
-	recreate, reason = msbDaemonNeedsRecreate(DaemonMounts{}, labelsCombinedBoot, cfgJSONCombinedBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	recreate, reason = msbDaemonNeedsRecreate(DaemonMounts{}, labelsCombinedBoot, cfgJSONCombinedBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg, "")
 	if recreate {
 		t.Fatalf("subsequent home run on combined daemon should reuse, got recreate: %s", reason)
 	}

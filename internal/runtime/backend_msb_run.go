@@ -330,6 +330,10 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	// the daemon because the entrypoint applies the sudoers drop-in at
 	// sandbox creation only.
 	labels[DaemonSudoLabelKey] = sudoPolicy(cfg)
+	// Image digest label: EnsureImage has already run by the time a spec
+	// is built, so the local cache holds the freshly-pulled digest; a
+	// later decision run that sees a different digest recreates onto it.
+	labels[DaemonImageDigestLabelKey] = msbCachedImageDigest()
 	return &MsbRunSpec{
 		Name: name,
 		// Resolve the cached ref (bare / localhost/ / full registry): the
@@ -524,7 +528,7 @@ var ErrMsbDaemonWorkdirDeclined = errors.New("workdir mounting was declined for 
 // The skills hash (DaemonSkillsLabelKey) is checked in BOTH modes; a skills
 // toggle, RO/RW flip, source appearance, or supported-agent-list growth
 // must recreate the running daemon so the new mounts take effect.
-func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool, cfg *config.Config) (bool, string) {
+func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool, cfg *config.Config, imageDigest string) (bool, string) {
 	// Skills hash parity. Checked FIRST because it is the cheapest decision
 	// (no mount parsing) and the most likely drift source in routine use.
 	if currentSkills := SkillsDaemonHash(cfg); currentSkills != "" || sandboxLabels[DaemonSkillsLabelKey] != "" {
@@ -538,6 +542,16 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// policy only when the user actually opted out, which recreates once.
 	if sandboxLabels[DaemonSudoLabelKey] != sudoPolicy(cfg) {
 		return true, "sudo policy changed (sandbox.passwordless_sudo)"
+	}
+	// Image drift: the daemon may outlive image republishes. The label
+	// records the digest the sandbox was created from; a mismatch with the
+	// local cache means the sandbox predates the current image and would
+	// boot stale baked content (entrypoint, sudoers) no matter how well
+	// its config labels match. An unknown local digest (image inspect
+	// failed) never forces a recreate, and daemons predating the label
+	// recreate exactly once — the same upgrade vehicle as the sudo label.
+	if imageDigest != "" && sandboxLabels[DaemonImageDigestLabelKey] != imageDigest {
+		return true, "construct-box image changed"
 	}
 	if dm.Enabled {
 		if sandboxLabels[DaemonMountsLabelKey] != dm.Hash {
@@ -693,7 +707,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			reason := "memory below minimum"
 			if !needRecreate {
 				allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
-				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome, cfg)
+				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome, cfg, msbCachedImageDigest())
 			}
 			if needRecreate {
 				bootOutcome = msbBootRecreate
