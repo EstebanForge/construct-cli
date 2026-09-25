@@ -142,6 +142,14 @@ func IdleWindowUpdate(cfg *config.Config) error {
 	}
 
 	logLine("update started")
+	// Refresh the helper the pass is about to execute: msb has no per-file
+	// binds, so update-all.sh is read from the home volume and may be stale.
+	// Best-effort for the idle path: a failed refresh skips this window and
+	// retries on the next one rather than running brew-era logic.
+	if err := EnsureMountedTemplateFiles(config.GetConfigDir()); err != nil {
+		logLine("update skipped: refresh update helpers: %v", err)
+		return nil
+	}
 	// The pass runs WITHOUT the daemon flock by design. The exec targets
 	// the running daemon sandbox; additive installs coexist with sessions.
 	ctx, cancel := context.WithTimeout(context.Background(), updatePassTimeout)
@@ -237,6 +245,12 @@ func RunForegroundUpdate(cfg *config.Config) error {
 	}
 	disarm := armUpdateAbandonWatchdog(cfg, "manual", start, lf, updatePassTimeout+updateAbandonGrace)
 	defer disarm()
+
+	// Refresh the helper the pass is about to execute: msb has no per-file
+	// binds, so update-all.sh is read from the home volume and may be stale.
+	if err := EnsureMountedTemplateFiles(config.GetConfigDir()); err != nil {
+		return fmt.Errorf("refresh update helpers: %w", err)
+	}
 
 	// projectDir is deliberately empty: the update pass is workspace-
 	// independent (it only execs update-all.sh in the guest), so neither

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/templates"
 )
 
 // TestRuntimeDetection tests container runtime detection
@@ -260,8 +261,8 @@ func TestEnsureMountedTemplateFilesReplacesDirectoryCollision(t *testing.T) {
 		t.Fatalf("failed to create collision dir: %v", err)
 	}
 
-	if err := ensureMountedTemplateFiles(configPath); err != nil {
-		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	if err := EnsureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("EnsureMountedTemplateFiles failed: %v", err)
 	}
 
 	info, err := os.Stat(collisionPath)
@@ -283,8 +284,8 @@ func TestEnsureMountedTemplateFilesRepairsHomeContainerPathCollision(t *testing.
 		t.Fatalf("failed to create blocking file: %v", err)
 	}
 
-	if err := ensureMountedTemplateFiles(configPath); err != nil {
-		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	if err := EnsureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("EnsureMountedTemplateFiles failed: %v", err)
 	}
 
 	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
@@ -316,8 +317,8 @@ func TestEnsureMountedTemplateFilesRepairsHomeHelperTargetCollisions(t *testing.
 		}
 	}
 
-	if err := ensureMountedTemplateFiles(configPath); err != nil {
-		t.Fatalf("ensureMountedTemplateFiles failed: %v", err)
+	if err := EnsureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("EnsureMountedTemplateFiles failed: %v", err)
 	}
 
 	for _, name := range collisions {
@@ -329,6 +330,68 @@ func TestEnsureMountedTemplateFilesRepairsHomeHelperTargetCollisions(t *testing.
 		if !info.Mode().IsRegular() {
 			t.Fatalf("expected helper target %s to be a regular file, mode=%s", targetPath, info.Mode())
 		}
+	}
+}
+
+// TestEnsureMountedTemplateFilesRefreshesHomeHelperContent pins the msb
+// content-delivery contract: msb has no per-file binds, so the guest reads
+// these helpers straight from the home volume. A stale docker-era copy (or
+// an empty fresh-install target) must be replaced with current embedded
+// content on every prepare.
+func TestEnsureMountedTemplateFilesRefreshesHomeHelperContent(t *testing.T) {
+	configPath := t.TempDir()
+	homeContainerDir := filepath.Join(configPath, "home", ".config", "construct-cli", "container")
+	if err := os.MkdirAll(homeContainerDir, 0755); err != nil {
+		t.Fatalf("failed to create home container dir: %v", err)
+	}
+
+	// Simulate a docker-era home carrying brew-era logic.
+	stale := "#!/usr/bin/env bash\n/home/linuxbrew/.linuxbrew/bin/brew upgrade\n"
+	staleFiles := map[string]string{
+		"update-all.sh":      stale,
+		"agent-patch.sh":     stale,
+		"entrypoint-hash.sh": stale,
+	}
+	for name, content := range staleFiles {
+		if err := os.WriteFile(filepath.Join(homeContainerDir, name), []byte(content), 0755); err != nil {
+			t.Fatalf("failed to seed stale %s: %v", name, err)
+		}
+	}
+
+	if err := EnsureMountedTemplateFiles(configPath); err != nil {
+		t.Fatalf("EnsureMountedTemplateFiles failed: %v", err)
+	}
+
+	want := map[string]string{
+		"update-all.sh":      templates.UpdateAll,
+		"agent-patch.sh":     templates.AgentPatch,
+		"entrypoint-hash.sh": templates.EntrypointHash,
+	}
+	for name, expected := range want {
+		got, err := os.ReadFile(filepath.Join(homeContainerDir, name))
+		if err != nil {
+			t.Fatalf("expected refreshed %s: %v", name, err)
+		}
+		if string(got) != expected {
+			t.Fatalf("%s content is not the current embedded template (got %d bytes, want %d)", name, len(got), len(expected))
+		}
+	}
+	info, err := os.Stat(filepath.Join(homeContainerDir, "update-all.sh"))
+	if err != nil {
+		t.Fatalf("expected update-all.sh to exist: %v", err)
+	}
+	if info.Mode().Perm() != 0755 {
+		t.Fatalf("expected update-all.sh perm 0755, got %s", info.Mode().Perm())
+	}
+
+	// install_user_packages.sh stays a bare target: its content is generated
+	// by PrepareBackendAgnostic right after this call.
+	installInfo, err := os.Stat(filepath.Join(homeContainerDir, "install_user_packages.sh"))
+	if err != nil {
+		t.Fatalf("expected install_user_packages.sh target to exist: %v", err)
+	}
+	if !installInfo.Mode().IsRegular() {
+		t.Fatalf("expected install_user_packages.sh to be a regular file, mode=%s", installInfo.Mode())
 	}
 }
 

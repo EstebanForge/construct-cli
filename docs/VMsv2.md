@@ -51,8 +51,10 @@ Goal: measure before optimizing. Every later decision (especially phase 6) is ga
 
 Design: instrument `EnsureMsbDaemon` in `internal/runtime/backend_msb_run.go` with duration logging for four events, tagged with an outcome: `cold` (create path, first boot with installs), `recreate` (with the reason string already produced by `msbDaemonNeedsRecreate`), `warm` (stopped sandbox booted via `StartDetached` + `msbWaitKeeper`), `reconnect` (already running, marker present). `msbWaitKeeper` already tracks `start`; extend it to return the elapsed wait. Log via `ui.LogInfo` (or the structured log the daemon already writes) with a stable prefix such as `msb-boot:` so numbers are greppable later, example: `msb-boot: outcome=warm seconds=23 root=/path`.
 
+Field set shipped 2026-09-23: `msb-boot: outcome=<o> seconds=<s> mounts=<m> learned=<l> cwd_mounted=<bool> reason="<r>"`. The original single `roots=N` count conflated total sandbox mounts with learned-root count and read as "a root was lost" when the cwd mount appeared or disappeared between runs; the split fields keep each dimension greppable. `msb-telemetry.jsonl` mirrors this as `mounts`, `learned`, `cwd_mounted` (the JSON key `roots` is retired).
+
 - [x] P0.1 Instrument cold, recreate, warm, reconnect durations in `EnsureMsbDaemon` with the `msb-boot:` prefix
-- [x] P0.2 Include the recreate reason and the mounted root count in the log line
+- [x] P0.2 Include the recreate reason plus the mount, learned-root, and cwd-mounted counts in the log line
 - [x] P0.3 Unit test: the four outcome tags are emitted (fake clock or injectable timer if needed; do not sleep in tests)
 - [x] P0.4 Telemetry collection automated: `scripts/lab-matrix.sh` (isolated-HOME unattended matrix) runs daily via the `construct-lab` systemd user timer; events accumulate in `logs/msb-boot.log` + `msb-telemetry.jsonl`. 0.7.2 single-run numbers in section 10 (2026-09-21); weekly medians accumulate from the timer.
 
@@ -86,8 +88,11 @@ Semantics:
 - Recreate message when a root is learned: "🔄 Recreating microVM daemon sandbox (learned root added: <root>)...".
 
 New CLI surface (mirror the existing `sys daemon` verb style in `internal/daemon/daemon.go` and its command registration):
-- `construct sys daemon roots`: table of root, source (configured/learned), last used, mount dest.
+- `construct sys daemon roots`: table of root, source (configured/learned), last used, mount dest. Declined folders show in their own section with the decline timestamp.
 - `construct sys daemon roots forget <path>`: remove a learned root (refuse to forget configured roots; point at config.toml), then note that the next run recreates with the smaller set.
+- `construct sys daemon roots add <path>`: mount a host dir without the prompt. The manual way back after a decline: clears the persisted decline record, learns the root, notes the recreate-ahead.
+
+Decline memory (2026-09-24): an interactive NO persists the folder in `roots.json` under `declined` (path -> timestamp). Declined folders never re-prompt, never enter the single-path mount set, and runs from them fail with `ErrMsbDaemonWorkdirDeclined` plus the `roots add` command to reverse. Non-interactive denials do NOT persist (a headless run must not poison the folder for the human).
 
 Edge cases to handle explicitly: concurrent learn of two roots (covered by phase 1 lock), root deleted from disk between runs (stat check; drop silently with a log line), root that resolves through a symlink (store resolved), cap reached (evict LRU, warn once).
 

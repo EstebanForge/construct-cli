@@ -151,6 +151,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "mise upgrade --yes") {
 		t.Error("update-all.sh fallback path should update mise tools now that brew is gone")
 	}
+	if !strings.Contains(UpdateAll, "export MISE_YES=1") {
+		t.Error("update-all.sh should export MISE_YES=1 so non-interactive mise self-update cannot abort")
+	}
 	// Test agent patch template
 	if AgentPatch == "" {
 		t.Error("agent-patch.sh template is empty")

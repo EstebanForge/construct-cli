@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,5 +201,158 @@ func TestRequestLearnRootNonInteractiveDeny(t *testing.T) {
 	}
 	if store.Has(cleanProjectDir(newDir)) {
 		t.Error("denied root must not be persisted")
+	}
+}
+
+// TestRequestLearnRootDeclinePersists: an interactive NO is recorded in
+// the store so the folder never re-prompts, and the error tells the user
+// how to reverse the decision later.
+func TestRequestLearnRootDeclinePersists(t *testing.T) {
+	withRootsTestHome(t)
+	newDir := t.TempDir()
+
+	origInteractive, origConfirm := learnRootInteractive, learnRootConfirm
+	learnRootInteractive = func() bool { return true }
+	learnRootConfirm = func(string) bool { return false }
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirm = origInteractive, origConfirm })
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, newDir)
+	if learned {
+		t.Error("declined run must not learn the root")
+	}
+	if !errors.Is(err, ErrMsbDaemonWorkdirDeclined) {
+		t.Fatalf("err = %v, want ErrMsbDaemonWorkdirDeclined", err)
+	}
+	if !strings.Contains(err.Error(), "construct sys daemon roots add") {
+		t.Errorf("decline error lacks the manual-add command: %v", err)
+	}
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if !store.IsDeclined(cleanProjectDir(newDir)) {
+		t.Error("decline was not persisted")
+	}
+}
+
+// TestRequestLearnRootDeclinedSkipsPrompt: a previously declined folder
+// short-circuits BEFORE the gum prompt — re-running ct from the same
+// folder must not ask again.
+func TestRequestLearnRootDeclinedSkipsPrompt(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	store.DeclineRoot(cleanProjectDir(dir), time.Now())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	origConfirm := learnRootConfirm
+	learnRootConfirm = func(string) bool {
+		t.Error("declined folder must not re-prompt")
+		return true
+	}
+	t.Cleanup(func() { learnRootConfirm = origConfirm })
+
+	cfg := config.DefaultConfig()
+	learned, lerr := requestLearnRoot(&cfg, dir)
+	if learned || !errors.Is(lerr, ErrMsbDaemonWorkdirDeclined) {
+		t.Fatalf("learned=%v err=%v, want declined error", learned, lerr)
+	}
+}
+
+// TestDaemonRootsAddClearsDecline: roots add is the way back after a
+// decline — it mounts the folder and drops the decline record.
+func TestDaemonRootsAddClearsDecline(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	store.DeclineRoot(cleanProjectDir(dir), time.Now())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	DaemonRootsAdd(&cfg, dir)
+
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if !store.Has(cleanProjectDir(dir)) {
+		t.Error("roots add did not learn the root")
+	}
+	if store.IsDeclined(cleanProjectDir(dir)) {
+		t.Error("roots add did not clear the decline record")
+	}
+}
+
+// TestEffectiveWorkspaceRootsExcludesDeclined: a declined cwd never
+// enters the mount set (it would otherwise ride the uncovered-cwd append).
+// Seeds the CANONICALIZED path: decline keys are cleanProjectDir-resolved,
+// and on macOS the temp dir sits behind a symlink (/var -> /private/var),
+// so a raw t.TempDir key would not match and the leak would go unnoticed.
+func TestEffectiveWorkspaceRootsExcludesDeclined(t *testing.T) {
+	dir := t.TempDir()
+	store := RootsStore{Version: rootsStoreVersion}
+	store.DeclineRoot(cleanProjectDir(dir), time.Now())
+
+	roots := effectiveWorkspaceRoots(dir, store)
+	if len(roots) != 0 {
+		t.Fatalf("declined cwd leaked into the mount set: %v", roots)
+	}
+}
+
+// TestDaemonRootsForgetClearsDecline: forget on a declined-only path drops
+// the decline record — including for folders already deleted from disk,
+// which `roots add` would refuse. Without this, a declined folder that is
+// later removed can only be cleaned by editing roots.json by hand.
+func TestDaemonRootsForgetClearsDecline(t *testing.T) {
+	withRootsTestHome(t)
+	dir := filepath.Join(t.TempDir(), "gone")
+
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	store.DeclineRoot(dir, time.Now())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	DaemonRootsForget(&cfg, dir)
+
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if store.IsDeclined(dir) {
+		t.Error("forget did not clear the decline record")
+	}
+	if len(store.Roots) != 0 {
+		t.Errorf("forget must not invent learned roots: %v", store.Roots)
+	}
+}
+
+// TestCleanProjectDirAbsolutizesRelative: relative inputs (e.g. "." from
+// `roots add .`) must canonicalize to absolute paths, or decline keys and
+// mount hashes become cwd-dependent.
+func TestCleanProjectDirAbsolutizesRelative(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if got := cleanProjectDir("."); !filepath.IsAbs(got) {
+		t.Fatalf("cleanProjectDir(\".\") = %q, want absolute", got)
+	}
+	if got := cleanProjectDir("relative/dir"); !filepath.IsAbs(got) {
+		t.Fatalf("cleanProjectDir(relative) = %q, want absolute", got)
 	}
 }

@@ -232,8 +232,14 @@ func Run(args ...string) {
 
 	// Runtime is needed by multiple checks (env warnings, compose health/fixes, linux remap handling).
 	// The unified backend key doubles as the engine selector: auto/container/podman/docker
-	// resolve to an OCI binary, microvm blanks out below (Docker checks not applicable).
-	runtimeName := runtimepkg.ResolveContainerRuntime(cfg)
+	// resolve to an OCI binary. Under microvm the engine is NOT resolved at all:
+	// ResolveContainerRuntime -> DetectRuntime LAUNCHES engines (Docker/OrbStack),
+	// and the msb checks below do not use a container runtime. runtimeName stays
+	// blank so every runtimeName-gated check takes its skipped branch.
+	runtimeName := ""
+	if cfg == nil || cfg.Runtime.Backend != "microvm" {
+		runtimeName = runtimepkg.ResolveContainerRuntime(cfg)
+	}
 
 	// Backend dispatch (docs/VMs.md §7 Step 6): under the msb backend the
 	// Docker-only checks below are not applicable. runtimeName is blanked
@@ -769,6 +775,12 @@ func Run(args ...string) {
 	// installer's symlinked msb breaks resolution despite a correct
 	// MSB_HOME/lib. --fix links the lib into the searched location.
 	checks = append(checks, checkMsbLibkrunfwResolution(msbBackend, fixRequested))
+
+	// 11g. Guest Home Helpers (microvm only): msb has no per-file binds, so
+	// the guest reads update-all.sh etc. straight from the home volume.
+	// Stale bytes there mean in-guest updates run old logic. --fix refreshes
+	// them from the embedded templates.
+	checks = append(checks, checkMsbHomeHelpers(msbBackend, fixRequested))
 
 	// 12. Image Check. On the microvm backend the image lives in the msb
 	// store, not docker; probing it here always fails and reports a false
@@ -1374,6 +1386,59 @@ func msbLibkrunfwRepair(fix bool, msbPath, msbHome string) CheckResult {
 	}
 	check.Status = CheckStatusOK
 	check.Message = fmt.Sprintf("Linked %s -> %s", st.TargetDir, st.LibDir)
+	return check
+}
+
+// checkMsbHomeHelpers verifies the helper scripts inside the msb home volume
+// (<config>/home/.config/construct-cli/container) match the embedded
+// templates. msb has no per-file binds: the guest executes these bytes
+// directly, so a docker-era stale copy runs old logic in-guest (the brew
+// regression). --fix refreshes them via EnsureMountedTemplateFiles.
+func checkMsbHomeHelpers(msbBackend, fix bool) CheckResult {
+	check := CheckResult{Name: "Guest Home Helpers"}
+	if !msbBackend {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend is not microvm)"
+		return check
+	}
+
+	containerDir := filepath.Join(constructHomeDir(), ".config", "construct-cli", "container")
+	var stale []string
+	for _, helper := range runtimepkg.MsbHomeHelperFiles() {
+		path := filepath.Join(containerDir, helper.Name)
+		existing, err := os.ReadFile(path)
+		switch {
+		case os.IsNotExist(err):
+			stale = append(stale, fmt.Sprintf("%s (missing)", helper.Name))
+		case err != nil:
+			stale = append(stale, fmt.Sprintf("%s (unreadable)", helper.Name))
+		case !bytes.Equal(existing, []byte(helper.Content)):
+			stale = append(stale, fmt.Sprintf("%s (stale content)", helper.Name))
+		}
+	}
+	if len(stale) == 0 {
+		check.Status = CheckStatusOK
+		check.Message = "Home-volume helper scripts match the embedded templates"
+		return check
+	}
+
+	if !fix {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("%d home-volume helper(s) out of date (guest reads them directly)", len(stale))
+		check.Details = append(check.Details, stale...)
+		check.Suggestion = "Run 'construct sys doctor --fix' to refresh them from the embedded templates"
+		return check
+	}
+
+	if err := runtimepkg.EnsureMountedTemplateFiles(config.GetConfigDir()); err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Failed to refresh home-volume helpers"
+		check.Details = append(check.Details, err.Error())
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Refreshed %d home-volume helper(s) from the embedded templates", len(stale))
+	check.Details = append(check.Details, stale...)
 	return check
 }
 
