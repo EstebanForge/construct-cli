@@ -2,6 +2,20 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.6 -->
+## [1.17.6] - 2026-09-25
+
+### Changed
+
+- **The sandbox now grants free passwordless sudo by default.** Agents hit a sudo wall on every system task: the old sudoers drop-in was scoped to apt, ufw, and chown, and system tooling kept finding needs outside it. The guest user now carries `NOPASSWD:ALL`. The microVM is the security boundary: guest root adds no host reach beyond the mounts already granted, and read-only mounts stay read-only even for root.
+- **New `[sandbox] passwordless_sudo` knob for pickier setups.** Set it to `false` to restore the scoped apt/ufw/chown allowlist. The choice rides the guest env on both backends and stamps a daemon label, so toggling recreates the sandbox exactly once (the sudoers drop-in applies at sandbox creation). The entrypoint re-applies the policy at every boot, so existing sandboxes from older images heal on the next daemon create with no image publish and no manual step.
+
+### Fixed
+
+- **Guest updates no longer report "sudo not available".** The update pass probes with `sudo -n true`, which the old scoped allowlist rejected, so every guest update printed the warning and skipped system packages even though apt sudo worked. Under free sudo the probe passes and topgrade runs the system tier in-guest.
+
+<!-- RELEASE:END 1.17.6 -->
+
 <!-- RELEASE:START 1.17.5 -->
 ## [1.17.5] - 2026-09-25
 
