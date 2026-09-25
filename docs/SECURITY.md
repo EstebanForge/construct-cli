@@ -30,10 +30,16 @@ The Construct CLI provides multiple layers of security:
 
 **Default password:** `construct`
 
-**Purpose:** Allows sudo access when running interactive commands
+**Purpose:** The guest user owns the sandbox toolchain and mounts. Passwordless
+sudo is enabled by default (`sandbox.passwordless_sudo = true`, free
+`NOPASSWD:ALL`): the microVM is the security boundary, guest root adds no host
+reach beyond the mounts already granted, and read-only mounts stay read-only
+even for root. Set `passwordless_sudo = false` to scope sudo back down to the
+apt/ufw/chown allowlist. Toggling recreates the daemon once.
 
 **Security implications:**
 - ⚠️ **Warning**: If you expose container to untrusted networks (port forwarding, bridge mode), change the password
+- ⚠️ **Warning**: Free sudo means an agent can take any action inside the guest, including disabling in-guest firewalls. Network enforcement belongs host-side; see docs/TODO-SENTINEL-PROXY.md
 
 **Change password:**
 ```bash
