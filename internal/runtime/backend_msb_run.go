@@ -706,6 +706,19 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
 				goto create
 			}
+		} else {
+			// The recreate decision reads the sandbox's stored config: the
+			// memory floor plus the skills/mounts/sudo drift labels. A read
+			// failure means every drift check is skipped this run (an old
+			// msb record can predate config persistence entirely), so never
+			// let that pass silently.
+			detail := ""
+			if cerr != nil {
+				detail = cerr.Error()
+			} else {
+				detail = "empty sandbox config"
+			}
+			ui.InfoF("⚠️  Cannot read the daemon sandbox config (%s); skipping recreate checks this run. If the daemon behaves stale, run 'construct sys daemon recreate'.\n", detail)
 		}
 
 		if h.Status() == msb.SandboxStatusRunning {
