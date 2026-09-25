@@ -87,6 +87,85 @@ var (
 	updateDaemonStop     = StopMsbDaemonBestEffort
 )
 
+// Seams for DestroyMsbDaemon so tests can fake daemon state.
+var (
+	destroyDaemonSessions = LiveSessionCount
+	destroyDaemonStop     = stopDaemonForDestroy
+	destroyDaemonRemove   = removeDaemonSandbox
+)
+
+// stopDaemonForDestroy stops the daemon sandbox and waits for stopped.
+// Runs WITHOUT the flock and session checks — DestroyMsbDaemon owns
+// those. Returns found=false when no sandbox record exists.
+func stopDaemonForDestroy() (found bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	h, err := msb.GetSandbox(ctx, msbDaemonName)
+	if err != nil {
+		return false, nil // no sandbox record: nothing to destroy
+	}
+	if err := h.Stop(ctx); err != nil {
+		return true, fmt.Errorf("failed to stop microvm daemon: %w", err)
+	}
+	for i := 0; i < 30; i++ {
+		fresh, ferr := h.Refresh(ctx)
+		if ferr != nil || fresh.Status() == msb.SandboxStatusStopped {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return true, nil
+}
+
+// removeDaemonSandbox deletes the daemon sandbox record with its guest
+// root disk (the `msb rm` half of a recreate).
+func removeDaemonSandbox() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	h, err := msb.GetSandbox(ctx, msbDaemonName)
+	if err != nil {
+		return nil // record vanished between stop and remove: done
+	}
+	if err := h.Remove(ctx); err != nil {
+		return fmt.Errorf("failed to remove microvm daemon sandbox: %w", err)
+	}
+	return nil
+}
+
+// DestroyMsbDaemon stops the daemon sandbox and removes it with its guest
+// root disk — the deliberate full reset behind `construct sys daemon
+// recreate`. The whole sequence holds the daemon flock so a concurrent
+// EnsureMsbDaemon cannot recreate the sandbox between stop and remove.
+// Returns (destroyed, busy, error): destroyed=false means no sandbox
+// existed; busy=true means live sessions hold the daemon and the root
+// disk was left intact (the daemon may have been stopped).
+func DestroyMsbDaemon() (destroyed, busy bool, err error) {
+	release, err := acquireDaemonLock()
+	if err != nil {
+		return false, false, fmt.Errorf("acquire daemon lock: %w", err)
+	}
+	defer release()
+
+	if destroyDaemonSessions() > 0 {
+		return false, true, nil
+	}
+	found, err := destroyDaemonStop()
+	if err != nil || !found {
+		return false, false, err
+	}
+	// The session re-check between stop and remove is the real guard:
+	// removing the root disk under a live session is the one outcome to
+	// refuse. A session that raced the lock window finds a stopped
+	// daemon instead of a deleted one.
+	if destroyDaemonSessions() > 0 {
+		return false, true, nil
+	}
+	if err := destroyDaemonRemove(); err != nil {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
 // StopDaemonForUpdate arms the post-update rebuild. Sandbox setup (sudoers
 // policy, mounts, skills) applies at build time only, so a daemon that was
 // running during a self-update keeps the old setup until it is rebuilt.

@@ -296,6 +296,46 @@ func Stop() {
 	ui.GumSuccess("Daemon stopped")
 }
 
+// Recreate destroys the microvm daemon sandbox, guest root disk
+// included, and boots a fresh one from the current image. Sandbox setup
+// (sudo policy, mounts, skills, entrypoint) applies at build time only,
+// so this is the deliberate "wipe and rebuild" when the daemon is wedged
+// or must pick up republished image content. The daemon's home volume is
+// a host bind, so user-level state survives; only the guest root disk is
+// lost (installed tools reinstall on the next boot).
+func Recreate() {
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	if cfg.Runtime.Backend != "microvm" {
+		ui.GumError("Daemon recreate applies to the microvm backend only")
+		os.Exit(1)
+	}
+	if n := runtime.LiveSessionCount(); n > 0 {
+		ui.GumError(fmt.Sprintf("%d live session(s) are using the daemon. Finish them, then recreate.", n))
+		os.Exit(1)
+	}
+	if !ui.GumConfirmNoDefault("Delete the daemon sandbox including its root disk? Installed tools reinstall on the next boot (a few minutes).") {
+		ui.GumInfo("Canceled")
+		return
+	}
+	destroyed, busy, err := runtime.DestroyMsbDaemon()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to destroy daemon sandbox: %v", err))
+		os.Exit(1)
+	}
+	if busy {
+		ui.GumError("A session appeared during the destroy; daemon left untouched")
+		os.Exit(1)
+	}
+	if !destroyed {
+		ui.GumInfo("Daemon sandbox does not exist; creating a fresh one")
+	}
+	startMsb(cfg)
+}
+
 // Restart restarts the daemon container
 func Restart() {
 	cfg, _, err := config.Load()

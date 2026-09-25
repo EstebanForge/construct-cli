@@ -117,6 +117,7 @@ Design (host-side only, per the fundamentals):
 - NEVER use SDK `WithIdleTimeout` for this (see fundamentals). Idle is defined as "zero registered sessions", never VM CPU: an agent thinking for 20 minutes or a long build keeps its session registered and the VM alive.
 - A run arriving during the countdown: it registers a session; the helper rechecks after the sleep and stands down.
 - Warm restart already works: the stopped-daemon path (`StartDetached` + `ExecDefault` + `msbWaitKeeper`) exists today and is exercised by `sys daemon start`.
+- `construct sys daemon recreate` (2026-09-25): the deliberate full reset. Stops the sandbox, removes it with its guest root disk (the old manual `msb rm construct-cli-daemon` flow), then cold-creates from the current image. Refuses while live sessions exist (a session racing the lock window between stop and remove keeps the root disk); asks with a default-NO confirm because the wipe reinstalls tools on next boot; microvm only. A plain `restart` stays the cheap path: it flows through the same recreate decision as agent runs and warm-boots when labels match.
 
 - [x] P3.1 Session registry helper (register/unregister/sweep-stale) + unit tests
 - [x] P3.2 Wire register/unregister into `execViaMsbDaemon` and Teardown

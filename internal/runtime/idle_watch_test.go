@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,4 +132,88 @@ func TestStopDaemonForUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDestroyMsbDaemon: the recreate verb's destroy primitive refuses
+// busy daemons, no-ops on an absent sandbox, surfaces stop/remove errors,
+// and orders the session re-check between stop and remove so a racing
+// session finds a stopped daemon instead of a deleted one.
+func TestDestroyMsbDaemon(t *testing.T) {
+	originalSessions := destroyDaemonSessions
+	originalStop := destroyDaemonStop
+	originalRemove := destroyDaemonRemove
+	t.Cleanup(func() {
+		destroyDaemonSessions = originalSessions
+		destroyDaemonStop = originalStop
+		destroyDaemonRemove = originalRemove
+	})
+
+	t.Run("busy before stop refuses without touching the sandbox", func(t *testing.T) {
+		destroyDaemonSessions = func() int { return 2 }
+		destroyDaemonStop = func() (bool, error) {
+			t.Error("stop must not run while sessions are live")
+			return true, nil
+		}
+		destroyed, busy, err := DestroyMsbDaemon()
+		if err != nil || !busy || destroyed {
+			t.Fatalf("got destroyed=%v busy=%v err=%v, want busy", destroyed, busy, err)
+		}
+	})
+
+	t.Run("absent sandbox reports nothing destroyed", func(t *testing.T) {
+		destroyDaemonSessions = func() int { return 0 }
+		destroyDaemonStop = func() (bool, error) { return false, nil }
+		destroyDaemonRemove = func() error {
+			t.Error("remove must not run when no sandbox exists")
+			return nil
+		}
+		destroyed, busy, err := DestroyMsbDaemon()
+		if err != nil || busy || destroyed {
+			t.Fatalf("got destroyed=%v busy=%v err=%v, want nothing destroyed", destroyed, busy, err)
+		}
+	})
+
+	t.Run("idle daemon is stopped then removed", func(t *testing.T) {
+		destroyDaemonSessions = func() int { return 0 }
+		stopCalled := false
+		destroyDaemonStop = func() (bool, error) { stopCalled = true; return true, nil }
+		destroyDaemonRemove = func() error { return nil }
+		destroyed, busy, err := DestroyMsbDaemon()
+		if err != nil || busy || !destroyed || !stopCalled {
+			t.Fatalf("got destroyed=%v busy=%v err=%v stopCalled=%v", destroyed, busy, err, stopCalled)
+		}
+	})
+
+	t.Run("session racing between stop and remove keeps the root disk", func(t *testing.T) {
+		calls := 0
+		destroyDaemonSessions = func() int {
+			calls++
+			if calls == 1 {
+				return 0 // pre-stop check passes
+			}
+			return 1 // session appeared while the stop ran
+		}
+		destroyDaemonStop = func() (bool, error) { return true, nil }
+		destroyDaemonRemove = func() error {
+			t.Error("remove must not run after a session raced in")
+			return nil
+		}
+		destroyed, busy, err := DestroyMsbDaemon()
+		if err != nil || !busy || destroyed {
+			t.Fatalf("got destroyed=%v busy=%v err=%v, want busy with disk intact", destroyed, busy, err)
+		}
+	})
+
+	t.Run("stop and remove errors surface", func(t *testing.T) {
+		destroyDaemonSessions = func() int { return 0 }
+		destroyDaemonStop = func() (bool, error) { return true, errors.New("stop boom") }
+		if _, _, err := DestroyMsbDaemon(); err == nil || !strings.Contains(err.Error(), "stop boom") {
+			t.Fatalf("stop error = %v, want stop boom", err)
+		}
+		destroyDaemonStop = func() (bool, error) { return true, nil }
+		destroyDaemonRemove = func() error { return errors.New("remove boom") }
+		if _, _, err := DestroyMsbDaemon(); err == nil || !strings.Contains(err.Error(), "remove boom") {
+			t.Fatalf("remove error = %v, want remove boom", err)
+		}
+	})
 }
