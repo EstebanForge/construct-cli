@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.5 -->
+## [1.17.5] - 2026-09-25
+
+### Changed
+
+- **Mounting `$HOME` now always warns and always asks.** Mounting the entire home directory hands the sandbox read-write access to every user file in the system: SSH keys, browser profiles, credential stores, documents. A single acceptance is not an informed decision for all future runs, so nothing about home is ever remembered. Every run from `$HOME` prints the danger warning and asks, with Enter defaulting to NO. Acceptance mounts home for that run only; refusal fails the run and persists nothing; headless runs fail closed. `construct sys daemon roots add $HOME` refuses, so the checkpoint cannot be bypassed. For home-level scope, add a narrower root to `[daemon] mount_paths` instead.
+
+### Fixed
+
+- **Existing `roots.json` files can no longer bypass the home checkpoint.** Release 1.17.4's prompt could persist `$HOME` as a learned root (silently skipping every later prompt, subdirectories included) or as a decline (failing every run anywhere under `$HOME` while pointing at a command that now refuses). Both are stripped on load, so upgrades heal without a migration step.
+
+<!-- RELEASE:END 1.17.5 -->
+
 <!-- RELEASE:START 1.17.4 -->
 ## [1.17.4] - 2026-09-25
 
