@@ -30,6 +30,13 @@ const DaemonSkillsLabelKey = "construct.daemon.skills_hash"
 // a running daemon keeps the old policy until it is recreated.
 const DaemonSudoLabelKey = "construct.daemon.sudo"
 
+// DaemonImageDigestLabelKey stamps the construct-box digest the sandbox
+// was created from so a republished image can force exactly one recreate:
+// the entrypoint, sudoers, and baked toolchain all live on the image, so
+// a daemon that predates the current image boots stale content however
+// well its config labels match. Empty local digests never force one.
+const DaemonImageDigestLabelKey = "construct.daemon.image_digest"
+
 // DaemonMount defines a host-to-container mount mapping.
 type DaemonMount struct {
 	HostPath      string

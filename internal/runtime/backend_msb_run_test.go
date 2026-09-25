@@ -300,7 +300,7 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 			// mask the workspace/mounts behavior these cases exercise.
 			cfg := config.DefaultConfig()
 			cfg.Sandbox.MountSkills = false
-			got, reason := msbDaemonNeedsRecreate(tt.dm, tt.labels, tt.cfgJSON, tt.projectDir, false, &cfg)
+			got, reason := msbDaemonNeedsRecreate(tt.dm, tt.labels, tt.cfgJSON, tt.projectDir, false, &cfg, "")
 			if got != tt.want {
 				t.Fatalf("needRecreate = %v (reason %q), want %v", got, reason, tt.want)
 			}
@@ -437,7 +437,7 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 						}
 						labelsForMode[DaemonMountsLabelKey] = hashDaemonMountPaths(effectiveWorkspaceRoots(workspaceRoot, store))
 					}
-					got, reason := msbDaemonNeedsRecreate(dm, labelsForMode, cfgJSON, workspaceRoot, false, &cfg)
+					got, reason := msbDaemonNeedsRecreate(dm, labelsForMode, cfgJSON, workspaceRoot, false, &cfg, "")
 					if got != wantRecreate {
 						t.Fatalf("mode=%s got recreate=%v reason=%q, want recreate=%v", mode, got, reason, wantRecreate)
 					}
@@ -784,14 +784,14 @@ func TestNeedsRecreateSudoPolicyToggle(t *testing.T) {
 	cfg.Sandbox.MountSkills = false
 	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc"}
 
-	if recreate, _ := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &cfg); recreate {
+	if recreate, _ := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &cfg, ""); recreate {
 		t.Error("matching free-sudo label must not recreate")
 	}
 
 	scoped := config.DefaultConfig()
 	scoped.Sandbox.MountSkills = false
 	scoped.Sandbox.PasswordlessSudo = false
-	recreate, reason := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &scoped)
+	recreate, reason := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &scoped, "")
 	if !recreate {
 		t.Fatal("sudo policy toggle must recreate the daemon")
 	}
@@ -802,7 +802,57 @@ func TestNeedsRecreateSudoPolicyToggle(t *testing.T) {
 	// Legacy daemon (pre-label) with the default policy: the empty label
 	// recreates once so the free-sudo sudoers drop-in gets applied.
 	legacyLabels := map[string]string{DaemonMountsLabelKey: "abc"}
-	if recreate, _ := msbDaemonNeedsRecreate(dm, legacyLabels, "{}", "", false, &cfg); !recreate {
+	if recreate, _ := msbDaemonNeedsRecreate(dm, legacyLabels, "{}", "", false, &cfg, ""); !recreate {
 		t.Error("legacy daemon without a sudo label must recreate once to gain free sudo")
+	}
+}
+
+// TestNeedsRecreateImageDigestDrift: a republished construct-box must
+// force exactly one recreate (the entrypoint, sudoers, and baked
+// toolchain all live on the image), matching digests must reuse, and an
+// unknown local digest never forces one.
+func TestNeedsRecreateImageDigestDrift(t *testing.T) {
+	// Multi-mode with a matching mounts hash, disabled skills, and the
+	// matching sudo label isolates the image-digest check from the other
+	// decisions.
+	dm := DaemonMounts{Enabled: true, Hash: "abc"}
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.MountSkills = false
+	const newDigest = "sha256:newimage0000000000000000000000000000000000000000000000000000000"
+	labeled := map[string]string{
+		DaemonSudoLabelKey:        "free",
+		DaemonMountsLabelKey:      "abc",
+		DaemonImageDigestLabelKey: newDigest,
+	}
+
+	if recreate, reason := msbDaemonNeedsRecreate(dm, labeled, "{}", "", false, &cfg, newDigest); recreate {
+		t.Errorf("matching image digest must not recreate (reason %q)", reason)
+	}
+
+	stale := map[string]string{
+		DaemonSudoLabelKey:        "free",
+		DaemonMountsLabelKey:      "abc",
+		DaemonImageDigestLabelKey: "sha256:oldimage000000000000000000000000000000000000000000000000000000",
+	}
+	recreate, reason := msbDaemonNeedsRecreate(dm, stale, "{}", "", false, &cfg, newDigest)
+	if !recreate {
+		t.Fatal("image digest drift must recreate the daemon")
+	}
+	if !strings.Contains(reason, "construct-box image changed") {
+		t.Errorf("reason %q should name the image change", reason)
+	}
+
+	// Legacy daemon (pre-label) recreates exactly once so the image
+	// digest label gets stamped — the same upgrade vehicle as the sudo
+	// label.
+	legacy := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc"}
+	if recreate, _ := msbDaemonNeedsRecreate(dm, legacy, "{}", "", false, &cfg, newDigest); !recreate {
+		t.Error("legacy daemon without an image label must recreate once")
+	}
+
+	// Unknown local digest (image inspect failed) keeps the daemon: the
+	// empty digest skips the check entirely.
+	if recreate, _ := msbDaemonNeedsRecreate(dm, stale, "{}", "", false, &cfg, ""); recreate {
+		t.Error("unknown local digest must never force a recreate")
 	}
 }
