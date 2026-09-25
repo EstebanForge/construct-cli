@@ -172,12 +172,12 @@ func (m *MsbBackend) imageLoaded() bool {
 // cached or the output cannot be parsed.
 func msbCachedImageDigest() string {
 	for _, candidate := range constructImageRefCandidates {
-		if !msbImageCached(candidate) {
-			continue
-		}
+		// One inspect per candidate doubles as the cached check: a missing
+		// ref fails the command, so fall through to the next candidate form
+		// instead of a separate msbImageCached subprocess.
 		out, err := exec.Command("msb", "image", "inspect", candidate).CombinedOutput()
 		if err != nil {
-			return ""
+			continue
 		}
 		for _, line := range strings.Split(string(out), "\n") {
 			if digest, ok := strings.CutPrefix(line, "Digest:"); ok {
