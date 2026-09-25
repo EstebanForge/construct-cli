@@ -42,15 +42,31 @@ fix_clipboard_libs() {
     done
 }
 
+# patch_sed edits a file in place, elevating via non-interactive sudo for
+# root-owned paths (image-baked /usr/local/lib/node_modules). Free sudo (the
+# default) applies the patch; with sandbox.passwordless_sudo = false the
+# sudo -n probe fails fast and the patch is skipped, same as before.
+patch_sed() {
+    local file="$1"
+    shift
+    if [[ -w "$file" ]]; then
+        sed -i "$@" "$file"
+    elif sudo -n true 2>/dev/null; then
+        sudo -n sed -i "$@" "$file"
+    else
+        return 1
+    fi
+}
+
 patch_agent_code() {
     # Find all JS files that might contain the platform check
     # We look for files containing 'process.platform' and 'darwin'
     find -L /usr/local/lib/node_modules "$HOME/.npm-global" -type f -name "*.js" 2>/dev/null | xargs grep -l "process.platform" 2>/dev/null | xargs grep -l "darwin" 2>/dev/null | while read -r js_file; do
         if grep -q "process.platform !== \"darwin\"" "$js_file"; then
             # Replace platform check with a dummy 'false' to allow the code to run on Linux
-            sed -i 's/process.platform !== \"darwin\"/false/g' "$js_file"
+            patch_sed "$js_file" 's/process.platform !== \"darwin\"/false/g'
         elif grep -q "process.platform !== 'darwin'" "$js_file"; then
-            sed -i "s/process.platform !== 'darwin'/false/g" "$js_file"
+            patch_sed "$js_file" "s/process.platform !== 'darwin'/false/g"
         fi
     done
 }
