@@ -390,9 +390,35 @@ func SelfUpdate(cfg ...*config.Config) error {
 	resolvedCfg := resolveUpdateCfg(cfg...)
 	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, "microvm") {
 		runtimepkg.MaybePrepullImage(resolvedCfg)
+		// The sandbox applies its setup at build time only. Stop an idle
+		// daemon now so the next ct command rebuilds it against this
+		// release instead of silently reconnecting to stale setup.
+		notifyUpdateDaemonState(runtimepkg.StopDaemonForUpdate())
 	}
 
 	return nil
+}
+
+// notifyUpdateDaemonState reports what the post-update daemon stop decided.
+// Split from SelfUpdate so the wording stays testable.
+func notifyUpdateDaemonState(stopped, busy bool, err error) {
+	const rebuilt = "Your next construct command rebuilds it with the new setup (tools reinstall, a few minutes)."
+	switch {
+	case err != nil:
+		ui.LogWarning("Could not check the daemon after update: %v", err)
+	case stopped:
+		if ui.GumAvailable() {
+			ui.GumInfo("Stopped the idle daemon. " + rebuilt)
+		} else {
+			fmt.Println("Stopped the idle daemon. " + rebuilt)
+		}
+	case busy:
+		if ui.GumAvailable() {
+			ui.GumInfo("The daemon is holding live sessions. When they finish, run 'construct sys daemon stop'. " + rebuilt)
+		} else {
+			fmt.Println("The daemon is holding live sessions. When they finish, run 'construct sys daemon stop'. " + rebuilt)
+		}
+	}
 }
 
 func resolveInstallTarget(execPath string) (string, bool, error) {
