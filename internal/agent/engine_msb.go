@@ -30,12 +30,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		allowHome = e.cfg.Sandbox.AllowHomeWorkspace
 		maxEntries = e.cfg.Sandbox.WorkspaceMaxEntries
 	}
-	verdict := runtime.EvaluateWorkspace(e.cwd, maxEntries)
-	if err := runtime.EnforceWorkspace(verdict, runtime.WorkspacePolicy{
-		AllowHome:   allowHome,
-		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
-		Confirm:     ui.GumConfirm,
-	}); err != nil {
+	if err := runtime.EnforceWorkspaceRemembered(e.cwd, maxEntries, allowHome, term.IsTerminal(int(os.Stdin.Fd()))); err != nil {
 		return 1, err
 	}
 

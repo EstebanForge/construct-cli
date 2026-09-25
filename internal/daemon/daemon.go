@@ -124,12 +124,7 @@ func startMsb(cfg *config.Config) {
 		allowHome = cfg.Sandbox.AllowHomeWorkspace
 		maxEntries = cfg.Sandbox.WorkspaceMaxEntries
 	}
-	verdict := runtime.EvaluateWorkspace(cwd, maxEntries)
-	if err := runtime.EnforceWorkspace(verdict, runtime.WorkspacePolicy{
-		AllowHome:   allowHome,
-		Interactive: term.IsTerminal(int(os.Stdin.Fd())),
-		Confirm:     ui.GumConfirm,
-	}); err != nil {
+	if err := runtime.EnforceWorkspaceRemembered(cwd, maxEntries, allowHome, term.IsTerminal(int(os.Stdin.Fd()))); err != nil {
 		ui.GumError(fmt.Sprintf("MicroVM workspace refused: %v", err))
 		os.Exit(1)
 	}
