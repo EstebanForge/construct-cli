@@ -36,6 +36,11 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Entrypoint, "NOPASSWD:ALL") || !strings.Contains(Entrypoint, "NOPASSWD: /usr/bin/apt*") {
 		t.Error("entrypoint template must carry both the free and scoped sudoers policies")
 	}
+	// Agent patching hits root-owned image paths; it must elevate under
+	// free sudo and fail fast (never a password prompt) when scoped.
+	if !strings.Contains(AgentPatch, "sudo -n sed") {
+		t.Error("agent-patch.sh should elevate root-owned edits via sudo -n")
+	}
 	if !strings.Contains(Dockerfile, "mise install") {
 		t.Error("Dockerfile template missing the baked mise github: tool tier")
 	}
