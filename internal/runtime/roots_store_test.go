@@ -180,9 +180,70 @@ func TestRootsPathsDropsMissing(t *testing.T) {
 	}
 }
 
-// TestRequestLearnRootNonInteractiveDeny pins the consent gate: with no
-// TTY on stdin, an unknown root must NOT be learned — the caller gets
-// ErrMsbDaemonWorkdirUnmapped and the store stays untouched.
+// TestRequestLearnRootAutoLearnsInsideHome: inside the user's home there
+// is no consent gate — the folder the user invoked from is auto-learned
+// and persisted, headless or not (Docker parity). The confirm seam must
+// never fire.
+func TestRequestLearnRootAutoLearnsInsideHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, "projects", "app")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	origInteractive, origConfirm := learnRootInteractive, learnRootConfirm
+	learnRootInteractive = func() bool {
+		t.Error("inside-home learn must not consult interactivity")
+		return false
+	}
+	learnRootConfirm = func(string) bool {
+		t.Error("inside-home learn must not prompt")
+		return false
+	}
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirm = origInteractive, origConfirm })
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, dir)
+	if err != nil || !learned {
+		t.Fatalf("learned=%v err=%v, want auto-learn success", learned, err)
+	}
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if !store.Has(cleanProjectDir(dir)) {
+		t.Error("inside-home root was not persisted")
+	}
+}
+
+// TestRequestLearnRootHomeItselfNotAutoLearned: the home directory itself
+// is not "inside home" — learning it would mount the entire home, so it
+// keeps the checkpoint flow (headless: fail closed, nothing persisted).
+func TestRequestLearnRootHomeItselfNotAutoLearned(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, home)
+	if !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+		t.Fatalf("err = %v, want ErrMsbDaemonWorkdirUnmapped", err)
+	}
+	if learned {
+		t.Error("home itself must not be auto-learned")
+	}
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if store.Has(cleanProjectDir(home)) {
+		t.Error("home itself must not be persisted")
+	}
+}
+
+// TestRequestLearnRootNonInteractiveDeny pins the OUTSIDE-home consent
+// gate: with no TTY on stdin, an unknown root must NOT be learned — the
+// caller gets ErrMsbDaemonWorkdirUnmapped and the store stays untouched.
 func TestRequestLearnRootNonInteractiveDeny(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	newDir := t.TempDir()
@@ -354,5 +415,137 @@ func TestCleanProjectDirAbsolutizesRelative(t *testing.T) {
 	}
 	if got := cleanProjectDir("relative/dir"); !filepath.IsAbs(got) {
 		t.Fatalf("cleanProjectDir(relative) = %q, want absolute", got)
+	}
+}
+
+// TestRequestLearnRootDeclinedInsideHomeWins: the exclusion list beats
+// auto-learn, including for SUBTREES — declining ~/Secret excludes
+// ~/Secret/sub, and the error names the record the user originally
+// declined (the one `roots add` reverses).
+func TestRequestLearnRootDeclinedInsideHomeWins(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+	secret := filepath.Join(home, "Secret")
+	if err := os.MkdirAll(filepath.Join(secret, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	store.DeclineRoot(cleanProjectDir(secret), time.Now())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save store: %v", err)
+	}
+
+	origConfirm := learnRootConfirm
+	learnRootConfirm = func(string) bool {
+		t.Error("declined subtree must not re-prompt")
+		return true
+	}
+	t.Cleanup(func() { learnRootConfirm = origConfirm })
+
+	cfg := config.DefaultConfig()
+	learned, lerr := requestLearnRoot(&cfg, filepath.Join(secret, "sub"))
+	if learned || !errors.Is(lerr, ErrMsbDaemonWorkdirDeclined) {
+		t.Fatalf("learned=%v err=%v, want declined error", learned, lerr)
+	}
+	if !strings.Contains(lerr.Error(), cleanProjectDir(secret)) {
+		t.Errorf("error must name the declined record %s: %v", cleanProjectDir(secret), lerr)
+	}
+	s, rerr := LoadRootsStore()
+	if rerr != nil {
+		t.Fatalf("load store: %v", rerr)
+	}
+	if s.Has(cleanProjectDir(filepath.Join(secret, "sub"))) {
+		t.Error("declined subtree must not be auto-learned")
+	}
+}
+
+// TestRequestLearnRootSensitiveHomePathNotAutoLearned: hidden top-level
+// home dirs (credential and cache trees like ~/.ssh, ~/.aws, ~/.gnupg)
+// and macOS ~/Library keep the checkpoint regime: headless fails closed
+// and nothing is persisted.
+func TestRequestLearnRootSensitiveHomePathNotAutoLearned(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+	sensitive := []string{
+		filepath.Join(home, ".ssh"),
+		filepath.Join(home, ".aws", "credentials-dir"),
+		filepath.Join(home, "Library"),
+	}
+	for _, dir := range sensitive {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		// cleanProjectDir resolves symlinks; make the stored key the same
+		// shape the code would persist, then check non-persistence below.
+		cfg := config.DefaultConfig()
+		learned, err := requestLearnRoot(&cfg, dir)
+		if learned || !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+			t.Errorf("%s: learned=%v err=%v, want fail-closed unmapped", dir, learned, err)
+		}
+		store, lerr := LoadRootsStore()
+		if lerr != nil {
+			t.Fatalf("load store: %v", lerr)
+		}
+		if store.Has(cleanProjectDir(dir)) {
+			t.Errorf("%s must not be auto-learned", dir)
+		}
+	}
+}
+
+// TestRequestLearnRootDisabledWhenCapZero: max_learned_roots = 0 disables
+// the learned-root mechanism entirely — even inside $HOME, an uncovered
+// folder fails with the config hint and nothing is persisted.
+func TestRequestLearnRootDisabledWhenCapZero(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+	dir := filepath.Join(home, "projects", "app")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Daemon.MaxLearnedRoots = 0
+	learned, err := requestLearnRoot(&cfg, dir)
+	if learned || !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+		t.Fatalf("learned=%v err=%v, want unmapped when learning disabled", learned, err)
+	}
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if store.Has(cleanProjectDir(dir)) {
+		t.Error("learning disabled must not persist roots")
+	}
+}
+
+// TestInsideUserHomeSymlinkedAndSlashedHome: containment must survive a
+// symlinked home (Fedora Atomic /home -> /var/home shape) and a trailing
+// slash on $HOME, while the home directory itself stays outside.
+func TestInsideUserHomeSymlinkedAndSlashedHome(t *testing.T) {
+	realHome := t.TempDir()
+	linkHome := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(realHome, linkHome); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	// cleanProjectDir resolves the input symlink, so a run "through" the
+	// link home resolves under realHome; the raw-home comparison alone
+	// would miss it.
+	resolved := cleanProjectDir(filepath.Join(linkHome, "projects", "app"))
+
+	t.Setenv("HOME", linkHome)
+	if !insideUserHome(resolved) {
+		t.Errorf("symlinked home containment failed for %q", resolved)
+	}
+	// Trailing slash on $HOME must not make the home itself auto-learnable.
+	t.Setenv("HOME", realHome+string(os.PathSeparator))
+	if insideUserHome(realHome) {
+		t.Error("home itself must not count as inside home")
+	}
+	if !insideUserHome(filepath.Join(realHome, "projects")) {
+		t.Error("plain containment broken")
 	}
 }

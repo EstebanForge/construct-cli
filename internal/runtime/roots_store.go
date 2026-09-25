@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -190,11 +191,30 @@ func (s RootsStore) Has(cleaned string) bool {
 	return false
 }
 
-// IsDeclined reports whether the exact cleaned path has a persisted
-// user decline ("do not offer to mount this folder").
+// IsDeclined reports whether cleaned has a persisted user decline ("do
+// not offer to mount this folder"), matching the declined path ITSELF or
+// anything below it: a decline on ~/Secret excludes ~/Secret/sub too.
 func (s RootsStore) IsDeclined(cleaned string) bool {
-	_, ok := s.Declined[cleaned]
-	return ok
+	return s.DeclineKeyFor(cleaned) != ""
+}
+
+// DeclineKeyFor returns the persisted decline record that covers cleaned
+// (exact match or a declined ancestor), "" when none. The record key is
+// what error messages should name: it is what the user originally said no
+// to, and what `roots add` reverses.
+func (s RootsStore) DeclineKeyFor(cleaned string) string {
+	if cleaned == "" {
+		return ""
+	}
+	if _, ok := s.Declined[cleaned]; ok {
+		return cleaned
+	}
+	for declined := range s.Declined {
+		if containsPath(declined, cleaned) {
+			return declined
+		}
+	}
+	return ""
 }
 
 // DeclineRoot records a user "no" for the exact cleaned path so later
@@ -250,24 +270,33 @@ var (
 // declinedError builds the actionable error for a declined folder: the run
 // cannot proceed without its workdir mounted, and the message carries the
 // command that reverses the decision.
-func declinedError(resolved string) error {
-	return fmt.Errorf("%w: %s. Construct will not ask about this folder again. To mount it later: construct sys daemon roots add %s", ErrMsbDaemonWorkdirDeclined, resolved, resolved)
+func declinedError(record string) error {
+	return fmt.Errorf("%w: %s. Construct will not ask about this folder again. To mount it later: construct sys daemon roots add %s", ErrMsbDaemonWorkdirDeclined, record, record)
 }
 
-// requestLearnRoot prompts the user (interactive only) to add a new root to
-// the daemon's learned roots. Returns:
+// requestLearnRoot adds a new root to the daemon's learned roots. Two
+// regimes:
 //
-//   - (true, nil)            root learned and saved
-//   - (false, ErrMapped...)  non-interactive, or the folder was declined
-//     before (ErrMsbDaemonWorkdirUnmapped /
-//     ErrMsbDaemonWorkdirDeclined, both actionable)
-//   - (false, ErrDeclined...)  interactive NO: the decline is persisted
-//     (never re-prompts) and the error carries the manual-add command
-//   - (false, nil)           workspace guard failed; caller ignores
+//   - Inside the user's home directory: consent is implied by the
+//     invocation itself (the mounted folder is the folder the user ran ct
+//     from; the Docker backend mounts any cwd unconditionally). The root
+//     is learned and persisted with NO prompt, interactive or headless.
+//     Everyday ~/... flows never ask. The home directory ITSELF is not
+//     "inside": learning it would mount the whole home, so it keeps the
+//     human checkpoint.
+//   - Outside home: interactive runs get the gum prompt (a NO persists a
+//     decline that never re-prompts); headless runs fail closed with
+//     ErrMsbDaemonWorkdirUnmapped and the config hint.
 //
-// The store is RE-READ after the prompt: the interactive wait can last
-// minutes, and a concurrent `roots add`/`roots forget` (which hold the
-// flock themselves) would otherwise be clobbered by a stale in-memory copy.
+// Both regimes honor the manual exclusion list first: a declined folder
+// returns ErrMsbDaemonWorkdirDeclined (carrying the `roots add` command)
+// and is never learned or mounted. System-risk paths are refused upstream
+// by cleanProjectDir and re-checked here as a backstop.
+//
+// The store is RE-READ inside learnRoot (and after the prompt): the
+// interactive wait can last minutes, and a concurrent `roots add`/`roots
+// forget` (which hold the flock themselves) would otherwise be clobbered
+// by a stale in-memory copy.
 // MUST be called inside the daemon flock critical section (phase 1) so
 // concurrent ct invocations learning different roots never produce
 // last-write-wins root loss.
@@ -275,12 +304,7 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 	resolved := cleanProjectDir(projectDir)
 	if resolved == "" {
 		return false, nil
-	} // Note: the workspace guard (EvaluateWorkspace RiskSystem) is enforced
-	// upstream by cleanProjectDir, which returns "" for system roots. By
-	// the time we reach here the path has been classified OK. We keep the
-	// guard as a defensive backstop in case a future caller bypasses
-	// cleanProjectDir; the decline case below produces an error carrying
-	// the manual-add hint, which the call site surfaces directly.
+	} // Defensive backstop: cleanProjectDir already refuses system roots.
 	if EvaluateWorkspace(resolved, 0).Risk == WorkspaceRiskSystem {
 		ui.InfoF("Refusing to learn system root: %s\n", resolved)
 		return false, nil
@@ -290,11 +314,33 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// A previously declined folder never re-prompts: the user already said
-	// no, and re-asking on every run is nagging. The error tells them how
-	// to change their mind later.
-	if store.IsDeclined(resolved) {
-		return false, declinedError(resolved)
+	// The exclusion list wins everywhere: a declined folder never
+	// re-prompts and never auto-learns — for the folder itself OR anything
+	// below it (declining ~/Secret excludes ~/Secret/sub). The error names
+	// the record the user originally declined, which `roots add` reverses.
+	if record := store.DeclineKeyFor(resolved); record != "" {
+		return false, declinedError(record)
+	}
+
+	// Learning opt-out: max_learned_roots = 0 disables the learned-root
+	// mechanism entirely (config-only setups). Headless or not, an
+	// uncovered folder fails with the config hint.
+	if cfg != nil && cfg.Daemon.MaxLearnedRoots <= 0 {
+		ui.InfoF("Root learning is disabled (daemon.max_learned_roots = 0). Add %s to [daemon] mount_paths to mount it.\n", resolved)
+		return false, ErrMsbDaemonWorkdirUnmapped
+	}
+
+	// Everyday case: inside home, learn silently and get on with the run —
+	// EXCEPT sensitive home locations (hidden top-level dirs like ~/.ssh,
+	// ~/.aws, ~/.gnupg, ~/.cache; macOS ~/Library), which route to the
+	// checkpoint regime below: auto-mounting host credentials into a
+	// persistent shared sandbox is not a silent default.
+	if insideUserHome(resolved) && !isSensitiveHomePath(resolved) {
+		if lerr := learnRoot(cfg, resolved); lerr != nil {
+			return false, lerr
+		}
+		ui.InfoF("Auto-mounted %s (learned root; remove with `construct sys daemon roots forget %s`)\n", resolved, resolved)
+		return true, nil
 	}
 
 	isInteractive := learnRootInteractive()
@@ -313,7 +359,7 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 			return false, err
 		}
 		// Persist the decline so the folder never re-prompts. A save
-		// failure downgrades to today's behavior (asks again next run).
+		// failure downgrades to ask-again-next-run.
 		store.DeclineRoot(resolved, time.Now())
 		if serr := SaveRootsStore(store); serr != nil {
 			ui.InfoF("Could not persist the decline (%v); you may be asked again.\n", serr)
@@ -323,11 +369,17 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 		return false, declinedError(resolved)
 	}
 
-	// Same re-read for the accept path: learn must build on the latest
-	// on-disk set, not the pre-prompt snapshot.
-	store, err = LoadRootsStore()
+	return true, learnRoot(cfg, resolved)
+}
+
+// learnRoot persists a learned root: fresh store load, TouchRoot, LRU
+// eviction past the cap, save. The reload matters after an interactive
+// prompt (minutes-long wait) and keeps every mutation on the latest
+// on-disk set. Caller must hold the daemon flock.
+func learnRoot(cfg *config.Config, resolved string) error {
+	store, err := LoadRootsStore()
 	if err != nil {
-		return false, err
+		return err
 	}
 	now := time.Now()
 	store.TouchRoot(resolved, now)
@@ -337,10 +389,71 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 				len(evicted), cfg.Daemon.MaxLearnedRoots, evicted)
 		}
 	}
-	if err := SaveRootsStore(store); err != nil {
-		return false, err
+	return SaveRootsStore(store)
+}
+
+// insideUserHome reports whether resolved lies strictly BELOW the user's
+// home directory. The home directory itself does not count (learning it
+// would mount the entire home; that keeps the checkpoint flow). Both the
+// raw and the symlink-resolved home are accepted as containment roots:
+// resolved comes from cleanProjectDir (EvalSymlinks), so on hosts where
+// /home is a symlink (Fedora Atomic, /var/root under macOS root) the
+// raw-home comparison alone would miss every path. Unknown home counts
+// as outside.
+func insideUserHome(resolved string) bool {
+	home := hostHomeDir()
+	if home == "" {
+		return false
 	}
-	return true, nil
+	candidates := []string{filepath.Clean(home)}
+	if r, err := filepath.EvalSymlinks(home); err == nil && r != candidates[0] {
+		candidates = append(candidates, r)
+	}
+	for _, h := range candidates {
+		if resolved == h {
+			return false // home itself is never "inside home"
+		}
+		if containsPath(h, resolved) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSensitiveHomePath reports whether resolved lives inside a sensitive
+// home tree: a directly-nested hidden directory (credential and cache
+// trees like ~/.ssh, ~/.aws, ~/.gnupg, ~/.cache — anything below them
+// inherits) or macOS ~/Library. Such paths are never auto-learned; they
+// keep the interactive checkpoint so no host credential tree lands in
+// the shared sandbox without a human saying yes. Hidden dirs DEEPER in
+// the tree (~/projects/.env-tooling) are deliberate project locations
+// and stay auto-learnable.
+func isSensitiveHomePath(resolved string) bool {
+	home := hostHomeDir()
+	if home == "" {
+		return false
+	}
+	candidates := []string{filepath.Clean(home)}
+	if r, err := filepath.EvalSymlinks(home); err == nil && r != candidates[0] {
+		candidates = append(candidates, r)
+	}
+	for _, h := range candidates {
+		if resolved == h || !containsPath(h, resolved) {
+			continue
+		}
+		rel, err := filepath.Rel(h, resolved)
+		if err != nil || rel == "." {
+			continue
+		}
+		first := rel
+		if i := strings.Index(rel, string(os.PathSeparator)); i >= 0 {
+			first = rel[:i]
+		}
+		if strings.HasPrefix(first, ".") || first == "Library" {
+			return true
+		}
+	}
+	return false
 }
 
 // DaemonRootsList prints the daemon's learned roots (phase 2). Pinned

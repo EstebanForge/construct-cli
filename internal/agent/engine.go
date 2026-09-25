@@ -60,6 +60,13 @@ type RuntimeEngine struct {
 	osEnv        []string
 	cwd          string
 
+	// registeredSession records that THIS run joined the msb live-session
+	// registry (engine_msb registers after the daemon/workspace gates pass).
+	// Teardown spawns the idle watcher only for runs that actually held a
+	// session: a run that failed before registering (declined cwd, boot
+	// error) must not arm the idle stop — it never held the daemon.
+	registeredSession bool
+
 	// Per-session SSH agent proxy state (set when the bridge is established).
 	sshProxySock      string // socket path inside the container
 	sshProxyContainer string // container running our socat (for Teardown cleanup)
@@ -311,6 +318,10 @@ func resolveHostExecTimeout() time.Duration {
 	return time.Duration(n) * time.Second
 }
 
+// teardownSpawnIdleWatcher is the Teardown idle-watch seam (tests swap it
+// to observe whether the watcher would fire).
+var teardownSpawnIdleWatcher = runtime.MaybeSpawnIdleWatcher
+
 // Teardown cleans up resources used by the engine.
 func (e *RuntimeEngine) Teardown() {
 	// Phase 3 idle stop: always Unregister this PID first so a partial
@@ -319,7 +330,13 @@ func (e *RuntimeEngine) Teardown() {
 	// whether to stop the daemon after the configured idle window.
 	//nolint:errcheck // best-effort; missing session file on partial teardown is normal
 	_ = runtime.Unregister(os.Getpid())
-	runtime.MaybeSpawnIdleWatcher(e.cfg)
+	// Only a run that joined the live-session registry may arm the idle
+	// watcher. Failed-early runs (declined cwd, daemon boot error) never
+	// registered, and arming here would spawn a watcher for a daemon this
+	// run never held.
+	if e.registeredSession {
+		teardownSpawnIdleWatcher(e.cfg)
+	}
 
 	if e.argStager != nil {
 		// Sessions mutated inside the sandbox flow back to the host store
