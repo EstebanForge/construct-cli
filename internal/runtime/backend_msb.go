@@ -2,8 +2,10 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -70,30 +72,44 @@ func msbImageCached(ref string) bool {
 	return cmd.Run() == nil
 }
 
-// EnsureImage transitions the construct image into msb: probes local msb
-// image first, attempts pulling the published image (PrepullImageRef),
-// reuses a local docker/podman image when present, and otherwise builds only
-// after a user confirmation. It then transitions via container-runtime save
-// + msb load.
+// EnsureImage transitions the construct image into msb: always attempts
+// pulling the published image (PrepullImageRef) first — msb pull no-ops
+// cheaply when the cached digest matches, so this is also the refresh path —
+// then reuses a local docker/podman image when present, and otherwise builds
+// only after a user confirmation. It then transitions via container-runtime
+// save + msb load.
 func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
-	if m.imageLoaded() {
-		return nil
-	}
-
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
-	// Try msb pull from GHCR first if network available. The pull caches
-	// the FULL registry ref (no `image tag` subcommand exists to alias it
-	// down to the bare name); imageLoaded and the run spec resolve cached
-	// refs via constructImageRefCandidates.
+	// Refresh on digest drift: msb pull no-ops whenever the ref is cached
+	// at all — it never re-resolves the tag — so neither name-presence nor
+	// a plain pull can ever refresh, and a stale image shadows every
+	// republish (guests kept booting the pre-free-sudo image for days).
+	// Compare the cached digest against the registry manifest digest
+	// (anonymous HEAD, ~1s) and force a re-download only on drift; when
+	// either side is unknown (offline, private repo) keep whatever is
+	// cached. The pull caches the FULL registry ref (no `image tag`
+	// subcommand exists to alias it down to the bare name); imageLoaded and
+	// the run spec resolve cached refs via constructImageRefCandidates.
+	if cached, remote := msbCachedImageDigest(), ghcrRemoteDigest(PrepullImageRef); cached != "" && remote != "" && cached != remote {
+		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~2 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
+		rm := exec.Command("msb", "image", "rm", PrepullImageRef)
+		rm.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
+		_ = rm.Run()   //nolint:errcheck // best-effort clear before the pull below
+	}
 	ui.InfoLn("→ Attempting to pull construct-box image from GHCR...")
 	pull := exec.Command("msb", "pull", PrepullImageRef)
 	pull.Stdin = nil
-	if _, err := pull.CombinedOutput(); err == nil {
-		if msbImageCached(PrepullImageRef) {
-			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
-			return nil
-		}
+	if _, err := pull.CombinedOutput(); err == nil && msbImageCached(PrepullImageRef) {
+		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
+		return nil
+	}
+
+	// Pull failed (offline, rate limited): fall back to any cached ref,
+	// flagging that it may be stale.
+	if m.imageLoaded() {
+		ui.InfoLn("⚠️  Pull failed; using cached construct-box image (may be stale)")
+		return nil
 	}
 
 	// Reuse a local docker/podman image when present; otherwise the local
@@ -147,6 +163,80 @@ func (m *MsbBackend) imageLoaded() bool {
 		}
 	}
 	return false
+}
+
+// msbCachedImageDigest returns the full manifest digest of the cached
+// construct image (parsed from `msb image inspect`), or "" when no ref is
+// cached or the output cannot be parsed.
+func msbCachedImageDigest() string {
+	for _, candidate := range constructImageRefCandidates {
+		if !msbImageCached(candidate) {
+			continue
+		}
+		out, err := exec.Command("msb", "image", "inspect", candidate).CombinedOutput()
+		if err != nil {
+			return ""
+		}
+		for _, line := range strings.Split(string(out), "\n") {
+			if digest, ok := strings.CutPrefix(line, "Digest:"); ok {
+				return strings.TrimSpace(digest)
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+// ghcrRemoteDigest resolves the current registry manifest digest for a
+// ghcr.io ref via an anonymous token plus a HEAD request, without
+// downloading layers. Returns "" on any failure so callers keep the
+// cached image rather than forcing a pull they cannot verify.
+func ghcrRemoteDigest(ref string) string {
+	tail, ok := strings.CutPrefix(ref, "ghcr.io/")
+	if !ok {
+		return ""
+	}
+	repo, tag, found := strings.Cut(tail, ":")
+	if !found {
+		repo, tag = tail, "latest"
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	tr, err := client.Get("https://ghcr.io/token?scope=repository:" + repo + ":pull")
+	if err != nil {
+		return ""
+	}
+	defer tr.Body.Close() //nolint:errcheck // read-side close, nothing to handle
+	var tok struct {
+		Token string `json:"token"`
+	}
+	if json.NewDecoder(tr.Body).Decode(&tok) != nil || tok.Token == "" {
+		return ""
+	}
+	req, err := http.NewRequest(http.MethodHead, "https://ghcr.io/v2/"+repo+"/manifests/"+tag, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+tok.Token)
+	req.Header.Set("Accept", strings.Join([]string{
+		"application/vnd.oci.image.index.v1+json",
+		"application/vnd.docker.distribution.manifest.list.v2+json",
+		"application/vnd.oci.image.manifest.v1+json",
+		"application/vnd.docker.distribution.manifest.v2+json",
+	}, ", "))
+	resp, err := client.Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close() //nolint:errcheck // HEAD has no body worth draining
+	return resp.Header.Get("Docker-Content-Digest")
+}
+
+// abbrevDigest shortens a sha256:... digest for one-line notices.
+func abbrevDigest(digest string) string {
+	if len(digest) > 19 {
+		return digest[:19]
+	}
+	return digest
 }
 
 // Exec runs a command inside a running sandbox. Exit-code fidelity: the SDK
