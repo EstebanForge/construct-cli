@@ -588,6 +588,7 @@ engine = "podman"
 mount_home = false
 forward_ssh_agent = false
 exec_as_host_user = true
+passwordless_sudo = true
 
 [network]
 mode = "strict"

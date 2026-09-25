@@ -216,6 +216,10 @@ microvm daemon recreate parity (`internal/runtime/backend_msb_run.go`):
 - Hash covers `MountSkills` + resolved source path + `SkillsReadOnly` + target count. Returns "" when skills are disabled (no label, no recreate trigger).
 - `msbDaemonNeedsRecreate` checks this label FIRST in both multi-path and single-path modes, returning recreate with reason `host skills mounts changed (source, mode, or targets)` on mismatch. Skills toggle, RO/RW flip, source appearance, and supported-agent-list growth all recreate the running daemon so the new mounts take effect.
 
+Sudo policy parity (2026-09-25, same label pattern):
+- New label `construct.daemon.sudo` stamped by `BuildMsbRunSpec` with `sudoPolicy(cfg)` ("free" default, "scoped" when `[sandbox] passwordless_sudo = false`).
+- `msbDaemonNeedsRecreate` compares it always (policy is never empty): a toggle recreates once with reason `sudo policy changed (sandbox.passwordless_sudo)`. Legacy daemons predate the label, so their empty label recreates once on the first post-upgrade run to apply the free policy. Docker parity rides `overrideInputs.SudoScoped` + the `CONSTRUCT_PASSWORDLESS_SUDO=0` env emission; the entrypoint rewrites `/etc/sudoers.d/construct` per that env at every boot, so persistent guest root disks heal without an image publish.
+
 Docker volumes block (mirror qmd models cache, both `linux` and `darwin` blocks):
 ```
 if skillsSource, found := getSkillsSourcePath(cfg); found {

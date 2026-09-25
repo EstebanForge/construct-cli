@@ -66,7 +66,7 @@ Core invariants (from discobox, keep them all):
 
 | # | Finding | Verified | Consequence |
 |---|---|---|---|
-| 1 | **CRITICAL, pre-existing**: `internal/templates/Dockerfile` sudoers grants `construct` NOPASSWD `ufw` + `apt*`. Agent runs `sudo ufw disable`; `sudo apt-get` = root via `APT::Update::Pre-Invoke` hooks | Yes, line 27 region | In-container ufw was never an L3 boundary, including today's strict mode. Enforcement must move host-side. Fix ships before sentinel work |
+| 1 | **CRITICAL, pre-existing**: `internal/templates/Dockerfile` sudoers grants `construct` NOPASSWD `ufw` + `apt*`. Agent runs `sudo ufw disable`; `sudo apt-get` = root via `APT::Update::Pre-Invoke` hooks | Yes, line 27 region | In-container ufw was never an L3 boundary, including today's strict mode. Enforcement must move host-side. Fix ships before sentinel work. Update 2026-09-25: sudoers is now free `NOPASSWD:ALL` by default (`sandbox.passwordless_sudo`, false restores the scoped list), which widens the in-container surface and makes host-side enforcement MORE required, not less |
 | 2 | **CRITICAL**: per-install CA cannot be baked into `construct-box` (image built on GHCR, pulled `:latest`) | Yes, AGENTS.md Image Publish | CA generated per install on host, public cert mounted at runtime, trust stores updated in entrypoint root phase. The same flaw exists in CREDS-PROXY §11 |
 | 3 | **HIGH**: host proxy must not repeat the unauthenticated `0.0.0.0` bind of `ssh_bridge.go:81` | Yes | Session token in proxy URL, `Proxy-Authorization` validated. Otherwise open LAN relay that swaps real credentials |
 | 4 | **HIGH**: domain fronting | Design-level | Enforce CONNECT host == TLS SNI == HTTP Host/`:authority` before any swap. Drop on mismatch |
@@ -80,7 +80,7 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 ## 5. Prerequisites (do these FIRST, they stand alone)
 
 - [ ] P1: Host-side network enforcement for strict mode (docker network / host iptables on the bridge, outside container namespace). In-container ufw demoted to defense-in-depth.
-- [ ] P2: Remove `/usr/sbin/ufw` from image sudoers.
+- [ ] P2: ~~Remove `/usr/sbin/ufw` from image sudoers.~~ Superseded 2026-09-25: sudoers is `NOPASSWD:ALL` by default, so scoping ufw out of the allowlist no longer restricts anything; the enforcement point is host-side (P1). The scoped-allowlist opt-out (`sandbox.passwordless_sudo = false`) still carries the old list minus nothing; revisit only if the knob gains per-binary scoping.
 - [ ] P3: Restrict outbound 53 to host resolver in all modes.
 - [ ] P4: Authenticate existing host bridges or at minimum document the LAN exposure (ssh_bridge, herdr, clipboard, host-exec, loopback relays — `internal/agent/engine.go:217,603,609`).
 
