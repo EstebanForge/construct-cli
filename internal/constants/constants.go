@@ -7,7 +7,7 @@ const (
 	ConfigDir  = ".config/construct-cli"
 	ImageName  = "construct-box"
 	DaemonName = "construct-cli-daemon"
-	Version    = "1.17.2"
+	Version    = "1.17.3"
 	// MsbSdkPin mirrors the microsandbox SDK version pinned in go.mod.
 	// The host msb CLI must match exactly (schema migrations are one-way);
 	// `construct sys doctor` compares the host binary against this.
