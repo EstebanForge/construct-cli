@@ -421,17 +421,21 @@ auto_start = true  # Auto-start daemon on first agent run
 
 ### Learned Roots (single-path)
 
-Without `multi_paths_enabled`, the daemon mounts one project at a time and would normally recreate on every project switch. Learned roots fix that: the first interactive run from a new project asks
+Without `multi_paths_enabled`, the daemon mounts one project at a time and would normally recreate on every project switch. Learned roots fix that. Inside your home directory the whole thing is automatic: running from a new project auto-mounts and remembers it (one `Auto-mounted ...` notice, one recreate), and later runs from that project — or any subdirectory — reconnect with zero recreates. No prompt is ever shown for `~/...` paths; the mounted folder is the folder you invoked from.
+
+Outside your home (USB volumes, network mounts, `/tmp`), the first interactive run asks
 
 ```
 Add /path/to/project to the daemon's mounted roots? [Y/n]
 ```
 
-Accept once and the root joins the daemon's mount set permanently — later runs from that project (or any subdirectory) reconnect with zero recreates. The learned set lives in `~/.config/construct-cli/roots.json`, is capped by LRU, and non-interactive sessions (agents, CI) from unknown directories fail closed with guidance instead of prompting.
+Accept once and the root joins permanently. A NO persists a decline: the folder stops being asked about and runs from it fail fast with the `construct sys daemon roots add <path>` command to reverse. Headless sessions (agents, CI) auto-learn inside `$HOME` and fail closed with guidance outside it.
+
+The learned set lives in `~/.config/construct-cli/roots.json`, is capped by LRU, and the home directory itself is never auto-learned (mounting the whole home stays a deliberate `mount_paths` decision).
 
 ```toml
 [daemon]
-max_learned_roots = 8  # LRU cap on learned roots; oldest is evicted when exceeded
+max_learned_roots = 16  # LRU cap on learned roots; oldest is evicted when exceeded
 ```
 
 Manage the learned set:

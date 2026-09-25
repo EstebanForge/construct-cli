@@ -61,6 +61,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	// after the configured idle window.
 	//nolint:errcheck // best-effort; the watch loop sweeps stale entries on next Register
 	_ = runtime.Register(os.Getpid(), "construct-cli-daemon")
+	e.registeredSession = true // arm the Teardown idle-watch spawn
 	defer func() {
 		_ = sb.Detach(context.Background()) //nolint:errcheck // daemon keeps running detached
 	}()
