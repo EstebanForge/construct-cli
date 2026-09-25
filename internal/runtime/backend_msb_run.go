@@ -887,6 +887,14 @@ func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		return err
 	}
+	// The one-shot sandbox has served its purpose; remove it so it cannot
+	// sit stopped forever pinning the construct-box image (an install
+	// sandbox blocked image cleanup on the Mac and needed a manual
+	// removal). Best-effort: the install itself succeeded, and a failed
+	// removal only leaves the pre-existing stopped record.
+	if cerr := m.Cleanup(ctx, name); cerr != nil {
+		ui.LogWarning(fmt.Sprintf("Could not remove the one-shot install sandbox (harmless, remove with 'msb rm %s'): %v", name, cerr))
+	}
 	ui.InfoLn("✓ MicroVM agent installation complete")
 	return nil
 }
