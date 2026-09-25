@@ -24,6 +24,18 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(Dockerfile, "apt-get install -y --no-install-recommends") {
 		t.Error("Dockerfile template missing the baked apt toolchain tier")
 	}
+	// Free sudo is the image-baked default; entrypoint.sh re-applies the
+	// policy at every boot so persistent guest root disks heal and the
+	// passwordless_sudo = false opt-out can scope it back down.
+	if !strings.Contains(Dockerfile, "construct ALL=(ALL:ALL) NOPASSWD:ALL") {
+		t.Error("Dockerfile template missing the free passwordless sudoers entry")
+	}
+	if !strings.Contains(Entrypoint, "CONSTRUCT_PASSWORDLESS_SUDO") {
+		t.Error("entrypoint template missing the sudo policy gate")
+	}
+	if !strings.Contains(Entrypoint, "NOPASSWD:ALL") || !strings.Contains(Entrypoint, "NOPASSWD: /usr/bin/apt*") {
+		t.Error("entrypoint template must carry both the free and scoped sudoers policies")
+	}
 	if !strings.Contains(Dockerfile, "mise install") {
 		t.Error("Dockerfile template missing the baked mise github: tool tier")
 	}

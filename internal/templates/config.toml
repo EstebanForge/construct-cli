@@ -46,6 +46,12 @@ mount_home = false
 # virtiofs has no exclusion filter; recursive scans across $HOME can freeze the microVM.
 allow_home_workspace = false
 
+# Free passwordless sudo for the guest user (default: true).
+# The microVM is the security boundary; guest root adds no host reach beyond
+# the mounts already granted. Set false to restore the scoped sudoers
+# (apt/ufw/chown only). Toggling recreates the daemon on the next run.
+passwordless_sudo = true
+
 # Max file entries scanned in workspace before confirmation prompt (default: 60000)
 workspace_max_entries = 60000
 

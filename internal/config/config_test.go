@@ -628,3 +628,10 @@ func TestDefaultConfigAutoUpdatePackages(t *testing.T) {
 		t.Error("Expected explicit auto_update_packages = false to be honored")
 	}
 }
+
+func TestDefaultConfigPasswordlessSudoEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Sandbox.PasswordlessSudo {
+		t.Error("Expected default passwordless_sudo to be true (free sudo is the sandbox default; false is the opt-out)")
+	}
+}

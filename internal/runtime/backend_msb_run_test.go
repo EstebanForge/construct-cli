@@ -272,10 +272,11 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 	singleLabels := map[string]string{
 		"construct.project_dir": root,
 		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{root}),
+		DaemonSudoLabelKey:      "free",
 	}
 
 	multi := DaemonMounts{Enabled: true, Hash: "abc", Mounts: []DaemonMount{{HostPath: root, ContainerPath: "/workspaces/x"}}}
-	multiLabels := map[string]string{DaemonMountsLabelKey: "abc"}
+	multiLabels := map[string]string{DaemonMountsLabelKey: "abc", DaemonSudoLabelKey: "free"}
 
 	tests := []struct {
 		name       string
@@ -286,7 +287,7 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 		want       bool
 	}{
 		{"multi hash match reuses", multi, multiLabels, "", sub, false},
-		{"multi hash mismatch recreates", multi, map[string]string{DaemonMountsLabelKey: "zzz"}, "", sub, true},
+		{"multi hash mismatch recreates", multi, map[string]string{DaemonMountsLabelKey: "zzz", DaemonSudoLabelKey: "free"}, "", sub, true},
 		{"single exact root reuses", DaemonMounts{}, singleLabels, cfgJSON, root, false},
 		{"single subdir reuses", DaemonMounts{}, singleLabels, cfgJSON, sub, false},
 		{"single other root recreates", DaemonMounts{}, singleLabels, cfgJSON, other, true},
@@ -408,7 +409,7 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 				}
 			}
 
-			labels := map[string]string{}
+			labels := map[string]string{DaemonSudoLabelKey: "free"}
 			for k, v := range workspaceLabels {
 				labels[k] = v
 			}
@@ -768,5 +769,40 @@ func TestGetMsbWorkspaceMountDestRelativeCwd(t *testing.T) {
 	want := "/workspaces/" + filepath.Base(cwd)
 	if got := GetMsbWorkspaceMountDest("."); got != want {
 		t.Errorf("GetMsbWorkspaceMountDest(\".\") = %q, want %q", got, want)
+	}
+}
+
+// TestNeedsRecreateSudoPolicyToggle: toggling sandbox.passwordless_sudo
+// must recreate the daemon (the entrypoint applies the sudoers drop-in at
+// sandbox creation only), and the default policy must be stable across
+// runs of a daemon that already carries the matching label.
+func TestNeedsRecreateSudoPolicyToggle(t *testing.T) {
+	// Multi-mode with a matching mounts hash and skills disabled isolates
+	// the sudo check from the mounts-hash and skills-hash decisions.
+	dm := DaemonMounts{Enabled: true, Hash: "abc"}
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.MountSkills = false
+	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc"}
+
+	if recreate, _ := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &cfg); recreate {
+		t.Error("matching free-sudo label must not recreate")
+	}
+
+	scoped := config.DefaultConfig()
+	scoped.Sandbox.MountSkills = false
+	scoped.Sandbox.PasswordlessSudo = false
+	recreate, reason := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &scoped)
+	if !recreate {
+		t.Fatal("sudo policy toggle must recreate the daemon")
+	}
+	if !strings.Contains(reason, "passwordless_sudo") {
+		t.Errorf("reason %q should name the knob", reason)
+	}
+
+	// Legacy daemon (pre-label) with the default policy: the empty label
+	// recreates once so the free-sudo sudoers drop-in gets applied.
+	legacyLabels := map[string]string{DaemonMountsLabelKey: "abc"}
+	if recreate, _ := msbDaemonNeedsRecreate(dm, legacyLabels, "{}", "", false, &cfg); !recreate {
+		t.Error("legacy daemon without a sudo label must recreate once to gain free sudo")
 	}
 }
