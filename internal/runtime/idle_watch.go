@@ -104,15 +104,20 @@ func stopDaemonForDestroy() (found bool, err error) {
 	if err != nil {
 		return false, nil // no sandbox record: nothing to destroy
 	}
-	if err := h.Stop(ctx); err != nil {
-		return true, fmt.Errorf("failed to stop microvm daemon: %w", err)
-	}
-	for i := 0; i < 30; i++ {
-		fresh, ferr := h.Refresh(ctx)
-		if ferr != nil || fresh.Status() == msb.SandboxStatusStopped {
-			break
+	if h.Status() == msb.SandboxStatusRunning {
+		if err := h.Stop(ctx); err != nil {
+			return true, fmt.Errorf("failed to stop microvm daemon: %w", err)
 		}
-		time.Sleep(200 * time.Millisecond)
+		// Mirror Cleanup's drain budget (60 x 500ms): a slow guest teardown
+		// passes through "draining" where Remove refuses, so wait it out
+		// here rather than failing the remove below.
+		for i := 0; i < 60; i++ {
+			fresh, ferr := h.Refresh(ctx)
+			if ferr != nil || fresh.Status() == msb.SandboxStatusStopped {
+				break
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
 	}
 	return true, nil
 }

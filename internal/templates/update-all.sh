@@ -93,7 +93,9 @@ if command -v npm &> /dev/null; then
     npm_global_lib="$HOME/.npm-global/lib/node_modules"
     if [ -d "$npm_global_lib" ]; then
         for entry in "$npm_global_lib"/.[!.]*; do
-            [ -e "$entry" ] || break
+            # -L keeps broken symlinks in the sweep: [ -e ] alone would
+            # stop the loop early on the first dangling link.
+            [ -e "$entry" ] || [ -L "$entry" ] || continue
             [ "$(basename "$entry")" = ".bin" ] && continue
             rm -rf "$entry"
         done

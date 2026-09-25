@@ -327,7 +327,7 @@ func Recreate() {
 		os.Exit(1)
 	}
 	if busy {
-		ui.GumError("A session appeared during the destroy; daemon left untouched")
+		ui.GumError("A session appeared during the destroy; the daemon was stopped but its root disk is intact. The next construct command warm-boots it; run recreate again once sessions finish.")
 		os.Exit(1)
 	}
 	if !destroyed {
