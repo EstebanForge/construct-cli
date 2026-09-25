@@ -2,6 +2,25 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.3 -->
+## [1.17.3] - 2026-09-24
+
+### Added
+
+- **Decline memory for the learn-root consent prompt**: answering NO to "Add <path> to the daemon's mounted roots?" now persists the decision in `roots.json` (path plus timestamp). The folder never re-prompts, never enters the mount set, and runs from it fail fast with an error that names the way back. Previously a decline changed nothing: the folder was mounted anyway and the prompt re-fired on every run. Headless (non-interactive) denials are deliberately never persisted, so a scripted run cannot poison a folder for its human.
+- **`construct sys daemon roots add <path>`**: mounts a host directory without the interactive prompt. This is the manual way back after a decline: it clears the persisted decline record, learns the root, and notes the daemon recreate ahead. `construct sys daemon roots list` shows a Declined folders section with timestamps.
+- **Doctor repairs stale guest helper scripts with `--fix`**: a new Guest Home Helpers check (microvm backend) compares the helper scripts inside the persistent home volume (`update-all.sh`, `entrypoint.sh`, `entrypoint-hash.sh`, `agent-patch.sh`) against the embedded templates. A warning lists what is out of date; `construct sys doctor --fix` rewrites them from the current templates, replacing the manual copy-into-the-VM workaround.
+
+### Fixed
+
+- **Stale helper scripts in the microvm persistent home**: under the microvm backend the guest reads `update-all.sh` and friends straight from the home volume, and nothing refreshed them (fresh volumes even got empty files, silently no-oping updates). Helper scripts now refresh from the embedded templates on every agent run and before both update passes, so an old brew-era script can never survive an upgrade again. Docker keeps its always-current file binds.
+- **mise self-update stalled every update run**: the updater runs without a TTY, so mise's `[Y/n]` confirmation before replacing its binary aborted the step and topgrade marked it IGNORED. `update-all.sh` now exports `MISE_YES=1` so mise answers its own prompts.
+- **Boot telemetry told a misleading story**: the `msb-boot` log line reported a single `roots=N` that actually counted total sandbox mounts (home, workspace roots, skills binds), so a run from a new directory read as a lost or gained root. The line and the JSON telemetry event now split it into `mounts`, `learned`, and `cwd_mounted`; the `roots` JSON key is retired.
+- **Doctor booted Docker on microvm-only hosts**: `construct sys doctor` resolved the container runtime before its backend-specific checks, so it launched OrbStack/Docker only to report every Docker check "Not applicable (runtime backend = microvm)". Runtime resolution is now skipped on the microvm backend.
+- **Review-round hardening on the decline path**: `roots add` and `roots forget` run under the daemon flock and the consent flow re-reads the store after the interactive prompt, so a CLI mutation made while the prompt is open can no longer be clobbered. Relative arguments canonicalize before use (decline keys and mount hashes are cwd-independent), `roots forget` also clears decline records (including folders since deleted from disk), and a pin in `daemon.mount_paths` clears any stale decline.
+
+<!-- RELEASE:END 1.17.3 -->
+
 <!-- RELEASE:START 1.17.2 -->
 ## [1.17.2] - 2026-09-23
 
