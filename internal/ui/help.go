@@ -29,7 +29,7 @@ Global Flags:
   construct sys config             # Config operations (opens config.toml by default)
                                    # [--migrate] Re-sync config/templates with the current binary
                                    # [--restore] Restore config.toml from backup
-  construct sys daemon             # Manage background daemon (start|stop|restart|attach|status)
+  construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status)
   construct sys packages           # Package operations (opens packages.toml by default)
                                    # [--install] Apply changes from packages.toml to running container
                                    # [--reinstall] Recreate package volume and reinstall packages
@@ -85,7 +85,7 @@ Commands:
   config             # Config operations (opens config.toml by default)
                      # [--migrate] Re-sync config/templates with current binary
                      # [--restore] Restore config.toml from backup
-  daemon             # Manage background daemon (start|stop|restart|attach|status|install|uninstall|roots)
+  daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|install|uninstall|roots)
   packages           # Manage packages.toml and package lifecycle
   prepull            # Stage the microVM image in the background (backend=microvm only)
   doctor             # System health operations
