@@ -171,6 +171,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "export MISE_YES=1") {
 		t.Error("update-all.sh should export MISE_YES=1 so non-interactive mise self-update cannot abort")
 	}
+	if !strings.Contains(UpdateAll, "npm_global_lib=\"$HOME/.npm-global/lib/node_modules\"") || !strings.Contains(UpdateAll, ".bin") {
+		t.Error("update-all.sh should sweep stale npm temp dirs (ENOTEMPTY rename leftovers) before the global reinstall loop")
+	}
 	// Test agent patch template
 	if AgentPatch == "" {
 		t.Error("agent-patch.sh template is empty")
