@@ -1057,8 +1057,10 @@ func checkStalePackagesVolume(fix bool, resolvedRuntime string) CheckResult {
 
 	out, err := execCombinedOutput(engine, "volume", "ls", "--format", "{{.Name}}")
 	if err != nil {
+		// No reachable daemon (e.g. docker CLI installed but engine not
+		// running) is the normal microvm case, not a defect: report it calm.
 		check.Status = CheckStatusSkipped
-		check.Message = "Could not list volumes"
+		check.Message = "No reachable container daemon (stale-volume sweep skipped)"
 		check.Details = append(check.Details, strings.TrimSpace(string(out)))
 		return check
 	}
@@ -1182,9 +1184,9 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 }
 
 // checkBakedImageFreshness verifies the local construct-box image is present
-// (microvm only). Remote-digest comparison is not cheaply available, so the
-// default status is informational; --fix runs a bounded best-effort msb pull
-// (prepull-style: exit-0 no-op when already current).
+// (microvm only). Plain runs verify local presence (cheap, no nag: --fix
+// already pulls on demand and self-updates prepull); --fix additionally runs
+// a bounded best-effort msb pull (exit-0 no-op when already current).
 func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	check := CheckResult{Name: "Baked Image Freshness"}
 	if !msbBackend {
@@ -1199,9 +1201,16 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 		return check
 	}
 	if !fix {
+		inspect := exec.Command("msb", "image", "inspect", imageRef)
+		inspect.Stdin = nil // msb stdin trap: open pipe hangs
+		if inspect.Run() == nil {
+			check.Status = CheckStatusSkipped
+			check.Message = fmt.Sprintf("Local image %s present (remote freshness is checked by 'construct sys doctor --fix')", imageRef)
+			return check
+		}
 		check.Status = CheckStatusSkipped
-		check.Message = "Local image present; remote freshness not checked"
-		check.Suggestion = "Run 'construct sys doctor --fix' to pull the latest baked image (bounded, best-effort)"
+		check.Message = "Local image not loaded (loaded on first construct run)"
+		check.Suggestion = "Run 'construct sys doctor --fix' to pull the baked image (bounded, best-effort)"
 		return check
 	}
 

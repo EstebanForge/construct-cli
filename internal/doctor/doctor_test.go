@@ -1603,3 +1603,68 @@ func TestCheckMsbHomeHelpers(t *testing.T) {
 		t.Errorf("entrypoint-hash.sh not recreated: %v", err)
 	}
 }
+
+// msbStubDir writes a controllable fake msb onto PATH. FAKE_MSB_IMAGE_INSPECT
+// sets the exit code of `msb image inspect` (0 = image loaded locally).
+func msbStubDir(t *testing.T, imageInspect int) string {
+	t.Helper()
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\nif [ \"$1\" = \"image\" ] && [ \"$2\" = \"inspect\" ]; then\n  exit %d\nfi\nexit 1\n", imageInspect)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return binDir
+}
+
+// TestCheckBakedImageFreshnessPlainRunLocalPresence: plain doctor runs verify
+// local presence cheaply and never nag toward --fix when the image exists;
+// the --fix suggestion is reserved for a genuinely missing local image.
+func TestCheckBakedImageFreshnessPlainRunLocalPresence(t *testing.T) {
+	msbStubDir(t, 0)
+	check := checkBakedImageFreshness(true, false)
+	if check.Status != CheckStatusSkipped {
+		t.Errorf("status = %v, want skipped (informational)", check.Status)
+	}
+	if !strings.Contains(check.Message, "present") {
+		t.Errorf("message %q should report local presence", check.Message)
+	}
+	if check.Suggestion != "" {
+		t.Errorf("present image must not nag toward --fix, got suggestion %q", check.Suggestion)
+	}
+
+	msbStubDir(t, 1)
+	check = checkBakedImageFreshness(true, false)
+	if check.Status != CheckStatusSkipped {
+		t.Errorf("status = %v, want skipped (informational)", check.Status)
+	}
+	if check.Suggestion == "" || !strings.Contains(check.Suggestion, "--fix") {
+		t.Errorf("missing local image should suggest --fix, got %q", check.Suggestion)
+	}
+}
+
+// TestCheckStalePackagesVolumeNoDaemon: a docker CLI without a running
+// daemon is the normal microvm case. The sweep must skip with a calm
+// message instead of surfacing the raw socket error.
+func TestCheckStalePackagesVolumeNoDaemon(t *testing.T) {
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := "#!/bin/sh\nif [ \"$1\" = \"volume\" ] && [ \"$2\" = \"ls\" ]; then\n  echo \"Cannot connect to the Docker daemon\" >&2\n  exit 1\nfi\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(binDir, "docker"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	check := checkStalePackagesVolume(false, "")
+	if check.Status != CheckStatusSkipped {
+		t.Errorf("status = %v, want skipped", check.Status)
+	}
+	if !strings.Contains(check.Message, "No reachable container daemon") {
+		t.Errorf("message %q should report the unreachable daemon calmly", check.Message)
+	}
+}
