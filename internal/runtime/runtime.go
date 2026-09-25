@@ -4,6 +4,7 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -590,7 +591,7 @@ func PrepareBackendAgnostic(cfg *config.Config, configPath string) error {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
 		warnConfigPermission(err, configPath)
 	}
-	if err := ensureMountedTemplateFiles(configPath); err != nil {
+	if err := EnsureMountedTemplateFiles(configPath); err != nil {
 		return fmt.Errorf("failed to prepare mounted helper templates: %w", err)
 	}
 
@@ -627,24 +628,40 @@ func PrepareBackendAgnostic(cfg *config.Config, configPath string) error {
 	return nil
 }
 
-func ensureMountedTemplateFiles(configPath string) error {
+// MsbHomeHelperFile describes one helper file the msb backend reads straight
+// from the persistent home volume (msb has no per-file binds: whatever bytes
+// sit in <config>/home/.config/construct-cli/container ARE the guest copy).
+type MsbHomeHelperFile struct {
+	Name    string
+	Content string
+	Perm    os.FileMode
+}
+
+// MsbHomeHelperFiles lists the home-volume helper files with their current
+// embedded content. Doctor detection compares on-disk bytes against Content;
+// EnsureMountedTemplateFiles is the refresh path.
+func MsbHomeHelperFiles() []MsbHomeHelperFile {
+	return []MsbHomeHelperFile{
+		{Name: "entrypoint.sh", Content: templates.Entrypoint, Perm: 0755},
+		{Name: "entrypoint-hash.sh", Content: templates.EntrypointHash, Perm: 0755},
+		{Name: "update-all.sh", Content: templates.UpdateAll, Perm: 0755},
+		{Name: "agent-patch.sh", Content: templates.AgentPatch, Perm: 0755},
+	}
+}
+
+// EnsureMountedTemplateFiles refreshes the helper templates (config container
+// dir plus the msb home-volume copies the guest reads directly) to the
+// embedded content, and prepares the bare install_user_packages.sh mount
+// target (PrepareBackendAgnostic generates its content right after).
+func EnsureMountedTemplateFiles(configPath string) error {
 	containerDir := filepath.Join(configPath, "container")
 	if err := ensureDirPath(containerDir); err != nil {
 		return err
 	}
-	files := []struct {
-		name    string
-		content string
-		perm    os.FileMode
-	}{
-		{name: "entrypoint.sh", content: templates.Entrypoint, perm: 0755},
-		{name: "entrypoint-hash.sh", content: templates.EntrypointHash, perm: 0755},
-		{name: "update-all.sh", content: templates.UpdateAll, perm: 0755},
-		{name: "agent-patch.sh", content: templates.AgentPatch, perm: 0755},
-	}
+	files := MsbHomeHelperFiles()
 
 	for _, file := range files {
-		path := filepath.Join(containerDir, file.name)
+		path := filepath.Join(containerDir, file.Name)
 		if info, err := os.Stat(path); err == nil && info.IsDir() {
 			if removeErr := os.RemoveAll(path); removeErr != nil {
 				return fmt.Errorf("failed to replace directory %s: %w", path, removeErr)
@@ -653,7 +670,7 @@ func ensureMountedTemplateFiles(configPath string) error {
 			return err
 		}
 
-		if err := os.WriteFile(path, []byte(file.content), file.perm); err != nil {
+		if err := os.WriteFile(path, []byte(file.Content), file.Perm); err != nil {
 			return err
 		}
 	}
@@ -666,20 +683,45 @@ func ensureMountedTemplateFiles(configPath string) error {
 	if err := ensureDirPath(homeContainerDir); err != nil {
 		return fmt.Errorf("failed to create container dir in home volume: %w", err)
 	}
-	homeHelperTargets := []string{
-		"install_user_packages.sh",
-		"entrypoint-hash.sh",
-		"update-all.sh",
-		"agent-patch.sh",
-	}
-	for _, name := range homeHelperTargets {
-		targetPath := filepath.Join(homeContainerDir, name)
-		if err := ensureRegularFilePath(targetPath); err != nil {
-			return fmt.Errorf("failed to prepare helper mount target %s: %w", targetPath, err)
+	// msb has no per-file binds: the guest reads these helpers straight from
+	// the home volume, so they must carry CURRENT content. An empty target
+	// (fresh install) makes in-guest updates a silent no-op; a stale copy
+	// (docker-era home) runs brew-era logic against a brew-less image.
+	// Docker file-binds shadow these paths from the config container dir;
+	// keeping the underlying bytes current is harmless and covers bind
+	// failures. install_user_packages.sh stays a bare target:
+	// PrepareBackendAgnostic generates its content right after this call.
+	for _, file := range files {
+		targetPath := filepath.Join(homeContainerDir, file.Name)
+		if info, err := os.Stat(targetPath); err == nil && info.IsDir() {
+			if removeErr := os.RemoveAll(targetPath); removeErr != nil {
+				return fmt.Errorf("failed to replace directory %s: %w", targetPath, removeErr)
+			}
 		}
+		if err := writeIfChanged(targetPath, []byte(file.Content), file.Perm); err != nil {
+			return fmt.Errorf("failed to refresh home helper %s: %w", file.Name, err)
+		}
+	}
+	installScriptPath := filepath.Join(homeContainerDir, "install_user_packages.sh")
+	if err := ensureRegularFilePath(installScriptPath); err != nil {
+		return fmt.Errorf("failed to prepare helper mount target %s: %w", installScriptPath, err)
 	}
 
 	return nil
+}
+
+// writeIfChanged writes content with perm only when the file is missing or
+// its bytes differ, so per-run prepares do not churn mtimes.
+func writeIfChanged(path string, content []byte, perm os.FileMode) error {
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, content) {
+		return nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.WriteFile(path, content, perm); err != nil {
+		return err
+	}
+	return os.Chmod(path, perm)
 }
 
 func ensureDirPath(path string) error {

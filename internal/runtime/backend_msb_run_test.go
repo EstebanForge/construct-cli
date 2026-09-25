@@ -513,7 +513,8 @@ func TestGetMsbWorkspaceMountDest(t *testing.T) {
 	}{
 		{"", "/workspaces"},
 		{"/", "/workspaces"},
-		{".", "/workspaces"},
+		// Relative inputs canonicalize first: "." resolves to the process
+		// cwd (pre-cleanProjectDir it collapsed to the /workspaces fallback).
 		{"/Users/esteban/Dev/my-proj", "/workspaces/my-proj"},
 		{"/Users/esteban/Dev/my-proj/", "/workspaces/my-proj"},
 		{"/tmp/workspace", "/workspaces/workspace"},
@@ -571,14 +572,14 @@ func TestMsbLogBootFormatOnePerOutcome(t *testing.T) {
 		outcome string
 		elapsed time.Duration
 		reason  string
-		roots   int
+		counts  msbBootCounts
 		wantSub []string
 	}{
-		{"cold", "cold", 90 * time.Second, "first create", 3, []string{"outcome=cold", "seconds=90", "roots=3"}},
-		{"recreate", "recreate", 12 * time.Second, "mount drift", 5, []string{"outcome=recreate", "seconds=12", "roots=5"}},
-		{"warm", "warm", 23 * time.Second, "StartDetached", 3, []string{"outcome=warm", "seconds=23", "roots=3"}},
-		{"reconnect", "reconnect", 0, "marker present", 3, []string{"outcome=reconnect", "seconds=0", "roots=3"}},
-		{"negative duration", "reconnect", -5 * time.Second, "marker present", 1, []string{"seconds=0"}},
+		{"cold", "cold", 90 * time.Second, "first create", msbBootCounts{Mounts: 3, Learned: 1, CwdMounted: true}, []string{"outcome=cold", "seconds=90", "mounts=3", "learned=1", "cwd_mounted=true"}},
+		{"recreate", "recreate", 12 * time.Second, "mount drift", msbBootCounts{Mounts: 5}, []string{"outcome=recreate", "seconds=12", "mounts=5", "learned=0", "cwd_mounted=false"}},
+		{"warm", "warm", 23 * time.Second, "StartDetached", msbBootCounts{Mounts: 3}, []string{"outcome=warm", "seconds=23", "mounts=3"}},
+		{"reconnect", "reconnect", 0, "marker present", msbBootCounts{Mounts: 3}, []string{"outcome=reconnect", "seconds=0", "mounts=3"}},
+		{"negative duration", "reconnect", -5 * time.Second, "marker present", msbBootCounts{Mounts: 1}, []string{"seconds=0"}},
 	}
 
 	origClock := msbBootClock
@@ -602,7 +603,7 @@ func TestMsbLogBootFormatOnePerOutcome(t *testing.T) {
 			t.Cleanup(func() { os.Stderr = origStderr })
 
 			msbBootClock = func() time.Time { return start.Add(tc.elapsed) }
-			msbLogBoot(nil, tc.outcome, start, tc.reason, tc.roots)
+			msbLogBoot(nil, tc.outcome, start, tc.reason, tc.counts)
 
 			if cerr := w.Close(); cerr != nil {
 				t.Fatalf("close pipe write end: %v", cerr)
@@ -652,7 +653,7 @@ func TestMsbTelemetryWideEvent(t *testing.T) {
 	msbBootClock = func() time.Time { return start.Add(7 * time.Second) }
 	msbHostVersion = func() string { return "0.6.15" }
 
-	msbLogBoot(nil, msbBootRecreate, start, "telemetry fixture", 4)
+	msbLogBoot(nil, msbBootRecreate, start, "telemetry fixture", msbBootCounts{Mounts: 4, Learned: 2, CwdMounted: true})
 
 	data, err := os.ReadFile(filepath.Join(config.GetConfigDir(), "logs", "msb-telemetry.jsonl"))
 	if err != nil {
@@ -675,8 +676,11 @@ func TestMsbTelemetryWideEvent(t *testing.T) {
 	if ev.Seconds != 7 {
 		t.Errorf("seconds = %d", ev.Seconds)
 	}
-	if ev.Roots != 4 {
-		t.Errorf("roots = %d", ev.Roots)
+	if ev.Mounts != 4 {
+		t.Errorf("mounts = %d", ev.Mounts)
+	}
+	if ev.Learned != 2 || !ev.CwdMounted {
+		t.Errorf("learned = %d, cwd_mounted = %t", ev.Learned, ev.CwdMounted)
 	}
 	if ev.Reason != "telemetry fixture" {
 		t.Errorf("reason = %q", ev.Reason)
@@ -712,7 +716,7 @@ func TestMsbTelemetryOptOut(t *testing.T) {
 	os.Stderr = w
 	t.Cleanup(func() { os.Stderr = origStderr })
 
-	msbLogBoot(&cfg, msbBootReconnect, time.Now(), "opt-out", 1)
+	msbLogBoot(&cfg, msbBootReconnect, time.Now(), "opt-out", msbBootCounts{Mounts: 1})
 
 	if cerr := w.Close(); cerr != nil {
 		t.Fatalf("close pipe write end: %v", cerr)
@@ -750,5 +754,19 @@ func TestMsbTelemetryUnwritableDir(t *testing.T) {
 	defer os.Chmod(cfgDir, 0o755) // restore for cleanup
 
 	// Should not panic or fail
-	msbLogBoot(nil, msbBootRecreate, time.Now(), "unwritable test", 1)
+	msbLogBoot(nil, msbBootRecreate, time.Now(), "unwritable test", msbBootCounts{Mounts: 1})
+}
+
+// TestGetMsbWorkspaceMountDestRelativeCwd pins the canonicalization
+// contract: "." resolves through cleanProjectDir to the absolute cwd and
+// mounts under its basename, never through the empty-dir fallback.
+func TestGetMsbWorkspaceMountDestRelativeCwd(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "/workspaces/" + filepath.Base(cwd)
+	if got := GetMsbWorkspaceMountDest("."); got != want {
+		t.Errorf("GetMsbWorkspaceMountDest(\".\") = %q, want %q", got, want)
+	}
 }

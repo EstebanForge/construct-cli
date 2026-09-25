@@ -1529,3 +1529,77 @@ func TestMsbLibkrunfwRepairManualAndWarn(t *testing.T) {
 		t.Errorf("status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
 	}
 }
+
+func TestCheckMsbHomeHelpers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	helperByName := map[string]string{}
+	for _, h := range runtimepkg.MsbHomeHelperFiles() {
+		helperByName[h.Name] = h.Content
+	}
+	containerDir := filepath.Join(config.GetConfigDir(), "home", ".config", "construct-cli", "container")
+	writeHelper := func(t *testing.T, name, content string) {
+		t.Helper()
+		if err := os.MkdirAll(containerDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(containerDir, name), []byte(content), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// non-msb backend: skipped regardless of disk state.
+	if res := checkMsbHomeHelpers(false, true); res.Status != CheckStatusSkipped {
+		t.Errorf("non-msb status = %v, want skipped", res.Status)
+	}
+
+	// clean home: OK.
+	for name, content := range helperByName {
+		writeHelper(t, name, content)
+	}
+	if res := checkMsbHomeHelpers(true, false); res.Status != CheckStatusOK {
+		t.Errorf("clean status = %v (%s), want ok", res.Status, res.Message)
+	}
+
+	// stale docker-era content without --fix: warning pointing at --fix.
+	writeHelper(t, "update-all.sh", "#!/usr/bin/env bash\n/home/linuxbrew/.linuxbrew/bin/brew upgrade\n")
+	res := checkMsbHomeHelpers(true, false)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
+		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	}
+
+	// --fix refreshes the stale copy to the embedded content.
+	res = checkMsbHomeHelpers(true, true)
+	if res.Status != CheckStatusOK {
+		t.Errorf("fix status = %v (%s), want ok", res.Status, res.Message)
+	}
+	got, err := os.ReadFile(filepath.Join(containerDir, "update-all.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != helperByName["update-all.sh"] {
+		t.Error("fix left update-all.sh different from the embedded template")
+	}
+
+	// missing + dir-collision targets are both repaired.
+	if err := os.Remove(filepath.Join(containerDir, "entrypoint-hash.sh")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(containerDir, "agent-patch.sh")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(containerDir, "agent-patch.sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res = checkMsbHomeHelpers(true, true)
+	if res.Status != CheckStatusOK {
+		t.Errorf("repair status = %v (%s), want ok", res.Status, res.Message)
+	}
+	info, err := os.Stat(filepath.Join(containerDir, "agent-patch.sh"))
+	if err != nil || info.IsDir() {
+		t.Errorf("agent-patch.sh not repaired to a regular file: err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(containerDir, "entrypoint-hash.sh")); err != nil {
+		t.Errorf("entrypoint-hash.sh not recreated: %v", err)
+	}
+}

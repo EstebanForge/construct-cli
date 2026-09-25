@@ -37,6 +37,12 @@ fi
 echo "==================================="
 echo ""
 
+# mise self-update prompts before replacing its binary; topgrade runs it
+# without a TTY, so an unanswered prompt aborts the step (topgrade marks it
+# IGNORED and mise never updates). MISE_YES=1 answers every mise
+# confirmation, including the manual fallback path below.
+export MISE_YES=1
+
 # Sudo detection: use empty string if root, test if sudo works, otherwise skip
 if [ "$(id -u)" = "0" ]; then
     SUDO=""

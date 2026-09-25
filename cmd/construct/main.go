@@ -469,12 +469,18 @@ func handleDaemonCommand(args []string) {
 		daemon.UninstallService()
 	case "roots":
 		if len(args) < 2 {
-			ui.GumError("roots requires a subcommand: list | forget <path>")
+			ui.GumError("roots requires a subcommand: list | add <path> | forget <path>")
 			os.Exit(1)
 		}
 		switch args[1] {
 		case "list":
 			daemon.RootsList()
+		case "add":
+			if len(args) < 3 {
+				ui.GumError("add requires a path argument")
+				os.Exit(1)
+			}
+			daemon.RootsAdd(args[2])
 		case "forget":
 			if len(args) < 3 {
 				ui.GumError("forget requires a path argument")

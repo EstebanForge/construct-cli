@@ -584,6 +584,19 @@ func RootsForget(path string) {
 	runtime.DaemonRootsForget(cfg, path)
 }
 
+// RootsAdd mounts a host directory as a daemon root without the interactive
+// prompt. This is the way back after answering no to the learn prompt: the
+// persisted decline record is cleared so ct never reminds the folder again
+// (it mounts instead).
+func RootsAdd(path string) {
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		os.Exit(1)
+	}
+	runtime.DaemonRootsAdd(cfg, path)
+}
+
 // IdleWatchMinutesFromArgs parses `--minutes N` from a daemon subcommand
 // argument slice. Used by the `daemon idle-watch` subcommand which the
 // spawner (MaybeSpawnIdleWatcher) calls detached. Returns 0 on parse

@@ -24,6 +24,11 @@ import (
 type RootsStore struct {
 	Version int           `json:"version"`
 	Roots   []LearnedRoot `json:"roots"`
+	// Declined records folders where the user answered NO to the learn
+	// prompt. Key: symlink-resolved path; value: when the decline was
+	// recorded. Declined paths never re-prompt and never enter the mount
+	// set; `construct sys daemon roots add` is the way back.
+	Declined map[string]time.Time `json:"declined,omitempty"`
 }
 
 // LearnedRoot is one host directory the daemon learned to mount. Path is
@@ -185,17 +190,39 @@ func (s RootsStore) Has(cleaned string) bool {
 	return false
 }
 
-// effectiveWorkspaceRoots returns the single-path mount set for this run:
-// the current project dir (always present, even when its learn was
-// declined — the run still needs its mount) plus every learned root that
-// still exists on disk. Sorted and deduplicated so the hash is stable.
-// The caller is inside the daemon flock critical section.
+// IsDeclined reports whether the exact cleaned path has a persisted
+// user decline ("do not offer to mount this folder").
+func (s RootsStore) IsDeclined(cleaned string) bool {
+	_, ok := s.Declined[cleaned]
+	return ok
+}
+
+// DeclineRoot records a user "no" for the exact cleaned path so later
+// runs skip the learn prompt instead of re-asking.
+func (s *RootsStore) DeclineRoot(path string, now time.Time) {
+	if s.Declined == nil {
+		s.Declined = make(map[string]time.Time, 1)
+	}
+	s.Declined[path] = now
+}
+
+// Undecline drops a decline record (the `roots add` path). Returns
+// whether a record existed.
+func (s *RootsStore) Undecline(path string) bool {
+	if _, ok := s.Declined[path]; !ok {
+		return false
+	}
+	delete(s.Declined, path)
+	return true
+}
+
 // effectiveWorkspaceRoots returns the single-path mount set for this run:
 // every learned root that still exists, plus the current project dir — but
 // only when it is NOT already covered by a learned root (a subdir of a
-// mounted root rides the parent mount instead of shadowing it). Sorted and
-// deduplicated so the hash is stable. The caller is inside the daemon
-// flock critical section.
+// mounted root rides the parent mount instead of shadowing it) and NOT
+// declined by the user (declined folders never enter the mount set).
+// Sorted and deduplicated so the hash is stable. The caller is inside the
+// daemon flock critical section.
 func effectiveWorkspaceRoots(projectDir string, store RootsStore) []string {
 	roots := store.Paths()
 	cleaned := cleanProjectDir(projectDir)
@@ -206,22 +233,41 @@ func effectiveWorkspaceRoots(projectDir string, store RootsStore) []string {
 			break
 		}
 	}
-	if cleaned != "" && !covered {
+	if cleaned != "" && !covered && !store.IsDeclined(cleaned) {
 		roots = append(roots, cleaned)
 	}
 	sort.Strings(roots)
 	return roots
 }
 
+// Test seams for the learn consent gate: no TTY and no gum binary exist
+// under CI, so tests swap these instead of the ui package.
+var (
+	learnRootInteractive = func() bool { return ui.GumAvailable() && term.IsTerminal(int(os.Stdin.Fd())) }
+	learnRootConfirm     = ui.GumConfirm
+)
+
+// declinedError builds the actionable error for a declined folder: the run
+// cannot proceed without its workdir mounted, and the message carries the
+// command that reverses the decision.
+func declinedError(resolved string) error {
+	return fmt.Errorf("%w: %s. Construct will not ask about this folder again. To mount it later: construct sys daemon roots add %s", ErrMsbDaemonWorkdirDeclined, resolved, resolved)
+}
+
 // requestLearnRoot prompts the user (interactive only) to add a new root to
 // the daemon's learned roots. Returns:
 //
 //   - (true, nil)            root learned and saved
-//   - (false, nil)           workspace guard failed OR user declined; no error
-//   - (false, ErrMapped...)  non-interactive or interactive-denied: caller
-//     surfaces the actionable message and the
-//     ErrMsbDaemonWorkdirUnmapped error
+//   - (false, ErrMapped...)  non-interactive, or the folder was declined
+//     before (ErrMsbDaemonWorkdirUnmapped /
+//     ErrMsbDaemonWorkdirDeclined, both actionable)
+//   - (false, ErrDeclined...)  interactive NO: the decline is persisted
+//     (never re-prompts) and the error carries the manual-add command
+//   - (false, nil)           workspace guard failed; caller ignores
 //
+// The store is RE-READ after the prompt: the interactive wait can last
+// minutes, and a concurrent `roots add`/`roots forget` (which hold the
+// flock themselves) would otherwise be clobbered by a stale in-memory copy.
 // MUST be called inside the daemon flock critical section (phase 1) so
 // concurrent ct invocations learning different roots never produce
 // last-write-wins root loss.
@@ -229,30 +275,57 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 	resolved := cleanProjectDir(projectDir)
 	if resolved == "" {
 		return false, nil
-	}
-	// Note: the workspace guard (EvaluateWorkspace RiskSystem) is enforced
+	} // Note: the workspace guard (EvaluateWorkspace RiskSystem) is enforced
 	// upstream by cleanProjectDir, which returns "" for system roots. By
 	// the time we reach here the path has been classified OK. We keep the
 	// guard as a defensive backstop in case a future caller bypasses
-	// cleanProjectDir; the decline case below produces (false, nil), which
-	// the P2.2 call site turns into ErrMsbDaemonWorkdirUnmapped.
+	// cleanProjectDir; the decline case below produces an error carrying
+	// the manual-add hint, which the call site surfaces directly.
 	if EvaluateWorkspace(resolved, 0).Risk == WorkspaceRiskSystem {
 		ui.InfoF("Refusing to learn system root: %s\n", resolved)
 		return false, nil
 	}
 
-	isInteractive := ui.GumAvailable() && term.IsTerminal(int(os.Stdin.Fd()))
+	store, err := LoadRootsStore()
+	if err != nil {
+		return false, err
+	}
+	// A previously declined folder never re-prompts: the user already said
+	// no, and re-asking on every run is nagging. The error tells them how
+	// to change their mind later.
+	if store.IsDeclined(resolved) {
+		return false, declinedError(resolved)
+	}
+
+	isInteractive := learnRootInteractive()
 	if !isInteractive {
 		ui.InfoF("cd into %s and run construct once interactively to add it, or add it to daemon.mount_paths\n", resolved)
 		return false, ErrMsbDaemonWorkdirUnmapped
 	}
 
 	prompt := fmt.Sprintf("Add %s to the daemon's mounted roots?", resolved)
-	if !ui.GumConfirm(prompt) {
-		return false, nil
+	if !learnRootConfirm(prompt) {
+		// Re-read AFTER the prompt: the interactive wait can last minutes,
+		// and the pre-prompt snapshot may be stale (concurrent roots add/
+		// forget hold the same flock and may have written meanwhile).
+		store, err = LoadRootsStore()
+		if err != nil {
+			return false, err
+		}
+		// Persist the decline so the folder never re-prompts. A save
+		// failure downgrades to today's behavior (asks again next run).
+		store.DeclineRoot(resolved, time.Now())
+		if serr := SaveRootsStore(store); serr != nil {
+			ui.InfoF("Could not persist the decline (%v); you may be asked again.\n", serr)
+		} else {
+			ui.InfoF("Not mounting %s. Construct will not ask about this folder again.\n", resolved)
+		}
+		return false, declinedError(resolved)
 	}
 
-	store, err := LoadRootsStore()
+	// Same re-read for the accept path: learn must build on the latest
+	// on-disk set, not the pre-prompt snapshot.
+	store, err = LoadRootsStore()
 	if err != nil {
 		return false, err
 	}
@@ -290,6 +363,18 @@ func DaemonRootsList(cfg *config.Config) {
 		fmt.Printf("    learned: %s\n", r.LearnedAt.Format(time.RFC3339))
 		fmt.Printf("    last used: %s\n", r.LastUsed.Format(time.RFC3339))
 	}
+	if len(store.Declined) > 0 {
+		fmt.Println("\nDeclined folders (ct will not ask to mount these):")
+		declinedPaths := make([]string, 0, len(store.Declined))
+		for p := range store.Declined {
+			declinedPaths = append(declinedPaths, p)
+		}
+		sort.Strings(declinedPaths)
+		for _, p := range declinedPaths {
+			fmt.Printf("  %s (declined %s)\n", p, store.Declined[p].Format(time.RFC3339))
+		}
+		fmt.Println("  Re-enable: construct sys daemon roots add <path>")
+	}
 	if cfg != nil && len(cfg.Daemon.MountPaths) > 0 {
 		fmt.Println("\nPinned configured paths (cannot be forgotten via this command):")
 		for _, p := range cfg.Daemon.MountPaths {
@@ -313,18 +398,106 @@ func DaemonRootsForget(cfg *config.Config, path string) {
 			}
 		}
 	}
+	// Store writes serialize behind the daemon flock: a concurrent ct run
+	// may be inside its learn critical section, and last-write-wins here
+	// would clobber it (or be clobbered).
+	releaseLock, err := acquireDaemonLock()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Acquire daemon lock: %v", err))
+		os.Exit(1)
+	}
+	defer releaseLock()
 	store, err := LoadRootsStore()
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to load roots store: %v", err))
 		os.Exit(1)
 	}
-	if !store.ForgetRoot(path) {
-		ui.GumError(fmt.Sprintf("%s is not a learned root. Run `construct sys daemon roots` to list the learned set.", path))
+	if store.ForgetRoot(path) {
+		if err := SaveRootsStore(store); err != nil {
+			ui.GumError(fmt.Sprintf("Failed to save roots store: %v", err))
+			os.Exit(1)
+		}
+		ui.GumInfo(fmt.Sprintf("Forgotten learned root %s. The next ct run recreates the daemon with the smaller mount set.", path))
+		return
+	}
+	// Not a learned root: clear a decline record if one exists (also the
+	// way to drop a decline whose folder no longer exists on disk, which
+	// `roots add` would refuse). Decline keys are canonicalized, so try
+	// the raw argument first, then its cleaned form.
+	if store.Undecline(path) || store.Undecline(cleanProjectDir(path)) {
+		if err := SaveRootsStore(store); err != nil {
+			ui.GumError(fmt.Sprintf("Failed to save roots store: %v", err))
+			os.Exit(1)
+		}
+		ui.GumInfo(fmt.Sprintf("Removed decline record for %s. Construct will offer to mount it again on the next interactive run.", path))
+		return
+	}
+	ui.GumError(fmt.Sprintf("%s is not a learned or declined root. Run `construct sys daemon roots` to list the known set.", path))
+	os.Exit(1)
+}
+
+// DaemonRootsAdd mounts a host directory as a learned root without the
+// interactive prompt: the manual way back after a decline (it clears any
+// persisted decline record) or for scripting setups headlessly. Mirrors
+// the learn-path guards: the path must exist, be a directory, and not be
+// a system root. Idempotent: an already-learned path is a no-op success.
+func DaemonRootsAdd(cfg *config.Config, path string) {
+	resolved := cleanProjectDir(path)
+	if resolved == "" {
+		ui.GumError(fmt.Sprintf("Cannot mount %s: system paths cannot be daemon roots.", path))
 		os.Exit(1)
+	}
+	if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+		ui.GumError(fmt.Sprintf("Cannot mount %s: not an existing directory.", path))
+		os.Exit(1)
+	}
+	// Serialize behind the daemon lock BEFORE touching the store (even the
+	// configured-path early return cleans up a stale decline record).
+	releaseLock, err := acquireDaemonLock()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Acquire daemon lock: %v", err))
+		os.Exit(1)
+	}
+	defer releaseLock()
+	if cfg != nil {
+		for _, p := range cfg.Daemon.MountPaths {
+			if p == resolved || p == path {
+				// Pinning in config.toml makes the decline record stale;
+				// clear it even on this early return so a later switch
+				// back to single-path mode does not resurrect it.
+				if store, serr := LoadRootsStore(); serr == nil {
+					if store.Undecline(resolved) {
+						_ = SaveRootsStore(store) //nolint:errcheck // best-effort cleanup; the pin already mounts it
+					}
+				}
+				ui.GumInfo(fmt.Sprintf("%s is already a configured daemon.mount_paths entry; nothing to do.", resolved))
+				return
+			}
+		}
+	}
+	store, err := LoadRootsStore()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load roots store: %v", err))
+		os.Exit(1)
+	}
+	if store.Has(resolved) {
+		store.Undecline(resolved) // no-op unless both records somehow exist
+		_ = SaveRootsStore(store) //nolint:errcheck // decline cleanup is best-effort; the root already works
+		ui.GumInfo(fmt.Sprintf("%s is already a learned root; nothing to do.", resolved))
+		return
+	}
+	now := time.Now()
+	store.TouchRoot(resolved, now)
+	store.Undecline(resolved)
+	if cfg != nil {
+		if evicted := store.EvictLRU(cfg.Daemon.MaxLearnedRoots); len(evicted) > 0 {
+			ui.InfoF("Evicted %d learned root(s) past the cap (%d): %v\n",
+				len(evicted), cfg.Daemon.MaxLearnedRoots, evicted)
+		}
 	}
 	if err := SaveRootsStore(store); err != nil {
 		ui.GumError(fmt.Sprintf("Failed to save roots store: %v", err))
 		os.Exit(1)
 	}
-	ui.GumInfo(fmt.Sprintf("Forgotten learned root %s. The next ct run recreates the daemon with the smaller mount set.", path))
+	ui.GumInfo(fmt.Sprintf("Added %s to the daemon's mounted roots. The next ct run recreates the daemon with the new mount set.", resolved))
 }

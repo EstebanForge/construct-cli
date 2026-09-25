@@ -45,6 +45,12 @@ func cleanProjectDir(projectDir string) string {
 	if projectDir == "" {
 		return ""
 	}
+	// Canonicalize BEFORE symlink evaluation: EvalSymlinks returns relative
+	// results for relative inputs ("." stays "."), and store keys must be
+	// absolute so decline records and mount hashes are cwd-independent.
+	if abs, err := filepath.Abs(projectDir); err == nil {
+		projectDir = abs
+	}
 	if v := EvaluateWorkspace(projectDir, 0); v.Risk == WorkspaceRiskSystem {
 		return ""
 	}
@@ -482,6 +488,13 @@ const msbDaemonName = "construct-cli-daemon"
 // disk (installs, toolchain state).
 var ErrMsbDaemonWorkdirUnmapped = errors.New("msb daemon: current directory is outside the configured daemon mount paths")
 
+// ErrMsbDaemonWorkdirDeclined reports that the user previously answered NO
+// to the learn prompt for this folder and the decline is persisted: ct
+// never re-prompts and the folder stays unmounted until
+// `construct sys daemon roots add <path>` reverses the decision. No
+// subsystem prefix: callers (agent engine) already wrap with "msb daemon:".
+var ErrMsbDaemonWorkdirDeclined = errors.New("workdir mounting was declined for this folder")
+
 // msbDaemonNeedsRecreate decides whether an existing daemon sandbox can
 // serve projectDir. Multi-path mode (daemon.mount_paths): recreate only
 // when the mounted hash drifted from config (mounts are create-time only;
@@ -520,7 +533,9 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// Rebuild the effective root set as the RUNNING daemon sees it: the
 	// boot project stays mounted, learned roots join it, and the current
 	// cwd joins only when no existing root already covers it (subdirs ride
-	// their parent mount).
+	// their parent mount) and the user has not declined it (declined
+	// folders never enter the mount set; EnsureMsbDaemon errors on them
+	// before this decision, so this guard is hash-consistency defense).
 	roots := store.Paths()
 	if cleaned := cleanProjectDir(projectDir); cleaned != "" {
 		covered := currentProjectDir != "" && containsPath(currentProjectDir, cleaned)
@@ -532,11 +547,11 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 				}
 			}
 		}
-		if !covered {
+		if !covered && !store.IsDeclined(cleaned) {
 			roots = append(roots, cleaned)
 		}
 	}
-	if currentProjectDir != "" && !slices.Contains(roots, currentProjectDir) {
+	if currentProjectDir != "" && !store.IsDeclined(currentProjectDir) && !slices.Contains(roots, currentProjectDir) {
 		roots = append(roots, currentProjectDir)
 	}
 	sort.Strings(roots)
@@ -568,7 +583,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	bootStart := msbBootClock()
 	bootOutcome := msbBootCold
 	bootReason := ""
-	bootRoots := msbBootMountCount(cfg, projectDir)
+	bootCounts := msbBootCountsFor(cfg, projectDir)
 
 	// Provision the image BEFORE the daemon lock: acquisition may now
 	// block on an interactive build-confirmation prompt, and holding the
@@ -685,12 +700,12 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 					ui.InfoLn("✓ MicroVM environment ready")
 					bootOutcome = msbBootWarm
 					bootReason = "ready marker missing; re-ran default workload"
-					msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
+					msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootCounts)
 					return sb, nil
 				}
 				bootOutcome = msbBootReconnect
 				bootReason = "ready marker present"
-				msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
+				msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootCounts)
 				return sb, nil
 			}
 			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
@@ -714,7 +729,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		ui.InfoLn("✓ MicroVM environment ready")
 		bootOutcome = msbBootWarm
 		bootReason = "stopped sandbox booted via StartDetached"
-		msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
+		msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootCounts)
 		return sb, nil
 	}
 
@@ -743,7 +758,7 @@ create:
 	if bootOutcome != msbBootRecreate {
 		bootReason = "first create (no existing sandbox)"
 	}
-	msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootRoots)
+	msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootCounts)
 	return sb, nil
 }
 
@@ -898,10 +913,31 @@ const (
 // it to produce deterministic durations without sleeping.
 var msbBootClock = time.Now
 
-// msbBootMountCount is the source for the "roots=N" field. Tests override
-// to keep the log assertion deterministic when the real mount map is empty.
-var msbBootMountCount = func(cfg *config.Config, projectDir string) int {
-	return len(msbSandboxMounts(cfg, projectDir))
+// msbBootCounts carries the three measurements behind the msb-boot log
+// fields. Mounts = total sandbox bind count (home + workspace roots +
+// conditional automounts); Learned = size of the learned-roots store;
+// CwdMounted = the run carried a workspace cwd (learned, pinned, or
+// appended one-off). The old single "roots=N" field conflated all three:
+// 15 on `ct pi` (cwd appended) vs 14 on `ct sys update` (no cwd) read as
+// "a root was lost". Split fields make each dimension readable.
+type msbBootCounts struct {
+	Mounts     int
+	Learned    int
+	CwdMounted bool
+}
+
+// msbBootCountsFor is the source for the msb-boot measurement fields.
+// Tests override it to keep the log assertion deterministic when the real
+// mount map is empty.
+var msbBootCountsFor = func(cfg *config.Config, projectDir string) msbBootCounts {
+	counts := msbBootCounts{Mounts: len(msbSandboxMounts(cfg, projectDir))}
+	store, err := LoadRootsStore()
+	if err != nil {
+		store = RootsStore{Version: rootsStoreVersion}
+	}
+	counts.Learned = len(store.Paths())
+	counts.CwdMounted = cleanProjectDir(projectDir) != ""
+	return counts
 }
 
 // msbTelemetryEvent is the canonical (wide) event for one daemon boot.
@@ -919,7 +955,9 @@ type msbTelemetryEvent struct {
 	Arch             string `json:"arch"`
 	Outcome          string `json:"outcome"`
 	Seconds          int    `json:"seconds"`
-	Roots            int    `json:"roots"`
+	Mounts           int    `json:"mounts"`
+	Learned          int    `json:"learned"`
+	CwdMounted       bool   `json:"cwd_mounted"`
 	Reason           string `json:"reason"`
 }
 
@@ -953,7 +991,7 @@ func telemetryEnabled(cfg *config.Config) bool {
 // msbLogBoot emits the structured `msb-boot:` line. Format is fixed so
 // downstream tooling can grep for `msb-boot:` and parse the fields
 // without coordinating on a new schema. The outcome + reason carry the
-// semantics; seconds + roots carry the measurements.
+// semantics; seconds + counts carry the measurements.
 //
 // Locally it also appends two artifacts under <config>/logs/, both gated
 // by [runtime] telemetry (default true, local-only by design — nothing is
@@ -964,13 +1002,13 @@ func telemetryEnabled(cfg *config.Config) bool {
 //     environment context (construct + host msb versions, os/arch) so a
 //     log bundle from any machine answers "which version pairing failed,
 //     how, how often" without another data source.
-func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason string, rootCount int) {
+func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason string, counts msbBootCounts) {
 	seconds := int(msbBootClock().Sub(start).Round(time.Second).Seconds())
 	if seconds < 0 {
 		seconds = 0
 	}
-	ui.InfoF("msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
-		outcome, seconds, rootCount, reason)
+	ui.InfoF("msb-boot: outcome=%s seconds=%d mounts=%d learned=%d cwd_mounted=%t reason=%q\n",
+		outcome, seconds, counts.Mounts, counts.Learned, counts.CwdMounted, reason)
 	if !telemetryEnabled(cfg) {
 		return
 	}
@@ -992,8 +1030,8 @@ func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason stri
 	capLogSize(bootLogPath)
 	if f, err := os.OpenFile(bootLogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 		//nolint:errcheck // telemetry is best-effort; the stderr copy already fired
-		fmt.Fprintf(f, "%s msb-boot: outcome=%s seconds=%d roots=%d reason=%q\n",
-			time.Now().Format(time.RFC3339), outcome, seconds, rootCount, reason)
+		fmt.Fprintf(f, "%s msb-boot: outcome=%s seconds=%d mounts=%d learned=%d cwd_mounted=%t reason=%q\n",
+			time.Now().Format(time.RFC3339), outcome, seconds, counts.Mounts, counts.Learned, counts.CwdMounted, reason)
 		//nolint:errcheck // telemetry is best-effort; stderr copy already fired
 		_ = f.Close()
 	}
@@ -1008,7 +1046,9 @@ func msbLogBoot(cfg *config.Config, outcome string, start time.Time, reason stri
 		Arch:             goruntime.GOARCH,
 		Outcome:          outcome,
 		Seconds:          seconds,
-		Roots:            rootCount,
+		Mounts:           counts.Mounts,
+		Learned:          counts.Learned,
+		CwdMounted:       counts.CwdMounted,
 		Reason:           reason,
 	}); err == nil {
 		telemetryPath := filepath.Join(logDir, "msb-telemetry.jsonl")
