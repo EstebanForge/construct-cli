@@ -47,6 +47,7 @@ forward_ssh_agent = true     # Forward SSH agent socket
 propagate_git_identity = true # Propagate git host identity
 non_root_strict = false      # Enforce non-root user in container
 exec_as_host_user = true     # Run commands as host user (when possible)
+passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/ufw/chown only)
 env_passthrough = ["GITHUB_TOKEN"] # Env vars to always pass through
 shell = "/bin/bash"          # Default shell in container
 

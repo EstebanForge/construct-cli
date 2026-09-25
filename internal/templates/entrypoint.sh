@@ -101,6 +101,18 @@ if [ "$(id -u)" = "0" ]; then
         setcap cap_net_bind_service+ep /usr/bin/socat 2>/dev/null || true
     fi
 
+    # Sudo policy: free NOPASSWD:ALL by default; CONSTRUCT_PASSWORDLESS_SUDO=0
+    # (sandbox.passwordless_sudo = false) restores the scoped apt/ufw/chown
+    # allowlist. Re-applied at every boot so guest root disks baked by older
+    # images heal in place on the next daemon create. Best-effort: rootless
+    # runtimes skip the root block and keep whatever the image baked.
+    if [ "${CONSTRUCT_PASSWORDLESS_SUDO:-1}" = "1" ]; then
+        echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct 2>/dev/null || true
+    else
+        echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" > /etc/sudoers.d/construct 2>/dev/null || true
+    fi
+    chmod 0440 /etc/sudoers.d/construct 2>/dev/null || true
+
     # Hash-gate dir: the entrypoint install gate lives on the guest ROOT
     # filesystem (resets on recreate, so declared packages re-provision).
     # Prepared here as root so the construct-phase can write it; the

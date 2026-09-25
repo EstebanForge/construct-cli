@@ -24,6 +24,12 @@ const DaemonMountsLabelKey = "construct.daemon.mounts_hash"
 // Mirrors DaemonMountsLabelKey semantics but for the skills source only.
 const DaemonSkillsLabelKey = "construct.daemon.skills_hash"
 
+// DaemonSudoLabelKey stamps the guest sudo policy ("free" or "scoped")
+// so toggling sandbox.passwordless_sudo recreates the daemon: the
+// sudoers drop-in is applied by the entrypoint at sandbox creation, so
+// a running daemon keeps the old policy until it is recreated.
+const DaemonSudoLabelKey = "construct.daemon.sudo"
+
 // DaemonMount defines a host-to-container mount mapping.
 type DaemonMount struct {
 	HostPath      string

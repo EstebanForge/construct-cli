@@ -1004,6 +1004,7 @@ type overrideInputs struct {
 	SkillsSource      string // Host skills source path (empty if disabled or not found)
 	SkillsTargetCount int    // Number of per-agent skills mount targets (0 disables even when source is present)
 	SkillsReadOnly    bool   // Whether the skills mounts use `:ro` (default true; opt-in RW when false)
+	SudoScoped        bool   // sandbox.passwordless_sudo = false (scoped apt/ufw/chown sudoers instead of free)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -1043,6 +1044,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "skillssource:%s", inputs.SkillsSource)
 	writeHashString(h, "skillstargets:%d", inputs.SkillsTargetCount)
 	writeHashString(h, "skillsreadonly:%v", inputs.SkillsReadOnly)
+	writeHashString(h, "sudoscoped:%v", inputs.SudoScoped)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1166,6 +1168,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		SkillsSource:      func() string { p, _ := GetSkillsSourcePath(cfg); return p }(),
 		SkillsTargetCount: len(SkillsMountTargets()),
 		SkillsReadOnly:    cfg != nil && cfg.Sandbox.SkillsReadOnly,
+		SudoScoped:        cfg != nil && !cfg.Sandbox.PasswordlessSudo,
 	}
 
 	// Check if override needs regeneration
@@ -1414,6 +1417,13 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 	// hardcoded *.localhost/localhost traffic can reach host dev sites.
 	if inputs.LoopbackPorts != "" {
 		fmt.Fprintf(&override, "      - CONSTRUCT_LOOPBACK_PORTS=%s\n", inputs.LoopbackPorts)
+	}
+
+	// Scoped-sudo opt-out: consumed by entrypoint.sh to write the scoped
+	// apt/ufw/chown sudoers drop-in instead of free sudo. Unset keeps the
+	// image default (free sudo).
+	if inputs.SudoScoped {
+		fmt.Fprintf(&override, "      - CONSTRUCT_PASSWORDLESS_SUDO=0\n")
 	}
 
 	// Network isolation mode

@@ -326,6 +326,10 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	if skillsHash := SkillsDaemonHash(cfg); skillsHash != "" {
 		labels[DaemonSkillsLabelKey] = skillsHash
 	}
+	// Sudo policy label: toggling sandbox.passwordless_sudo must recreate
+	// the daemon because the entrypoint applies the sudoers drop-in at
+	// sandbox creation only.
+	labels[DaemonSudoLabelKey] = sudoPolicy(cfg)
 	return &MsbRunSpec{
 		Name: name,
 		// Resolve the cached ref (bare / localhost/ / full registry): the
@@ -343,11 +347,25 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	}
 }
 
+// sudoPolicy names the guest sudo regime for the daemon label: "free"
+// (NOPASSWD:ALL, default) or "scoped" (apt/ufw/chown allowlist only).
+func sudoPolicy(cfg *config.Config) string {
+	if cfg != nil && !cfg.Sandbox.PasswordlessSudo {
+		return "scoped"
+	}
+	return "free"
+}
+
 // msbBaseEnv holds the backend-agnostic env every msb sandbox carries.
 func msbBaseEnv(cfg *config.Config) []string {
 	var envVars []string
 	if lp := loopbackPortsString(cfg); lp != "" {
 		envVars = append(envVars, "CONSTRUCT_LOOPBACK_PORTS="+lp)
+	}
+	// Emit only the opt-out: the entrypoint and the image both default to
+	// free sudo, so an unset var keeps today's behavior.
+	if cfg != nil && !cfg.Sandbox.PasswordlessSudo {
+		envVars = append(envVars, "CONSTRUCT_PASSWORDLESS_SUDO=0")
 	}
 	if cfg != nil && cfg.Sandbox.ExecAsHostUser {
 		if uid := os.Getuid(); uid > 0 {
@@ -513,6 +531,13 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 		if sandboxLabels[DaemonSkillsLabelKey] != currentSkills {
 			return true, "host skills mounts changed (source, mode, or targets)"
 		}
+	}
+	// Sudo policy parity: the entrypoint applies the sudoers drop-in at
+	// sandbox creation, so a policy toggle needs a recreate. Old daemons
+	// predate the label; their empty label compares unequal to the current
+	// policy only when the user actually opted out, which recreates once.
+	if sandboxLabels[DaemonSudoLabelKey] != sudoPolicy(cfg) {
+		return true, "sudo policy changed (sandbox.passwordless_sudo)"
 	}
 	if dm.Enabled {
 		if sandboxLabels[DaemonMountsLabelKey] != dm.Hash {

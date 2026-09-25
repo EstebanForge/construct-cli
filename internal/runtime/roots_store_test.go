@@ -752,6 +752,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	labelsHomeBoot := map[string]string{
 		"construct.project_dir": home,
 		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{home}),
+		DaemonSudoLabelKey:      "free",
 	}
 	cfgJSONHomeBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home)
 
@@ -778,6 +779,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	labelsSubBoot := map[string]string{
 		"construct.project_dir": sub,
 		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{sub}),
+		DaemonSudoLabelKey:      "free",
 	}
 	cfgJSONSubBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, subDest, sub)
 
@@ -795,6 +797,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 	labelsCombinedBoot := map[string]string{
 		"construct.project_dir": home,
 		DaemonMountsLabelKey:    hashDaemonMountPaths(combinedRoots),
+		DaemonSudoLabelKey:      "free",
 	}
 	cfgJSONCombinedBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q},{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home, subDest, sub)
 

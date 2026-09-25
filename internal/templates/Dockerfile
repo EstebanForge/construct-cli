@@ -21,9 +21,13 @@ RUN useradd -u 1000 -m -s /bin/bash construct && \
     # applied in the entrypoint (as root), NOT here: BuildKit's default sandbox
     # blocks file-capability writes during `docker build`.
 
-# Allow construct user to run privileged commands without password
-# Include chown for Podman rootless permission fixes
-RUN echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" >> /etc/sudoers.d/construct && \
+# Allow the construct user full passwordless sudo. The microVM is the
+# security boundary: guest root adds no host reach beyond the mounts
+# already granted (read-only virtiofs stays read-only even for root),
+# and agents should never hit a sudo wall mid-task. entrypoint.sh
+# re-applies this file at every boot so persistent guest root disks from
+# older images heal in place without a recreate.
+RUN echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct && \
     chmod 0440 /etc/sudoers.d/construct
 
 # Hash-gate dir (root-fs install gate): pre-created owned by construct so

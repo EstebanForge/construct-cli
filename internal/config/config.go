@@ -66,6 +66,7 @@ type SandboxConfig struct {
 	ForwardSSHAgent        bool     `toml:"forward_ssh_agent"`
 	PropagateGitIdentity   bool     `toml:"propagate_git_identity"`
 	NonRootStrict          bool     `toml:"non_root_strict"`
+	PasswordlessSudo       bool     `toml:"passwordless_sudo"` // Free sudo for the guest construct user (default true; false restores the scoped apt/ufw/chown allowlist)
 	AllowCustomOverride    bool     `toml:"allow_custom_compose_override"`
 	DisableSeccomp         bool     `toml:"disable_seccomp"`
 	ExecAsHostUser         bool     `toml:"exec_as_host_user"`
@@ -150,6 +151,7 @@ func DefaultConfig() Config {
 			ForwardSSHAgent:      true,
 			PropagateGitIdentity: true,
 			NonRootStrict:        false,
+			PasswordlessSudo:     true,
 			AllowCustomOverride:  false,
 			ExecAsHostUser:       true,
 			MountSkills:          true,
