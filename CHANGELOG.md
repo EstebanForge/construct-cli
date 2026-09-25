@@ -2,6 +2,20 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.7 -->
+## [1.17.7] - 2026-09-25
+
+### Changed
+
+- **`construct sys self-update` now finishes the daemon upgrade instead of leaving it to luck.** Sandbox setup (sudo policy, mounts, skills) applies when the sandbox is built, so a daemon that was running during an update kept the old setup until something happened to rebuild it. Self-update now stops an idle daemon and says the next command rebuilds it (tools reinstall, a few minutes). If live sessions hold the daemon, it prints exactly that, plus the `construct sys daemon stop` instruction for when they finish.
+
+### Fixed
+
+- **Agent patching no longer fails on image-owned files.** The clipboard platform-check patcher walks `/usr/local/lib/node_modules`, whose files are root-owned, so every update printed "Agent patching encountered errors" and the patch never applied for agents installed under the image prefix. In-place edits now elevate via non-interactive sudo (free sudo is the default); with the scoped-sudo opt-out they skip exactly as before, never prompting.
+- **Doctor stopped nagging on plain runs.** Baked Image Freshness now verifies the local image with a cheap check and stays quiet when it exists (the old line claimed presence without checking and suggested `--fix` every run). Stale Packages Volume reports "No reachable container daemon" calmly instead of surfacing the raw socket error when a docker CLI exists without a running engine.
+
+<!-- RELEASE:END 1.17.7 -->
+
 <!-- RELEASE:START 1.17.6 -->
 ## [1.17.6] - 2026-09-25
 
