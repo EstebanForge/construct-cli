@@ -48,6 +48,7 @@ propagate_git_identity = true # Propagate git host identity
 non_root_strict = false      # Enforce non-root user in container
 exec_as_host_user = true     # Run commands as host user (when possible)
 passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/ufw/chown only)
+workspace_max_entries = 500000 # File count before the large-workspace warning (0 = use default). One Yes is remembered per folder in roots.json
 env_passthrough = ["GITHUB_TOKEN"] # Env vars to always pass through
 shell = "/bin/bash"          # Default shell in container
 

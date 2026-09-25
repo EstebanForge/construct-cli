@@ -39,9 +39,15 @@ type WorkspaceVerdict struct {
 }
 
 // DefaultWorkspaceEntryBudget is the maximum entry count before triggering confirmation.
-const DefaultWorkspaceEntryBudget = 60000
+// DefaultWorkspaceEntryBudget bounds the host-side entry scan. Raised
+// from 60000 (2026-09-25, research-backed): a single modern JS project
+// carries 50-150k files, the kernel raised inotify.max_user_watches to
+// 1048576 in 2020 for the same reason, and virtiofs on 2020+ NVMe hosts
+// runs real dependency installs ~4x faster than the pre-2022 stack the
+// old ceiling dates from. The scan's time budget remains the hard stop.
+const DefaultWorkspaceEntryBudget = 500000
 
-const workspaceScanBudget = 1500 * time.Millisecond
+const workspaceScanBudget = 3 * time.Second
 
 // hotSubtrees are top-level directory names characteristic of host home or cache trees.
 var hotSubtrees = map[string]bool{
@@ -69,11 +75,7 @@ func EvaluateWorkspace(dir string, budget int) WorkspaceVerdict {
 		budget = DefaultWorkspaceEntryBudget
 	}
 
-	resolved := dir
-	if r, err := filepath.EvalSymlinks(dir); err == nil {
-		resolved = r
-	}
-	clean := filepath.Clean(resolved)
+	clean := resolveWorkspaceDir(dir)
 	rawClean := filepath.Clean(dir)
 	v.Path = clean
 
@@ -158,6 +160,83 @@ func EnforceWorkspace(v WorkspaceVerdict, p WorkspacePolicy) error {
 		}
 	}
 	return nil
+}
+
+// resolveWorkspaceDir resolves a workspace path the way the guard stores
+// and compares it: symlink-resolved, then cleaned. Used by evaluation and
+// by the acceptance lookup so both sides see the same key.
+func resolveWorkspaceDir(dir string) string {
+	resolved := dir
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		resolved = r
+	}
+	return filepath.Clean(resolved)
+}
+
+// EnforceWorkspaceRemembered evaluates the workspace and enforces the
+// guard policy with per-root acceptance memory: a folder whose
+// large-workspace warning the user already accepted (roots.json accepted
+// map) skips the guard entirely — no scan, no warning, no confirm. A
+// fresh Yes is persisted after the confirm so later runs stay silent.
+// Home and system risks enforce exactly as EnforceWorkspace.
+func EnforceWorkspaceRemembered(cwd string, maxEntries int, allowHome, interactive bool) error {
+	if rootsStoreAccepts(resolveWorkspaceDir(cwd)) {
+		return nil
+	}
+	verdict := EvaluateWorkspace(cwd, maxEntries)
+	confirmed := false
+	err := EnforceWorkspace(verdict, WorkspacePolicy{
+		AllowHome:   allowHome,
+		Interactive: interactive,
+		Confirm: func(prompt string) bool {
+			ok := workspaceConfirm(prompt)
+			confirmed = ok
+			return ok
+		},
+	})
+	if err == nil && confirmed {
+		if rerr := rememberLargeExport(verdict.Path); rerr != nil {
+			ui.LogWarning(fmt.Sprintf("Could not remember workspace acceptance (will ask again): %v", rerr))
+		}
+	}
+	return err
+}
+
+// workspaceConfirm is the confirm seam for tests (ui.GumConfirm is a
+// plain function and cannot be stubbed).
+var workspaceConfirm = ui.GumConfirm
+
+// rootsStoreAccepts reads the roots store without the flock: a torn or
+// stale read worst case is one extra confirm, never a lost acceptance.
+func rootsStoreAccepts(path string) bool {
+	if path == "" {
+		return false
+	}
+	store, err := LoadRootsStore()
+	if err != nil {
+		return false
+	}
+	return store.IsAccepted(path)
+}
+
+// rememberLargeExport persists a large-workspace acceptance. Acquires the
+// daemon flock for the read-modify-write (acquire-then-touch); must NOT
+// be called while the flock is already held.
+func rememberLargeExport(path string) error {
+	if path == "" {
+		return nil
+	}
+	release, err := acquireDaemonLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	store, err := LoadRootsStore()
+	if err != nil {
+		return err
+	}
+	store.AcceptLargeExport(path, time.Now().UTC())
+	return SaveRootsStore(store)
 }
 
 func warnWorkspace(v WorkspaceVerdict) {

@@ -52,8 +52,9 @@ allow_home_workspace = false
 # (apt/ufw/chown only). Toggling recreates the daemon on the next run.
 passwordless_sudo = true
 
-# Max file entries scanned in workspace before confirmation prompt (default: 60000)
-workspace_max_entries = 60000
+# Max file entries scanned in workspace before confirmation prompt
+# (default: 500000). Accepting once is remembered per folder in roots.json.
+workspace_max_entries = 500000
 
 # Forward host SSH agent into the container (default: true)
 forward_ssh_agent = true

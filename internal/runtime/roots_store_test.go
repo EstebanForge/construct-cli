@@ -807,3 +807,191 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 		t.Fatalf("subsequent home run on combined daemon should reuse, got recreate: %s", reason)
 	}
 }
+
+// TestRootsStoreAcceptLargeExportSubtree: a large-workspace acceptance
+// covers the folder and everything below it, names the ancestor as the
+// record key, and survives a reload.
+func TestRootsStoreAcceptLargeExportSubtree(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	store.AcceptLargeExport(dir, time.Now().UTC())
+	if !store.IsAccepted(dir) {
+		t.Fatal("IsAccepted(dir) = false after AcceptLargeExport")
+	}
+	sub := filepath.Join(dir, "sub")
+	if !store.IsAccepted(sub) {
+		t.Fatal("acceptance does not cover subdirectories")
+	}
+	if key := store.AcceptedKeyFor(sub); key != dir {
+		t.Fatalf("AcceptedKeyFor(sub) = %q, want the ancestor %q", key, dir)
+	}
+	if store.IsAccepted(filepath.Join(filepath.Dir(dir), "elsewhere")) {
+		t.Fatal("acceptance leaked outside the folder subtree")
+	}
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("SaveRootsStore: %v", err)
+	}
+	reloaded, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore after save: %v", err)
+	}
+	if !reloaded.IsAccepted(dir) {
+		t.Fatal("acceptance did not survive a reload")
+	}
+}
+
+// TestEnforceWorkspaceRememberedAsksOnceThenSkips: the large-workspace
+// confirm fires exactly once, the Yes persists, and the next run from the
+// same folder is silent.
+func TestEnforceWorkspaceRememberedAsksOnceThenSkips(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		if werr := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", i)), []byte("x"), 0o644); werr != nil {
+			t.Fatalf("seed file: %v", werr)
+		}
+	}
+	original := workspaceConfirm
+	calls := 0
+	workspaceConfirm = func(string) bool {
+		calls++
+		return true
+	}
+	t.Cleanup(func() { workspaceConfirm = original })
+
+	// maxEntries 2 against 3 files forces the Large verdict on any host.
+	if err := EnforceWorkspaceRemembered(dir, 2, false, true); err != nil {
+		t.Fatalf("first run errored: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("confirm calls = %d, want 1", calls)
+	}
+	workspaceConfirm = func(string) bool {
+		t.Error("confirm re-asked after acceptance was recorded")
+		return false
+	}
+	if err := EnforceWorkspaceRemembered(dir, 2, false, true); err != nil {
+		t.Fatalf("second run errored: %v", err)
+	}
+	if calls != 1 {
+		t.Fatalf("confirm calls after second run = %d, want still 1", calls)
+	}
+}
+
+// TestEnforceWorkspaceRememberedDeclinePersistsNothing: answering No fails
+// the run and records nothing, so the warning fires again next run.
+func TestEnforceWorkspaceRememberedDeclinePersistsNothing(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		if werr := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", i)), []byte("x"), 0o644); werr != nil {
+			t.Fatalf("seed file: %v", werr)
+		}
+	}
+	original := workspaceConfirm
+	workspaceConfirm = func(string) bool { return false }
+	t.Cleanup(func() { workspaceConfirm = original })
+
+	if err := EnforceWorkspaceRemembered(dir, 2, false, true); !errors.Is(err, ErrWorkspaceRefused) {
+		t.Fatalf("declined run error = %v, want ErrWorkspaceRefused", err)
+	}
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	if store.IsAccepted(dir) {
+		t.Fatal("a declined size warning must not persist an acceptance")
+	}
+}
+
+// TestDaemonRootsForgetClearsAcceptance: forget on an accepted-but-never-
+// learned folder drops the acceptance instead of erroring.
+func TestDaemonRootsForgetClearsAcceptance(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	if rerr := rememberLargeExport(dir); rerr != nil {
+		t.Fatalf("rememberLargeExport: %v", rerr)
+	}
+	DaemonRootsForget(nil, dir) // failure paths os.Exit and fail the test
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	if store.IsAccepted(dir) {
+		t.Fatal("forget must clear the size-warning acceptance")
+	}
+}
+
+// TestEnforceWorkspaceRememberedHeadlessFailsClosed: headless runs never
+// consult the confirm, fail closed on a large workspace, and persist
+// nothing.
+func TestEnforceWorkspaceRememberedHeadlessFailsClosed(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	for i := 0; i < 3; i++ {
+		if werr := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%d", i)), []byte("x"), 0o644); werr != nil {
+			t.Fatalf("seed file: %v", werr)
+		}
+	}
+	original := workspaceConfirm
+	workspaceConfirm = func(string) bool {
+		t.Error("headless run must not consult the confirm seam")
+		return true
+	}
+	t.Cleanup(func() { workspaceConfirm = original })
+
+	if err := EnforceWorkspaceRemembered(dir, 2, false, false); !errors.Is(err, ErrWorkspaceRefused) {
+		t.Fatalf("headless large-workspace error = %v, want ErrWorkspaceRefused", err)
+	}
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	if store.IsAccepted(dir) {
+		t.Fatal("headless runs must never persist an acceptance")
+	}
+}
+
+// TestEnforceWorkspaceRememberedAcceptedSkipsGuard: once accepted, the
+// folder passes with no scan and no confirm — even a confirm stub that
+// fails the test stays silent.
+func TestEnforceWorkspaceRememberedAcceptedSkipsGuard(t *testing.T) {
+	withRootsTestHome(t)
+	dir := t.TempDir()
+	if rerr := rememberLargeExport(dir); rerr != nil {
+		t.Fatalf("rememberLargeExport: %v", rerr)
+	}
+	original := workspaceConfirm
+	workspaceConfirm = func(string) bool {
+		t.Error("accepted folder must not re-confirm")
+		return false
+	}
+	t.Cleanup(func() { workspaceConfirm = original })
+
+	if err := EnforceWorkspaceRemembered(dir, 2, false, true); err != nil {
+		t.Fatalf("accepted folder errored: %v", err)
+	}
+}
+
+// TestAcceptLargeExportRefusesHome: the always-ask home regime must never
+// gain an acceptance record, so an accepted skip can never mute the home
+// danger warning.
+func TestAcceptLargeExportRefusesHome(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	store.AcceptLargeExport(home, time.Now().UTC())
+	if store.IsAccepted(home) {
+		t.Fatal("home must never carry an acceptance record")
+	}
+	if len(store.Accepted) != 0 {
+		t.Fatalf("Accepted map = %v, want empty", store.Accepted)
+	}
+}

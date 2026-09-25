@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -233,10 +234,30 @@ func ghcrRemoteDigest(ref string) string {
 		return ""
 	}
 	defer resp.Body.Close() //nolint:errcheck // small manifest, close on return
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
 	digest := resp.Header.Get("Docker-Content-Digest")
-	contentType := resp.Header.Get("Content-Type")
-	if !strings.Contains(contentType, "index") && !strings.Contains(contentType, "manifest.list") {
-		return digest // single-arch tag: the top digest is already the manifest
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return ""
+	}
+	return manifestDigestForHost(resp.Header.Get("Content-Type"), body, digest, runtime.GOARCH)
+}
+
+// manifestDigestForHost resolves the digest msb actually caches for this
+// machine: the construct-box guest image is ALWAYS linux, but the machine
+// architecture follows the host (libkrun runs the VM on host arch), so a
+// darwin/arm64 host caches the linux/arm64 platform manifest while the
+// tag-level digest is the multi-arch index. On index content the top
+// digest is the index, which NEVER equals the cached platform digest —
+// returning it would report drift on every create — so any resolution
+// failure returns "" (unknown, keep the cached image) instead. goarch is
+// a parameter for testability; callers pass runtime.GOARCH.
+func manifestDigestForHost(contentType string, body []byte, topDigest, goarch string) string {
+	lower := strings.ToLower(contentType)
+	if !strings.Contains(lower, "index") && !strings.Contains(lower, "manifest.list") {
+		return topDigest // single-arch tag: the top digest is already the manifest
 	}
 	var idx struct {
 		Manifests []struct {
@@ -247,15 +268,15 @@ func ghcrRemoteDigest(ref string) string {
 			} `json:"platform"`
 		} `json:"manifests"`
 	}
-	if json.NewDecoder(resp.Body).Decode(&idx) != nil {
-		return digest
+	if json.Unmarshal(body, &idx) != nil {
+		return ""
 	}
 	for _, m := range idx.Manifests {
-		if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == runtime.GOARCH {
+		if m.Platform.OS == "linux" && m.Platform.Architecture == goarch {
 			return m.Digest
 		}
 	}
-	return digest
+	return ""
 }
 
 // abbrevDigest shortens a sha256:... digest for one-line notices.

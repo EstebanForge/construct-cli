@@ -30,6 +30,12 @@ type RootsStore struct {
 	// recorded. Declined paths never re-prompt and never enter the mount
 	// set; `construct sys daemon roots add` is the way back.
 	Declined map[string]time.Time `json:"declined,omitempty"`
+	// Accepted records folders where the user answered YES to the
+	// large-workspace export warning (workspace_max_entries). Key:
+	// symlink-resolved path; value: when the acceptance was recorded.
+	// Accepted paths skip the warning and confirm on later runs; entries
+	// are exempt from max_learned_roots and `roots forget` clears them.
+	Accepted map[string]time.Time `json:"accepted,omitempty"`
 }
 
 // LearnedRoot is one host directory the daemon learned to mount. Path is
@@ -263,6 +269,56 @@ func (s *RootsStore) Undecline(path string) bool {
 		return false
 	}
 	delete(s.Declined, path)
+	return true
+}
+
+// IsAccepted reports whether cleaned carries a persisted large-workspace
+// acceptance ("export anyway"), matching the accepted path ITSELF or
+// anything below it: accepting ~/Dev covers runs from ~/Dev/projects too.
+func (s RootsStore) IsAccepted(cleaned string) bool {
+	return s.AcceptedKeyFor(cleaned) != ""
+}
+
+// AcceptedKeyFor returns the persisted acceptance record that covers
+// cleaned (exact match or an accepted ancestor), "" when none. Home
+// itself is never a valid acceptance (mirror DeclineKeyFor): the home
+// warning is the always-ask regime, so an acceptance must never mute it.
+func (s RootsStore) AcceptedKeyFor(cleaned string) string {
+	if cleaned == "" || isUserHome(cleaned) {
+		return ""
+	}
+	if _, ok := s.Accepted[cleaned]; ok {
+		return cleaned
+	}
+	for accepted := range s.Accepted {
+		if containsPath(accepted, cleaned) {
+			return accepted
+		}
+	}
+	return ""
+}
+
+// AcceptLargeExport records the user's "export anyway" for the exact
+// cleaned path so later runs skip the large-workspace warning. Home
+// itself is refused (mirror DeclineRoot): an acceptance must never mute
+// the always-ask home warning.
+func (s *RootsStore) AcceptLargeExport(path string, now time.Time) {
+	if isUserHome(path) {
+		return
+	}
+	if s.Accepted == nil {
+		s.Accepted = make(map[string]time.Time, 1)
+	}
+	s.Accepted[path] = now
+}
+
+// Unaccept drops a large-workspace acceptance record. Returns whether a
+// record existed.
+func (s *RootsStore) Unaccept(path string) bool {
+	if _, ok := s.Accepted[path]; !ok {
+		return false
+	}
+	delete(s.Accepted, path)
 	return true
 }
 
@@ -563,6 +619,18 @@ func DaemonRootsList(cfg *config.Config) {
 		}
 		fmt.Println("  Re-enable: construct sys daemon roots add <path>")
 	}
+	if len(store.Accepted) > 0 {
+		fmt.Println("\nLarge exports accepted (size warnings skipped for these):")
+		acceptedPaths := make([]string, 0, len(store.Accepted))
+		for p := range store.Accepted {
+			acceptedPaths = append(acceptedPaths, p)
+		}
+		sort.Strings(acceptedPaths)
+		for _, p := range acceptedPaths {
+			fmt.Printf("  %s (accepted %s)\n", p, store.Accepted[p].Format(time.RFC3339))
+		}
+		fmt.Println("  Ask again: construct sys daemon roots forget <path>")
+	}
 	if cfg != nil && len(cfg.Daemon.MountPaths) > 0 {
 		fmt.Println("\nPinned configured paths (cannot be forgotten via this command):")
 		for _, p := range cfg.Daemon.MountPaths {
@@ -601,6 +669,10 @@ func DaemonRootsForget(cfg *config.Config, path string) {
 		os.Exit(1)
 	}
 	if store.ForgetRoot(path) {
+		// Forget is a full reset of the folder's relationship with the
+		// daemon: any size-warning acceptance rides along.
+		store.Unaccept(path)
+		store.Unaccept(cleanProjectDir(path))
 		if err := SaveRootsStore(store); err != nil {
 			ui.GumError(fmt.Sprintf("Failed to save roots store: %v", err))
 			os.Exit(1)
@@ -608,19 +680,28 @@ func DaemonRootsForget(cfg *config.Config, path string) {
 		ui.GumInfo(fmt.Sprintf("Forgotten learned root %s. The next ct run recreates the daemon with the smaller mount set.", path))
 		return
 	}
-	// Not a learned root: clear a decline record if one exists (also the
-	// way to drop a decline whose folder no longer exists on disk, which
-	// `roots add` would refuse). Decline keys are canonicalized, so try
-	// the raw argument first, then its cleaned form.
-	if store.Undecline(path) || store.Undecline(cleanProjectDir(path)) {
+	// Not a learned root: clear a decline or a large-workspace acceptance
+	// if one exists (also the way to drop records whose folder no longer
+	// exists on disk, which `roots add` would refuse). Record keys are
+	// canonicalized, so try the raw argument first, then its cleaned form.
+	clearedDecline := store.Undecline(path) || store.Undecline(cleanProjectDir(path))
+	clearedAccept := store.Unaccept(path) || store.Unaccept(cleanProjectDir(path))
+	if clearedDecline || clearedAccept {
 		if err := SaveRootsStore(store); err != nil {
 			ui.GumError(fmt.Sprintf("Failed to save roots store: %v", err))
 			os.Exit(1)
 		}
-		ui.GumInfo(fmt.Sprintf("Removed decline record for %s. Construct will offer to mount it again on the next interactive run.", path))
+		switch {
+		case clearedDecline && clearedAccept:
+			ui.GumInfo(fmt.Sprintf("Removed decline and size-warning acceptance records for %s. Construct starts fresh with this folder on the next run.", path))
+		case clearedDecline:
+			ui.GumInfo(fmt.Sprintf("Removed decline record for %s. Construct will offer to mount it again on the next interactive run.", path))
+		default:
+			ui.GumInfo(fmt.Sprintf("Removed size-warning acceptance for %s. Construct warns and asks again on the next run from that folder.", path))
+		}
 		return
 	}
-	ui.GumError(fmt.Sprintf("%s is not a learned or declined root. Run `construct sys daemon roots` to list the known set.", path))
+	ui.GumError(fmt.Sprintf("%s is not a learned, declined, or accepted root. Run `construct sys daemon roots` to list the known set.", path))
 	os.Exit(1)
 }
 
