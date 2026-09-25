@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.8 -->
+## [1.17.8] - 2026-09-25
+
+### Fixed
+
+- **Republished base images now reach guests.** The image cache never expired: any cached construct-box ref short-circuited the image prepare step, and a plain pull treats a cached ref as done without re-resolving the tag, so guests kept booting an old image no matter how many times the base image was republished (or the sandbox deleted). The prepare step now compares the cached manifest digest against the registry digest (one anonymous HEAD, about a second) and refreshes the cache only when they differ; offline, it falls back to the cached image as before.
+
+<!-- RELEASE:END 1.17.8 -->
+
 <!-- RELEASE:START 1.17.7 -->
 ## [1.17.7] - 2026-09-25
 
