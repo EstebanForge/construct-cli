@@ -2,6 +2,27 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.4 -->
+## [1.17.4] - 2026-09-25
+
+### Added
+
+- **Auto-learn mount roots inside `$HOME` (no prompt)**: running from a new project directory under your home now auto-mounts and remembers it silently, interactive or headless. One notice line with the `construct sys daemon roots forget <path>` undo, one daemon recreate for the new root, and every later run from that tree reconnects with zero prompts and zero recreates. This also unblocks headless agent and CI runs, which previously failed closed on every new project directory. The home directory itself is never auto-learned: mounting the whole home stays a deliberate `mount_paths` decision.
+- **Sensitive home trees keep the human checkpoint**: hidden top-level directories under `$HOME` (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.cache`, with the whole subtree inheriting) and macOS `~/Library` are never auto-learned. They keep the interactive prompt, and headless runs fail closed, so host credential trees never land in the persistent sandbox without a human saying yes.
+
+### Changed
+
+- **Declines are now subtree exclusions**: declining `~/Secret` also excludes `~/Secret/sub`, matching what the prompt implies. The declined-run error names the persisted record that `construct sys daemon roots add` reverses.
+- **`daemon.max_learned_roots` default raised 8 to 16**, absorbing recreate churn from one-off directories.
+
+### Fixed
+
+- **`max_learned_roots = 0` now actually disables learning.** The docs said 0 disables the learned-root mechanism, but eviction treated 0 as a no-op, making the set unlimited. It is now a real off-switch: uncovered folders fail with the config hint and nothing is persisted.
+- **Learn-root detection on symlinked homes**: on hosts where `/home` is a symlink (Fedora Atomic desktops) the containment check missed every path, so auto-learn never fired. Detection now resolves both the raw and the symlinked home. A trailing slash on `$HOME` could also make the home directory itself mountable; that is fixed.
+- **Idle watcher no longer arms on failed runs**: a run that failed before joining the daemon's session registry (declined workdir, boot error) still printed `Spawned idle-watch`. The watcher now arms only for runs that actually held a session.
+
+<!-- RELEASE:END 1.17.4 -->
+
 <!-- RELEASE:START 1.17.3 -->
 ## [1.17.3] - 2026-09-24
 
