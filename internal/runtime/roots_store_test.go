@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -547,5 +548,259 @@ func TestInsideUserHomeSymlinkedAndSlashedHome(t *testing.T) {
 	}
 	if !insideUserHome(filepath.Join(realHome, "projects")) {
 		t.Error("plain containment broken")
+	}
+}
+
+// TestRequestLearnRootHomeAlwaysPromptsNeverPersists: the home directory
+// is the always-ask regime. Every run warns and asks (even after a prior
+// acceptance), acceptance is never persisted as a learned root, and a NO
+// persists nothing either. Acceptance proceeds via the run's one-off cwd
+// mount, so (false, nil) is the correct outcome.
+func TestRequestLearnRootHomeAlwaysPromptsNeverPersists(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+
+	origInteractive, origDanger := learnRootInteractive, learnRootConfirmDanger
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirmDanger = origInteractive, origDanger })
+	learnRootInteractive = func() bool { return true }
+
+	prompts := 0
+	learnRootConfirmDanger = func(string) bool {
+		prompts++
+		return true // accept every time
+	}
+
+	cfg := config.DefaultConfig()
+	for i := 1; i <= 2; i++ {
+		learned, err := requestLearnRoot(&cfg, home)
+		if learned || err != nil {
+			t.Fatalf("run %d: learned=%v err=%v, want proceed-without-persist", i, learned, err)
+		}
+		if prompts != i {
+			t.Fatalf("run %d: prompted %d time(s), want %d", i, prompts, i)
+		}
+		store, lerr := LoadRootsStore()
+		if lerr != nil {
+			t.Fatalf("load store: %v", lerr)
+		}
+		if store.Has(cleanProjectDir(home)) {
+			t.Fatal("home acceptance must never be persisted as a learned root")
+		}
+		if len(store.Roots) != 0 {
+			t.Fatalf("unexpected learned roots: %v", store.Roots)
+		}
+	}
+
+	// A NO also persists nothing: next run asks again.
+	learnRootConfirmDanger = func(string) bool { return false }
+	learned, err := requestLearnRoot(&cfg, home)
+	if learned || !errors.Is(err, ErrMsbDaemonWorkdirDeclined) {
+		t.Fatalf("declined run: learned=%v err=%v, want declined error", learned, err)
+	}
+	store, lerr := LoadRootsStore()
+	if lerr != nil {
+		t.Fatalf("load store: %v", lerr)
+	}
+	if store.IsDeclined(cleanProjectDir(home)) {
+		t.Fatal("home refusal must never be persisted; the next run must ask again")
+	}
+}
+
+// TestIsUserHomeMatchesRawAndResolved: isUserHome must recognize the home
+// directory through both its raw and its symlink-resolved forms, and
+// must not match subdirectories.
+func TestIsUserHomeMatchesRawAndResolved(t *testing.T) {
+	realHome := t.TempDir()
+	linkHome := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(realHome, linkHome); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	t.Setenv("HOME", linkHome)
+
+	if !isUserHome(cleanProjectDir(linkHome)) {
+		t.Error("symlink-resolved home not recognized as home itself")
+	}
+	if isUserHome(cleanProjectDir(filepath.Join(linkHome, "projects"))) {
+		t.Error("subdirectory must not count as home itself")
+	}
+}
+
+// TestRequestLearnRootHomeHeadlessFailsClosed: headless execution from
+// $HOME must fail closed with ErrMsbDaemonWorkdirUnmapped without prompting.
+func TestRequestLearnRootHomeHeadlessFailsClosed(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+
+	origInteractive := learnRootInteractive
+	t.Cleanup(func() { learnRootInteractive = origInteractive })
+	learnRootInteractive = func() bool { return false }
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, home)
+	if learned || !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+		t.Fatalf("headless home: learned=%v err=%v, want ErrMsbDaemonWorkdirUnmapped", learned, err)
+	}
+}
+
+// TestRequestLearnRootHomeWarningText: the danger prompt must explicitly
+// warn the user about mounting the ENTIRE home directory.
+func TestRequestLearnRootHomeWarningText(t *testing.T) {
+	withRootsTestHome(t)
+	home := os.Getenv("HOME")
+
+	origInteractive, origDanger := learnRootInteractive, learnRootConfirmDanger
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirmDanger = origInteractive, origDanger })
+	learnRootInteractive = func() bool { return true }
+
+	promptSeen := ""
+	learnRootConfirmDanger = func(p string) bool {
+		promptSeen = p
+		return true
+	}
+
+	cfg := config.DefaultConfig()
+	learned, err := requestLearnRoot(&cfg, home)
+	if learned || err != nil {
+		t.Fatalf("learned=%v err=%v, want (false, nil)", learned, err)
+	}
+	if !strings.Contains(promptSeen, "ENTIRE home directory") {
+		t.Fatalf("prompt %q missing required danger warning", promptSeen)
+	}
+}
+
+// TestRequestLearnRootHomeIgnoresLegacyRootsAndDeclines: legacy roots.json
+// containing $HOME (from release 1.17.4 or manual edits) must not bypass
+// the prompt and must not block subprojects.
+func TestRequestLearnRootHomeIgnoresLegacyRootsAndDeclines(t *testing.T) {
+	withRootsTestHome(t)
+	home := cleanProjectDir(os.Getenv("HOME"))
+
+	// Create a legacy store with home in roots and in declined
+	legacyStore := RootsStore{
+		Version: rootsStoreVersion,
+		Roots: []LearnedRoot{
+			{Path: home, LearnedAt: time.Now(), LastUsed: time.Now()},
+		},
+		Declined: map[string]time.Time{
+			home: time.Now(),
+		},
+	}
+	if err := SaveRootsStore(legacyStore); err != nil {
+		t.Fatalf("save legacy store: %v", err)
+	}
+
+	// Loading must sanitize both roots and declined
+	store, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("load store: %v", err)
+	}
+	if len(store.Roots) != 0 {
+		t.Fatalf("store.Roots retained home: %v", store.Roots)
+	}
+	if len(store.Declined) != 0 {
+		t.Fatalf("store.Declined retained home: %v", store.Declined)
+	}
+	if store.Paths() != nil && len(store.Paths()) != 0 {
+		t.Fatalf("store.Paths() returned home: %v", store.Paths())
+	}
+	if store.DeclineKeyFor(home) != "" {
+		t.Fatalf("store.DeclineKeyFor returned non-empty: %s", store.DeclineKeyFor(home))
+	}
+
+	// requestLearnRoot must still prompt, not fail fast on legacy decline
+	origInteractive, origDanger := learnRootInteractive, learnRootConfirmDanger
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirmDanger = origInteractive, origDanger })
+	learnRootInteractive = func() bool { return true }
+
+	prompted := false
+	learnRootConfirmDanger = func(string) bool {
+		prompted = true
+		return true
+	}
+
+	cfg := config.DefaultConfig()
+	learned, rerr := requestLearnRoot(&cfg, home)
+	if learned || rerr != nil {
+		t.Fatalf("learned=%v err=%v, want (false, nil)", learned, rerr)
+	}
+	if !prompted {
+		t.Fatal("expected prompt to fire despite legacy records")
+	}
+}
+
+// TestDaemonReuseInterleavedHomeAndSubproject: verify that daemon reuse and
+// recreation hashes are stable across interleaved home and subproject runs.
+func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
+	withRootsTestHome(t)
+	home := cleanProjectDir(os.Getenv("HOME"))
+	sub := filepath.Join(home, "projects", "app")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Sandbox.MountSkills = false
+	// The scenario mounts $HOME, which the workspace policy only permits
+	// with AllowHomeWorkspace; production derives the allowHome argument
+	// from this same field.
+	cfg.Sandbox.AllowHomeWorkspace = true
+
+	homeDest := GetMsbWorkspaceMountDest(home)
+	subDest := GetMsbWorkspaceMountDest(sub)
+
+	// Run 1: Daemon booted from home
+	labelsHomeBoot := map[string]string{
+		"construct.project_dir": home,
+		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{home}),
+	}
+	cfgJSONHomeBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home)
+
+	// Run 2: Consecutive home run with empty store -> should reuse (no recreate)
+	recreate, reason := msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	if recreate {
+		t.Fatalf("consecutive home run should reuse daemon, got recreate with reason: %s", reason)
+	}
+
+	// Learn subproject
+	store, _ := LoadRootsStore()
+	store.TouchRoot(sub, time.Now())
+	if err := SaveRootsStore(store); err != nil {
+		t.Fatalf("save roots: %v", err)
+	}
+
+	// Run 3: Run from subproject -> daemon booted from home needs recreate
+	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsHomeBoot, cfgJSONHomeBoot, sub, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	if !recreate {
+		t.Fatal("running subproject on home daemon must recreate")
+	}
+
+	// Daemon boots from subproject
+	labelsSubBoot := map[string]string{
+		"construct.project_dir": sub,
+		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{sub}),
+	}
+	cfgJSONSubBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, subDest, sub)
+
+	// Run 4: Run from home again -> needs recreate because home is unmounted
+	recreate, _ = msbDaemonNeedsRecreate(DaemonMounts{}, labelsSubBoot, cfgJSONSubBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	if !recreate {
+		t.Fatal("running home on subproject daemon must recreate to mount home")
+	}
+
+	// Recreated daemon has both home and sub
+	combinedRoots := []string{home, sub}
+	if home > sub {
+		combinedRoots = []string{sub, home}
+	}
+	labelsCombinedBoot := map[string]string{
+		"construct.project_dir": home,
+		DaemonMountsLabelKey:    hashDaemonMountPaths(combinedRoots),
+	}
+	cfgJSONCombinedBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q},{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home, subDest, sub)
+
+	// Run 5: Subsequent home run -> reuses
+	recreate, reason = msbDaemonNeedsRecreate(DaemonMounts{}, labelsCombinedBoot, cfgJSONCombinedBoot, home, cfg.Sandbox.AllowHomeWorkspace, &cfg)
+	if recreate {
+		t.Fatalf("subsequent home run on combined daemon should reuse, got recreate: %s", reason)
 	}
 }

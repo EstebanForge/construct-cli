@@ -433,6 +433,8 @@ Accept once and the root joins permanently. A NO persists a decline: the folder 
 
 The learned set lives in `~/.config/construct-cli/roots.json`, is capped by LRU, and the home directory itself is never auto-learned (mounting the whole home stays a deliberate `mount_paths` decision).
 
+**Running from `$HOME` itself is always warned and always asked.** Mounting the entire home directory hands the sandbox every user file in the system (SSH keys, browser profiles, credential stores) so nothing is ever remembered for it: neither an acceptance nor a refusal. Every run from `$HOME` prints the warning and asks again, with Enter defaulting to NO. `construct sys daemon roots add $HOME` refuses, so the checkpoint cannot be bypassed. To work from home-level scope safely, add a narrower root to `[daemon] mount_paths` instead.
+
 ```toml
 [daemon]
 max_learned_roots = 16  # LRU cap on learned roots; oldest is evicted when exceeded
