@@ -84,6 +84,20 @@ if command -v npm &> /dev/null; then
     export PATH="$HOME/.npm-global/bin:$PATH"
     echo ""
     echo "Upgrading npm global packages to latest..."
+    # Sweep stale npm temp entries before reinstalling. An interrupted npm
+    # run leaves dot-prefixed temp dirs under the global node_modules
+    # (.<pkg>-XXXXXX for plain packages, .@scope/ holding the temp for
+    # scoped ones) and later installs fail with ENOTEMPTY when npm
+    # renames onto the occupied destination. npm never cleans these up
+    # itself; .bin is the only legitimate dot-entry here.
+    npm_global_lib="$HOME/.npm-global/lib/node_modules"
+    if [ -d "$npm_global_lib" ]; then
+        for entry in "$npm_global_lib"/.[!.]*; do
+            [ -e "$entry" ] || break
+            [ "$(basename "$entry")" = ".bin" ] && continue
+            rm -rf "$entry"
+        done
+    fi
     # Get list of globally installed packages (excluding npm itself), then reinstall each
     npm_pkgs=$(npm ls -g --depth=0 --json 2>/dev/null | jq -r '.dependencies // {} | keys[] | select(. != "npm")' 2>/dev/null || true)
     if [ -n "$npm_pkgs" ]; then
