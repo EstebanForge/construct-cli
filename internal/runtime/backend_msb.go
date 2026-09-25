@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
@@ -187,10 +188,14 @@ func msbCachedImageDigest() string {
 	return ""
 }
 
-// ghcrRemoteDigest resolves the current registry manifest digest for a
-// ghcr.io ref via an anonymous token plus a HEAD request, without
-// downloading layers. Returns "" on any failure so callers keep the
-// cached image rather than forcing a pull they cannot verify.
+// ghcrRemoteDigest resolves the current registry digest for a ghcr.io ref
+// via an anonymous token plus a GET, without downloading layers. For a
+// multi-arch tag the top-level digest is an OCI index, but msb stores the
+// PLATFORM manifest digest (image inspect reports Architecture), so the
+// index is resolved down to this machine's GOOS/GOARCH entry — comparing
+// index vs platform digests would report drift on every create and
+// re-download the image each time. Returns "" on any failure so callers
+// keep the cached image rather than forcing a pull they cannot verify.
 func ghcrRemoteDigest(ref string) string {
 	tail, ok := strings.CutPrefix(ref, "ghcr.io/")
 	if !ok {
@@ -212,7 +217,7 @@ func ghcrRemoteDigest(ref string) string {
 	if json.NewDecoder(tr.Body).Decode(&tok) != nil || tok.Token == "" {
 		return ""
 	}
-	req, err := http.NewRequest(http.MethodHead, "https://ghcr.io/v2/"+repo+"/manifests/"+tag, nil)
+	req, err := http.NewRequest(http.MethodGet, "https://ghcr.io/v2/"+repo+"/manifests/"+tag, nil)
 	if err != nil {
 		return ""
 	}
@@ -227,8 +232,30 @@ func ghcrRemoteDigest(ref string) string {
 	if err != nil {
 		return ""
 	}
-	defer resp.Body.Close() //nolint:errcheck // HEAD has no body worth draining
-	return resp.Header.Get("Docker-Content-Digest")
+	defer resp.Body.Close() //nolint:errcheck // small manifest, close on return
+	digest := resp.Header.Get("Docker-Content-Digest")
+	contentType := resp.Header.Get("Content-Type")
+	if !strings.Contains(contentType, "index") && !strings.Contains(contentType, "manifest.list") {
+		return digest // single-arch tag: the top digest is already the manifest
+	}
+	var idx struct {
+		Manifests []struct {
+			Digest   string `json:"digest"`
+			Platform struct {
+				OS           string `json:"os"`
+				Architecture string `json:"architecture"`
+			} `json:"platform"`
+		} `json:"manifests"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&idx) != nil {
+		return digest
+	}
+	for _, m := range idx.Manifests {
+		if m.Platform.OS == runtime.GOOS && m.Platform.Architecture == runtime.GOARCH {
+			return m.Digest
+		}
+	}
+	return digest
 }
 
 // abbrevDigest shortens a sha256:... digest for one-line notices.
