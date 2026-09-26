@@ -19,7 +19,7 @@ Customize your Construct sandbox with user-defined packages via `packages.toml`.
 Construct supports installing additional packages inside the sandbox environment through `packages.toml`. This allows you to customize your development environment without rebuilding containers.
 
 **Key features:**
-- **Multiple package managers**: apt, mise, bun, npm, pip
+- **Multiple package managers**: apt, mise, bun, npm, pip, cargo, gems
 - **Baked baseline + user layer**: common tools ship in the image; `packages.toml` adds what is yours
 - **Applies at guest init**: new installs run when the sandbox boots; `construct sys packages --install` applies them live
 - **Custom toolchains**: Optional development tools (nix, asdf, mise, vmr, etc.)
@@ -119,6 +119,9 @@ Notes:
 | **bun** | Bun package manager | JavaScript runtime and packages |
 | **npm** | Node Package Manager | Node.js packages and CLIs |
 | **pip** | Python Package Manager | Python packages and modules |
+| **cargo** | Rust crate manager | Rust binaries and libraries |
+| **gems** | Ruby gems | Ruby packages and CLIs |
+| **pi** | Pi extensions | Pi coding-agent extensions via `pi install` |
 
 ### Package Manager Priority
 
@@ -189,7 +192,7 @@ packages = [
 The lists below are illustrative. Everything in the [baked baseline](#baked-baseline-and-the-user-layer)
 is already present — list only **additions** in `packages.toml`. To check what the
 sandbox already has: `construct sys exec -- apt list --installed` (apt tier) or
-`construct sys exec -- apt list --installed` (system tier).
+`construct sys exec -- mise ls` (mise tier).
 
 ### System Packages (apt)
 
@@ -373,9 +376,9 @@ construct sys packages --install
 ```
 
 This will:
-1. Update `packages.toml` in persistent volume
-2. Install packages in running container
-3. Update containers on next run
+1. Read your edited `packages.toml` from `~/.config/construct-cli/`
+2. Regenerate the install script and apply it in the running sandbox
+3. Apply again automatically on the next sandbox boot
 
 ### Package Updates
 
@@ -409,6 +412,7 @@ nvm = true             # Node version manager
 asdf = true            # Multi-language version manager
 mise = true            # Modern asdf alternative
 vmr = true             # V version manager
+volta = true           # JavaScript tool manager
 ```
 
 **Tool availability:**
@@ -426,6 +430,7 @@ nvm = true            # Enabled
 asdf = true           # Enabled
 mise = false          # Disabled
 vmr = true            # Enabled
+volta = false         # Disabled
 ```
 
 ## Troubleshooting
@@ -477,18 +482,19 @@ vmr = true            # Enabled
    construct sys rebuild
    ```
 
-### Persistent Volume Issues
+### State Not Persisting
 
 **Error:** `Packages not persisting`
 
 **Solutions:**
 
-1. **Check persistent volume exists**
+1. **Check the home bind exists**
    ```bash
-   docker volume ls | grep construct
+   ls ~/.config/construct-cli/home
    ```
+   User-layer packages install into the home bind (`~/.config/construct-cli/home` on the host = `/home/construct` in the sandbox).
 
-2. **Rebuild persistent volume**
+2. **Reset the sandbox**
    ```bash
    construct sys reset
    ```

@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 This will:
 1. Download the latest binary for your platform
 2. Install to `/usr/local/bin`
-3. Run first-time setup automatically
+3. Print the `construct sys init` follow-up command
 
 ### Alternative: Homebrew
 
@@ -48,13 +48,13 @@ brew install EstebanForge/tap/construct-cli
 
 #### Requirements
 
-- **macOS 14+ (Sonoma)** or later for native container runtime
+- **macOS 26+** for the native container runtime (the gate `construct` enforces)
 - **macOS 13+** supported with Docker Desktop or OrbStack
 - **Homebrew** (optional, for easier updates)
 
 #### Container Runtime Options
 
-**Option 1: Native Container Runtime (macOS 14+)**
+**Option 1: Native Container Runtime (macOS 26+)**
 - Built into macOS
 - No additional software required
 - Best performance
@@ -143,7 +143,7 @@ sudo usermod -aG kvm $USER
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash
 
 # Or build from source (if you prefer)
-go install github.com/EstebanForge/construct-cli@latest
+go install github.com/EstebanForge/construct-cli/cmd/construct@latest
 ```
 
 ### Windows (WSL)
@@ -192,11 +192,11 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 **Script options:**
 
 ```bash
-# Install specific version
-curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash -s -- --version 1.6.0
+# Install specific version (env var, no flags)
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | VERSION=1.17.9 bash
 
 # Install to custom directory
-curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | bash -s -- --prefix ~/local/bin
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | INSTALL_DIR=~/local/bin bash
 
 # Install beta version
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | CHANNEL=beta bash
@@ -204,7 +204,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 
 ### mise
 
-**macOS & Linux (mise 2026.9+)**
+**macOS & Linux**
 
 ```bash
 # Install globally (or drop -g to pin per-project)
@@ -249,8 +249,8 @@ construct sys init
 This will:
 1. Create configuration directory: `~/.config/construct-cli/`
 2. Generate default `config.toml`
-3. Build container images (first run only, ~5-10 minutes)
-4. Install agents to persistent volume
+3. Pull or build the sandbox image (first run only; the microVM backend pulls `construct-box` from GHCR)
+4. Agents ship baked in the image at `/usr/local/bin`; user-tier packages from `packages.toml` install into the home directory
 5. Create `ct` alias if possible
 
 ### Container Runtime Setup
@@ -263,12 +263,13 @@ construct sys doctor
 
 Expected output:
 ```
-✓ Container runtime detected: podman
-✓ Runtime version: 4.9.4
-✓ Config directory: ~/.config/construct-cli
-✓ Container images: built
-✓ Agents installed: 18
+✓ Runtime backend: docker (or podman / container / microvm)
+✓ Configuration: ~/.config/construct-cli
+✓ Image: construct-box present (microvm) / built (docker)
+✓ Agents: installed
 ```
+
+Exact check names and statuses vary by backend; `construct sys doctor --json` gives the machine-readable report.
 
 #### Manual Runtime Configuration
 
@@ -277,7 +278,7 @@ If auto-detection fails, specify runtime explicitly:
 ```toml
 # ~/.config/construct-cli/config.toml
 [runtime]
-engine = "podman"  # or "docker" or "container"
+backend = "podman"  # or "auto", "container", "docker", "microvm"
 ```
 
 ### Verification
@@ -304,7 +305,7 @@ construct sys doctor
 **Solution**: Install a container runtime
 
 ```bash
-# macOS: Install Docker Desktop or use native runtime (macOS 14+)
+# macOS: Install Docker Desktop or use the native runtime (macOS 26+)
 # Linux: Install Podman or Docker
 ```
 
@@ -330,9 +331,9 @@ export PATH=$PATH:/usr/local/bin
 
 ### Platform-Specific Problems
 
-#### macOS: "container runtime not available on macOS 13"
+#### macOS: native runtime requires macOS 26
 
-**Solution**: Install Docker Desktop or OrbStack
+The built-in container runtime gate needs macOS 26 or later; on older macOS, install Docker Desktop or OrbStack.
 
 ```bash
 # Install OrbStack (lightweight)
@@ -391,13 +392,12 @@ rm ~/go/bin/construct
 # Remove config directory
 rm -rf ~/.config/construct-cli
 
-# Remove persistent volumes (Docker)
-docker volume rm construct-cli-agent-data
-docker volume rm construct-cli-agent-work
-
-# Remove persistent volumes (Podman)
-podman volume rm construct-cli-agent-data
-podman volume rm construct-cli-agent-work
+# Legacy engine volumes (only exist on installs from before the baked image;
+# current state lives in ~/.config/construct-cli/home and does not need manual cleanup)
+docker volume rm construct-agents 2>/dev/null
+docker volume rm construct-packages 2>/dev/null
+podman volume rm construct-agents 2>/dev/null
+podman volume rm construct-packages 2>/dev/null
 ```
 
 ### Remove Host Aliases
