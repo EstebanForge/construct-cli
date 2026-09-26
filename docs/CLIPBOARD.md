@@ -417,7 +417,7 @@ Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash
 - Copilot was started in a non-interactive context. PTY interception requires a real TTY.
 
 **Copilot shows v7/v6 after rebuild:**
-- The Docker named volume (`construct-packages`) persists the old binary. `sys rebuild` should re-run `agent-patch.sh` which reinstalls the wrapper. If it still shows old version, check the setup log for errors.
+- The home bind persists the old wrapper binary across `sys rebuild`. `sys rebuild` re-runs `agent-patch.sh` which reinstalls the wrapper. If it still shows old version, check the setup log for errors.
 
 **`_REAL` shows `__CONSTRUCT_REAL_COPILOT__` (placeholder not replaced):**
 - `npm bin -g` failed and `~/.npm-global/bin/copilot` did not exist at patch time. Copilot was not installed when `agent-patch.sh` ran. `sys rebuild` to force reinstall.
@@ -438,8 +438,8 @@ If the target path is a symlink (e.g., an npm-global bin launcher pointing into 
 **Never use `readlink -f` to find the real binary then copy it:**
 The Homebrew copilot bin script does `import('./index.js')` relative to its own directory. If you copy it to a different directory (even the same one as `copilot-real`), Node resolves `./index.js` relative to the copy's location, not the original package. Use the npm-global symlink as `_REAL` — it's a symlink into the npm package directory so Node imports resolve correctly.
 
-**Named Docker volume survives image rebuild:**
-`construct-packages` volume (holds `/home/linuxbrew/.linuxbrew`) persists across `sys rebuild`. The wrapper installed in a previous version survives. `agent-patch.sh` handles this via version-string idempotency guards — if the guard version doesn't match the current file content, it reinstalls.
+**The home bind survives image rebuild:**
+The wrapper lives under the construct home (`~/.npm-global` or `~/.local/bin`, both inside the `~/.config/construct-cli/home` bind), so a wrapper installed by a previous version persists across `sys rebuild`. `agent-patch.sh` handles this via version-string idempotency guards — if the guard version doesn't match the current file content, it reinstalls.
 
 **`~/.config/construct-cli/logs/` vs `/tmp/`:**
 Early wrapper versions logged to `/tmp/construct-copilot-wrapper.log`. Because containers run with `--rm`, `/tmp` is destroyed on exit. Logs must go to the home dir bind-mount (`~/.config/construct-cli/home/` on the host = `/home/construct/` in the container). All persistent logs now use `~/.config/construct-cli/logs/` inside the container.
@@ -480,7 +480,7 @@ Host (macOS/Linux/Windows)
    │  XDG_SESSION_TYPE=wayland  (claude, copilot, pi)
    │
    ├─ Copilot session
-   │  └─ Python PTY wrapper (at /home/linuxbrew/.linuxbrew/bin/copilot)
+   │  └─ Python PTY wrapper (at ~/.local/bin/copilot, shadowing the npm-global binary via PATH)
    │     ├─ Spawns real copilot (~/.npm-global/bin/copilot) on inner PTY
    │     ├─ User presses Ctrl+V or Cmd+V
    │     │  Ghostty sends: \x1b[118;5u or \x1b[118;9u (KKP)

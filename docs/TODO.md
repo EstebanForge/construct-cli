@@ -78,7 +78,7 @@ Items required before graduating `backend = "microvm"` out of experimental statu
 
 ## Prerequisites
 
-- [ ] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` and tagged versions for `linux/amd64` and `linux/arm64` via the release workflow (`.github/workflows/release.yml`). Users running the microVM backend must pull this image directly via `msb pull` without requiring a local Docker engine.
+- [x] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` for `linux/amd64` and `linux/arm64` — DONE 2026-09-25. Mechanism note: publishes are NOT part of the release workflow; they ride the manual `workflow_dispatch` `.github/workflows/image.yml` (dispatch it whenever the Dockerfile or its COPY'd templates change). Users pull via `msb` with no Docker engine; the 1.17.8+ digest-drift check refreshes stale caches automatically.
 - [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "microvm"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
 - [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
 - [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
@@ -269,8 +269,8 @@ Existing home binds carry agent copies installed under the old model — those w
 ## Post-publish follow-ups
 
 - msb store garbage collection (keep `latest` + active images) — probe leftovers already demonstrated store growth
-- Refresh mechanism for cached images on existing installs (digest-check in `EnsureImage` or `construct sys image refresh`) — today microvm users only pull on first create; without this they never receive baked-baseline updates
-- Unify `construct sys update` across engines (currently compose-only, fails closed on microvm)
+- ~~Refresh mechanism for cached images on existing installs~~ DONE 1.17.8/1.17.9: `EnsureImage` compares the cached platform-manifest digest against the registry (linux/<host-arch> resolution) and re-pulls on drift; the `construct.daemon.image_digest` recreate label makes a refreshed image reach the daemon with exactly one recreate
+- ~~Unify `construct sys update` across engines~~ DONE: both backends run the in-guest `update-all.sh` (foreground `sys update` pass and the idle-window pass), covering the optional layer; the baked baseline moves on the image lane
 
 ## Peer review round (Agy, 2026-09-21)
 
@@ -321,7 +321,7 @@ construct sys doctor --json    # machine-readable report (lab-matrix assertions,
 
 # TODO: Idle-Window Package Updater (silent, background)
 
-Status: DESIGNED (2026-09-21), sequenced AFTER the Image Layering bake (the updater manages the optional layer; the baked baseline is image-cadence and must be excluded from it). Peer review of the mechanism: Agy round on the image-layering proposal endorsed the idle-window approach over scheduled timers (a fixed daily schedule would boot a stopped daemon, defeating `idle_stop_minutes`, and burn bandwidth on metered links); the follow-up adversarial review (2026-09-21) redesigned the locking model — see Mechanism and the review note at the end of this section.
+Status: IMPLEMENTED. Runs as the idle-window pass (`internal/runtime/backend_msb_update.go`): polls `LiveSessionCount` on a ticker, serializes passes via a non-blocking `update.lock` flock, 30-minute hard timeout with a process watchdog, best-effort template refresh before running `update-all.sh`. Sequenced AFTER the Image Layering bake (the updater manages the optional layer; the baked baseline is image-cadence and must be excluded from it). Peer review of the mechanism: Agy round on the image-layering proposal endorsed the idle-window approach over scheduled timers (a fixed daily schedule would boot a stopped daemon, defeating `idle_stop_minutes`, and burn bandwidth on metered links); the follow-up adversarial review (2026-09-21) redesigned the locking model — see Mechanism and the review note at the end of this section.
 
 ## Decision
 

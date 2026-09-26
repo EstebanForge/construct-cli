@@ -64,10 +64,12 @@ Run agents inside dedicated Linux microVMs via microsandbox:
 
 Install additional packages:
 - apt (Debian/Ubuntu)
-- brew (Homebrew)
+- mise (polyglot tool versions)
 - bun (Bun package manager)
 - npm (Node.js)
 - pip (Python)
+- cargo (Rust)
+- gems (Ruby)
 
 ### Provider Configuration
 
@@ -178,6 +180,7 @@ All settings explained:
 | [**Hide Secrets**](HIDE-SECRETS.md) | Secret redaction user guide |
 | [**VM Backend**](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Opt-in microVM isolation architecture and operational design (experimental) |
 | [**Providers**](PROVIDERS.md) | Custom Claude API endpoints |
+| [**Agents**](AGENTS.md) | Complete list of supported agents |
 | [**Packages**](PACKAGES.md) | User-defined package management |
 | [**Architecture**](ARCHITECTURE-DESIGN.md) | Technical design and internals |
 | [**Services & Integrations**](SERVICES.md) | Recipes for wiring services (agentmemory, Slack, Asana, providers) |

@@ -14,14 +14,14 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Zero Config**: no complex setup. The Construct just works out of the box across macOS, Linux, and Windows (WSL).
 - **Auto-detection**: Automatically detects and uses the best available container runtime (macOS native → Podman → Docker)
 - **Experimental MicroVM Engine**: Optional hardware-level isolation via microVMs (`backend = "microvm"` using microsandbox), running agents with dedicated guest Linux kernels; use it with the daemon and `[daemon] mount_paths` covering your project roots so the sandbox is reused, not recreated, when you switch projects
-- **Clean Slate**: Ephemeral containers with persistent volumes for agents and packages
+- **Clean Slate**: Ephemeral sandboxes; your config home (agents, caches, tools) and project directory persist across runs
 - **Network Isolation**: Optional `permissive`, `strict`, or `offline` network modes with allow/block lists
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent
-- **Full Clipboard Bridge**: Text and image pasting support for Claude, Copilot, Antigravity, Qwen, Pi, and OMP
+- **Full Clipboard Bridge**: Text and image pasting support for Claude, Copilot, Antigravity, Qwen, and Pi
 - **Agent Browser**: Headless browser automation CLI for AI agents
 - **Host Loopback Browsing**: Headless browser agents reach host dev sites served on `localhost`/`*.localhost` via automatic TCP relays to the host
 - **Terminal Identity Forwarding**: kitty and Ghostty terminal markers pass into the sandbox so TUIs and pi extensions render inline images correctly
-- **User-Defined Packages**: Customize your sandbox with apt, brew, bun, npm, or pip packages
+- **User-Defined Packages**: Customize your sandbox with apt, mise, bun, npm, pip, cargo, or gems packages
 - **Parallel Workflows**: Git worktree management for parallel AI agent workflows
 
 ## Screenshots
@@ -119,6 +119,11 @@ construct agy --ct-network offline "Explain this code"
 
 # Update all agents
 construct sys update
+construct sys self-update      # Update the construct binary itself
+
+# Daemon sandbox (microVM backend)
+construct sys daemon status    # Sandbox state + live sessions
+construct sys daemon recreate  # Stop + wipe + cold-create (full reset)
 
 # Install custom packages
 construct sys packages --install

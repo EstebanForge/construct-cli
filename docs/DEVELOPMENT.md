@@ -374,21 +374,21 @@ ls -lh dist/
 
 ```bash
 # Stable release example
-# 1) set Version in internal/constants/constants.go to 1.3.8
+# 1) set Version in internal/constants/constants.go to 1.17.9
 # 2) tag and push
-git tag 1.3.8
+git tag 1.17.9
 git push origin main --tags
 
 # Beta release example
-# 1) set Version in internal/constants/constants.go to 1.3.9-beta.1
+# 1) set Version in internal/constants/constants.go to 1.17.10-beta.1
 # 2) tag and push
-git tag 1.3.9-beta.1
+git tag 1.17.10-beta.1
 git push origin main --tags
 ```
 
 - Do not manually edit `VERSION` or `VERSION-BETA`; release workflow updates them.
 - Stable tags update `VERSION`.
-- Prerelease tags (contain `-`, e.g. `1.3.9-beta.1`) update `VERSION-BETA`.
+- Prerelease tags (contain `-`, e.g. `1.17.10-beta.1`) update `VERSION-BETA`.
 - `internal/constants/constants.go` must match the exact tag string for `make release` to pass.
 
 ## Git Workflow
@@ -461,7 +461,7 @@ make help
 
 Output:
 ```
-Construct CLI - Build System
+The Construct CLI - Build System
 
 Usage: make [target]
 

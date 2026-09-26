@@ -54,7 +54,7 @@
 
 - Daemon flock: `internal/runtime/daemon_lock.go` (`acquireDaemonLock`). Any code that stops, recreates, or makes count-based decisions about the msb daemon must hold the flock while reading `LiveSessionCount()` AND acting (`internal/runtime/idle_watch.go` `StopMsbDaemonBestEffort` is the reference pattern). Count reads outside the lock race concurrent watchers and fresh `EnsureMsbDaemon` calls. The 250ms "Waiting for another construct invocation" notice measures the acquisition wait only; disarm fires on acquire, never on release.
 - Daemon recreate labels: the daemon is stamped with `construct.daemon.*` labels (`mounts_hash`, `skills_hash`, `sudo`, `image_digest`) by `BuildMsbRunSpec`; `msbDaemonNeedsRecreate` (`internal/runtime/backend_msb_run.go`) compares them against current config to decide recreate-with-reason. A new daemon-affecting runtime config knob MUST add its label + recreate check, or toggling it on a running daemon stays invisible until manual recreate (the skills_hash gap shipped exactly this way and needed a review round to catch). The `image_digest` label recreates a daemon whose sandbox predates a republished construct-box; the digest is read post-`EnsureImage` at every decision so a fresh pull takes effect on the next run.
-- Mounts: configured roots (`daemon.mount_paths`) + learned roots (single-path consent gate via `requestLearnRoot`, LRU-capped by `daemon.max_learned_roots`, persisted in roots.json) feed ONE combined hash into `construct.daemon.mounts_hash` in BOTH layouts (multi-path configured set, single-path effective set via `effectiveWorkspaceRoots`). A cwd outside the set returns `ErrMsbDaemonWorkdirUnmapped` (error, never destructive); subdirectories of a known root ride the parent mount.
+- Mounts: configured roots (`daemon.mount_paths`) + learned roots (auto-learned inside `$HOME` with no prompt; outside `$HOME` an interactive prompt whose NO persists a decline; sensitive home trees and `$HOME` itself always checkpoint; `requestLearnRoot` in `internal/runtime/roots_store.go`), LRU-capped by `daemon.max_learned_roots`, persisted in roots.json alongside per-folder `declined` and large-export `accepted` maps. All of it feeds ONE combined hash into `construct.daemon.mounts_hash` in BOTH layouts (multi-path configured set, single-path effective set via `effectiveWorkspaceRoots`). An uncovered cwd outside `$HOME` prompts interactively or fails headless (`ErrMsbDaemonWorkdirUnmapped`); a declined cwd always fails with `ErrMsbDaemonWorkdirDeclined`; subdirectories of a known root ride the parent mount.
 - Prepull: `internal/runtime/prepull.go` pulls `ghcr.io/estebanforge/construct-box:latest` detached, spawned only after an ACTUAL self-update (the "already on latest version" no-op returns before the spawn). The deterministic foreground path is `construct sys prepull`. Opt-out: `runtime.prepull_image = false`.
 - Design + peer-review trail: [docs/VMsv2.md](docs/VMsv2.md). Dogfood procedures: [docs/DOGFOODING-1.16.3.md](docs/DOGFOODING-1.16.3.md).
 
@@ -80,8 +80,8 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
 - The release workflow triggers on TAG PUSH (`git push origin <version>`). A `chore(release)` commit alone ships nothing: no tag push means no GitHub release, no artifacts, no VERSION bump, and stable users stay on the old version
 - When asked to bump version: update `internal/constants/constants.go` only
 - When asked to add CHANGELOG entry: add new section with current version from constants.go
-- `VERSION` is updated by release workflow for stable tags (e.g. `1.3.8`)
-- `VERSION-BETA` is updated by release workflow for prerelease tags (e.g. `1.3.9-beta.1`)
+- `VERSION` is updated by release workflow for stable tags (e.g. `1.17.9`)
+- `VERSION-BETA` is updated by release workflow for prerelease tags (e.g. `1.17.10-beta.1`)
 - Version strings and release tags are plain semver/prerelease values with **no** `v` prefix (use `1.4.0-beta.3`, never `v1.4.0-beta.3`)
 - Keep `internal/constants/constants.go` version exactly aligned with the tag being released (stable or prerelease), or `make release` fails `check-version`
 - Stable users track `VERSION`; beta users track `VERSION-BETA` when `runtime.update_channel = "beta"`
@@ -89,7 +89,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
 ## Adding/Removing CLI Agents
 
 ### Adding an Agent
-1. Add package to `internal/templates/packages.toml` under the correct section (`[npm]`, `[bun]`, or `[brew]`).
+1. Add package to `internal/templates/packages.toml` under the correct section (`[apt]`, `[mise]`, `[bun]`, `[npm]`, `[pip]`, `[cargo]`, or `[gems]`; the former `[brew]` tier is gone — see docs/BREW-EXIT.md).
 2. Register agent mount in `internal/agent/agent.go` (Name, Slug, ConfigPath).
 3. Register AGENTS.md rules path in `internal/sys/memories.go` and update `internal/sys/memories_test.go` (bump count + add assertion).
 4. Add slug to the available agents list in `internal/ui/help.go`.
@@ -101,7 +101,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
    - `AGENTS.md` — Agent Additions Log (below).
 8. If the agent needs setup commands, add them in `[post_install].commands` in `internal/templates/packages.toml`.
 9. If the agent is BAKED into the image (Dockerfile core-agent layer), add its stale bind-copy paths to the migration table in `GenerateInstallScript` (`internal/config/packages.go`) and increment `bakeMigrationVersion` so existing homes sweep once more.
-9. If the agent requires first-run setup that should not be automated, gate the run in `internal/agent/runner.go` and use a marker file under Construct home (e.g., `~/.config/<agent>/.construct_configured`) to prompt once and record completion.
+10. If the agent requires first-run setup that should not be automated, gate the run in `internal/agent/runner.go` and use a marker file under Construct home (e.g., `~/.config/<agent>/.construct_configured`) to prompt once and record completion.
 
 ### Removing an Agent
 Reverse the steps above: remove the package from `packages.toml`, unregister from `agent.go`, remove from `memories.go` + test, remove from `help.go`, remove from both verification loops (`update-all.sh` and `packages.go`), and remove from docs (`README.md`, `ARCHITECTURE-DESIGN.md`). Add a removal note to the Agent Additions Log.

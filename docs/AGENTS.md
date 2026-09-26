@@ -4,7 +4,7 @@ Complete list of supported AI agents in The Construct CLI.
 
 ## Overview
 
-The Construct CLI supports 15+ AI agents that can run inside an isolated sandboxed container. Each agent has its own strengths and use cases.
+The Construct CLI supports 13 AI agents that can run inside an isolated sandboxed container. Each agent has its own strengths and use cases.
 
 ## Available Agents
 
@@ -236,7 +236,6 @@ construct claude --timeout 600000 "Long-running task"
 | **agy** | Multimodal | Fast | Medium | Google integration |
 | **qwen** | Quick tasks | Fast | Low | Tuned for coding |
 | **copilot** | Everyday coding | Fast | High | GitHub integration |
-| **omp** | Python dev | Medium | Medium | IPython/Jupyter |
 | **pi** | General purpose | Medium | Low | Extensible |
 
 ## Choosing an Agent
@@ -252,10 +251,6 @@ construct claude --timeout 600000 "Long-running task"
 - `claude` - Strong refactoring
 - `copilot` - Everyday coding
 - `agy` - Documentation
-
-**Python development:**
-- `omp` - Python/IPython integration
-- `claude` - General Python support
 
 **Systems programming:**
 - `crush` - Rust/CLI tools

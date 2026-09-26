@@ -26,13 +26,13 @@ mount_paths = ["~/your-projects-root"]
 construct pi --version
 ```
 
-Docker must be running. Step 3 takes minutes the first time; spend it at a terminal rather than as a mysterious stall inside your harness's first spawn.
+Docker (or the microVM backend's `msb` runtime) must be available. Step 3 takes minutes the first time; spend it at a terminal rather than as a mysterious stall inside your harness's first spawn.
 
 ## Why each step matters
 
 **Shims.** Harnesses resolve the agent binary on PATH with a plain execve; shell aliases and functions are invisible to them. `construct sys shims --install` puts a real executable at `~/.local/bin/<slug>` that execs `construct <slug>`, plus `ns-<slug>` for the real host binary when one exists. See the README shims section for flags (`--list`, `--uninstall`, `--force`, `--remove-aliases`).
 
-**Daemon mounts.** The harness spawns agents with `cwd` set to its workspace directory. The daemon only exposes directories listed in `mount_paths` (both keys default to off/empty). Without them the agent starts in the container's default directory — wrong repo, wrong context. One entry per project root is enough; subdirectories are covered.
+**Daemon mounts.** The harness spawns agents with `cwd` set to its workspace directory. On the Docker backend, the daemon only exposes directories listed in `mount_paths` (both keys default to off/empty) — without them the agent starts in the container's default directory: wrong repo, wrong context. One entry per project root is enough; subdirectories are covered. On the microVM backend (the default), directories inside your `$HOME` are auto-learned on first use with no configuration; outside `$HOME`, or for declined folders, add the root to `mount_paths`.
 
 **Warm-up.** First invocation builds the container image and installs the agent set into it.
 
@@ -69,7 +69,7 @@ Orchestrators pass absolute host paths as flag values (`--extension` and `--mcp-
 | Symptom | Cause | Fix |
 |---|---|---|
 | `Extension path does not exist`, exit 1 | Construct older than 1.15.1 (no staging), or the harness spawns a foreign `pi` | Update construct; verify with `which pi` inside the harness's context |
-| Agent works but in the wrong directory | Workspace dir not in `mount_paths` | Add the project root, restart the daemon |
+| Agent works but in the wrong directory | Workspace dir not in `mount_paths` (Docker backend) | Add the project root, restart the daemon. The microVM backend auto-learns `$HOME` subdirectories, so use `construct sys daemon roots list` there |
 | First spawn takes minutes | Image build + agent install | One-time warm-up (`construct pi --version`) |
 | Harness daemon uses the host binary | Daemon PATH lacks `~/.local/bin` | Binary override pointing at the shim (see PATH condition) |
 | Resuming a host-created session fails (stored cwd) | Session remembers its host birth path; known limit | Resume sessions created through the sandbox; see HARNESS-STAGING.md |

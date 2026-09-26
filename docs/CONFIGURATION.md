@@ -101,7 +101,7 @@ One key selects both the isolation technology and, for the container path, the O
 
 **Options:**
 - `auto` (default): auto-detect the container runtime, priority `container` > `podman` > `docker`
-- `container`: pin the macOS native runtime (macOS 14+)
+- `container`: pin the macOS native runtime (macOS 26+)
 - `podman`: pin Podman
 - `docker`: pin Docker (OrbStack on macOS, then Docker Desktop). Pinning sets the priority order, not a hard requirement: if the pinned binary is unavailable, detection falls through to the others.
 - `microvm` (experimental): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Requires `msb` installed (`curl -fsSL https://install.microsandbox.dev | sh`), Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Known upstream quirk (msb 0.7.2): `libkrunfw` is resolved via `../lib` of the un-resolved `msb` path, so installer-symlinked binaries can fail resolution despite a correct install; `construct sys doctor --fix` detects and repairs this. Every run executes in the persistent daemon sandbox: with `[daemon] multi_paths_enabled = true` and `mount_paths` set to your project roots, the sandbox is created once and reused across all of them, so the guest is not re-initialized when you switch directories (see [Daemon Settings](#daemon-settings)). Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
@@ -130,7 +130,7 @@ update_channel = "stable"         # Release channel: stable|beta
 telemetry = true  # Local-only diagnostics; set false to disable
 ```
 
-When the microVM backend boots its daemon sandbox, Construct appends two diagnostic records under `~/.config/construct-cli/logs/`: the human-readable `msb-boot:` line in `msb-boot.log`, and one structured JSON event per boot in `msb-telemetry.jsonl` carrying the boot outcome, duration, mount count, recreate reason, and the construct + host `msb` versions.
+When the microVM backend boots its daemon sandbox, Construct appends two diagnostic records under `~/.config/construct-cli/logs/`: the human-readable `msb-boot:` line in `msb-boot.log`, and one structured JSON event per boot in `msb-telemetry.jsonl` carrying the boot outcome, duration, the total mount count plus learned-root and cwd-mounted counts, the recreate reason, and the construct + host `msb` versions.
 
 Both files rotate at 5 MB into a `.1` sibling (one generation of history is kept), are created with `0600` permissions inside a `0700` directory, and the version probe that feeds each event is memoized per invocation with a 2 second timeout, so telemetry can never hang or meaningfully slow a boot.
 
@@ -445,11 +445,13 @@ max_learned_roots = 16  # LRU cap on learned roots; oldest is evicted when excee
 Manage the learned set:
 
 ```bash
-construct sys daemon roots list            # show learned + configured roots
-construct sys daemon roots forget <path>   # unlearn a root (next run recreates)
+construct sys daemon roots list            # show learned, configured, declined, and accepted roots
+construct sys daemon roots add <path>      # learn a root manually (the way back after a decline)
+construct sys daemon roots forget <path>   # unlearn a root / clear a decline or acceptance (next run recreates)
+construct sys daemon recreate              # stop the sandbox, wipe its root disk, cold-create from the current image
 ```
 
-Each root added or evicted recreates the daemon sandbox exactly once (guest init re-runs); visits to known roots never recreate.
+Each root added or evicted recreates the daemon sandbox exactly once (guest init re-runs); visits to known roots never recreate. `recreate` is the deliberate full reset: it refuses while live sessions exist, asks with a default-NO confirm (installed tools reinstall on the next boot), and keeps user state (the home is a host bind).
 
 ### Idle Stop
 
@@ -563,7 +565,7 @@ mode = "permissive"
 
 ```toml
 [runtime]
-engine = "podman"
+backend = "podman"
 auto_update_check = true
 
 [sandbox]
@@ -583,7 +585,7 @@ clipboard_image_patch = true
 
 ```toml
 [runtime]
-engine = "podman"
+backend = "podman"
 
 [sandbox]
 mount_home = false
