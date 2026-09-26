@@ -2,6 +2,24 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.9 -->
+## [1.17.9] - 2026-09-25
+
+### Changed
+
+- **The large-workspace warning is asked once per folder, not forever.** Runs from a folder over the entry budget printed the warning and confirmed every single time; the Yes went nowhere. Acceptance now persists per folder (subdirectories included), so the first run asks and later runs skip the guard entirely - no scan, no warning, no confirm. A No still persists nothing, headless runs still fail closed, the home directory can never be accepted (the always-ask home warning stays), `roots forget` clears an acceptance, and `roots list` shows accepted folders. The entry budget also rises from 60000 to 500000: one modern JavaScript project alone carries 50-150k files, and the old ceiling predated both that reality and current virtiofs performance. The scan's time budget doubles to 3s so timeouts do not shadow the count.
+- **`construct sys daemon recreate` gives the wipe-and-rebuild a first-class verb.** The stale-image heal previously required raw `msb rm construct-cli-daemon`. Recreate stops the sandbox, removes it with its guest root disk, and cold-creates from the current image - under the daemon flock, refusing while live sessions exist, with a default-NO confirm and a warning that installed tools reinstall on the next boot. The home volume is a host bind, so user-level state survives.
+- **A republished construct-box now reaches running daemons.** A new `construct.daemon.image_digest` label records the digest a sandbox was created from; when the local image digest drifts (because the digest-refresh fix pulled a newer one), the daemon recreates exactly once with reason "construct-box image changed". Daemons predating the label upgrade the same way, and an unknown local digest never forces a recreate.
+
+### Fixed
+
+- **Image refresh no longer false-drifts on every create.** 1.17.8 compared the registry's multi-arch index digest against the platform manifest digest the image store actually caches - different layers of the manifest tree that never match - so every create re-downloaded the image, on Apple Silicon hosts too. The refresh now resolves the index down to the linux/<host-arch> entry, which is what the store caches on both Intel and Apple Silicon hosts, and treats any resolution failure as "keep the cached image" instead of "download again".
+- **The recreate decision can no longer be silently skipped.** When the sandbox's stored config cannot be read (an msb record predating config persistence, or a corrupted one), every label-drift check was invisible behind a healthy-looking reconnect. The decision now prints a loud warning naming `construct sys daemon recreate` as the recovery.
+- **The one-shot install sandbox no longer lingers.** The first-run agent install ran in a dedicated sandbox that stayed behind as a stopped record forever, pinning the construct-box image and blocking image cleanup. It is now removed right after a successful install.
+- **npm global reinstalls no longer fail with ENOTEMPTY.** Interrupted npm runs leave dot-prefixed temp dirs under the global node_modules, npm never cleans them up, and every later install of the affected package fails renaming onto the occupied destination. The update script sweeps them before the reinstall loop, sparing .bin and keeping broken symlinks from stopping the sweep.
+
+<!-- RELEASE:END 1.17.9 -->
+
 <!-- RELEASE:START 1.17.8 -->
 ## [1.17.8] - 2026-09-25
 
