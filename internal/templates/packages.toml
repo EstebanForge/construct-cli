@@ -7,7 +7,7 @@
 # go 1.27 tarball, rust 1.98 via rustup, the mise github: tier (yq,
 # topgrade, git-cliff, zola, tlrc, rtk, mcp-cli-ent, md-over-here),
 # jekyll, litellm, bun, mise, asdf, and the core agents (claude, codex,
-# agy, pi, opencode at /usr/local/bin).
+# agy, pi, pig, opencode at /usr/local/bin).
 # Entries BELOW are the OPTIONAL/USER-OVERRIDE layer: everything listed
 # installs at guest init into the home bind and SHADOWS its baked
 # equivalent by PATH. Remove the entry (and the bind copy) to fall back
@@ -38,7 +38,7 @@ packages = [
 packages = []
 
 # Global Node.js packages
-# Baked core agents live at /usr/local/bin (claude, codex, agy, pi,
+# Baked core agents live at /usr/local/bin (claude, codex, agy, pi, pig,
 # opencode) — listing them here would shadow them with bind copies.
 # Optional agents only:
 [npm]

@@ -123,3 +123,13 @@ Reverse the steps above: remove the package from `packages.toml`, unregister fro
   - Files updated: All Go source files (agent, sys, constants, env, config, runtime, engine, help, shell, packages, tests), all shell templates (entrypoint, update-all, agent-patch, config.toml, clipper, packages.toml), all docs (README, AGENTS, ARCHITECTURE-DESIGN, CONFIGURATION, CLIPBOARD, TODO, PROVIDERS), .gitignore
   - Removed: `patch_gemini_paste_wrapper()` function from agent-patch.sh (~220 lines), GEMINI.md symlink from entrypoint.sh, `@google/gemini-cli` from packages.toml npm section, `gemini-cli-main` and `.gemini-clipboard` from .gitignore
   - Renamed: `GEMINI_API_KEY` → `ANTIGRAVITY_API_KEY` throughout
+- Pig (Go port of Pi)
+  - Command: `curl -fsSL https://pi-in-go.dev/install.sh | PIG_INSTALL_DIR=/usr/local/bin sh`
+  - Rules path: `~/.pig/agent/AGENTS.md`
+  - Config root: `~/.pig` (PIG_HOME/XDG override honored by pig itself; container user has no XDG_CONFIG_HOME, so the default stands)
+  - Baked in image at /usr/local/bin/pig (no home-tier copy has ever existed, so no bake-migration entry)
+  - Reads `~/.agents/skills` natively; fully separate from pi (`~/.pi` untouched)
+  - Harness staging: same surface as pi minus `--mcp-config` (no MCP flag in pig 0.2.0)
+  - Files updated: `internal/templates/Dockerfile`, `internal/agent/agent.go`, `internal/agent/arg_staging.go`, `internal/agent/integration_sync.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `internal/templates/update-all.sh`, `internal/config/packages.go`, `internal/templates/packages.toml` (comments), `internal/templates/entrypoint.sh` (auth.json seed), `internal/templates/config.toml` (yolo_agents list), `README.md`, `docs/AGENTS.md`, `docs/ARCHITECTURE-DESIGN.md`, `docs/HARNESS-STAGING.md`
+  - Also fixed: pi was missing from `GetSupportedAgents` (`internal/sys/memories.go`); added `~/.pi/agent/AGENTS.md` alongside pig
+  - Peer review (claude, isolated acpx): found `hostAgentConfigRoot` had no pig case (staging allowlist missed `~/.pig`, added `hostPigDir()` + regression test `TestAdaptArgsPigStagesSessionFromPigHome`) and entrypoint lacked the pig auth.json seed (added); yolo_agents supported-list comment was stale (updated)

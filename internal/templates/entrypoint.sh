@@ -475,6 +475,12 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
         echo '{}' > ~/.pi/agent/auth.json
     fi
 
+    # Same for Pig (Go port of Pi, shares the config-root shape)
+    mkdir -p ~/.pig/agent
+    if [ ! -f ~/.pig/agent/auth.json ]; then
+        echo '{}' > ~/.pig/agent/auth.json
+    fi
+
     # AgentMemory config directory
     mkdir -p ~/.agentmemory
 

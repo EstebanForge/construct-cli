@@ -215,6 +215,8 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # Each installs via its official installer into a throwaway HOME, then the
 # binary is placed at /usr/local/bin — root-owned and OUTSIDE the home bind,
 # so bind-tier copies shadow it by PATH (the override contract).
+# pig is the exception: its installer accepts PIG_INSTALL_DIR, so it lands
+# straight in /usr/local/bin without the find/install dance.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
@@ -224,8 +226,9 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name opencode | sort | head -1)" /usr/local/bin/opencode && \
     npm install -g --prefix /usr/local @openai/codex && \
     npm install -g --prefix /usr/local @earendil-works/pi-coding-agent && \
+    curl -fsSL https://pi-in-go.dev/install.sh | PIG_INSTALL_DIR=/usr/local/bin sh && \
     rm -rf "$HOME" && \
-    for c in claude agy opencode codex pi; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
+    for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
 
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)

@@ -38,6 +38,8 @@ func GetSupportedAgents() []AgentMemory {
 			"~/Documents/Cline/Rules/AGENTS.md",
 			"~/Cline/Rules/AGENTS.md",
 		}},
+		{Name: "pi", FriendlyName: "Pi Coding Agent", Paths: []string{"~/.pi/agent/AGENTS.md"}},
+		{Name: "pig", FriendlyName: "Pig", Paths: []string{"~/.pig/agent/AGENTS.md"}},
 	}
 }
 

@@ -26,7 +26,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
-- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the five baked agents `claude`, `codex`, `agy`, `pi`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that (kotlin, scala, groovy, gradle) install on demand via the `[mise]` user tier in `packages.toml`; anything else arrives through `[mise]`/`[npm]`/`[bun]`/`[pipx]` user entries and shadows baked equivalents by PATH.
+- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the six baked agents `claude`, `codex`, `agy`, `pi`, `pig`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that (kotlin, scala, groovy, gradle) install on demand via the `[mise]` user tier in `packages.toml`; anything else arrives through `[mise]`/`[npm]`/`[bun]`/`[pipx]` user entries and shadows baked equivalents by PATH.
 
 ---
 
@@ -155,6 +155,7 @@ Construct supports microVM hardware isolation as an opt-in runtime backend (`bac
 - goose (Block Goose CLI)
 - kilocode (Kilo Code CLI)
 - pi (Pi Coding Agent)
+- pig (Pig, Go port of Pi)
 
 ### 5.1 Claude Provider Aliases (CC System)
 Construct supports configurable provider aliases for Claude Code, enabling switching between different API endpoints:
