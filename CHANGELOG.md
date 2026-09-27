@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.10 -->
+## [1.17.10] - 2026-09-27
+
+### Added
+
+- **Pig joins the supported agent roster.** Pig, the Go implementation of pi (pi-in-go.dev), is now a default supported agent: `construct pig` mounts `~/.pig` into the sandbox, `sys agents-md` writes its rules to `~/.pig/agent/AGENTS.md`, harness path-argument staging covers `--extension` and `--session` (pig 0.2.0 has no `--mcp-config` flag), both update verification loops check the binary, and first-run setup seeds `~/.pig/agent/auth.json` like pi's. The binary is baked into construct-box at /usr/local/bin and pinned: pi-in-go.dev 403s GitHub Actions runner egress, so the image build fetches the installer from the PiG repository on GitHub and pins PIG_VERSION=0.2.0. Pig reads `~/.agents/skills` natively, keeps its whole config under `~/.pig`, and never touches pi's `~/.pi`; existing sandboxes pick the new image up through the image-digest recreate check.
+
+### Fixed
+
+- **`sys agents-md` now writes pi's rules file.** Pi has shipped in the image and the agent registry for several releases, but it was missing from the rules distribution list, so `~/.pi/agent/AGENTS.md` was never written inside the sandbox. It is registered alongside pig, which closes the gap for both.
+
+<!-- RELEASE:END 1.17.10 -->
+
 <!-- RELEASE:START 1.17.9 -->
 ## [1.17.9] - 2026-09-25
 
