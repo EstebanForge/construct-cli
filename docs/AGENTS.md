@@ -76,6 +76,17 @@ construct pi "Help me implement this feature"
 construct pi "Debug this issue"
 ```
 
+### Pig (`pig`)
+
+**Provider:** General-purpose
+**Strengths:** Go implementation of Pi; same agent surface as `pi`, fully separate config (`~/.pig`, never reads `~/.pi`)
+**Best for:** General coding tasks when you want Pi's workflow on a native Go binary
+
+```bash
+construct pig "Help me implement this feature"
+construct pig "Debug this issue"
+```
+
 ### Amp CLI (`amp`)
 
 **Provider:** Amp
@@ -237,6 +248,7 @@ construct claude --timeout 600000 "Long-running task"
 | **qwen** | Quick tasks | Fast | Low | Tuned for coding |
 | **copilot** | Everyday coding | Fast | High | GitHub integration |
 | **pi** | General purpose | Medium | Low | Extensible |
+| **pig** | General purpose | Medium | Low | Pi surface, Go binary |
 
 ## Choosing an Agent
 
@@ -259,6 +271,7 @@ construct claude --timeout 600000 "Long-running task"
 **Quick prototyping:**
 - `qwen` - Fast responses
 - `pi` - Quick iteration
+- `pig` - Pi workflow, Go binary
 
 ### By Provider
 

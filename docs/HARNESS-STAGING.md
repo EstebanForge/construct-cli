@@ -22,7 +22,7 @@ Without staging, pi dies with `Extension path does not exist` and exits 1.
 
 ## The mechanism
 
-`internal/agent/arg_staging.go` runs in `engine.Prepare()` (next to `syncAgentIntegrations`), before any run path branches. For every agent in `agentPathFlags` (v1: pi's `--extension`, `--mcp-config`, `--session`):
+`internal/agent/arg_staging.go` runs in `engine.Prepare()` (next to `syncAgentIntegrations`), before any run path branches. For every agent in `agentPathFlags` (pi: `--extension`, `--mcp-config`, `--session`; pig: `--extension`, `--session` — pig 0.2.0 has no `--mcp-config` flag; each agent's config root comes from `hostAgentConfigRoot`):
 
 1. Resolve the value: `~` expansion, relative paths against the caller's cwd, `EvalSymlinks`.
 2. If it is an existing regular file under an allowed root, copy it to `<construct home>/.construct-staging/<run-id>/<name>` (0700 per-run dir; suffix `-N` disambiguates repeated basenames while preserving the extension).

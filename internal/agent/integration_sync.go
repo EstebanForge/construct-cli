@@ -54,6 +54,26 @@ func hostPiDir() string {
 	return filepath.Join(home, ".pi", "agent")
 }
 
+// hostPigDir resolves the host pig agent dir using pig's own resolution
+// order: PIG_CODING_AGENT_DIR (pig ignores pi's PI_CODING_AGENT_DIR), then
+// $PIG_HOME/agent, then $XDG_CONFIG_HOME/pig/agent, then ~/.pig/agent.
+func hostPigDir() string {
+	if v := strings.TrimSpace(os.Getenv("PIG_CODING_AGENT_DIR")); v != "" {
+		return expandHome(v)
+	}
+	if v := strings.TrimSpace(os.Getenv("PIG_HOME")); v != "" {
+		return filepath.Join(expandHome(v), "agent")
+	}
+	if v := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); v != "" {
+		return filepath.Join(expandHome(v), "pig", "agent")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".pig", "agent")
+}
+
 // expandHome replaces a leading "~" with the user home dir; non-tilde paths are
 // returned unchanged.
 func expandHome(p string) string {

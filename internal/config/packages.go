@@ -493,7 +493,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 
 	b.WriteString("echo 'Post-install command verification...'\n")
 	b.WriteString("missing_cmds=\"\"\n")
-	b.WriteString("for cmd in claude amp copilot opencode qwen cline crush codex goose agy kilocode pi; do\n")
+	b.WriteString("for cmd in claude amp copilot opencode qwen cline crush codex goose agy kilocode pi pig; do\n")
 	b.WriteString("    if command -v \"$cmd\" &> /dev/null; then\n")
 	b.WriteString("        cmd_path=$(command -v \"$cmd\")\n")
 	b.WriteString("        echo \"  ✓ $cmd -> $cmd_path\"\n")

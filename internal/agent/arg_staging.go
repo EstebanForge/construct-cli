@@ -43,6 +43,8 @@ const (
 // agent as new integrations appear.
 var agentPathFlags = map[string]map[string]bool{
 	"pi": {"--extension": true, "--mcp-config": true, "--session": true},
+	// pig 0.2.0 shares pi's harness surface minus --mcp-config (no MCP flag yet).
+	"pig": {"--extension": true, "--session": true},
 }
 
 // stagedCopyBack pairs a staged container-side file with its original host
@@ -102,11 +104,19 @@ func tempLikeRoots() []string {
 }
 
 // hostAgentConfigRoot returns the host config root for an agent (pi:
-// ~/.pi, honoring PI_CODING_AGENT_DIR's parent). Empty when unresolvable.
+// ~/.pi, honoring PI_CODING_AGENT_DIR's parent; pig: ~/.pig, honoring
+// PIG_CODING_AGENT_DIR/PIG_HOME/XDG per pig's own resolution order).
+// Empty when unresolvable.
 func hostAgentConfigRoot(slug string) string {
 	switch strings.ToLower(slug) {
 	case "pi":
 		dir := hostPiDir() // ~/.pi/agent or PI_CODING_AGENT_DIR
+		if dir == "" {
+			return ""
+		}
+		return filepath.Dir(dir)
+	case "pig":
+		dir := hostPigDir() // ~/.pig/agent or PIG_CODING_AGENT_DIR/PIG_HOME/XDG
 		if dir == "" {
 			return ""
 		}

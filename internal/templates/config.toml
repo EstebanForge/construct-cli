@@ -222,7 +222,8 @@ skills_read_only = true
 yolo_all = false
 
 # Enable yolo mode for specific agents (slugs), e.g. ["claude", "agy"]
-# Supported: claude, agy, codex, qwen, copilot, cline, kilocode, crush
+# Supported: claude, agy, amp, qwen, copilot, opencode, cline, crush,
+#            codex, droid, goose, kilocode, pi, pig
 yolo_agents = []
 
 # Patch clipboard integrations for JS/NPM agents and install PTY clipboard wrappers

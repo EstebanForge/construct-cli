@@ -157,6 +157,34 @@ func TestAdaptArgsRelativeAndTildePaths(t *testing.T) {
 	}
 }
 
+func TestAdaptArgsPigStagesSessionFromPigHome(t *testing.T) {
+	// Regression: pig must resolve its own config root into the staging
+	// allowlist, exactly as pi does, or orchestrator session paths under
+	// ~/.pig are silently left unrewritten and break inside the container.
+	root := hostAgentConfigRoot("pig")
+	if root == "" {
+		t.Fatal("pig config root unresolved; staging allowlist would miss ~/.pig paths")
+	}
+	tmp := t.TempDir()
+	s := newArgStager("pig", filepath.Join(tmp, "config"), filepath.Join(tmp, "cwd"))
+	if s == nil {
+		t.Fatal("nil stager for pig")
+	}
+	s.copyFn = func(_, _ string) error { return nil }
+	t.Cleanup(func() { s.cleanup() })
+
+	sess := writeStageFile(t, root, "construct-test-session.jsonl", "{}\n")
+	defer func() { _ = os.Remove(sess) }()
+	args := []string{"pig", "--session", sess}
+	s.adaptArgs(args)
+	if !strings.HasPrefix(args[2], stagingContainerDir+"/") {
+		t.Errorf("pig session under %s not staged: %q", root, args[2])
+	}
+	if len(s.copyBacks) != 1 {
+		t.Errorf("expected 1 copy-back for --session, got %d", len(s.copyBacks))
+	}
+}
+
 func TestAdaptArgsSkipsOtherAgentsAndSizeCap(t *testing.T) {
 	if newArgStager("claude", "/x", "/y") != nil {
 		t.Error("stager created for agent without path flags")

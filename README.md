@@ -38,6 +38,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **Claude Code** (`claude`) – Anthropic's premier coding agent for Claude models
 - **GitHub Copilot CLI** (`copilot`) – GitHub Copilot code agent with access to all Copilot supported models
 - **Pi Coding Agent** (`pi`) – Earendil Works minimal extensible coding agent
+- **Pig** (`pig`) – Go implementation of Pi (pi-in-go.dev); same agent surface, independent config in `~/.pig`
 - **OpenCode** (`opencode`) – OpenCode's coding agent, fast and full of open weights models
 - **Amp CLI** (`amp`) – Sourcegraph's coding agent
 - **Qwen Code** (`qwen`) – Alibaba's coding agent for Qwen models

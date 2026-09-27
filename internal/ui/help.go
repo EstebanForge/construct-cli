@@ -60,7 +60,7 @@ Global Flags:
   construct sys version            # Show version
 
 Available agents: claude, qwen, agy, opencode, copilot, cline, crush, codex,
-                droid, goose, kilocode, pi, amp
+                droid, goose, kilocode, pi, pig, amp
 
 For more information, visit: https://github.com/EstebanForge/construct-cli
 `
