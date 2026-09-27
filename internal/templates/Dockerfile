@@ -216,9 +216,11 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # binary is placed at /usr/local/bin — root-owned and OUTSIDE the home bind,
 # so bind-tier copies shadow it by PATH (the override contract).
 # pig is the exception: its installer accepts PIG_INSTALL_DIR, so it lands
-# straight in /usr/local/bin without the find/install dance. PIG_VERSION is
-# pinned because the installer's latest-version API (pi-in-go.dev/api)
-# 403s from GitHub Actions runners; bump the pin on new pig releases.
+# straight in /usr/local/bin without the find/install dance. Fetch the
+# script from its source in the PiG repo: pi-in-go.dev (site + version
+# API) 403s GitHub Actions runner egress. PIG_VERSION is pinned because
+# the installer's own latest-version lookup hits the same blocked domain;
+# bump the pin on new pig releases.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
@@ -228,7 +230,7 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name opencode | sort | head -1)" /usr/local/bin/opencode && \
     npm install -g --prefix /usr/local @openai/codex && \
     npm install -g --prefix /usr/local @earendil-works/pi-coding-agent && \
-    curl -fsSL https://pi-in-go.dev/install.sh | PIG_VERSION=0.2.0 PIG_INSTALL_DIR=/usr/local/bin sh && \
+    curl -fsSL https://raw.githubusercontent.com/MichaelKinsy/PiG/main/docs/site/public/install.sh | PIG_VERSION=0.2.0 PIG_INSTALL_DIR=/usr/local/bin sh && \
     rm -rf "$HOME" && \
     for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
 
