@@ -127,7 +127,7 @@ Reverse the steps above: remove the package from `packages.toml`, unregister fro
   - Command: `curl -fsSL https://pi-in-go.dev/install.sh | PIG_INSTALL_DIR=/usr/local/bin sh`
   - Rules path: `~/.pig/agent/AGENTS.md`
   - Config root: `~/.pig` (PIG_HOME/XDG override honored by pig itself; container user has no XDG_CONFIG_HOME, so the default stands)
-  - Baked in image at /usr/local/bin/pig (no home-tier copy has ever existed, so no bake-migration entry)
+  - Baked in image at /usr/local/bin/pig, PIG_VERSION pinned (the installer's version API 403s from GitHub Actions runners; bump the pin on new pig releases; no home-tier copy has ever existed, so no bake-migration entry)
   - Reads `~/.agents/skills` natively; fully separate from pi (`~/.pi` untouched)
   - Harness staging: same surface as pi minus `--mcp-config` (no MCP flag in pig 0.2.0)
   - Files updated: `internal/templates/Dockerfile`, `internal/agent/agent.go`, `internal/agent/arg_staging.go`, `internal/agent/integration_sync.go`, `internal/sys/memories.go`, `internal/sys/memories_test.go`, `internal/ui/help.go`, `internal/templates/update-all.sh`, `internal/config/packages.go`, `internal/templates/packages.toml` (comments), `internal/templates/entrypoint.sh` (auth.json seed), `internal/templates/config.toml` (yolo_agents list), `README.md`, `docs/AGENTS.md`, `docs/ARCHITECTURE-DESIGN.md`, `docs/HARNESS-STAGING.md`
