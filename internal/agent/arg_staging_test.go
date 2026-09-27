@@ -165,6 +165,11 @@ func TestAdaptArgsPigStagesSessionFromPigHome(t *testing.T) {
 	if root == "" {
 		t.Fatal("pig config root unresolved; staging allowlist would miss ~/.pig paths")
 	}
+	// The config root may not exist yet (XDG resolution on a clean CI
+	// runner), and writeStageFile does not create parents.
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	tmp := t.TempDir()
 	s := newArgStager("pig", filepath.Join(tmp, "config"), filepath.Join(tmp, "cwd"))
 	if s == nil {
