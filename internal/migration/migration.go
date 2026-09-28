@@ -327,7 +327,19 @@ func RunMigrations() error {
 		forceEntrypointRun()
 	}
 
-	// 4. Merge packages.toml only if template structure changed
+	// 4. Reset config values that exactly match a stale shipped default.
+	// The template update never rewrites config.toml, so an old shipped
+	// default (e.g. workspace_max_entries = 60000) would otherwise pin the
+	// old behavior forever. Exact-match only: user-chosen values survive.
+	if fixes, err := config.ResetStaleDefaults(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: stale config default reset failed: %v\n", err)
+	} else {
+		for _, f := range fixes {
+			ui.InfoF("♻️  Reset stale default: %s\n", f)
+		}
+	}
+
+	// 5. Merge packages.toml only if template structure changed
 	if packagesTemplateChanged() {
 		if err := mergePackagesFile(); err != nil {
 			return fmt.Errorf("failed to merge packages file: %w", err)
@@ -345,18 +357,18 @@ func RunMigrations() error {
 		}
 	}
 
-	// 5. Regenerate topgrade config (depends on packages.toml)
+	// 6. Regenerate topgrade config (depends on packages.toml)
 	regenerateTopgradeConfig()
 
-	// 6. Save template hashes LAST (after all operations succeed)
+	// 7. Save template hashes LAST (after all operations succeed)
 	if err := saveTemplateHashes(computeTemplateHashes()); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to save template hashes: %v\n", err)
 	}
 
-	// 7. Clean up legacy per-file hash files
+	// 8. Clean up legacy per-file hash files
 	cleanupLegacyHashFiles()
 
-	// 8. Update installed version
+	// 9. Update installed version
 	if err := SetInstalledVersion(current); err != nil {
 		return fmt.Errorf("failed to update version file: %w", err)
 	}

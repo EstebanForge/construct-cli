@@ -620,6 +620,11 @@ func Run(args ...string) {
 	}
 	checks = append(checks, missingCheck)
 
+	// 6.4 Stale shipped defaults in config.toml. Shares one rewrite path
+	// with the update-time migration (config.ResetStaleDefaults), so doctor
+	// --fix and RunMigrations can never diverge.
+	checks = append(checks, checkStaleConfigDefaults(fixRequested))
+
 	// 6.5 Config Permissions Check (Linux/WSL)
 	if runtime.GOOS == "linux" {
 		permCheck := CheckResult{Name: "Config Permissions"}
@@ -1395,6 +1400,47 @@ func msbLibkrunfwRepair(fix bool, msbPath, msbHome string) CheckResult {
 	}
 	check.Status = CheckStatusOK
 	check.Message = fmt.Sprintf("Linked %s -> %s", st.TargetDir, st.LibDir)
+	return check
+}
+
+// checkStaleConfigDefaults reports config.toml values that exactly match a
+// stale shipped default (e.g. workspace_max_entries = 60000 from an older
+// template; the update-time migration normally rewrites them, but installs
+// that skip updates carry them indefinitely). Repair goes through
+// config.ResetStaleDefaults — the same exact-match rewrite RunMigrations
+// applies — so user-chosen values are never touched by either path.
+func checkStaleConfigDefaults(fix bool) CheckResult {
+	check := CheckResult{Name: "Stale Config Defaults"}
+	findings, err := config.DetectStaleDefaults()
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Unable to check stale config defaults"
+		check.Details = append(check.Details, err.Error())
+		return check
+	}
+	if len(findings) == 0 {
+		check.Status = CheckStatusOK
+		check.Message = "No stale shipped defaults"
+		return check
+	}
+	if !fix {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("%d stale shipped default(s) pin old behavior", len(findings))
+		check.Details = append(check.Details, findings...)
+		check.Suggestion = "Run 'construct sys doctor --fix' (exact-match rewrites only)"
+		return check
+	}
+	fixed, err := config.ResetStaleDefaults()
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = "Failed to reset stale config defaults"
+		check.Details = append(check.Details, err.Error())
+		check.Suggestion = "Run 'construct sys doctor --fix' again after checking config.toml"
+		return check
+	}
+	check.Status = CheckStatusOK
+	check.Message = fmt.Sprintf("Reset %d stale default(s)", len(fixed))
+	check.Details = append(check.Details, fixed...)
 	return check
 }
 
