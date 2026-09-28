@@ -101,14 +101,29 @@ if command -v npm &> /dev/null; then
             rm -rf "$entry"
         done
     fi
-    # Get list of globally installed packages (excluding npm itself), then reinstall each
-    npm_pkgs=$(npm ls -g --depth=0 --json 2>/dev/null | jq -r '.dependencies // {} | keys[] | select(. != "npm")' 2>/dev/null || true)
-    if [ -n "$npm_pkgs" ]; then
-        for pkg in $npm_pkgs; do
-            npm install -g --force "$pkg@latest" || echo "⚠️  Failed to upgrade $pkg"
-        done
+    # Reinstall only packages with a newer version on the registry. The
+    # old path reinstalled every global package (~35 serial npm runs,
+    # minutes of work plus mise reshim churn) even when nothing moved:
+    # npm install pkg@latest never skips an up-to-date package, which is
+    # why the explicit reinstall stays instead of npm update -g (that
+    # one does not cross semver ranges). npm outdated does one registry
+    # sweep. Validate the payload before trusting it: on registry or
+    # network failure npm prints {"error":{...}} on STDOUT (rc=1), and
+    # blindly extracting keys would run `npm install -g error@latest`
+    # against the unrelated public package. Empty stdout (nothing to
+    # check) also lands in the warn branch rather than a fake success.
+    npm_outdated=$(npm outdated -g --json 2>/dev/null || true)
+    if [ -n "$npm_outdated" ] && echo "$npm_outdated" | jq -e 'type == "object" and (has("error") | not)' > /dev/null 2>&1; then
+        npm_pkgs=$(echo "$npm_outdated" | jq -r 'to_entries[] | select(.key != "npm" and (.value | type == "object") and .value.current) | .key')
+        if [ -n "$npm_pkgs" ]; then
+            for pkg in $npm_pkgs; do
+                npm install -g --force "$pkg@latest" || echo "⚠️  Failed to upgrade $pkg"
+            done
+        else
+            echo "  No outdated npm global packages"
+        fi
     else
-        echo "  No npm global packages found to upgrade"
+        echo "⚠️  npm outdated check failed; skipping npm global upgrades"
     fi
 fi
 
