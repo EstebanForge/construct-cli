@@ -162,6 +162,16 @@ func handleSysCommand(args []string, cfg *config.Config) {
 
 		cfg = ensureConfigLoaded(cfg)
 		runtime.BuildImage(cfg)
+		// microvm backend: compose build lands in the docker store, but the
+		// guest boots from the msb image cache and EnsureImage prefers a
+		// GHCR pull over that store. Transition the fresh build now or the
+		// next run shadows it with a stale published image.
+		if cfg.Runtime.Backend == "microvm" {
+			if err := runtime.TransitionLocalConstructImageToMsb(cfg); err != nil {
+				ui.GumError(fmt.Sprintf("microVM image transition failed: %v", err))
+				os.Exit(1)
+			}
+		}
 	case "update":
 		runUpdate(cfg)
 	case "reset":

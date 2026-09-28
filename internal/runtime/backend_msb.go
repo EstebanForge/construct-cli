@@ -47,11 +47,15 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 // cached under, in preference order. msb has no `image tag` subcommand
 // (checked 0.6.15) and refs are stored as given: `msb pull` caches the
 // full registry ref, `msb load -i` imports archives as localhost/<name>.
-// The bare name stays first for msb builds that resolve short names.
+// localhost/ FIRST: it exists only after a deliberate local build
+// (TransitionLocalConstructImageToMsb), which must beat a concurrently
+// cached — possibly stale — GHCR ref when both exist (e.g. `sys init`
+// after prior GHCR pulls). The bare name stays ahead of the registry ref
+// for msb builds that resolve short names.
 var constructImageRefCandidates = []string{
+	"localhost/construct-box:latest",
 	"construct-box:latest",
 	"ghcr.io/estebanforge/construct-box:latest",
-	"localhost/construct-box:latest",
 }
 
 // MsbConstructImageRef returns the first cached construct-box ref by
@@ -61,7 +65,7 @@ var constructImageRefCandidates = []string{
 // msb is unavailable (unit tests).
 func MsbConstructImageRef() string {
 	for _, ref := range constructImageRefCandidates {
-		if msbImageCached(ref) {
+		if msbImageCachedFn(ref) {
 			return ref
 		}
 	}
@@ -74,6 +78,14 @@ func msbImageCached(ref string) bool {
 	return cmd.Run() == nil
 }
 
+// msbImageCachedFn is a seam for msbImageCached so the acquisition
+// decision is unit-testable without the msb CLI.
+var msbImageCachedFn = msbImageCached
+
+// localConstructImageExistsFn is a seam for LocalConstructImageExists so
+// the transition no-op path is unit-testable without a docker store.
+var localConstructImageExistsFn = LocalConstructImageExists
+
 // EnsureImage transitions the construct image into msb: always attempts
 // pulling the published image (PrepullImageRef) first — msb pull no-ops
 // cheaply when the cached digest matches, so this is also the refresh path —
@@ -83,17 +95,33 @@ func msbImageCached(ref string) bool {
 func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
+	// Deliberate local builds win over GHCR: a localhost/ ref only lands
+	// via docker save + msb load (`construct sys rebuild` on this
+	// backend), so adopt it as-is. The digest drift check below can never
+	// bless it — a local build's manifest digest never matches the
+	// CI-published image, even at identical content — so letting the flow
+	// reach the pull would shadow the fresh build with whatever :latest
+	// GHCR holds (stale when the publish workflow lags the templates).
+	if msbImageCachedFn("localhost/construct-box:latest") {
+		ui.InfoLn("✓ MicroVM image ready (local build)")
+		return nil
+	}
+
 	// Refresh on digest drift: msb pull no-ops whenever the ref is cached
 	// at all — it never re-resolves the tag — so neither name-presence nor
 	// a plain pull can ever refresh, and a stale image shadows every
 	// republish (guests kept booting the pre-free-sudo image for days).
-	// Compare the cached digest against the registry manifest digest
-	// (anonymous HEAD, ~1s) and force a re-download only on drift; when
-	// either side is unknown (offline, private repo) keep whatever is
-	// cached. The pull caches the FULL registry ref (no `image tag`
-	// subcommand exists to alias it down to the bare name); imageLoaded and
-	// the run spec resolve cached refs via constructImageRefCandidates.
-	if cached, remote := msbCachedImageDigest(), ghcrRemoteDigest(PrepullImageRef); cached != "" && remote != "" && cached != remote {
+	// Compare the GHCR REF's cached digest against the registry manifest
+	// digest (anonymous HEAD, ~1s) and force a re-download only on drift;
+	// when either side is unknown (offline, private repo) keep whatever is
+	// cached. Scoping to the GHCR ref is load-bearing: a localhost/ ref is
+	// a deliberate local build whose digest never matches the CI image,
+	// and a bare legacy ref has no registry counterpart — comparing either
+	// against the remote would "drift" forever and re-pull every run. The
+	// pull caches the FULL registry ref (no `image tag` subcommand exists
+	// to alias it down to the bare name); imageLoaded and the run spec
+	// resolve cached refs via constructImageRefCandidates.
+	if cached, remote := msbImageDigest(PrepullImageRef), ghcrRemoteDigest(PrepullImageRef); cached != "" && remote != "" && cached != remote {
 		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~2 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
 		rm := exec.Command("msb", "image", "rm", PrepullImageRef)
 		rm.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
@@ -122,6 +150,19 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 			return err
 		}
 		BuildImage(cfg)
+	}
+	return TransitionLocalConstructImageToMsb(cfg)
+}
+
+// TransitionLocalConstructImageToMsb moves a locally built construct-box
+// docker/podman image into the msb image cache (docker save + msb load).
+// The microvm backend never compose-builds, so `construct sys rebuild`
+// calls this after BuildImage to land the fresh build where the guest
+// actually boots from. No local docker image: no-op success — the GHCR
+// pull remains the acquisition path.
+func TransitionLocalConstructImageToMsb(cfg *config.Config) error {
+	if !localConstructImageExistsFn(cfg) {
+		return nil
 	}
 
 	ui.InfoLn("→ Transitioning local Docker image to microVM (docker save + msb load, ~3.5GB)...")
@@ -167,24 +208,32 @@ func (m *MsbBackend) imageLoaded() bool {
 	return false
 }
 
+// msbImageDigest returns the manifest digest recorded for ONE ref
+// (parsed from `msb image inspect`), or "" when the ref is not cached or
+// the output cannot be parsed.
+func msbImageDigest(ref string) string {
+	// The inspect doubles as the cached check: a missing ref fails the
+	// command.
+	out, err := exec.Command("msb", "image", "inspect", ref).CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if digest, ok := strings.CutPrefix(line, "Digest:"); ok {
+			return strings.TrimSpace(digest)
+		}
+	}
+	return ""
+}
+
 // msbCachedImageDigest returns the full manifest digest of the cached
 // construct image (parsed from `msb image inspect`), or "" when no ref is
 // cached or the output cannot be parsed.
 func msbCachedImageDigest() string {
 	for _, candidate := range constructImageRefCandidates {
-		// One inspect per candidate doubles as the cached check: a missing
-		// ref fails the command, so fall through to the next candidate form
-		// instead of a separate msbImageCached subprocess.
-		out, err := exec.Command("msb", "image", "inspect", candidate).CombinedOutput()
-		if err != nil {
-			continue
+		if digest := msbImageDigest(candidate); digest != "" {
+			return digest
 		}
-		for _, line := range strings.Split(string(out), "\n") {
-			if digest, ok := strings.CutPrefix(line, "Digest:"); ok {
-				return strings.TrimSpace(digest)
-			}
-		}
-		return ""
 	}
 	return ""
 }

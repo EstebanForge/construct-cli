@@ -77,7 +77,7 @@ When migration is needed, `migration.CheckAndMigrate()`:
   ✓ Image marked for rebuild
 
 ✓ Migration complete!
-  Note: Container image will rebuild on next agent run
+  Note: container image will be re-pulled from GHCR on next agent run (local build only if the pull fails)
 ```
 
 **Upgrade from 0.4.0 → 0.5.0 (with version file):**
@@ -96,7 +96,7 @@ When migration is needed, `migration.CheckAndMigrate()`:
   ✓ Image marked for rebuild
 
 ✓ Migration complete!
-  Note: Container image will rebuild on next agent run
+  Note: container image will be re-pulled from GHCR on next agent run (local build only if the pull fails)
 ```
 
 ## Manual Migration

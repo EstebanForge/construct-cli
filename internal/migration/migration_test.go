@@ -4,12 +4,84 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 )
+
+// TestRemoveMsbImageCacheRemovesAllRefs: msb caches the pulled image
+// under the FULL registry ref (`msb pull` never aliases the tag down to
+// the bare name), so the rebuild teardown must remove every ref form or
+// the stale image survives under its cached name and keeps booting after
+// a template migration.
+func TestRemoveMsbImageCacheRemovesAllRefs(t *testing.T) {
+	origRemove := msbRemoveImageRef
+	removed := []string{}
+	msbRemoveImageRef = func(ref string) error {
+		removed = append(removed, ref)
+		return nil
+	}
+	t.Cleanup(func() { msbRemoveImageRef = origRemove })
+
+	removeMsbImageCache()
+
+	want := []string{
+		"construct-box:latest",
+		"localhost/construct-box:latest",
+		"ghcr.io/estebanforge/construct-box:latest",
+	}
+	if !reflect.DeepEqual(removed, want) {
+		t.Fatalf("removed refs = %v, want %v", removed, want)
+	}
+}
+
+// TestRebuildNotesEngineAware: the migration completion notes must speak
+// the engine's language — the microvm backend re-pulls a microVM image
+// from GHCR (local build only via an explicit `sys rebuild`), while the
+// container backends re-pull a container image.
+func TestRebuildNotesEngineAware(t *testing.T) {
+	orig := isMicrovmBackendFn
+	t.Cleanup(func() { isMicrovmBackendFn = orig })
+
+	isMicrovmBackendFn = func() bool { return true }
+	if n := imageRebuildNote(); !strings.Contains(n, "microVM image will be re-pulled from GHCR") {
+		t.Errorf("microvm rebuild note wrong: %q", n)
+	}
+	if n := softRestartNote(); !strings.Contains(n, "microVM sandbox") {
+		t.Errorf("microvm soft note wrong: %q", n)
+	}
+
+	isMicrovmBackendFn = func() bool { return false }
+	if n := imageRebuildNote(); !strings.Contains(n, "container image will be re-pulled from GHCR") {
+		t.Errorf("container rebuild note wrong: %q", n)
+	}
+	if n := softRestartNote(); !strings.Contains(n, "container will restart") {
+		t.Errorf("container soft note wrong: %q", n)
+	}
+}
+
+// TestIsMicrovmBackendReadsConfig: the note helpers must detect the
+// configured backend from config.toml, not assume the container default.
+func TestIsMicrovmBackendReadsConfig(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := config.Init(); err != nil {
+		t.Fatalf("config.Init() failed: %v", err)
+	}
+	if isMicrovmBackend() {
+		t.Fatal("default config must not report microvm")
+	}
+
+	cfgPath := filepath.Join(config.GetConfigDir(), "config.toml")
+	if err := os.WriteFile(cfgPath, []byte("runtime.backend = \"microvm\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !isMicrovmBackend() {
+		t.Fatal("runtime.backend = microvm in config.toml not detected")
+	}
+}
 
 func TestCompareVersions(t *testing.T) {
 	tests := []struct {
