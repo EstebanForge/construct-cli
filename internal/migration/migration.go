@@ -376,16 +376,16 @@ func RunMigrations() error {
 	if ui.GumAvailable() {
 		ui.GumSuccess("Migration complete!")
 		if diff.ImageChanged {
-			ui.InfoF("%s  Note: Container image will rebuild on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  %s%s\n", ui.ColorGrey, imageRebuildNote(), ui.ColorReset)
 		} else if diff.SoftChanged {
-			ui.InfoF("%s  Note: Container will restart with updated config on next agent run%s\n", ui.ColorGrey, ui.ColorReset)
+			ui.InfoF("%s  %s%s\n", ui.ColorGrey, softRestartNote(), ui.ColorReset)
 		}
 	} else {
 		ui.InfoLn("✓ Migration complete!")
 		if diff.ImageChanged {
-			ui.InfoLn("  Note: Container image will rebuild on next agent run")
+			ui.InfoLn("  " + imageRebuildNote())
 		} else if diff.SoftChanged {
-			ui.InfoLn("  Note: Container will restart with updated config on next agent run")
+			ui.InfoLn("  " + softRestartNote())
 		}
 	}
 
@@ -840,6 +840,65 @@ func collectSessionContainers(containerRuntime string) []string {
 	return names
 }
 
+// msbImageRefsToRemove lists every ref form msb may cache the construct
+// image under: the bare local name, the localhost/ prefix a local build
+// load lands under, and the full registry ref a GHCR pull caches (msb
+// has no tag aliasing, so removing only the bare name leaves the stale
+// pulled image bootable).
+func msbImageRefsToRemove() []string {
+	return []string{
+		"construct-box:latest",
+		"localhost/construct-box:latest",
+		"ghcr.io/estebanforge/construct-box:latest",
+	}
+}
+
+// msbRemoveImageRef is a seam so the teardown ref coverage is unit-testable.
+var msbRemoveImageRef = func(ref string) error {
+	return exec.Command("msb", "image", "remove", "-f", ref).Run()
+}
+
+// removeMsbImageCache drops every msb-cached ref form of the construct image.
+func removeMsbImageCache() {
+	for _, ref := range msbImageRefsToRemove() {
+		if err := msbRemoveImageRef(ref); err != nil {
+			ui.LogDebug("Failed to remove msb image ref %s: %v", ref, err)
+		}
+	}
+}
+
+// isMicrovmBackend reports whether the configured isolation backend is the
+// microVM engine, so user-facing notes speak the right noun. Best-effort:
+// config read failures fall back to the container backends (the
+// historical default).
+func isMicrovmBackend() bool {
+	cfg, _, err := config.Load()
+	return err == nil && cfg != nil && cfg.Runtime.Backend == "microvm"
+}
+
+// isMicrovmBackendFn is a seam so note wording is unit-testable.
+var isMicrovmBackendFn = isMicrovmBackend
+
+// imageRebuildNote returns the post-migration note for an image-tier
+// template change. Both engines pull from GHCR on the next run; a local
+// build happens only via an explicit `construct sys rebuild` (container
+// backends) or as the pull-failure fallback (both).
+func imageRebuildNote() string {
+	if isMicrovmBackendFn() {
+		return "Note: microVM image will be re-pulled from GHCR on next agent run; run 'construct sys rebuild' to build locally instead"
+	}
+	return "Note: container image will be re-pulled from GHCR on next agent run (local build only if the pull fails)"
+}
+
+// softRestartNote returns the post-migration note for a soft-tier-only
+// template change.
+func softRestartNote() string {
+	if isMicrovmBackendFn() {
+		return "Note: microVM sandbox will restart with updated config on next agent run"
+	}
+	return "Note: container will restart with updated config on next agent run"
+}
+
 // markImageForRebuild stops containers and removes the old image to force rebuild
 func markImageForRebuild() {
 	imageName := "construct-box:latest"
@@ -910,9 +969,7 @@ func markImageForRebuild() {
 		if err := exec.Command("msb", "remove", "-f", "construct-cli-daemon").Run(); err != nil {
 			ui.LogDebug("Failed to remove msb sandbox construct-cli-daemon: %v", err)
 		}
-		if err := exec.Command("msb", "image", "remove", "-f", imageName).Run(); err != nil {
-			ui.LogDebug("Failed to remove msb image: %v", err)
-		}
+		removeMsbImageCache()
 	}
 
 	if ui.GumAvailable() {
@@ -981,10 +1038,10 @@ func ForceRefresh() error {
 	ui.InfoLn()
 	if ui.GumAvailable() {
 		ui.GumSuccess("Refreshing configuration and templates from binary")
-		ui.InfoF("%sThis will update config, templates, and rebuild the container image%s\n", ui.ColorGrey, ui.ColorReset)
+		ui.InfoF("%sThis will update config, templates, and rebuild the sandbox image%s\n", ui.ColorGrey, ui.ColorReset)
 	} else {
 		ui.InfoLn("✓ Refreshing configuration and templates from binary")
-		ui.InfoLn("  This will update config, templates, and rebuild the container image")
+		ui.InfoLn("  This will update config, templates, and rebuild the sandbox image")
 	}
 	ui.InfoLn()
 

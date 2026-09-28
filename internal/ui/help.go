@@ -48,7 +48,7 @@ Global Flags:
                                    # [--remove-aliases] Only remove legacy shell alias block
                                    # [--list] Show shim state
   construct sys login-bridge       # Start localhost login callback bridge for headless agents
-  construct sys rebuild            # Migrate and sync config/templates, then rebuild Docker image
+  construct sys rebuild            # Migrate and sync config/templates, then rebuild the sandbox image
   construct sys reset              # Delete agent binaries and cache (preserves personal config)
   construct sys self-update        # Update construct itself to the latest version
   construct sys set-password       # Change the password for the construct user in container
