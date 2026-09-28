@@ -4,7 +4,21 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
 )
+
+// The guard's fallback budget and the shipped config default must agree:
+// templates/config.toml writes the config constant, while
+// EnforceWorkspaceRemembered falls back to the runtime constant when the
+// key is unset. Drift would make "unset = default" silently differ from a
+// freshly written config.toml.
+func TestDefaultWorkspaceBudgetMatchesConfigDefault(t *testing.T) {
+	if DefaultWorkspaceEntryBudget != config.DefaultWorkspaceMaxEntries {
+		t.Fatalf("DefaultWorkspaceEntryBudget = %d, config.DefaultWorkspaceMaxEntries = %d",
+			DefaultWorkspaceEntryBudget, config.DefaultWorkspaceMaxEntries)
+	}
+}
 
 func TestEvaluateWorkspaceSystemRoots(t *testing.T) {
 	roots := []string{"/", "/Users", "/home", "/System", "/private", "/var", "/tmp", "/etc", "/private/etc"}

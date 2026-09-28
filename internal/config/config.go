@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -501,6 +502,174 @@ func tomlQuotedKV(trimmed string) (key, value string, ok bool) {
 		return "", "", false
 	}
 	return key, rest[1 : end+1], true
+}
+
+// DefaultWorkspaceMaxEntries is the current shipped default for
+// [sandbox] workspace_max_entries. Keep in sync with
+// runtime.DefaultWorkspaceEntryBudget (asserted by a runtime test) and the
+// value in templates/config.toml.
+const DefaultWorkspaceMaxEntries = 500000
+
+// staleSandboxDefaults lists [sandbox] keys whose value equals a default
+// shipped by an older release. RunMigrations rewrites exact matches to the
+// current value: the template update never touches config.toml, so an old
+// shipped default would otherwise pin the old behavior forever (seen live:
+// workspace_max_entries stayed at 60000 across the 1.17.8 → 1.17.10 update
+// that raised the ceiling). Exact-match only — a value the user chose is
+// never rewritten. Add a row when a shipped default changes.
+var staleSandboxDefaults = []struct {
+	key      string
+	from, to int
+}{
+	// 60000 was the shipped default before the 2026-09-25 research-backed
+	// raise (a single modern JS project carries 50-150k files).
+	{"workspace_max_entries", 60000, DefaultWorkspaceMaxEntries},
+}
+
+// ResetStaleDefaults rewrites config.toml values that exactly match a stale
+// shipped default (see staleSandboxDefaults) and returns one formatted
+// finding per fixed line ("key from → to"). No printing: callers own the
+// output shape (migration banner, doctor table row). Best-effort: callers
+// may continue on error — the stale value keeps working until the next
+// attempt.
+func ResetStaleDefaults() ([]string, error) {
+	configPath := filepath.Join(GetConfigDir(), "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	newText, fixes := migrateStaleDefaults(string(data))
+	if len(fixes) == 0 {
+		return nil, nil
+	}
+	if err := writeFileAtomic(configPath, []byte(newText), 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write config file: %w", err)
+	}
+	return formatStaleFixes(fixes), nil
+}
+
+// DetectStaleDefaults reports which config lines exactly match a stale
+// shipped default, without writing. Doctor warns from these findings;
+// repair goes through ResetStaleDefaults so both paths share one rewrite.
+func DetectStaleDefaults() ([]string, error) {
+	configPath := filepath.Join(GetConfigDir(), "config.toml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+	_, fixes := migrateStaleDefaults(string(data))
+	return formatStaleFixes(fixes), nil
+}
+
+// formatStaleFixes renders fixes as "key from → to" strings.
+func formatStaleFixes(fixes []staleFix) []string {
+	out := make([]string, 0, len(fixes))
+	for _, f := range fixes {
+		out = append(out, f.String())
+	}
+	return out
+}
+
+// staleFix describes one rewritten stale-default line, for reporting.
+type staleFix struct {
+	key      string
+	from, to int
+}
+
+func (f staleFix) String() string {
+	return fmt.Sprintf("%s %d → %d", f.key, f.from, f.to)
+}
+
+// migrateStaleDefaults rewrites config lines whose value is an exact stale
+// shipped default. Single-line surgery, mirroring migrateLegacyEngineKey:
+// every other line, including comments, stays byte-identical. Idempotent:
+// current values match no row and are left untouched. Returns the new text
+// and one staleFix per rewritten line.
+func migrateStaleDefaults(data string) (string, []staleFix) {
+	lines := strings.Split(data, "\n")
+	section := ""
+	type hit struct {
+		idx int
+		fix staleFix
+	}
+	var hits []hit
+	for i, raw := range lines {
+		t := strings.TrimSpace(raw)
+		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
+			section = t
+			continue
+		}
+		if section != "[sandbox]" {
+			continue
+		}
+		for _, sd := range staleSandboxDefaults {
+			if k, v, ok := tomlIntKV(t); ok && k == sd.key && v == sd.from {
+				hits = append(hits, hit{idx: i, fix: staleFix{key: sd.key, from: sd.from, to: sd.to}})
+			}
+		}
+	}
+	if len(hits) == 0 {
+		return data, nil
+	}
+	for _, h := range hits {
+		lines[h.idx] = rewriteIntValue(lines[h.idx], h.fix.to)
+	}
+	fixes := make([]staleFix, 0, len(hits))
+	for _, h := range hits {
+		fixes = append(fixes, h.fix)
+	}
+	return strings.Join(lines, "\n"), fixes
+}
+
+// rewriteIntValue replaces the first integer token after the `=` in a TOML
+// line, preserving key spacing and any inline comment.
+func rewriteIntValue(raw string, to int) string {
+	eq := strings.Index(raw, "=")
+	if eq < 0 {
+		return raw
+	}
+	rest := raw[eq+1:]
+	start := -1
+	for i := 0; i < len(rest); i++ {
+		if rest[i] >= '0' && rest[i] <= '9' {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return raw
+	}
+	end := start
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	return raw[:eq+1] + rest[:start] + strconv.Itoa(to) + rest[end:]
+}
+
+// tomlIntKV parses a `key = 123` line with optional trailing comment.
+// Comment lines and non-integer values are rejected.
+func tomlIntKV(trimmed string) (key string, value int, ok bool) {
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", 0, false
+	}
+	eq := strings.Index(trimmed, "=")
+	if eq < 0 {
+		return "", 0, false
+	}
+	key = strings.TrimSpace(trimmed[:eq])
+	rest := strings.TrimSpace(trimmed[eq+1:])
+	end := 0
+	for end < len(rest) && rest[end] >= '0' && rest[end] <= '9' {
+		end++
+	}
+	if end == 0 {
+		return "", 0, false
+	}
+	v, err := strconv.Atoi(rest[:end])
+	if err != nil {
+		return "", 0, false
+	}
+	return key, v, true
 }
 
 // Save writes the config back to config.toml

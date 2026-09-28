@@ -9,6 +9,57 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// TestResetAndDetectStaleDefaultsFile covers the file-level entry points
+// (the pure line surgery is tested by TestMigrateStaleDefaults): read-error
+// handling, detect-without-write, reset-with-write, and the clean no-op.
+func TestResetAndDetectStaleDefaultsFile(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configDir := GetConfigDir()
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+
+	// Missing config file: both entry points surface the read error.
+	if _, err := DetectStaleDefaults(); err == nil {
+		t.Fatal("DetectStaleDefaults on missing file: want error, got nil")
+	}
+	if _, err := ResetStaleDefaults(); err == nil {
+		t.Fatal("ResetStaleDefaults on missing file: want error, got nil")
+	}
+
+	// Stale value: detect reports without writing, reset rewrites once.
+	stale := "[sandbox]\nworkspace_max_entries = 60000 # cap\n"
+	if err := os.WriteFile(configPath, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	findings, err := DetectStaleDefaults()
+	if err != nil || len(findings) != 1 || findings[0] != "workspace_max_entries 60000 → 500000" {
+		t.Fatalf("DetectStaleDefaults findings = %v, err = %v", findings, err)
+	}
+	if data, _ := os.ReadFile(configPath); string(data) != stale {
+		t.Fatalf("DetectStaleDefaults must not write; file = %q", data)
+	}
+	fixed, err := ResetStaleDefaults()
+	if err != nil || len(fixed) != 1 || fixed[0] != findings[0] {
+		t.Fatalf("ResetStaleDefaults findings = %v, err = %v", fixed, err)
+	}
+	if data, _ := os.ReadFile(configPath); string(data) != "[sandbox]\nworkspace_max_entries = 500000 # cap\n" {
+		t.Fatalf("config after reset = %q", data)
+	}
+
+	// Clean config: both report nothing and skip the write.
+	if err := os.WriteFile(configPath, []byte("[sandbox]\nworkspace_max_entries = 500000\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := DetectStaleDefaults(); len(f) != 0 {
+		t.Fatalf("clean detect findings = %v, want none", f)
+	}
+	if f, err := ResetStaleDefaults(); err != nil || len(f) != 0 {
+		t.Fatalf("clean reset = %v, %v, want none", f, err)
+	}
+}
+
 // TestConfigParsing tests TOML configuration parsing
 func TestConfigParsing(t *testing.T) {
 	testConfig := `
@@ -544,6 +595,75 @@ func TestMigrateLegacyEngineKey(t *testing.T) {
 			got, changed := migrateLegacyEngineKey(tt.in)
 			if changed != tt.changed {
 				t.Fatalf("changed = %v, want %v (got %q)", changed, tt.changed, got)
+			}
+			if got != tt.want {
+				t.Errorf("migrated file:\ngot  %q\nwant %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestMigrateStaleDefaults(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		changed int
+	}{
+		{
+			name:    "stale default rewritten to current",
+			in:      "[sandbox]\nworkspace_max_entries = 60000\n",
+			want:    "[sandbox]\nworkspace_max_entries = 500000\n",
+			changed: 1,
+		},
+		{
+			name:    "inline comment preserved",
+			in:      "[sandbox]\nworkspace_max_entries = 60000 # old default\n",
+			want:    "[sandbox]\nworkspace_max_entries = 500000 # old default\n",
+			changed: 1,
+		},
+		{
+			name:    "tight spacing preserved",
+			in:      "[sandbox]\nworkspace_max_entries=60000\n",
+			want:    "[sandbox]\nworkspace_max_entries=500000\n",
+			changed: 1,
+		},
+		{
+			name:    "user-chosen value is never touched",
+			in:      "[sandbox]\nworkspace_max_entries = 75000\n",
+			want:    "[sandbox]\nworkspace_max_entries = 75000\n",
+			changed: 0,
+		},
+		{
+			name:    "already-current value is a no-op",
+			in:      "[sandbox]\nworkspace_max_entries = 500000\n",
+			want:    "[sandbox]\nworkspace_max_entries = 500000\n",
+			changed: 0,
+		},
+		{
+			name:    "stale value outside sandbox section ignored",
+			in:      "[runtime]\nworkspace_max_entries = 60000\n",
+			want:    "[runtime]\nworkspace_max_entries = 60000\n",
+			changed: 0,
+		},
+		{
+			name:    "commented stale line ignored",
+			in:      "[sandbox]\n# workspace_max_entries = 60000\n",
+			want:    "[sandbox]\n# workspace_max_entries = 60000\n",
+			changed: 0,
+		},
+		{
+			name:    "surrounding lines stay byte-identical",
+			in:      "# top comment\n[runtime]\nbackend = \"microvm\"\n\n[sandbox]\nallow_home_workspace = false\nworkspace_max_entries = 60000 # File count before the large-workspace warning\n",
+			want:    "# top comment\n[runtime]\nbackend = \"microvm\"\n\n[sandbox]\nallow_home_workspace = false\nworkspace_max_entries = 500000 # File count before the large-workspace warning\n",
+			changed: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := migrateStaleDefaults(tt.in)
+			if len(changed) != tt.changed {
+				t.Fatalf("changed = %d, want %d (got %q)", len(changed), tt.changed, got)
 			}
 			if got != tt.want {
 				t.Errorf("migrated file:\ngot  %q\nwant %q", got, tt.want)

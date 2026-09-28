@@ -1604,6 +1604,61 @@ func TestCheckMsbHomeHelpers(t *testing.T) {
 	}
 }
 
+func TestCheckStaleConfigDefaults(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	configDir := config.GetConfigDir()
+	if err := os.MkdirAll(configDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
+	writeConfig := func(t *testing.T, content string) {
+		t.Helper()
+		if err := os.WriteFile(configPath, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := "[sandbox]\nworkspace_max_entries = 60000 # File count before the large-workspace warning\n"
+	fixed := "[sandbox]\nworkspace_max_entries = 500000 # File count before the large-workspace warning\n"
+
+	// missing config: warning with the error surfaced.
+	res := checkStaleConfigDefaults(false)
+	if res.Status != CheckStatusWarning || res.Message != "Unable to check stale config defaults" {
+		t.Errorf("missing-file status = %v (%s), want warning", res.Status, res.Message)
+	}
+
+	// user-chosen value: OK, never rewritten.
+	writeConfig(t, "[sandbox]\nworkspace_max_entries = 75000\n")
+	if res := checkStaleConfigDefaults(true); res.Status != CheckStatusOK {
+		t.Errorf("user value status = %v (%s), want ok", res.Status, res.Message)
+	}
+
+	// clean config: OK.
+	writeConfig(t, fixed)
+	if res := checkStaleConfigDefaults(false); res.Status != CheckStatusOK {
+		t.Errorf("clean status = %v (%s), want ok", res.Status, res.Message)
+	}
+
+	// stale value without --fix: warning pointing at --fix, file untouched.
+	writeConfig(t, stale)
+	res = checkStaleConfigDefaults(false)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
+		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	}
+	if got, _ := os.ReadFile(configPath); string(got) != stale {
+		t.Errorf("diagnosis must not write; file changed to %q", got)
+	}
+
+	// --fix: rewrites through the same ResetStaleDefaults the update
+	// migration uses, preserving the inline comment.
+	res = checkStaleConfigDefaults(true)
+	if res.Status != CheckStatusOK {
+		t.Errorf("fix status = %v (%s), want ok", res.Status, res.Message)
+	}
+	if got, _ := os.ReadFile(configPath); string(got) != fixed {
+		t.Errorf("after fix:\ngot  %q\nwant %q", got, fixed)
+	}
+}
+
 // msbStubDir writes a controllable fake msb onto PATH. FAKE_MSB_IMAGE_INSPECT
 // sets the exit code of `msb image inspect` (0 = image loaded locally).
 func msbStubDir(t *testing.T, imageInspect int) string {
