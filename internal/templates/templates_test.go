@@ -174,6 +174,9 @@ func TestEmbeddedTemplates(t *testing.T) {
 	if !strings.Contains(UpdateAll, "npm_global_lib=\"$HOME/.npm-global/lib/node_modules\"") || !strings.Contains(UpdateAll, ".bin") || !strings.Contains(UpdateAll, "@*/.[!.]*") {
 		t.Error("update-all.sh should sweep stale npm temp dirs (ENOTEMPTY rename leftovers), including temps nested inside @scope dirs, before the global reinstall loop")
 	}
+	if !strings.Contains(UpdateAll, "npm outdated -g --json") || !strings.Contains(UpdateAll, `has("error") | not`) || !strings.Contains(UpdateAll, `to_entries[] | select(.key != "npm"`) {
+		t.Error("update-all.sh should gate npm global upgrades on npm outdated AND validate the payload: on registry failure npm prints {\"error\":{...}} on stdout, so raw key extraction would run `npm install -g error@latest`")
+	}
 	// Test agent patch template
 	if AgentPatch == "" {
 		t.Error("agent-patch.sh template is empty")
