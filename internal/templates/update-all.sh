@@ -87,12 +87,13 @@ if command -v npm &> /dev/null; then
     # Sweep stale npm temp entries before reinstalling. An interrupted npm
     # run leaves dot-prefixed temp dirs under the global node_modules
     # (.<pkg>-XXXXXX for plain packages, .@scope/ holding the temp for
-    # scoped ones) and later installs fail with ENOTEMPTY when npm
-    # renames onto the occupied destination. npm never cleans these up
-    # itself; .bin is the only legitimate dot-entry here.
+    # scoped ones, and newer npm nests the temp inside the real scope
+    # dir: @scope/.<pkg>-XXXXXX) and later installs fail with ENOTEMPTY
+    # when npm renames onto the occupied destination. npm never cleans
+    # these up itself; .bin is the only legitimate dot-entry here.
     npm_global_lib="$HOME/.npm-global/lib/node_modules"
     if [ -d "$npm_global_lib" ]; then
-        for entry in "$npm_global_lib"/.[!.]*; do
+        for entry in "$npm_global_lib"/.[!.]* "$npm_global_lib"/@*/.[!.]*; do
             # -L keeps broken symlinks in the sweep: [ -e ] alone would
             # stop the loop early on the first dangling link.
             [ -e "$entry" ] || [ -L "$entry" ] || continue
