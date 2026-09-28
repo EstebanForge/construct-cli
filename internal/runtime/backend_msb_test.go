@@ -98,3 +98,57 @@ func TestManifestDigestForHost(t *testing.T) {
 		})
 	}
 }
+
+// TestEnsureImagePrefersLocalBuild: a localhost/ ref only lands via an
+// explicit local build + transition (`construct sys rebuild` / `sys init`
+// on this backend), so EnsureImage must adopt it WITHOUT consulting GHCR —
+// even when a stale GHCR ref is ALSO cached (the normal state after any
+// prior run pulled from the registry). The digest drift check would see a
+// mismatch for a local build and re-pull the stale published image over
+// the fresh one. Proven by the early nil return: without the preference
+// the flow falls through to pull / fallback / build-confirm and fails
+// closed on this exec-less test host.
+func TestEnsureImagePrefersLocalBuild(t *testing.T) {
+	origCached := msbImageCachedFn
+	msbImageCachedFn = func(ref string) bool {
+		return ref == "localhost/construct-box:latest" || ref == "ghcr.io/estebanforge/construct-box:latest"
+	}
+	t.Cleanup(func() { msbImageCachedFn = origCached })
+
+	cfg := config.DefaultConfig()
+	if err := (&MsbBackend{}).EnsureImage(&cfg); err != nil {
+		t.Fatalf("EnsureImage must adopt the cached local build, got: %v", err)
+	}
+}
+
+// TestMsbConstructImageRefPrefersLocalBuildOverGhcr: when both the stale
+// GHCR ref and a deliberate local build are cached, the boot image and
+// daemon digest label must resolve to the LOCAL build. The candidates
+// list used to order the registry ref first, so the sandbox kept booting
+// the stale GHCR image even after a successful local build + transition.
+func TestMsbConstructImageRefPrefersLocalBuildOverGhcr(t *testing.T) {
+	origCached := msbImageCachedFn
+	msbImageCachedFn = func(ref string) bool {
+		return ref == "localhost/construct-box:latest" || ref == "ghcr.io/estebanforge/construct-box:latest"
+	}
+	t.Cleanup(func() { msbImageCachedFn = origCached })
+
+	if got := MsbConstructImageRef(); got != "localhost/construct-box:latest" {
+		t.Fatalf("MsbConstructImageRef() = %q, want the deliberate local build ref", got)
+	}
+}
+
+// TestTransitionLocalConstructImageToMsbNoLocalImage: without a locally
+// built docker image the transition is a no-op success — the GHCR pull
+// remains the acquisition path and `sys rebuild` must not fail on a
+// machine whose docker store has no construct-box image.
+func TestTransitionLocalConstructImageToMsbNoLocalImage(t *testing.T) {
+	orig := localConstructImageExistsFn
+	localConstructImageExistsFn = func(*config.Config) bool { return false }
+	t.Cleanup(func() { localConstructImageExistsFn = orig })
+
+	cfg := config.DefaultConfig()
+	if err := TransitionLocalConstructImageToMsb(&cfg); err != nil {
+		t.Fatalf("no local image must no-op with nil, got: %v", err)
+	}
+}
