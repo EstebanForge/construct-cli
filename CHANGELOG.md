@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.13 -->
+## [1.17.13] - 2026-09-28
+
+### Fixed
+
+- **The microVM engine no longer boots a stale construct-box image after an image-tier template change.** Three defects chained into a loop with no exit while the registry answered: msb caches a GHCR pull under the full ghcr.io ref (no tag aliasing) but the migration teardown removed only the bare local name, image acquisition pulled GitHub first and consulted the local docker store only when the pull failed, and the digest drift check compared a deliberately built localhost ref against the CI manifest digest, a comparison a local build can never win even at identical content. Together that meant `construct sys rebuild` composed an image nothing consumed and the sandbox kept booting the stale published image on every run. The cached-ref preference list now puts the localhost build first for both the boot image and the daemon digest label, the drift check compares the registry ref's own digest so local refs can never false-drift into a per-run re-download, `sys rebuild` and `sys init` on the microvm backend transition the fresh build into the msb cache, and the teardown removes all three cached ref forms. Migration completion notes and help text describe the real flow: both engines re-pull from GitHub Container Registry, and a local build happens only through `construct sys rebuild` or as the pull-failure fallback.
+
+<!-- RELEASE:END 1.17.13 -->
+
 <!-- RELEASE:START 1.17.11 -->
 ## [1.17.11] - 2026-09-28
 
