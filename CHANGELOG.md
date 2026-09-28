@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.11 -->
+## [1.17.11] - 2026-09-28
+
+### Fixed
+
+- **Stale shipped defaults in config.toml are reset on update and by `sys doctor --fix`.** The update migration replaced container templates and merged packages.toml but never rewrote config.toml, so an old shipped default survived forever disguised as a user value: a real user's `workspace_max_entries = 60000` from an older template kept the large-workspace warning firing long after the ceiling rose to 500000, and a stale daemon restart could not fix it because the value lives host-side in the config file, not in daemon state. Values that exactly match a stale shipped default are now rewritten in place with inline comments and spacing preserved; anything else (a deliberately chosen 75000, other sections, commented lines) is untouched, and the rewrite is idempotent. One rewrite path serves both the update migration and `construct sys doctor --fix` (which warns without the flag, naming the exact `key old → new` finding), so the two can never diverge, and future default bumps are one row in a table. The guard's fallback budget and the template's shipped default are now asserted equal by a test: the template writes the former while the guard falls back to the latter when the key is unset, so drift between them would make "unset" and "freshly written" behave differently.
+
+<!-- RELEASE:END 1.17.11 -->
+
 <!-- RELEASE:START 1.17.10 -->
 ## [1.17.10] - 2026-09-27
 
