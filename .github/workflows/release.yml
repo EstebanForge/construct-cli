@@ -298,6 +298,14 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # The job checks out the tag (detached HEAD). When the tag commit is
+          # off main's lineage, `push HEAD:main` is rejected non-fast-forward
+          # and a swallowed error left main/VERSION stale (1.17.13 shipped
+          # while main still said 1.17.12). Commit the marker on top of
+          # origin/main so the push is always a fast-forward, and let a
+          # rejected push fail the step loudly.
+          git fetch origin main
+          git checkout -B release-marker origin/main
           if [ "$IS_PRERELEASE" = "true" ]; then
             echo "$VERSION" > VERSION-BETA
             git add VERSION-BETA
@@ -307,7 +315,7 @@ jobs:
             git add VERSION
             git commit -m "chore: update VERSION to $VERSION" || echo "No changes to commit"
           fi
-          git push origin HEAD:main || echo "Failed to push release marker update"
+          git push origin release-marker:main
 
   update-tap:
     needs: [release, resolve]
