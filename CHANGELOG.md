@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.18 -->
+## [1.17.18] - 2026-10-01
+
+### Fixed
+
+- **The microVM sandbox boots on the image ref the acquisition step verified.** Image acquisition and sandbox creation resolved the boot image independently: acquisition verified the freshly pulled GHCR ref, but the create-time candidate walk could hand msb a listed-but-unusable legacy bare `construct-box:latest` entry instead, which msb then resolved at docker.io — `registry error: Not authorized` on every boot despite a fresh image, exactly what 1.17.17 upgraders hit after the migration wiped and re-pulled the cache. EnsureImage now returns the ref it verified on every path (local build, cached GHCR, fresh pull, pull-failure fallback), and the daemon and agent-install specs boot that ref directly; candidate resolution survives only as a fallback when no ref was threaded.
+- **`sys doctor --fix` now recovers a still-starting msb daemon.** The VM Backend check probed the daemon once and failed closed, while the same run's Baked Image pull auto-started the daemon two checks later and reported success — an incoherent report with no fix attempt, since msb starts its daemon on demand and a probe right after a crash can lose that race. Under --fix the check now retries bounded (3 attempts, 2 seconds apart) before declaring the backend broken and reports the recovery; a crash-looping daemon still fails with the existing suggestion, and plain doctor stays report-only.
+
+<!-- RELEASE:END 1.17.18 -->
+
 <!-- RELEASE:START 1.17.17 -->
 ## [1.17.17] - 2026-10-01
 
