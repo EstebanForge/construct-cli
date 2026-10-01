@@ -37,6 +37,9 @@ func UpdateAgents(cfg *config.Config) {
 			os.Exit(1)
 		}
 		ui.GumSuccess("All agents updated successfully!")
+		fmt.Println("ℹ️  Agent and OS updates live in the VM's writable layer: they revert")
+		fmt.Println("   when the daemon is recreated (image update or config change).")
+		fmt.Println("   Run 'construct sys update' again after a recreate to re-apply them.")
 		return
 	}
 
@@ -137,6 +140,9 @@ func UpdateAgents(cfg *config.Config) {
 	} else {
 		fmt.Println("✅ All agents updated successfully!")
 	}
+	fmt.Println("ℹ️  This update ran in a throwaway compose container: agent and OS updates")
+	fmt.Println("   are discarded when it exits. Only home-directory updates (~/.pi,")
+	fmt.Println("   ~/.npm-global) persist. Use the microvm backend to keep system updates.")
 }
 
 // ResetVolumes deletes persistent volumes to force agent reinstall on next run.

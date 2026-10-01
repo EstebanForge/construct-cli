@@ -716,6 +716,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 					bootReason = "learned root added: " + learnedRoot
 				}
 				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", bootReason)
+				ui.InfoLn("   In-VM agent and OS updates revert to image versions; run 'construct sys update' to re-apply them.")
 				_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
 				goto create
