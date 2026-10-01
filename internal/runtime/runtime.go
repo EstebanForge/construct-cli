@@ -1019,6 +1019,7 @@ type overrideInputs struct {
 	DaemonMounts      string // Hash of normalized mount paths
 	GitIgnorePath     string // Host global gitignore path (empty if not found)
 	QmdModelsPath     string // Host qmd model cache path (empty if not found)
+	AptCachePath      string // Host apt download cache path (empty if unavailable)
 	LoopbackPorts     string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
 	SkillsSource      string // Host skills source path (empty if disabled or not found)
 	SkillsTargetCount int    // Number of per-agent skills mount targets (0 disables even when source is present)
@@ -1059,6 +1060,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
 	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
+	writeHashString(h, "aptcachepath:%s", inputs.AptCachePath)
 	writeHashString(h, "loopbackports:%s", inputs.LoopbackPorts)
 	writeHashString(h, "skillssource:%s", inputs.SkillsSource)
 	writeHashString(h, "skillstargets:%d", inputs.SkillsTargetCount)
@@ -1183,6 +1185,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		DaemonMounts:      daemonMounts.Hash,
 		GitIgnorePath:     func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
 		QmdModelsPath:     func() string { p, _ := getQmdModelsPath(); return p }(),
+		AptCachePath:      func() string { p, _ := getAptCachePath(); return p }(),
 		LoopbackPorts:     loopbackPortsString(cfg),
 		SkillsSource:      func() string { p, _ := GetSkillsSourcePath(cfg); return p }(),
 		SkillsTargetCount: len(SkillsMountTargets()),
@@ -1333,10 +1336,18 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxCommaSuffix)
 		}
-		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		// Mount host qmd model cache (~1.5GB GGUFs) inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models%s\n",
 				formatVolumePath(qmdModelsPath), selinuxSuffix)
+		}
+		// Persistent apt download cache: recreated containers re-provision
+		// packages.toml on first boot; the cached .debs turn that from a
+		// network download into a local copy. Directory is created on demand
+		// by the helper, so the mount is unconditional.
+		if aptCachePath, found := getAptCachePath(); found {
+			fmt.Fprintf(&override, "      - %s:/var/cache/apt/archives%s\n",
+				formatVolumePath(aptCachePath), selinuxSuffix)
 		}
 		// Mount host skills source into each supported agent's skills dir
 		// (read-only by default; opt-in RW). Source resolution precedence:
@@ -1368,6 +1379,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if qmdModelsPath, found := getQmdModelsPath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models\n",
 				formatVolumePath(qmdModelsPath))
+		}
+		// Persistent apt download cache (see the linux block above).
+		if aptCachePath, found := getAptCachePath(); found {
+			fmt.Fprintf(&override, "      - %s:/var/cache/apt/archives\n",
+				formatVolumePath(aptCachePath))
 		}
 		// Mount host skills source into each supported agent's skills dir
 		// (read-only by default; opt-in RW). See phase 7 in VMsv2.md.
@@ -2291,6 +2307,30 @@ func getQmdModelsPath() (string, bool) {
 		return "", false
 	}
 	return qmdModels, true
+}
+
+// getAptCachePath returns the host apt download cache backing the guest
+// /var/cache/apt/archives bind. Unlike the other auto-mounts it is created
+// on demand (an empty cache is fine), so the mount is unconditional once
+// the host cache dir can be created at all.
+func getAptCachePath() (string, bool) {
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
+		homeDir := os.Getenv("HOME")
+		if homeDir == "" {
+			fallback, err := os.UserHomeDir()
+			if err != nil {
+				return "", false
+			}
+			homeDir = fallback
+		}
+		cacheHome = filepath.Join(homeDir, ".cache")
+	}
+	aptCache := filepath.Join(cacheHome, "construct-cli", "apt")
+	if err := os.MkdirAll(aptCache, 0o755); err != nil {
+		return "", false
+	}
+	return aptCache, true
 }
 
 // loopbackPortsString joins cfg.Sandbox.HostLoopbackPorts into a comma-separated

@@ -190,6 +190,12 @@ func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 	if p, ok := getQmdModelsPath(); ok {
 		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: false})
 	}
+	// Persistent apt download cache (created on demand): recreated daemons
+	// re-provision packages.toml on first boot; cached .debs turn that from
+	// a network download into a local copy.
+	if p, ok := getAptCachePath(); ok {
+		mounts = append(mounts, msbAutoMount{Dest: "/var/cache/apt/archives", Src: p, Readonly: false})
+	}
 	// Host skills source -> per-agent skills directory. Each SupportedAgents
 	// entry that hosts skills gets one bind. Mount mode matches cfg.Sandbox
 	// .SkillsReadOnly (default true; opt-in RW). See docs/VMsv2.md phase 7.
@@ -726,15 +732,33 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 			reason := "memory below minimum"
 			if !needRecreate {
 				allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
-				needRecreate, reason = msbDaemonNeedsRecreate(dm, sbc.Labels, h.ConfigJSON(), projectDir, allowHome, cfg, msbCachedImageDigest())
+				// Decision inputs prefer the construct-owned spec file: a forked
+				// daemon's msb record carries no labels (restore drops them), and
+				// a stale record would read as total drift and recreate forever.
+				needRecreate, reason = msbDaemonNeedsRecreate(dm, msbDaemonDecisionLabels(sbc.Labels), h.ConfigJSON(), projectDir, allowHome, cfg, msbCachedImageDigest())
 			}
 			if needRecreate {
 				bootOutcome = msbBootRecreate
 				bootReason = reason
+				// Eligibility reads the raw reason: the learned-root message
+				// below replaces it for display only, and a learned-root add is
+				// a workspace-roots change underneath.
+				forkable := msbRecreateForkable(reason)
 				if learnedRoot != "" {
 					bootReason = "learned root added: " + learnedRoot
 				}
 				ui.InfoF("🔄 Recreating microVM daemon sandbox (%s)...\n", bootReason)
+				if forkable && msbDaemonInstallComplete() {
+					ui.InfoLn("📸 Preserving installed tools: rebooting the daemon from a disk snapshot...")
+					sb, ferr := forkMsbDaemonFromSnapshot(ctx, m, cfg, projectDir, bootRef)
+					if ferr == nil {
+						ui.InfoLn("✓ MicroVM environment ready (installed tools carried over)")
+						bootOutcome = msbBootFork
+						msbLogBoot(cfg, bootOutcome, bootStart, bootReason, bootCounts)
+						return sb, nil
+					}
+					ui.InfoF("⚠️  Snapshot fork unavailable (%v); doing a full recreate (installs will re-run)...\n", ferr)
+				}
 				ui.InfoLn("   In-VM agent and OS updates revert to image versions; run 'construct sys update' to re-apply them.")
 				_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort stop before recreate
 				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
@@ -766,7 +790,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				if out, eerr := sb.Exec(ctx, "test", []string{"-e", msbReadyMarker}); eerr != nil || out == nil || out.ExitCode() != 0 {
 					ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
 					msbRunDefaultAsync(sb)
-					if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+					if werr := msbWaitKeeper(ctx, sb); werr != nil {
 						return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 					}
 					ui.InfoLn("✓ MicroVM environment ready")
@@ -795,7 +819,7 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 		}
 		ui.InfoLn("⏳ Waiting for microVM guest environment initialization...")
 		msbRunDefaultAsync(sb)
-		if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+		if werr := msbWaitKeeper(ctx, sb); werr != nil {
 			return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 		}
 		ui.InfoLn("✓ MicroVM environment ready")
@@ -820,10 +844,15 @@ create:
 	if err != nil {
 		return nil, err
 	}
+	// Record the decision inputs for later forks (restore drops msb record
+	// labels, so this file is the only carrier across a snapshot fork).
+	if serr := saveMsbDaemonSpecFromRunSpec(spec); serr != nil {
+		ui.InfoF("⚠️  Could not persist daemon spec (%v); the next run may recreate once more.\n", serr)
+	}
 	ui.InfoLn("⏳ Waiting for microVM guest environment initialization (first boot may take several minutes, please be patient)...")
 	// First boot runs the full entrypoint (chown, installs) before the
 	// ready marker; the agent exec must not race it.
-	if werr := msbWaitKeeper(ctx, sb, 10*time.Minute); werr != nil {
+	if werr := msbWaitKeeper(ctx, sb); werr != nil {
 		return nil, fmt.Errorf("msb daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
 	}
 	ui.InfoLn("✓ MicroVM environment ready")
@@ -841,8 +870,8 @@ const msbReadyMarker = "/tmp/.construct_entrypoint_ready"
 
 // msbWaitKeeper polls until the entrypoint posts its readiness marker or
 // the timeout elapses. It emits periodic progress notices every 60 seconds.
-func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
+func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox) error {
+	deadline := time.Now().Add(msbKeeperTimeout)
 	start := time.Now()
 	lastReport := time.Now()
 	for time.Now().Before(deadline) {
@@ -865,6 +894,11 @@ func msbWaitKeeper(ctx context.Context, sb *msb.Sandbox, timeout time.Duration) 
 	}
 	return errors.New("entrypoint did not reach the sleep keeper in time")
 }
+
+// msbKeeperTimeout bounds every boot wait (cold create, warm boot, fork).
+// First-boot installs are the only slow case; every other boot path returns
+// in well under a minute.
+const msbKeeperTimeout = 10 * time.Minute
 
 // msbRunDefaultAsync runs the default workload (entrypoint + sleep
 // infinity) in the background; it dies with the sandbox on stop.
@@ -977,10 +1011,11 @@ func GetMsbDaemonProjectDir(ctx context.Context) string {
 
 // msb-boot: telemetry for EnsureMsbDaemon. One outcome tag per return path:
 // cold (create, first boot with installs), recreate (sandbox torn down +
-// rebuilt, reason included), warm (stopped sandbox booted via
-// StartDetached + keeper wait), reconnect (already running, marker
-// present). The `msb-boot:` prefix is stable; numbers are greppable to
-// fill section 10 of docs/VMsv2.md and gate phase 6 (snapshot fork).
+// rebuilt, reason included), fork (recreate served from a disk snapshot of
+// the outgoing daemon — installs carried over), warm (stopped sandbox
+// booted via StartDetached + keeper wait), reconnect (already running,
+// marker present). The `msb-boot:` prefix is stable; numbers are greppable
+// to fill section 10 of docs/VMsv2.md and gate phase 6 (snapshot fork).
 //
 // Logged via stderr (ui.InfoF) so it respects the run-path-output rule
 // (AGENTS.md "Run-Path Output"); users capture via `2>log.txt`.
@@ -988,9 +1023,188 @@ func GetMsbDaemonProjectDir(ctx context.Context) string {
 const (
 	msbBootCold      = "cold"
 	msbBootRecreate  = "recreate"
+	msbBootFork      = "fork"
 	msbBootWarm      = "warm"
 	msbBootReconnect = "reconnect"
 )
+
+// msbImageEntrypoint is the construct-box image ENTRYPOINT (Dockerfile).
+// The snapshot fork boots it explicitly: msb restore carries no workload or
+// env surface, so the forked daemon's boot is an Exec with the current env.
+const msbImageEntrypoint = "/usr/local/bin/entrypoint.sh"
+
+// msbForkSnapshotPrefix names each fork's disk snapshot. Snapshot names
+// scope per source sandbox ("<sandbox>:<name>"), and the daemon sandbox is
+// destroyed and recreated between forks, so a reused name collides inside
+// its group — every capture gets a unique, prefixed, timestamped name and
+// older captures are pruned after a successful fork.
+const msbForkSnapshotPrefix = "construct-daemon-fork-"
+
+// msbRecreateForkable reports whether a recreate reason only re-declares
+// host bind mounts (skills, workspace roots). Those recreates exist because
+// msb defines binds at boot: the guest root disk (installs, entrypoint hash
+// gate) stays valid, so the replacement can boot from a disk snapshot of
+// the outgoing daemon and skip the full reinstall. Reasons implying a
+// root-disk or policy reset must cold-recreate: sudo policy is applied by
+// the entrypoint at creation only, image drift means stale baked content,
+// and the remaining reasons repair config/label state the fork cannot set.
+func msbRecreateForkable(reason string) bool {
+	switch reason {
+	case "host skills mounts changed (source, mode, or targets)",
+		"daemon.mount_paths changed",
+		"workspace roots changed (learned root added, removed, or evicted)":
+		return true
+	}
+	return false
+}
+
+// msbDaemonInstallComplete reports whether the daemon's bind-side
+// setup-completion marker exists: the outgoing root disk finished its
+// entrypoint install at least once. A snapshot of a half-installed disk
+// would poison the restored boot with a torn dpkg state, so a daemon whose
+// first boot never completed always cold-recreates.
+func msbDaemonInstallComplete() bool {
+	home := msbHostConstructHome()
+	if home == "" {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(home, ".local", ".construct_setup_complete"))
+	return err == nil
+}
+
+// forkMsbDaemonFromSnapshot replaces the daemon sandbox while preserving
+// its root disk: full snapshot (disk + checkpoint) of the running daemon ->
+// stop -> destroy -> disk-only restore into the same name with the NEW
+// mount set. The restored boot runs the image entrypoint explicitly (restore
+// has no workload/env surface) with the CURRENT env; its root-fs hash gate
+// matches the snapshot's disk, so installs skip and readiness lands in
+// seconds instead of the full reinstall.
+//
+// Every failure path leaves the daemon name free (best-effort Cleanup) so
+// the caller's cold-recreate fallback proceeds; the error is reported, and
+// never fatal to the run.
+func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.Config, projectDir, bootRef string) (*msb.Sandbox, error) {
+	h, err := msb.GetSandbox(ctx, msbDaemonName)
+	if err != nil {
+		return nil, fmt.Errorf("daemon lookup: %w", err)
+	}
+	// A full capture needs a RUNNING source (checkpoint state). The recreate
+	// decision also fires on boot-after-stop (e.g. roots add + daemon
+	// restart), so boot the stopped daemon first; its gate usually matches
+	// and this is seconds. A failure here falls back to the cold path.
+	if h.Status() != msb.SandboxStatusRunning {
+		sbBoot, berr := h.StartDetached(ctx)
+		if berr != nil {
+			return nil, fmt.Errorf("pre-fork boot: %w", berr)
+		}
+		msbRunDefaultAsync(sbBoot)
+		if werr := msbWaitKeeper(ctx, sbBoot); werr != nil {
+			_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort; cold fallback proceeds
+			return nil, fmt.Errorf("pre-fork boot: %w", werr)
+		}
+	}
+	// Full capture REQUIRES a running source (checkpoint state). Capture
+	// BEFORE Stop: a stopped source has no checkpoint and disk-only restore
+	// rejects it. Flush ladder: Required asks the guest for a full writeback
+	// (no lost tail writes); some guests reject that control op on bind-
+	// heavy sandboxes, so fall back to Auto — a crash-consistent disk where
+	// only the last few seconds of page-cache writes can be missing. The
+	// entrypoint hash gate and dpkg state survive either way; a lost gate
+	// write only means one reinstall on the restored boot.
+	snapName := fmt.Sprintf("%s%d", msbForkSnapshotPrefix, time.Now().Unix())
+	snap, err := msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+		FromSandbox: msbDaemonName,
+		Name:        snapName,
+		Full:        true,
+		GuestFlush:  msb.GuestFlushRequired,
+	})
+	if err != nil {
+		ui.InfoF("📸 Full writeback rejected (%v); capturing without it...\n", err)
+		snap, err = msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+			FromSandbox: msbDaemonName,
+			Name:        snapName,
+			Full:        true,
+			GuestFlush:  msb.GuestFlushAuto,
+		})
+	}
+	if err != nil {
+		return nil, fmt.Errorf("snapshot daemon disk: %w", err)
+	}
+	if err := h.Stop(ctx, msb.WithStopTimeout(30*time.Second)); err != nil {
+		return nil, fmt.Errorf("stop daemon: %w", err)
+	}
+	if err := m.Cleanup(ctx, msbDaemonName); err != nil {
+		return nil, fmt.Errorf("cleanup daemon: %w", err)
+	}
+	// The replacement's spec: NEW mount set, labels, and env. The labels
+	// also feed the construct-owned daemon spec (below) because the msb
+	// record loses its labels across a restore.
+	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
+	restoreCfg := msb.RestoreConfig{
+		SnapshotDiskOnly: true,
+		Volumes:          spec.Mounts,
+	}
+	if spec.CPUs > 0 {
+		restoreCfg.CPUs = &spec.CPUs
+	}
+	if spec.MemoryMiB > 0 {
+		restoreCfg.MemoryMiB = &spec.MemoryMiB
+	}
+	restored, err := msb.RestoreSandbox(ctx, snap, msbDaemonName,
+		msb.WithRestoreConfig(restoreCfg),
+		// The volumes are construct-managed host paths built above; restore
+		// requires explicit authorization to bind local sources.
+		msb.WithDangerouslyInheritResources(),
+	)
+	if err != nil {
+		_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // free the name for the cold fallback
+		return nil, fmt.Errorf("restore daemon disk: %w", err)
+	}
+	if err := msbSeedAutoFiles(ctx, restored); err != nil {
+		_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // free the name for the cold fallback
+		return nil, err
+	}
+	// Restore carries no workload or env: boot the image entrypoint (its
+	// hash gate matches the snapshot's disk, so installs skip) with the
+	// current env, then wait for the readiness marker like every boot path.
+	go func() {
+		_, _ = restored.Exec(context.Background(), msbImageEntrypoint, //nolint:errcheck // boot result asserted via the readiness marker
+			[]string{"sleep", "infinity"}, msb.WithExecEnv(spec.Env))
+	}()
+	if werr := msbWaitKeeper(ctx, restored); werr != nil {
+		_ = m.Cleanup(ctx, msbDaemonName) //nolint:errcheck // free the name for the cold fallback
+		return nil, fmt.Errorf("restored daemon entrypoint: %w (see `msb logs %s`)", werr, msbDaemonName)
+	}
+	// Land the decision inputs BEFORE returning: the next EnsureMsbDaemon
+	// must not read the now-stale record labels (empty after a restore).
+	if serr := saveMsbDaemonSpecFromRunSpec(spec); serr != nil {
+		ui.InfoF("⚠️  Could not persist daemon spec (%v); the next run may recreate once more.\n", serr)
+	}
+	// Prune earlier fork snapshots (best-effort): each is a full disk image.
+	msbPruneForkSnapshots(ctx, snapName)
+	return restored, nil
+}
+
+// msbPruneForkSnapshots removes fork snapshots of the daemon except keep
+// (the freshest capture). Best-effort throughout; snapshot hygiene must
+// never fail a run.
+func msbPruneForkSnapshots(ctx context.Context, keep string) {
+	listed, err := msb.Snapshot.List(ctx)
+	if err != nil {
+		return
+	}
+	scopedPrefix := msbDaemonName + ":" + msbForkSnapshotPrefix
+	for _, s := range listed {
+		name := s.Name()
+		if name == nil || !strings.HasPrefix(*name, scopedPrefix) {
+			continue
+		}
+		if strings.TrimPrefix(*name, msbDaemonName+":") == keep {
+			continue
+		}
+		_ = msb.Snapshot.Remove(ctx, *name, true) //nolint:errcheck // best-effort prune
+	}
+}
 
 // msbBootClock is the clock used for msb-boot: telemetry. Tests override
 // it to produce deterministic durations without sleeping.
