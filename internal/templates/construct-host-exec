@@ -38,7 +38,7 @@ fi
 
 # Read stdin once (the bridge expects it up front, base64-encoded).
 #
-# Three failure modes to avoid:
+# Four failure modes to avoid:
 #   1. Deadlock: a bare `base64` read blocks forever when stdin is an open
 #      pipe that never sends data and never closes (no EOF). This is the
 #      condition created by non-interactive launchers like pi-unified-exec,
@@ -49,26 +49,41 @@ fi
 #   3. Silent truncation: a byte cap or timeout can ship a partial payload,
 #      surfacing as a confusing bridge-side parse error instead of a clear
 #      shim-side message.
+#   4. Race at startup: a parent's pipe write can land AFTER our first
+#      non-blocking peek (a loaded CI runner hit exactly this), and a single
+#      peek-then-give-up would ship stdin silently empty.
 #
 # Strategy: peek first with non-blocking `read -t 0` (returns success only
-# when data or EOF is immediately available). If nothing is pending, skip the
-# read entirely (the common case for flag-only CLIs held open by a launcher).
-# Only when data/EOF is pending do we consume it, bounded by `head -c` (forces
-# EOF after N bytes or on real EOF, driving base64 to flush+close) and `timeout`
-# (defense against a slow trickle). If either bound fires, warn on stderr so
-# the truncation is attributable to the shim, not the bridge.
+# when data or EOF is immediately available), and poll that peek across a
+# short grace window so a late pipe write is still seen before we conclude
+# the launcher holds stdin open-empty. Once data/EOF is pending, consume it,
+# bounded by `head -c` (forces EOF after N bytes or on real EOF, driving
+# base64 to flush+close) and `timeout` (defense against a slow trickle). If
+# either bound fires, warn on stderr so the truncation is attributable to
+# the shim, not the bridge.
 STDIN_B64=""
-STDIN_CAP=1048576   # 1 MiB; generous for a CLI that takes config flags
-STDIN_TIMEOUT=5     # seconds; bound for a slow trickle
+STDIN_CAP=1048576        # 1 MiB; generous for a CLI that takes config flags
+STDIN_TIMEOUT=5          # seconds; bound for a slow trickle
+STDIN_GRACE_LOOPS=15     # 15 x 20ms sleeps = 300ms grace for a late writer
 STDIN_TRUNCATED=0
-if [[ ! -t 0 ]] && read -r -N 0 -t 0 _ 2>/dev/null; then
-    STDIN_B64="$(timeout "${STDIN_TIMEOUT}" head -c "${STDIN_CAP}" | base64 | tr -d '\n')"
-    # Exit codes across `$(...)` are unreliable (we see tr's status, not
-    # head's or timeout's; pipefail isn't set). Detect truncation by content
-    # length: base64 of a clean EOF usually lands short of the cap; hitting
-    # it precisely is the signature of `head -c` stopping at the limit.
-    if [[ ${#STDIN_B64} -ge $((STDIN_CAP * 4 / 3)) ]]; then
-        STDIN_TRUNCATED=1
+if [[ ! -t 0 ]]; then
+    _stdin_waits=0
+    until read -r -N 0 -t 0 _ 2>/dev/null; do
+        if (( _stdin_waits >= STDIN_GRACE_LOOPS )); then
+            break
+        fi
+        sleep 0.02
+        _stdin_waits=$((_stdin_waits + 1))
+    done
+    if read -r -N 0 -t 0 _ 2>/dev/null; then
+        STDIN_B64="$(timeout "${STDIN_TIMEOUT}" head -c "${STDIN_CAP}" | base64 | tr -d '\n')"
+        # Exit codes across `$(...)` are unreliable (we see tr's status, not
+        # head's or timeout's; pipefail isn't set). Detect truncation by content
+        # length: base64 of a clean EOF usually lands short of the cap; hitting
+        # it precisely is the signature of `head -c` stopping at the limit.
+        if [[ ${#STDIN_B64} -ge $((STDIN_CAP * 4 / 3)) ]]; then
+            STDIN_TRUNCATED=1
+        fi
     fi
 fi
 if [[ "${STDIN_TRUNCATED}" == "1" ]]; then
