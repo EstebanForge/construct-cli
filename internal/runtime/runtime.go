@@ -466,7 +466,7 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 			Operation:  "prepare runtime for agent installation",
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Run 'construct doctor' to diagnose",
+			Suggestion: "Run 'construct sys doctor' to diagnose",
 		}
 	}
 
@@ -505,7 +505,7 @@ func InstallAgentsAfterBuild(cfg *config.Config) error {
 			Command:    fmt.Sprintf("%s run --rm construct-box echo Installation complete", containerRuntime),
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Check logs or run 'construct doctor'",
+			Suggestion: "Check logs or run 'construct sys doctor'",
 		}
 	}
 

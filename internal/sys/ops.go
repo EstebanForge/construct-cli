@@ -32,7 +32,7 @@ func UpdateAgents(cfg *config.Config) {
 				Operation:  "update guest packages",
 				Runtime:    "microvm",
 				Err:        err,
-				Suggestion: "Run 'construct doctor' to diagnose",
+				Suggestion: "Run 'construct sys doctor' to diagnose",
 			})
 			os.Exit(1)
 		}
@@ -50,7 +50,7 @@ func UpdateAgents(cfg *config.Config) {
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Run 'construct doctor' to diagnose",
+			Suggestion: "Run 'construct sys doctor' to diagnose",
 		})
 		os.Exit(1)
 	}
@@ -235,7 +235,7 @@ func InstallPackages(cfg *config.Config) {
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Run 'construct doctor' to diagnose",
+			Suggestion: "Run 'construct sys doctor' to diagnose",
 		})
 		os.Exit(1)
 	}

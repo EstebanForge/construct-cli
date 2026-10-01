@@ -60,7 +60,7 @@ func RunWithArgs(args []string, networkFlag string) {
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Run 'construct doctor' to diagnose",
+			Suggestion: "Run 'construct sys doctor' to diagnose",
 		})
 		os.Exit(1)
 	}
@@ -168,7 +168,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 			Operation:  "prepare runtime environment",
 			Runtime:    containerRuntime,
 			Err:        err,
-			Suggestion: "Run 'construct doctor' to diagnose",
+			Suggestion: "Run 'construct sys doctor' to diagnose",
 		})
 		os.Exit(1)
 	}
