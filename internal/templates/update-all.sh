@@ -127,6 +127,23 @@ if command -v npm &> /dev/null; then
     fi
 fi
 
+# pi user-tier resources (extensions, model catalogs) live in ~/.pi and
+# always update in-guest. The binary self-update only works against a
+# user-writable install (~/.npm-global): the baked /usr/local/bin/pi is
+# root-owned and stays on the image lane. --no-approve keeps the run
+# non-interactive; project-local files are never trusted from a routine.
+if command -v pi &> /dev/null; then
+    echo ""
+    echo "Updating pi (extensions, models, self)..."
+    if [ -w "$(command -v pi)" ]; then
+        pi update --no-approve --all || echo "⚠️  pi update --all failed"
+    else
+        echo "  pi binary is baked root-owned; self-update stays on the image lane"
+        pi update --no-approve --extensions || echo "⚠️  pi extension update failed"
+    fi
+    pi update --no-approve --models || echo "⚠️  pi model catalog refresh failed"
+fi
+
 PATCH_SCRIPT="$HOME/.config/construct-cli/container/agent-patch.sh"
 PATCH_ENABLED="${CONSTRUCT_CLIPBOARD_IMAGE_PATCH:-1}"
 if [ "$PATCH_ENABLED" = "0" ] || [ "$PATCH_ENABLED" = "false" ]; then
