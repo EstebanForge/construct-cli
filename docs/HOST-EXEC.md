@@ -108,7 +108,7 @@ Construct's daemon is long-lived and reused across invocations. The bridge stays
 Audit log on the host: `~/.config/construct-cli/logs/host_exec.log` (always-on; timestamp, argv, resolved path, exit code, duration).
 
 `construct sys doctor` warns when:
-- `host_binaries` is set but the shim isn't in the image (run `construct build`).
+- `host_binaries` is set but the shim isn't in the image (run `construct sys rebuild`).
 - Manifest contains entries no longer in the config (stale symlinks).
 
 ### Common failure patterns
