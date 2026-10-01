@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -695,9 +696,18 @@ func Run(args ...string) {
 		updateCheck.Status = CheckStatusSkipped
 		updateCheck.Message = "No update log found"
 	} else {
-		updateCheck.Status = CheckStatusOK
-		updateCheck.Message = "Latest update log found"
 		updateCheck.Details = append(updateCheck.Details, fmt.Sprintf("Last log: %s", updateLogPath))
+		if outcome, failedSteps := readUpdateLogOutcome(updateLogPath); outcome == "failed" {
+			updateCheck.Status = CheckStatusWarning
+			updateCheck.Message = "Last update failed"
+			if len(failedSteps) > 0 {
+				updateCheck.Details = append(updateCheck.Details, "Failed steps: "+strings.Join(failedSteps, ", "))
+			}
+			updateCheck.Suggestion = "Inspect the tail of the update log for the failing step, then re-run 'construct sys update'"
+		} else {
+			updateCheck.Status = CheckStatusOK
+			updateCheck.Message = "Latest update log found"
+		}
 	}
 	checks = append(checks, updateCheck)
 
@@ -760,7 +770,7 @@ func Run(args ...string) {
 
 	// 11b. Stale Packages Volume (bake migration): the named volume is gone
 	// from compose; existing installs keep a stale, unmounted copy.
-	checks = append(checks, checkStalePackagesVolume(fixRequested, runtimeName))
+	checks = append(checks, checkStalePackagesVolume(fixRequested, runtimeName, msbBackend))
 
 	// 11c. Baked Agent Bind Copies (bake migration): pre-bake copies in the
 	// home bind shadow the baked binaries by PATH. The in-guest sweep clears
@@ -1039,16 +1049,95 @@ func msbBackendCheck() CheckResult {
 	return check
 }
 
+// updateLogMarkerRe matches the microvm updater's log markers
+// (backend_msb_update.go logLine calls): "<RFC3339 UTC> update ok | failed |
+// stood-down | stood down: | skipped: ...". Anchored on the timestamp so
+// tool output tee'd into the log (apt/git chatter that merely CONTAINS
+// "update failed") cannot fake a run boundary.
+var updateLogMarkerRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z update (?:ok \(|failed \(|stood-down \(|stood down:|skipped:)`)
+
+// readUpdateLogOutcome scans the tail of update.log for the newest
+// "<timestamp> update <outcome>" marker written by the microvm updater
+// (backend_msb_update.go) and returns the topgrade "step: FAILED" summary
+// lines belonging to that newest failed run. Each run writes
+// [step summary][marker], so the FAILED lines of a run PRECEDE its marker:
+// they buffer as pending and only a failed marker promotes them. Returns
+// outcome "" when no marker exists (compose-era dated logs, unreadable or
+// empty file), which leaves the doctor check at its plain OK.
+func readUpdateLogOutcome(path string) (outcome string, failedSteps []string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", nil
+	}
+	defer func() { _ = f.Close() }() //nolint:errcheck // read-only
+
+	// 16 KiB covers the topgrade summary tail plus the updater marker.
+	const tailBytes = 16 << 10
+	info, err := f.Stat()
+	if err != nil {
+		return "", nil
+	}
+	offset := info.Size() - tailBytes
+	if offset < 0 {
+		offset = 0
+	}
+	tail := make([]byte, info.Size()-offset)
+	if _, err := f.ReadAt(tail, offset); err != nil && err != io.EOF {
+		return "", nil
+	}
+
+	var pending []string
+	lines := strings.Split(string(tail), "\n")
+	if offset > 0 && len(lines) > 0 {
+		lines = lines[1:] // tail starts mid-line; the cut remainder is not evidence
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if !updateLogMarkerRe.MatchString(line) {
+			if strings.HasSuffix(line, "FAILED") && strings.Contains(line, ":") {
+				name := strings.TrimSuffix(strings.TrimSpace(strings.TrimSuffix(line, "FAILED")), ":")
+				pending = append(pending, name)
+			}
+			continue
+		}
+		switch {
+		case strings.Contains(line, " update ok "):
+			outcome = "ok"
+		case strings.Contains(line, " update failed "):
+			outcome = "failed"
+		default:
+			outcome = "other"
+		}
+		if outcome == "failed" {
+			failedSteps = append([]string(nil), pending...)
+		} else {
+			failedSteps = nil
+		}
+		pending = pending[:0]
+	}
+	return outcome, failedSteps
+}
+
 // checkStalePackagesVolume detects stale construct-packages named volumes
 // left by pre-bake installs. The volume is gone from compose; an existing
 // copy is unmounted dead weight that would shadow the baked toolchain if it
 // were ever re-declared. --fix removes unreferenced copies.
-func checkStalePackagesVolume(fix bool, resolvedRuntime string) CheckResult {
+func checkStalePackagesVolume(fix bool, resolvedRuntime string, msbBackend bool) CheckResult {
 	check := CheckResult{Name: "Stale Packages Volume"}
+	if msbBackend {
+		// The host runs OCI-engine-free by choice: probing docker/podman here
+		// only produced scary "docker API unreachable" lines on microvm hosts.
+		// A stale volume only matters when switching engines back; the sweep
+		// reruns then (this same check, non-skipped branch).
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend = microvm)"
+		check.Details = append(check.Details, "Stale OCI volume sweep runs on docker/podman backends")
+		return check
+	}
 	engine := resolvedRuntime
 	if engine != "docker" && engine != "podman" && engine != "container" {
-		// msb backend blanks the runtime; the stale volume may still live in
-		// a docker/podman daemon on this host (engine switchers).
+		// runtimeName unresolved (config missing): still probe any installed
+		// engine so the sweep keeps working on non-msb hosts.
 		if _, err := exec.LookPath("docker"); err == nil {
 			engine = "docker"
 		} else if _, err := exec.LookPath("podman"); err == nil {

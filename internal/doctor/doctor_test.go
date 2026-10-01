@@ -1715,11 +1715,108 @@ func TestCheckStalePackagesVolumeNoDaemon(t *testing.T) {
 	}
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	check := checkStalePackagesVolume(false, "")
+	check := checkStalePackagesVolume(false, "", false)
 	if check.Status != CheckStatusSkipped {
 		t.Errorf("status = %v, want skipped", check.Status)
 	}
 	if !strings.Contains(check.Message, "No reachable container daemon") {
 		t.Errorf("message %q should report the unreachable daemon calmly", check.Message)
+	}
+}
+
+// TestCheckStalePackagesVolumeSkipsOnMicrovm: a microvm host opted out of
+// OCI engines entirely, so the check must not probe docker/podman at all
+// (the old probe surfaced scary docker-API errors on healthy microvm hosts).
+func TestCheckStalePackagesVolumeSkipsOnMicrovm(t *testing.T) {
+	check := checkStalePackagesVolume(false, "", true)
+	if check.Status != CheckStatusSkipped {
+		t.Errorf("status = %v, want skipped", check.Status)
+	}
+	if !strings.Contains(check.Message, "Not applicable (runtime backend = microvm)") {
+		t.Errorf("message %q should mark the check not applicable", check.Message)
+	}
+}
+
+// TestReadUpdateLogOutcome: the microvm updater writes [step summary][marker]
+// per run, so FAILED step lines precede their run's marker. The parser must
+// report the steps of the NEWEST failed run and stay silent otherwise.
+func TestReadUpdateLogOutcome(t *testing.T) {
+	cases := []struct {
+		name        string
+		content     string
+		wantOutcome string
+		wantSteps   []string
+	}{
+		{
+			name: "failed run keeps its steps",
+			content: "2026-09-30T23:40:17Z boot\n" +
+				"mise: OK\npi: FAILED\nTLDR: OK\n" +
+				"2026-09-30T23:40:30Z update failed (duration=15s, source=manual)\n",
+			wantOutcome: "failed",
+			wantSteps:   []string{"pi"},
+		},
+		{
+			name: "newer ok run clears an older failure",
+			content: "2026-09-30T22:00:00Z update failed (duration=9s)\n" +
+				"2026-09-30T23:00:00Z update ok (duration=12s)\n",
+			wantOutcome: "ok",
+		},
+		{
+			name:        "stood down mid-run",
+			content:     "2026-09-30T23:00:00Z update stood down: a session appeared\n",
+			wantOutcome: "other",
+		},
+		{
+			name:        "idle stood-down marker",
+			content:     "2026-09-30T23:00:00Z update stood-down (duration=4s)\n",
+			wantOutcome: "other",
+		},
+		{
+			name:        "skipped window",
+			content:     "2026-09-30T23:00:00Z update skipped: refresh update helpers: boom\n",
+			wantOutcome: "other",
+		},
+		{
+			name:        "compose-era log without markers",
+			content:     "topgrade output line\nanother line\n",
+			wantOutcome: "",
+		},
+		{
+			name:        "multiple failed steps",
+			content:     "pi: FAILED\ncopilot: FAILED\n2026-09-30T23:40:30Z update failed (duration=15s)\n",
+			wantOutcome: "failed",
+			wantSteps:   []string{"pi", "copilot"},
+		},
+		{
+			// Tool chatter that merely CONTAINS the marker words must not fake
+			// a run boundary or clear pending steps (markers are anchored on
+			// the RFC3339 prefix).
+			name: "timestamp-less chatter is not a marker",
+			content: "subcommand update ok (dry run)\npi: FAILED\n" +
+				"apt update failed on mirror\n" +
+				"2026-09-30T23:40:30Z update failed (duration=15s)\n",
+			wantOutcome: "failed",
+			wantSteps:   []string{"pi"},
+		},
+		{
+			name:        "tail cut mid-line does not fabricate a step",
+			content:     strings.Repeat("x", 20<<10) + "truncated: FAILED\n2026-09-30T23:40:30Z update failed (duration=1s)\n",
+			wantOutcome: "failed",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "update.log")
+			if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			outcome, steps := readUpdateLogOutcome(path)
+			if outcome != tc.wantOutcome {
+				t.Fatalf("outcome = %q, want %q", outcome, tc.wantOutcome)
+			}
+			if strings.Join(steps, ",") != strings.Join(tc.wantSteps, ",") {
+				t.Fatalf("steps = %v, want %v", steps, tc.wantSteps)
+			}
+		})
 	}
 }
