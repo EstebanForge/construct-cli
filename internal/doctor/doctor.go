@@ -374,7 +374,7 @@ func Run(args ...string) {
 
 	// 4.1 VM Backend Check (microvm only)
 	if cfg != nil && cfg.Runtime.Backend == "microvm" {
-		checks = append(checks, msbBackendCheck())
+		checks = append(checks, msbBackendCheck(fixRequested))
 	}
 
 	if fixRequested && runtimeName != "" {
@@ -986,7 +986,7 @@ func Run(args ...string) {
 // (docs/VMs.md §7 Step 6): binary + version, hardware virtualization,
 // construct image loaded, packages volume present. Fail-closed flavor:
 // every missing piece is an error with a fix suggestion.
-func msbBackendCheck() CheckResult {
+func msbBackendCheck(fix bool) CheckResult {
 	check := CheckResult{Name: "VM Backend (microsandbox)"}
 	if _, err := exec.LookPath("msb"); err != nil {
 		check.Status = CheckStatusError
@@ -1028,10 +1028,26 @@ func msbBackendCheck() CheckResult {
 	if msbRun("list") {
 		check.Details = append(check.Details, "msb daemon reachable")
 	} else {
-		check.Status = CheckStatusError
-		check.Message = "msb daemon not reachable"
-		check.Suggestion = "Run `msb list` to start the daemon; check ~/.microsandbox logs if it fails"
-		return check
+		// msb auto-starts its daemon on CLI use (direct spawn on Linux,
+		// launchd on macOS); the first probe can lose that race right after
+		// a daemon crash, and a later msb command in the same run can then
+		// succeed. Under --fix, retry bounded before declaring the backend
+		// broken; a crash-looping daemon still lands in the error below.
+		reachable := false
+		if fix {
+			for attempt := 0; attempt < 3 && !reachable; attempt++ {
+				time.Sleep(2 * time.Second)
+				reachable = msbRun("list")
+			}
+		}
+		if reachable {
+			check.Details = append(check.Details, "msb daemon was unreachable; start confirmed on retry (--fix)")
+		} else {
+			check.Status = CheckStatusError
+			check.Message = "msb daemon not reachable"
+			check.Suggestion = "Run `msb list` to start the daemon; check ~/.microsandbox logs if it fails"
+			return check
+		}
 	}
 	imageRef := runtimepkg.MsbConstructImageRef()
 	if msbRun("image", "inspect", imageRef) {
