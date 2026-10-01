@@ -27,6 +27,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	"github.com/pelletier/go-toml/v2"
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // CheckStatus represents the result of a health check
@@ -1345,9 +1346,11 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	return check
 }
 
-// checkSdkSkew compares the host msb CLI version against the SDK pin
-// (constants.MsbSdkPin, mirrors go.mod). Mismatch = schema-lockstep risk;
-// report-only by design: upgrading the host binary is a manual decision.
+// checkSdkSkew compares the host msb CLI version against the runtime the
+// embedded SDK launches (microsandbox SDKVersion, mirrors go.mod) via the
+// shared ClassifyMsbLaunch policy. The SDK's FFI enforces the pairing at
+// sandbox create; the launch path fails fast with the actionable
+// suggestion, so this check is the report-only view of the same ruling.
 func checkSdkSkew(msbBackend bool) CheckResult {
 	check := CheckResult{Name: "Host CLI/SDK Skew"}
 	if !msbBackend {
@@ -1368,7 +1371,7 @@ func checkSdkSkew(msbBackend bool) CheckResult {
 	if err != nil {
 		check.Status = CheckStatusWarning
 		check.Message = "Could not read msb version"
-		check.Suggestion = fmt.Sprintf("Host msb must match the SDK pin (%s)", constants.MsbSdkPin)
+		check.Suggestion = "Check the host msb installation; microVM launches need a working `msb --version`"
 		return check
 	}
 	host := lastVersionToken(string(out))
@@ -1378,15 +1381,24 @@ func checkSdkSkew(msbBackend bool) CheckResult {
 		check.Details = append(check.Details, strings.TrimSpace(string(out)))
 		return check
 	}
-	if host != constants.MsbSdkPin {
+	v := runtimepkg.ClassifyMsbLaunch(host, msb.SDKVersion())
+	switch {
+	case v.OK && !v.Warning:
+		check.Status = CheckStatusOK
+		check.Message = v.Message
+	case v.OK:
 		check.Status = CheckStatusWarning
-		check.Message = fmt.Sprintf("Host msb %s != embedded SDK pin %s", host, constants.MsbSdkPin)
-		check.Details = append(check.Details, "Schema migrations between msb versions are one-way; lockstep is required")
-		check.Suggestion = "Upgrade the host msb CLI to the pinned version (see docs/VMsv2.md)"
-		return check
+		check.Message = v.Message
+		check.Suggestion = v.Suggestion
+	case v.HardStop:
+		check.Status = CheckStatusError
+		check.Message = v.Message
+		check.Suggestion = v.Suggestion
+	default:
+		check.Status = CheckStatusWarning
+		check.Message = v.Message
+		check.Suggestion = v.Suggestion
 	}
-	check.Status = CheckStatusOK
-	check.Message = fmt.Sprintf("Host msb matches SDK pin (%s)", host)
 	return check
 }
 

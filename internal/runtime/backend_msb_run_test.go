@@ -2,17 +2,20 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 )
@@ -855,4 +858,82 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 	if recreate, _ := msbDaemonNeedsRecreate(dm, stale, "{}", "", false, &cfg, ""); recreate {
 		t.Error("unknown local digest must never force a recreate")
 	}
+}
+
+// TestClassifyMsbLaunch pins the shared launch policy: exact match OK,
+// the SDK's legacy 0.6.x window proceeds with a flag, 1.x hosts and
+// unparseable versions are hard stops, and same-major mismatches name
+// the side to update. Doctor and the launch path render this verdict,
+// so the table is the single place the policy can drift.
+func TestClassifyMsbLaunch(t *testing.T) {
+	cases := []struct {
+		name       string
+		host       string
+		sdk        string
+		wantOK     bool
+		wantWarn   bool
+		wantStop   bool
+		wantSubstr string // expected in Message or Suggestion
+	}{
+		{"exact match", "0.7.6", "0.7.6", true, false, false, "matches"},
+		{"legacy 0.6.x window proceeds flagged", "0.6.12", "0.7.6", true, true, false, "legacy"},
+		{"1.x host is a hard stop", "1.0.0", "0.7.6", false, false, true, "1.x release"},
+		{"host older than embedded runtime", "0.7.2", "0.7.6", false, false, false, "msb update"},
+		{"host newer than embedded runtime", "0.7.9", "0.7.6", false, false, false, "self-update"},
+		{"cross-minor host older", "0.6.19", "0.7.6", false, false, false, "msb update"},
+		{"unparseable host", "banana", "0.7.6", false, false, true, "Unrecognized"},
+		{"prerelease host never matches", "0.7.6-rc1", "0.7.6", false, false, true, "Unrecognized"},
+		{"patch-precision match", "0.7.10", "0.7.10", true, false, false, "matches"},
+		{"host newer by patch", "0.7.7", "0.7.6", false, false, false, "self-update"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			v := ClassifyMsbLaunch(tc.host, tc.sdk)
+			if v.OK != tc.wantOK || v.Warning != tc.wantWarn || v.HardStop != tc.wantStop {
+				t.Fatalf("verdict = OK:%v Warn:%v Stop:%v, want OK:%v Warn:%v Stop:%v (msg %q)",
+					v.OK, v.Warning, v.HardStop, tc.wantOK, tc.wantWarn, tc.wantStop, v.Message)
+			}
+			joined := v.Message + " " + v.Suggestion
+			if !strings.Contains(joined, tc.wantSubstr) {
+				t.Fatalf("message+suggestion %q must mention %q", joined, tc.wantSubstr)
+			}
+			if !v.OK && v.Suggestion == "" {
+				t.Fatal("non-OK verdicts must carry an actionable suggestion")
+			}
+		})
+	}
+}
+
+// TestEnsureMsbLaunchCompat proves the preflight gate: a matching host
+// passes, an unknown version fails loudly, and a mismatched host fails
+// with a ConstructError whose suggestion names the remedy. msbHostVersion
+// is stubbed (package-level var) so no msb exec runs.
+func TestEnsureMsbLaunchCompat(t *testing.T) {
+	orig := msbHostVersion
+	t.Cleanup(func() { msbHostVersion = orig })
+
+	t.Run("matching host passes", func(t *testing.T) {
+		msbHostVersion = sync.OnceValue(func() string { return msb.SDKVersion() })
+		if err := ensureMsbLaunchCompat(); err != nil {
+			t.Fatalf("matching host must pass, got: %v", err)
+		}
+	})
+	t.Run("unknown version fails loudly", func(t *testing.T) {
+		msbHostVersion = sync.OnceValue(func() string { return "unknown" })
+		err := ensureMsbLaunchCompat()
+		if err == nil || !strings.Contains(err.Error(), "could not read the host msb version") {
+			t.Fatalf("unknown version must fail with the probe error, got: %v", err)
+		}
+	})
+	t.Run("mismatch returns ConstructError with a suggestion", func(t *testing.T) {
+		msbHostVersion = sync.OnceValue(func() string { return "0.1.0" })
+		err := ensureMsbLaunchCompat()
+		var ce *cerrors.ConstructError
+		if !errors.As(err, &ce) {
+			t.Fatalf("mismatch must return a ConstructError, got %T: %v", err, err)
+		}
+		if ce.Suggestion == "" {
+			t.Fatal("ConstructError must carry the actionable suggestion")
+		}
+	})
 }
