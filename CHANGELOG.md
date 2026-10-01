@@ -2,6 +2,18 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.14 -->
+## [1.17.14] - 2026-09-30
+
+### Fixed
+
+- **The microVM update no longer fails on a stale home topgrade.toml.** msb reads topgrade.toml straight from the persistent home volume, and the update paths refreshed only the four mounted helper scripts, so the pre-1.17.0 `[commands]` pi self-update entry survived there: topgrade kept executing it against the baked root-owned `/usr/local/bin/pi`, the write failed, and one stale file failed the whole update pass. Both update paths now rewrite install_user_packages.sh and topgrade.toml from the current packages.toml before update-all.sh runs; an unreadable packages.toml skips the idle window and fails the foreground run, write failures still warn and continue, and the msb home copy of the install script stays owned by the daemon-start regeneration.
+- **`sys doctor` reports the last failed update.** The update-log check green-lit any readable log, so a run ending in `update failed` looked clean. It now parses the updater's log markers (anchored on the RFC3339 prefix, so tool output tee'd into the log cannot fake a run boundary), warns with the failed step names from the newest failed run, and points at `construct sys update` to retry.
+- **`sys doctor` stops probing the docker API on microvm hosts.** The stale-packages-volume check ran an OCI daemon probe even with `backend = microvm` and printed raw socket errors on hosts that opted out of container engines entirely. It now reports "Not applicable (runtime backend = microvm)" without probing.
+- **Failure suggestions name a real command.** Seven error paths told users to run `construct doctor` (never registered; the verb is `construct sys doctor`) and HOST-EXEC.md pointed at `construct build` (the verb is `construct sys rebuild`). All corrected.
+
+<!-- RELEASE:END 1.17.14 -->
+
 <!-- RELEASE:START 1.17.13 -->
 ## [1.17.13] - 2026-09-28
 
