@@ -150,6 +150,14 @@ func IdleWindowUpdate(cfg *config.Config) error {
 		logLine("update skipped: refresh update helpers: %v", err)
 		return nil
 	}
+	// Same staleness rule for the derived guest files: msb reads
+	// topgrade.toml from the home volume, and a stale one re-runs steps
+	// newer construct removed. A broken packages.toml skips this window
+	// like the helper refresh above; the next window retries.
+	if err := refreshDerivedGuestFiles(config.GetConfigDir()); err != nil {
+		logLine("update skipped: refresh derived guest files: %v", err)
+		return nil
+	}
 	// The pass runs WITHOUT the daemon flock by design. The exec targets
 	// the running daemon sandbox; additive installs coexist with sessions.
 	ctx, cancel := context.WithTimeout(context.Background(), updatePassTimeout)
@@ -246,10 +254,17 @@ func RunForegroundUpdate(cfg *config.Config) error {
 	disarm := armUpdateAbandonWatchdog(cfg, "manual", start, lf, updatePassTimeout+updateAbandonGrace)
 	defer disarm()
 
-	// Refresh the helper the pass is about to execute: msb has no per-file
+	// Refresh the helpers the pass is about to execute: msb has no per-file
 	// binds, so update-all.sh is read from the home volume and may be stale.
 	if err := EnsureMountedTemplateFiles(config.GetConfigDir()); err != nil {
 		return fmt.Errorf("refresh update helpers: %w", err)
+	}
+	// Derived guest files too: the guest topgrade reads the home
+	// topgrade.toml, and a stale one re-runs removed steps (the pre-1.17.0
+	// [commands] pi self-update fails the whole pass on the baked
+	// /usr/local/bin/pi).
+	if err := refreshDerivedGuestFiles(config.GetConfigDir()); err != nil {
+		return fmt.Errorf("refresh derived guest files: %w", err)
 	}
 
 	// projectDir is deliberately empty: the update pass is workspace-

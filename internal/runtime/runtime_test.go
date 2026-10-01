@@ -249,6 +249,47 @@ func TestRunOwnershipFixRootlessPodmanUsesNamespaceRoot(t *testing.T) {
 	}
 }
 
+// TestRefreshDerivedGuestFilesOverwritesStaleTopgradeConfig: the msb update
+// paths refresh the home topgrade.toml before executing update-all.sh. A
+// stale copy carrying removed steps (the pre-1.17.0 [commands] pi
+// self-update, which fails on the baked root-owned /usr/local/bin/pi) must
+// be overwritten with the generated config, which carries no [commands].
+// The install script assertion covers the OCI compose file-bind path; the
+// msb home copy is regenerated separately by writeMsbInstallScript at every
+// daemon start.
+func TestRefreshDerivedGuestFilesOverwritesStaleTopgradeConfig(t *testing.T) {
+	origLoad := loadPackagesFn
+	t.Cleanup(func() { loadPackagesFn = origLoad })
+	loadPackagesFn = func() (*config.PackagesConfig, error) { return &config.PackagesConfig{}, nil }
+
+	configPath := t.TempDir()
+	topgradeDir := filepath.Join(configPath, "home", ".config")
+	if err := os.MkdirAll(topgradeDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stale := "# auto-generated\n[commands]\n\"Pi Coding Agent\" = \"pi update --all\"\n"
+	topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
+	if err := os.WriteFile(topgradePath, []byte(stale), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	refreshDerivedGuestFiles(configPath)
+
+	out, err := os.ReadFile(topgradePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(out), "[commands]") || strings.Contains(string(out), "pi update") {
+		t.Fatalf("stale topgrade.toml was not refreshed:\n%s", out)
+	}
+	if !strings.Contains(string(out), "disable = [") {
+		t.Fatalf("refreshed topgrade.toml lacks generated content:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(configPath, "container", "install_user_packages.sh")); err != nil {
+		t.Fatalf("install script not refreshed: %v", err)
+	}
+}
+
 func TestEnsureMountedTemplateFilesReplacesDirectoryCollision(t *testing.T) {
 	configPath := t.TempDir()
 	containerDir := filepath.Join(configPath, "container")

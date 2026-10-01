@@ -581,8 +581,8 @@ func PrepareDockerSpecific(cfg *config.Config, containerRuntime string, configPa
 }
 
 // PrepareBackendAgnostic holds the backend-independent setup half: mounted
-// helper templates, the user-packages install script, and the topgrade
-// config. Every backend (Docker, msb) runs this unchanged.
+// helper templates and the derived guest files. Every backend (Docker, msb)
+// runs this unchanged.
 func PrepareBackendAgnostic(cfg *config.Config, configPath string) error {
 	_ = cfg // reserved for backend-specific package needs; none today
 
@@ -594,37 +594,56 @@ func PrepareBackendAgnostic(cfg *config.Config, configPath string) error {
 	if err := EnsureMountedTemplateFiles(configPath); err != nil {
 		return fmt.Errorf("failed to prepare mounted helper templates: %w", err)
 	}
+	// Best-effort, matching the original prepare semantics: a broken
+	// packages.toml warns instead of failing the whole prepare.
+	_ = refreshDerivedGuestFiles(configPath) //nolint:errcheck // warn-and-continue is the contract here
+	return nil
+}
 
-	// Load user packages config and generate installation script
-	pkgs, err := config.LoadPackages()
+// loadPackagesFn is a seam for config.LoadPackages so the derived-guest-file
+// refresh is unit-testable without a real user packages.toml on disk.
+var loadPackagesFn = config.LoadPackages
+
+// refreshDerivedGuestFiles regenerates the derived files backends feed the
+// guest: install_user_packages.sh (OCI compose file-bind) and topgrade.toml
+// (OCI bind AND the msb home volume, which the guest reads directly). Both
+// are construct-generated (headers say manual edits are overwritten), so
+// unconditional rewrites are safe. The msb update paths MUST call this
+// before executing update-all.sh: a stale home topgrade.toml keeps running
+// steps newer construct removed (the pre-1.17.0 [commands] pi self-update
+// fails the whole pass by trying to write the root-owned baked
+// /usr/local/bin/pi). The msb home copy of install_user_packages.sh is NOT
+// this function's job: writeMsbInstallScript regenerates it at every daemon
+// start. Returns an error only when packages.toml is unreadable (both
+// outputs would then be wrong); write failures warn and continue.
+func refreshDerivedGuestFiles(configPath string) error {
+	pkgs, err := loadPackagesFn()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load packages configuration: %v\n", err)
-	} else {
-		if err := os.MkdirAll(containerDir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
-			warnConfigPermission(err, configPath)
-		}
-		script := pkgs.GenerateInstallScript()
-		scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
-		if err := os.WriteFile(scriptPath, []byte(script), 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
-			warnConfigPermission(err, configPath)
-		}
-
-		topgradeConfig := pkgs.GenerateTopgradeConfig()
-		topgradeDir := filepath.Join(configPath, "home", ".config")
-		if err := os.MkdirAll(topgradeDir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
-			warnConfigPermission(err, configPath)
-		} else {
-			topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
-			if err := os.WriteFile(topgradePath, []byte(topgradeConfig), 0644); err != nil {
-				fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade configuration: %v\n", err)
-				warnConfigPermission(err, configPath)
-			}
-		}
+		return fmt.Errorf("load packages: %w", err)
 	}
 
+	containerDir := filepath.Join(configPath, "container")
+	if err := os.MkdirAll(containerDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create container config directory: %v\n", err)
+		warnConfigPermission(err, configPath)
+	}
+	scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
+	if err := os.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
+		warnConfigPermission(err, configPath)
+	}
+
+	topgradeDir := filepath.Join(configPath, "home", ".config")
+	if err := os.MkdirAll(topgradeDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to create topgrade config directory: %v\n", err)
+		warnConfigPermission(err, configPath)
+		return nil
+	}
+	topgradePath := filepath.Join(topgradeDir, "topgrade.toml")
+	if err := os.WriteFile(topgradePath, []byte(pkgs.GenerateTopgradeConfig()), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to write topgrade configuration: %v\n", err)
+		warnConfigPermission(err, configPath)
+	}
 	return nil
 }
 
