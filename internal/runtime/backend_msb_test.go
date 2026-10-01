@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -118,6 +119,76 @@ func TestEnsureImagePrefersLocalBuild(t *testing.T) {
 	cfg := config.DefaultConfig()
 	if err := (&MsbBackend{}).EnsureImage(&cfg); err != nil {
 		t.Fatalf("EnsureImage must adopt the cached local build, got: %v", err)
+	}
+}
+
+// TestEnsureImageCachedDigestSkipsPull: when the GHCR ref is cached and the
+// registry digest matches (or is unverifiable), msb pull is a guaranteed
+// no-op — it never re-resolves a cached tag — so EnsureImage must print the
+// ready line WITHOUT spawning a pull or the "Pulling" download line. Proven
+// by the stubbed pull error: ANY reach of the pull block fails the test on
+// every host, exec-less or not.
+func TestEnsureImageCachedDigestSkipsPull(t *testing.T) {
+	origDigest, origRemote, origCached := msbImageDigestFn, ghcrRemoteDigestFn, msbImageCachedFn
+	origRun := runMsbCmd
+	t.Cleanup(func() {
+		msbImageDigestFn, ghcrRemoteDigestFn, msbImageCachedFn = origDigest, origRemote, origCached
+		runMsbCmd = origRun
+	})
+
+	cases := []struct {
+		name   string
+		remote string
+	}{
+		{"digest matches registry", "sha256:same"},
+		{"registry digest unverifiable (offline)", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			msbImageDigestFn = func(string) string { return "sha256:same" }
+			ghcrRemoteDigestFn = func(string) string { return tc.remote }
+			msbImageCachedFn = func(ref string) bool { return ref == PrepullImageRef }
+			runMsbCmd = func(string, ...string) ([]byte, error) {
+				return nil, errors.New("stub: pull block must not run when the ref is cached")
+			}
+
+			cfg := config.DefaultConfig()
+			if err := (&MsbBackend{}).EnsureImage(&cfg); err != nil {
+				t.Fatalf("cached ref must short-circuit to ready without a pull, got: %v", err)
+			}
+		})
+	}
+}
+
+// TestEnsureImageDigestDriftFallsThroughToPull: a digest mismatch must fall
+// through to the pull (after the rm), never short-circuit to ready. Proven
+// by the fail-closed error at the END of the flow: drift → rm → pull error
+// (hermetic seam; the rm+pull execs hit a LIVE msb store on dev hosts if
+// left real) → cached fallback stubbed empty → local image stubbed absent →
+// build confirm declined by the stubbed prompt.
+func TestEnsureImageDigestDriftFallsThroughToPull(t *testing.T) {
+	origDigest, origRemote := msbImageDigestFn, ghcrRemoteDigestFn
+	origCached, origLocalExists := msbImageCachedFn, localConstructImageExistsFn
+	origTTY, origConfirm := stdinIsTerminal, confirmPrompt
+	origRun := runMsbCmd
+	t.Cleanup(func() {
+		msbImageDigestFn, ghcrRemoteDigestFn = origDigest, origRemote
+		msbImageCachedFn, localConstructImageExistsFn = origCached, origLocalExists
+		stdinIsTerminal, confirmPrompt = origTTY, origConfirm
+		runMsbCmd = origRun
+	})
+
+	msbImageDigestFn = func(string) string { return "sha256:old" }
+	ghcrRemoteDigestFn = func(string) string { return "sha256:new" }
+	msbImageCachedFn = func(string) bool { return false } // localhost check AND imageLoaded fallback
+	localConstructImageExistsFn = func(*config.Config) bool { return false }
+	stdinIsTerminal = func() bool { return true }
+	confirmPrompt = func(string) bool { return false } // declined → fail-closed error
+	runMsbCmd = func(string, ...string) ([]byte, error) { return nil, errors.New("stub: pull refused") }
+
+	cfg := config.DefaultConfig()
+	if err := (&MsbBackend{}).EnsureImage(&cfg); err == nil {
+		t.Fatal("digest drift must fall through to the pull, not short-circuit to ready")
 	}
 }
 

@@ -82,16 +82,35 @@ func msbImageCached(ref string) bool {
 // decision is unit-testable without the msb CLI.
 var msbImageCachedFn = msbImageCached
 
+// msbImageDigestFn and ghcrRemoteDigestFn are seams so the EnsureImage
+// acquisition decision (ready short-circuit / drift refresh / fresh pull)
+// is unit-testable without the msb CLI or registry access.
+var (
+	msbImageDigestFn   = msbImageDigest
+	ghcrRemoteDigestFn = ghcrRemoteDigest
+)
+
+// runMsbCmd is a seam around the msb exec calls inside EnsureImage's
+// acquisition flow (image rm on drift, pull) so tests stay hermetic on hosts
+// that have the msb CLI installed with a live image store.
+var runMsbCmd = func(name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	cmd.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
+	return cmd.CombinedOutput()
+}
+
 // localConstructImageExistsFn is a seam for LocalConstructImageExists so
 // the transition no-op path is unit-testable without a docker store.
 var localConstructImageExistsFn = LocalConstructImageExists
 
-// EnsureImage transitions the construct image into msb: always attempts
-// pulling the published image (PrepullImageRef) first — msb pull no-ops
-// cheaply when the cached digest matches, so this is also the refresh path —
-// then reuses a local docker/podman image when present, and otherwise builds
-// only after a user confirmation. It then transitions via container-runtime
-// save + msb load.
+// EnsureImage transitions the construct image into msb: it spawns a pull of
+// the published image (PrepullImageRef) only when that ref is not cached —
+// first acquisition, or right after a digest-drift rm — because msb pull
+// no-ops on ANY cached ref (it never re-resolves the tag), so a cached ref
+// with a matching or unverifiable digest short-circuits to ready without the
+// spawn or the download line. It then reuses a local docker/podman image when
+// present, and otherwise builds only after a user confirmation. The local
+// image lands via container-runtime save + msb load.
 func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
@@ -121,16 +140,21 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// pull caches the FULL registry ref (no `image tag` subcommand exists
 	// to alias it down to the bare name); imageLoaded and the run spec
 	// resolve cached refs via constructImageRefCandidates.
-	if cached, remote := msbImageDigest(PrepullImageRef), ghcrRemoteDigest(PrepullImageRef); cached != "" && remote != "" && cached != remote {
+	cached, remote := msbImageDigestFn(PrepullImageRef), ghcrRemoteDigestFn(PrepullImageRef)
+	switch {
+	case cached != "" && remote != "" && cached != remote:
 		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~2 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
-		rm := exec.Command("msb", "image", "rm", PrepullImageRef)
-		rm.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
-		_ = rm.Run()   //nolint:errcheck // best-effort clear before the pull below
+		_, _ = runMsbCmd("msb", "image", "rm", PrepullImageRef) //nolint:errcheck // best-effort clear before the pull below
+	case cached != "":
+		// Cached at a matching or unverifiable digest: the pull below would
+		// no-op (msb never re-resolves a cached tag), so report ready
+		// without the download line or the spawn.
+		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
+		return nil
+	default:
+		ui.InfoLn("→ Pulling construct-box image from GHCR (~2 GiB download)...")
 	}
-	ui.InfoLn("→ Attempting to pull construct-box image from GHCR...")
-	pull := exec.Command("msb", "pull", PrepullImageRef)
-	pull.Stdin = nil
-	if _, err := pull.CombinedOutput(); err == nil && msbImageCached(PrepullImageRef) {
+	if _, err := runMsbCmd("msb", "pull", PrepullImageRef); err == nil && msbImageCachedFn(PrepullImageRef) {
 		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 		return nil
 	}
@@ -145,7 +169,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// Reuse a local docker/podman image when present; otherwise the local
 	// build only runs after an explicit user confirmation (engine-uniform
 	// acquisition flow, see image_resolve.go).
-	if !LocalConstructImageExists(cfg) {
+	if !localConstructImageExistsFn(cfg) {
 		if err := ConfirmConstructImageBuild(); err != nil {
 			return err
 		}
@@ -201,7 +225,7 @@ func TransitionLocalConstructImageToMsb(cfg *config.Config) error {
 // refs (bare, localhost/, full registry).
 func (m *MsbBackend) imageLoaded() bool {
 	for _, ref := range constructImageRefCandidates {
-		if msbImageCached(ref) {
+		if msbImageCachedFn(ref) { // seam: stubbable in the drift fall-through test
 			return true
 		}
 	}
