@@ -209,7 +209,7 @@ type msbAutoMount struct {
 }
 
 // msbNetworkConfig maps construct network modes onto msb network profiles
-// (docs/VMs.md §6): permissive = public, strict = public + in-guest filter
+// (docs/VMsv2.md): permissive = public, strict = public + in-guest filter
 // (msb policy layer OFF until stacking verified, §9), offline = no net.
 // Every sandbox carries the guest->host transport rules (§3.1).
 func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
@@ -510,7 +510,7 @@ func parseMsbConfigMounts(configJSON string) map[string]string {
 // msbDaemonName is the persistent sandbox backing the daemon mode under
 // the msb backend (Docker analog: construct-cli-daemon container). Named
 // sandboxes persist across stop/start, so agent installs and root-disk
-// toolchain state survive daemon restarts (docs/VMs.md §7.1).
+// toolchain state survive daemon restarts (docs/VMsv2.md).
 const msbDaemonName = "construct-cli-daemon"
 
 // ErrMsbDaemonWorkdirUnmapped reports that the requested project dir falls
@@ -812,7 +812,7 @@ create:
 	// Bridge ports are omitted: host bridges bind random ports at engine run
 	// time, which cannot be baked into boot-time egress rules. Permissive
 	// mode (default-allow) needs no rule; offline/strict bridge egress is
-	// part of the Step 7 bridge wiring (docs/VMs.md §7 Step 7).
+	// part of the Step 7 bridge wiring (docs/VMsv2.md).
 	ui.InfoLn("🚀 Booting microVM daemon sandbox...")
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
 	spec.Detached = true
@@ -1055,7 +1055,7 @@ var msbHostVersion = sync.OnceValue(func() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "msb", "--version")
-	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
 	out, err := cmd.Output()
 	if err != nil {
 		return "unknown"

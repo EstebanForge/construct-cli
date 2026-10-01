@@ -4,7 +4,7 @@ Status: approved direction, phased implementation. Owner: Esteban. Last updated:
 
 Scope: the microVM backend (`backend = "microvm"`, microsandbox SDK v0.7.2 as of 2026-09-21) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
 
-Provenance: the approach was derived from studying Docker Sandboxes (`sbx`, docs.docker.com/ai/sandboxes) and survived two adversarial peer-review rounds (isolated reviewer sessions). The review history is recorded in section 9. The code comments in `internal/runtime/backend_msb_run.go` cite a `docs/VMs.md` that does not exist in the repo; the shipped design baseline is `docs/ARCHITECTURE-DESIGN.md` section 4.1 plus everything tagged 1.16.2 in `CHANGELOG.md`. This file supersedes those references as the forward plan.
+Provenance: the approach was derived from studying Docker Sandboxes (`sbx`, docs.docker.com/ai/sandboxes) and survived two adversarial peer-review rounds (isolated reviewer sessions). The review history is recorded in section 9. The shipped design baseline is `docs/ARCHITECTURE-DESIGN.md` section 4.1 plus everything tagged 1.16.2 in `CHANGELOG.md`. This file is the forward plan; code comments cite it directly (retargeted from the removed `docs/VMs.md`).
 
 ## 1. Fundamentals (do not change these)
 

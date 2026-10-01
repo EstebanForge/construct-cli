@@ -123,7 +123,7 @@ Some CLIs must run on the **host**, not in the sandbox (they touch host state, h
 host_binaries = ["wicket"]
 ```
 
-Each listed binary runs on the host with full container-controlled argv. Only list binaries you trust with that. Requires `construct build` after first enabling. Full details, security model, and the non-interactive caveat: [HOST-EXEC.md](HOST-EXEC.md).
+Each listed binary runs on the host with full container-controlled argv. Only list binaries you trust with that. Requires `construct sys rebuild` after first enabling. Full details, security model, and the non-interactive caveat: [HOST-EXEC.md](HOST-EXEC.md).
 
 ## Recipe 5: Local dev servers (browser -> host)
 

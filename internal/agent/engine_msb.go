@@ -14,7 +14,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
-// execViaMsbDaemon is the msb run path (docs/VMs.md §7 Step 7): guarantee
+// execViaMsbDaemon is the msb run path (docs/VMsv2.md): guarantee
 // the persistent daemon sandbox, install agents on first use, then exec the
 // agent interactively with the same env contract the Docker daemon path
 // builds (buildDaemonExecEnv + MaskEnv + exit-code fidelity).
@@ -90,7 +90,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 
 	execUser := runtime.ResolveExecUserMsb(e.cfg)
 
-	// SSH agent proxy (docs/VMs.md §7): same per-session socket + socat model
+	// SSH agent proxy (docs/VMsv2.md): same per-session socket + socat model
 	// as the Docker daemon path, but the socat target is the msb host alias
 	// (§3.1) and it runs through the SDK exec instead of docker exec.
 	// In msb, the socket lives in /tmp because virtiofs host mounts reject AF_UNIX bind.

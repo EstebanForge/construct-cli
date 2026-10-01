@@ -1,6 +1,6 @@
 package runtime
 
-// Backend conformance test suite (docs/VMs.md §7 Step 3).
+// Backend conformance test suite (docs/VMsv2.md).
 //
 // Defines the contract both isolation backends (Docker today, microsandbox later)
 // must satisfy. Today it exercises the existing Docker/Podman primitives directly;

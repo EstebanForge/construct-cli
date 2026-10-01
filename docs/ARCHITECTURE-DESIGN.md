@@ -200,7 +200,9 @@ API_TIMEOUT_MS = "3000000"
   - Writes default sandbox env passthroughs for `GITHUB_TOKEN` and `CONTEXT7_API_KEY`, plus `CNSTR_` prefix auto-pass support.
 - **Updates** (`sys update` → `templates/update-all.sh`):
   - apt update/upgrade (via topgrade or fallback).
-  - mise + topgrade: `update-all.sh` refreshes the user tier (npm globals, mise tools, gems, pipx) through topgrade; the baked baseline never updates in-guest and moves with image updates.
+  - mise + topgrade: `update-all.sh` refreshes the user tier (npm globals, mise tools, gems, pipx) through topgrade; system packages update via topgrade's system step.
+  - pi: dedicated step updates extensions and model catalogs unconditionally, and pi itself when the binary is writable (images since 1.17.17 chown the baked agent tier to the construct user, so agents self-update in place).
+  - The baked agent tier is construct-owned and updates in-guest; updates live in the container layer and revert when the daemon is recreated (construct prints this warning after each update; `construct sys update` re-applies them). Dev packages additionally move with image updates.
   - npm: per-package reinstall at `@latest` (after sweeping stale dot-prefixed temp dirs from interrupted npm runs) — `npm update -g` never crosses semver boundaries.
 - **Update Check** (`sys check-update` / automatic):
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
