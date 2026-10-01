@@ -59,7 +59,7 @@ if command -v topgrade &> /dev/null; then
     if [ -f "$TOPGRADE_CONFIG" ]; then
         topgrade --config "$TOPGRADE_CONFIG"
     else
-        topgrade -y --disable system,claude_code
+        topgrade -y --disable system,claude_code,pi
     fi
 else
     echo "topgrade not found, falling back to manual updates..."
