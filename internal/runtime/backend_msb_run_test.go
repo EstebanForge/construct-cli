@@ -28,7 +28,7 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	}
 
 	cfg := config.DefaultConfig()
-	spec := BuildMsbRunSpec(&cfg, "sb-test", "/tmp/proj", []int{18080})
+	spec := BuildMsbRunSpec(&cfg, "sb-test", "/tmp/proj", []int{18080}, "")
 	if spec.Name != "sb-test" {
 		t.Errorf("Name = %q", spec.Name)
 	}
@@ -57,7 +57,7 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 func TestBuildMsbRunSpecMountsWithoutHostHome(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	cfg := config.DefaultConfig()
-	spec := BuildMsbRunSpec(&cfg, "sb", "/tmp/proj", nil)
+	spec := BuildMsbRunSpec(&cfg, "sb", "/tmp/proj", nil, "")
 	if m := spec.Mounts[msbHomeMountDest]; m.Bind != "" {
 		t.Errorf("home bind must be absent without a host construct home: %+v", m)
 	}
@@ -68,7 +68,7 @@ func TestBuildMsbRunSpecNetwork(t *testing.T) {
 
 	// Offline: deny-by-default, host bridge + DNS allowed.
 	cfg.Network.Mode = "offline"
-	spec := BuildMsbRunSpec(&cfg, "sb", "", []int{18080})
+	spec := BuildMsbRunSpec(&cfg, "sb", "", []int{18080}, "")
 	if spec.Network.DefaultEgress == "allow" {
 		t.Error("offline mode must not allow default egress")
 	}
@@ -78,7 +78,7 @@ func TestBuildMsbRunSpecNetwork(t *testing.T) {
 
 	// Permissive: default allow.
 	cfg.Network.Mode = "permissive"
-	spec = BuildMsbRunSpec(&cfg, "sb", "", []int{18080, 443})
+	spec = BuildMsbRunSpec(&cfg, "sb", "", []int{18080, 443}, "")
 	if spec.Network.DefaultEgress != "allow" {
 		t.Errorf("permissive default egress = %q", spec.Network.DefaultEgress)
 	}
@@ -89,7 +89,7 @@ func TestBuildMsbRunSpecNetwork(t *testing.T) {
 
 func TestMsbRunSpecEntrypointDefault(t *testing.T) {
 	cfg := config.DefaultConfig()
-	spec := BuildMsbRunSpec(&cfg, "sb", "", nil)
+	spec := BuildMsbRunSpec(&cfg, "sb", "", nil, "")
 	if len(spec.Entrypoint) != 0 {
 		t.Errorf("default spec must keep the image entrypoint, got %v", spec.Entrypoint)
 	}
@@ -194,14 +194,14 @@ func TestBuildMsbRunSpecMountsHashLabel(t *testing.T) {
 	root := t.TempDir()
 	cfg := msbTestConfigWithMountPaths(t, root)
 
-	spec := BuildMsbRunSpec(&cfg, "sb", t.TempDir(), nil)
+	spec := BuildMsbRunSpec(&cfg, "sb", t.TempDir(), nil, "")
 	dm := ResolveDaemonMounts(&cfg)
 	if spec.Labels[DaemonMountsLabelKey] != dm.Hash {
 		t.Errorf("mounts hash label = %q, want %q", spec.Labels[DaemonMountsLabelKey], dm.Hash)
 	}
 
 	single := config.DefaultConfig()
-	specSingle := BuildMsbRunSpec(&single, "sb", "", nil)
+	specSingle := BuildMsbRunSpec(&single, "sb", "", nil, "")
 	if _, ok := specSingle.Labels[DaemonMountsLabelKey]; ok {
 		t.Error("single-path spec with no project and no learned roots must not carry the mounts hash label")
 	}

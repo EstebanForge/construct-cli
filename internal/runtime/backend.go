@@ -20,7 +20,7 @@ type Backend interface {
 
 	// EnsureImage guarantees the construct image exists locally
 	// (build, pull, or load).
-	EnsureImage(cfg *config.Config) error
+	EnsureImage(cfg *config.Config) (string, error)
 
 	// Exec runs a command in a live environment and returns combined
 	// output plus the workload exit code.

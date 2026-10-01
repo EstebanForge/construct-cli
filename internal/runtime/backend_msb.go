@@ -111,7 +111,7 @@ var localConstructImageExistsFn = LocalConstructImageExists
 // spawn or the download line. It then reuses a local docker/podman image when
 // present, and otherwise builds only after a user confirmation. The local
 // image lands via container-runtime save + msb load.
-func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
+func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
 	// Deliberate local builds win over GHCR: a localhost/ ref only lands
@@ -123,7 +123,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// GHCR holds (stale when the publish workflow lags the templates).
 	if msbImageCachedFn("localhost/construct-box:latest") {
 		ui.InfoLn("✓ MicroVM image ready (local build)")
-		return nil
+		return "localhost/construct-box:latest", nil
 	}
 
 	// Refresh on digest drift: msb pull no-ops whenever the ref is cached
@@ -138,7 +138,8 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// and a bare legacy ref has no registry counterpart — comparing either
 	// against the remote would "drift" forever and re-pull every run. The
 	// pull caches the FULL registry ref (no `image tag` subcommand exists
-	// to alias it down to the bare name); imageLoaded and the run spec
+	// to alias it down to the bare name); the run spec boots the ref
+	// EnsureImage verified
 	// resolve cached refs via constructImageRefCandidates.
 	cached, remote := msbImageDigestFn(PrepullImageRef), ghcrRemoteDigestFn(PrepullImageRef)
 	switch {
@@ -150,20 +151,20 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 		// no-op (msb never re-resolves a cached tag), so report ready
 		// without the download line or the spawn.
 		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
-		return nil
+		return PrepullImageRef, nil
 	default:
 		ui.InfoLn("→ Pulling construct-box image from GHCR (~2 GiB download)...")
 	}
 	if _, err := runMsbCmd("msb", "pull", PrepullImageRef); err == nil && msbImageCachedFn(PrepullImageRef) {
 		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
-		return nil
+		return PrepullImageRef, nil
 	}
 
 	// Pull failed (offline, rate limited): fall back to any cached ref,
 	// flagging that it may be stale.
-	if m.imageLoaded() {
+	if ref := loadedImageRef(); ref != "" {
 		ui.InfoLn("⚠️  Pull failed; using cached construct-box image (may be stale)")
-		return nil
+		return ref, nil
 	}
 
 	// Reuse a local docker/podman image when present; otherwise the local
@@ -171,11 +172,14 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) error {
 	// acquisition flow, see image_resolve.go).
 	if !localConstructImageExistsFn(cfg) {
 		if err := ConfirmConstructImageBuild(); err != nil {
-			return err
+			return "", err
 		}
 		BuildImage(cfg)
 	}
-	return TransitionLocalConstructImageToMsb(cfg)
+	if err := TransitionLocalConstructImageToMsb(cfg); err != nil {
+		return "", err
+	}
+	return "localhost/construct-box:latest", nil
 }
 
 // TransitionLocalConstructImageToMsb moves a locally built construct-box
@@ -212,8 +216,8 @@ func TransitionLocalConstructImageToMsb(cfg *config.Config) error {
 	}
 	// `msb load -i` imports under the localhost/ prefix
 	// (localhost/construct-box:latest). Verify the import landed so the
-	// next EnsureImage skips the transition; imageLoaded and the run spec
-	// resolve the localhost ref via constructImageRefCandidates.
+	// next EnsureImage skips the transition; the run spec boots the
+	// localhost ref via the EnsureImage return value.
 	if !msbImageCached("localhost/construct-box:latest") {
 		return fmt.Errorf("msb load reported success but localhost/construct-box:latest is not cached; run `msb image ls` to inspect the store")
 	}
@@ -221,15 +225,16 @@ func TransitionLocalConstructImageToMsb(cfg *config.Config) error {
 	return nil
 }
 
-// imageLoaded probes msb for the construct image under any of its cached
-// refs (bare, localhost/, full registry).
-func (m *MsbBackend) imageLoaded() bool {
+// loadedImageRef returns the first cached construct image ref (candidate
+// walk over bare, localhost/, and the full registry ref), or "" when none
+// is cached: the pull-failure fallback names the ref it fell back to.
+func loadedImageRef() string {
 	for _, ref := range constructImageRefCandidates {
 		if msbImageCachedFn(ref) { // seam: stubbable in the drift fall-through test
-			return true
+			return ref
 		}
 	}
-	return false
+	return ""
 }
 
 // msbImageDigest returns the manifest digest recorded for ONE ref

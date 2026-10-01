@@ -117,8 +117,12 @@ func TestEnsureImagePrefersLocalBuild(t *testing.T) {
 	t.Cleanup(func() { msbImageCachedFn = origCached })
 
 	cfg := config.DefaultConfig()
-	if err := (&MsbBackend{}).EnsureImage(&cfg); err != nil {
+	ref, err := (&MsbBackend{}).EnsureImage(&cfg)
+	if err != nil {
 		t.Fatalf("EnsureImage must adopt the cached local build, got: %v", err)
+	}
+	if ref != "localhost/construct-box:latest" {
+		t.Fatalf("EnsureImage must return the local build ref for the boot spec, got %q", ref)
 	}
 }
 
@@ -153,8 +157,12 @@ func TestEnsureImageCachedDigestSkipsPull(t *testing.T) {
 			}
 
 			cfg := config.DefaultConfig()
-			if err := (&MsbBackend{}).EnsureImage(&cfg); err != nil {
+			ref, err := (&MsbBackend{}).EnsureImage(&cfg)
+			if err != nil {
 				t.Fatalf("cached ref must short-circuit to ready without a pull, got: %v", err)
+			}
+			if ref != PrepullImageRef {
+				t.Fatalf("cached ref must return the verified GHCR ref for the boot spec, got %q", ref)
 			}
 		})
 	}
@@ -187,7 +195,7 @@ func TestEnsureImageDigestDriftFallsThroughToPull(t *testing.T) {
 	runMsbCmd = func(string, ...string) ([]byte, error) { return nil, errors.New("stub: pull refused") }
 
 	cfg := config.DefaultConfig()
-	if err := (&MsbBackend{}).EnsureImage(&cfg); err == nil {
+	if _, err := (&MsbBackend{}).EnsureImage(&cfg); err == nil {
 		t.Fatal("digest drift must fall through to the pull, not short-circuit to ready")
 	}
 }

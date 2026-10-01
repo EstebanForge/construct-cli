@@ -38,8 +38,11 @@ func (d *DockerBackend) Available(_ context.Context) (bool, error) {
 // shared helper returns a real error on decline/pull-failure paths;
 // BuildImage reports its own build failure and exits the process
 // (existing behavior).
-func (d *DockerBackend) EnsureImage(cfg *config.Config) error {
-	return EnsureConstructImage(cfg)
+func (d *DockerBackend) EnsureImage(cfg *config.Config) (string, error) {
+	if err := EnsureConstructImage(cfg); err != nil {
+		return "", err
+	}
+	return "construct-box:latest", nil
 }
 
 // Exec runs a command in a live container. Exit-code fidelity: docker exec

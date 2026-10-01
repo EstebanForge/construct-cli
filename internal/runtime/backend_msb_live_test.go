@@ -59,7 +59,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil)
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
 	sb, err := CreateMsbSandbox(ctx, spec)
 	if err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
@@ -165,7 +165,7 @@ npm install -g http-server@14 || echo "npm install failed"
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
 
-	spec := BuildMsbRunSpec(&cfg, name, "", nil)
+	spec := BuildMsbRunSpec(&cfg, name, "", nil, "")
 	spec.Mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{})
 	spec.Cmd = []string{"echo", "Installation complete"}
 
@@ -223,7 +223,7 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	}
 
 	proj := t.TempDir()
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil) // nil ports: engine binds random bridge ports per run
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "") // nil ports: engine binds random bridge ports per run
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	if err := m.Cleanup(ctx, name); err != nil {
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil)
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestMsbLiveSSHAgentBridge(t *testing.T) {
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
 	proj := t.TempDir()
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil)
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
