@@ -30,6 +30,12 @@ const DaemonSkillsLabelKey = "construct.daemon.skills_hash"
 // a running daemon keeps the old policy until it is recreated.
 const DaemonSudoLabelKey = "construct.daemon.sudo"
 
+// DaemonSDKVersionLabelKey stamps the microsandbox SDK version this binary
+// launches with. A construct upgrade that bumps the embedded SDK must
+// recreate the daemon: the running VMM predates the new ffi contract
+// exactly the way an old image does.
+const DaemonSDKVersionLabelKey = "construct.daemon.sdk_version"
+
 // DaemonImageDigestLabelKey stamps the construct-box digest the sandbox
 // was created from so a republished image can force exactly one recreate:
 // the entrypoint, sudoers, and baked toolchain all live on the image, so

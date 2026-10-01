@@ -32,6 +32,7 @@ type msbDaemonSpec struct {
 	SkillsHash  string `json:"skills_hash,omitempty"`
 	Sudo        string `json:"sudo,omitempty"`
 	ImageDigest string `json:"image_digest,omitempty"`
+	SDKVersion  string `json:"sdk_version,omitempty"`
 }
 
 func msbDaemonSpecPath() string {
@@ -80,6 +81,7 @@ func specFromLabels(labels map[string]string) *msbDaemonSpec {
 		SkillsHash:  labels[DaemonSkillsLabelKey],
 		Sudo:        labels[DaemonSudoLabelKey],
 		ImageDigest: labels[DaemonImageDigestLabelKey],
+		SDKVersion:  labels[DaemonSDKVersionLabelKey],
 	}
 }
 
@@ -100,6 +102,9 @@ func (s *msbDaemonSpec) toLabels() map[string]string {
 	}
 	if s.ImageDigest != "" {
 		labels[DaemonImageDigestLabelKey] = s.ImageDigest
+	}
+	if s.SDKVersion != "" {
+		labels[DaemonSDKVersionLabelKey] = s.SDKVersion
 	}
 	return labels
 }

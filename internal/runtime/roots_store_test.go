@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 // withRootsTestHome isolates HOME so roots.json lands in a temp dir.
@@ -750,9 +751,10 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 
 	// Run 1: Daemon booted from home
 	labelsHomeBoot := map[string]string{
-		"construct.project_dir": home,
-		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{home}),
-		DaemonSudoLabelKey:      "free",
+		"construct.project_dir":  home,
+		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{home}),
+		DaemonSudoLabelKey:       "free",
+		DaemonSDKVersionLabelKey: msb.SDKVersion(),
 	}
 	cfgJSONHomeBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home)
 
@@ -777,9 +779,10 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 
 	// Daemon boots from subproject
 	labelsSubBoot := map[string]string{
-		"construct.project_dir": sub,
-		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{sub}),
-		DaemonSudoLabelKey:      "free",
+		"construct.project_dir":  sub,
+		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{sub}),
+		DaemonSudoLabelKey:       "free",
+		DaemonSDKVersionLabelKey: msb.SDKVersion(),
 	}
 	cfgJSONSubBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, subDest, sub)
 
@@ -795,9 +798,10 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 		combinedRoots = []string{sub, home}
 	}
 	labelsCombinedBoot := map[string]string{
-		"construct.project_dir": home,
-		DaemonMountsLabelKey:    hashDaemonMountPaths(combinedRoots),
-		DaemonSudoLabelKey:      "free",
+		"construct.project_dir":  home,
+		DaemonMountsLabelKey:     hashDaemonMountPaths(combinedRoots),
+		DaemonSudoLabelKey:       "free",
+		DaemonSDKVersionLabelKey: msb.SDKVersion(),
 	}
 	cfgJSONCombinedBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q},{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home, subDest, sub)
 

@@ -21,6 +21,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -338,6 +339,9 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	// the daemon because the entrypoint applies the sudoers drop-in at
 	// sandbox creation only.
 	labels[DaemonSudoLabelKey] = sudoPolicy(cfg)
+	// SDK version label: recreate across construct upgrades that bump the
+	// embedded msb runtime, before the ffi contract can refuse a connect.
+	labels[DaemonSDKVersionLabelKey] = msb.SDKVersion()
 	// Image digest label: EnsureImage has already run by the time a spec
 	// is built, so the local cache holds the freshly-pulled digest; a
 	// later decision run that sees a different digest recreates onto it.
@@ -558,6 +562,12 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// policy only when the user actually opted out, which recreates once.
 	if sandboxLabels[DaemonSudoLabelKey] != sudoPolicy(cfg) {
 		return true, "sudo policy changed (sandbox.passwordless_sudo)"
+	}
+	// Embedded-runtime parity: construct upgrades that bump the SDK
+	// recreate once, like the sudo and image labels. Daemons predating the
+	// label carry an empty value and recreate exactly once.
+	if sandboxLabels[DaemonSDKVersionLabelKey] != msb.SDKVersion() {
+		return true, "embedded msb runtime changed (construct upgrade)"
 	}
 	// Image drift: the daemon may outlive image republishes. The label
 	// records the digest the sandbox was created from; a mismatch with the
@@ -1040,19 +1050,61 @@ const msbImageEntrypoint = "/usr/local/bin/entrypoint.sh"
 // older captures are pruned after a successful fork.
 const msbForkSnapshotPrefix = "construct-daemon-fork-"
 
+// captureForkSnapshot runs the full-capture flush ladder (Required, then
+// Auto) for the fork's disk snapshot.
+func captureForkSnapshot(ctx context.Context, snapName string) (*msb.SnapshotArtifact, error) {
+	snap, err := msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+		FromSandbox: msbDaemonName,
+		Name:        snapName,
+		Full:        true,
+		GuestFlush:  msb.GuestFlushRequired,
+	})
+	if err == nil {
+		return snap, nil
+	}
+	ui.InfoF("📸 Full writeback rejected (%v); capturing without it...\n", err)
+	return msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+		FromSandbox: msbDaemonName,
+		Name:        snapName,
+		Full:        true,
+		GuestFlush:  msb.GuestFlushAuto,
+	})
+}
+
+// recycleDaemonForCapture re-spawns the daemon's VMM through a stop +
+// detached boot so it accepts capture ops from this process (see the
+// retry at the call site). Restores the readiness state before returning.
+func recycleDaemonForCapture(ctx context.Context, h *msb.SandboxHandle) error {
+	if err := h.Stop(ctx, msb.WithStopTimeout(30*time.Second)); err != nil {
+		return fmt.Errorf("recycle stop: %w", err)
+	}
+	sb, err := h.StartDetached(ctx)
+	if err != nil {
+		return fmt.Errorf("recycle boot: %w", err)
+	}
+	msbRunDefaultAsync(sb)
+	if err := msbWaitKeeper(ctx, sb); err != nil {
+		_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // cold fallback proceeds
+		return fmt.Errorf("recycle readiness: %w", err)
+	}
+	return nil
+}
+
 // msbRecreateForkable reports whether a recreate reason only re-declares
-// host bind mounts (skills, workspace roots). Those recreates exist because
-// msb defines binds at boot: the guest root disk (installs, entrypoint hash
-// gate) stays valid, so the replacement can boot from a disk snapshot of
-// the outgoing daemon and skip the full reinstall. Reasons implying a
-// root-disk or policy reset must cold-recreate: sudo policy is applied by
-// the entrypoint at creation only, image drift means stale baked content,
-// and the remaining reasons repair config/label state the fork cannot set.
+// host bind mounts or restarts the engine. Those recreates exist because
+// msb defines binds at boot and the VMM comes from this binary: the guest
+// root disk (installs, entrypoint hash gate) stays valid, so the
+// replacement can boot from a disk snapshot of the outgoing daemon and
+// skip the full reinstall. Reasons implying a root-disk or policy reset
+// must cold-recreate: sudo policy is applied by the entrypoint at creation
+// only, image drift means stale baked content, and the remaining reasons
+// repair config/label state the fork cannot set.
 func msbRecreateForkable(reason string) bool {
 	switch reason {
 	case "host skills mounts changed (source, mode, or targets)",
 		"daemon.mount_paths changed",
-		"workspace roots changed (learned root added, removed, or evicted)":
+		"workspace roots changed (learned root added, removed, or evicted)",
+		"embedded msb runtime changed (construct upgrade)":
 		return true
 	}
 	return false
@@ -1112,20 +1164,18 @@ func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.C
 	// entrypoint hash gate and dpkg state survive either way; a lost gate
 	// write only means one reinstall on the restored boot.
 	snapName := fmt.Sprintf("%s%d", msbForkSnapshotPrefix, time.Now().Unix())
-	snap, err := msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
-		FromSandbox: msbDaemonName,
-		Name:        snapName,
-		Full:        true,
-		GuestFlush:  msb.GuestFlushRequired,
-	})
+	snap, err := captureForkSnapshot(ctx, snapName)
 	if err != nil {
-		ui.InfoF("📸 Full writeback rejected (%v); capturing without it...\n", err)
-		snap, err = msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
-			FromSandbox: msbDaemonName,
-			Name:        snapName,
-			Full:        true,
-			GuestFlush:  msb.GuestFlushAuto,
-		})
+		// Engine quirk (verified live): a VMM spawned by an in-process create
+		// rejects capture ops from later client processes with "control
+		// operation rejected by peer", while StartDetached spawns accept
+		// them. Recycle the daemon through a stop + detached boot and retry
+		// once — a warm boot is seconds against the ~2 min cold fallback.
+		ui.InfoF("📸 Capture rejected (%v); recycling the daemon through a detached boot and retrying...\n", err)
+		if rerr := recycleDaemonForCapture(ctx, h); rerr != nil {
+			return nil, fmt.Errorf("snapshot daemon disk: %w (recycle failed: %w)", err, rerr)
+		}
+		snap, err = captureForkSnapshot(ctx, snapName)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("snapshot daemon disk: %w", err)
@@ -1373,7 +1423,13 @@ func tupleNewer(aMaj, aMin, aPat, bMaj, bMin, bPat int) bool {
 // ensureMsbLaunchCompat fails fast when the host msb cannot launch with
 // the embedded SDK, before any image acquisition spends bandwidth on a
 // sandbox create that the FFI would refuse.
+// Embedded-runtime builds skip the host check entirely: construct launches
+// its own extracted pair, so whatever the host has on PATH is irrelevant
+// (the create itself proves the pair works).
 func ensureMsbLaunchCompat() error {
+	if msbembed.Available() {
+		return nil
+	}
 	host := msbHostVersion()
 	if host == "" || host == "unknown" {
 		return fmt.Errorf("could not read the host msb version (`msb --version` failed)")

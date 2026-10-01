@@ -273,13 +273,14 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 	// HOME). The subdir case computes the same set: a subdir rides the
 	// parent mount instead of becoming a shadow root.
 	singleLabels := map[string]string{
-		"construct.project_dir": root,
-		DaemonMountsLabelKey:    hashDaemonMountPaths([]string{root}),
-		DaemonSudoLabelKey:      "free",
+		"construct.project_dir":  root,
+		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{root}),
+		DaemonSudoLabelKey:       "free",
+		DaemonSDKVersionLabelKey: msb.SDKVersion(),
 	}
 
 	multi := DaemonMounts{Enabled: true, Hash: "abc", Mounts: []DaemonMount{{HostPath: root, ContainerPath: "/workspaces/x"}}}
-	multiLabels := map[string]string{DaemonMountsLabelKey: "abc", DaemonSudoLabelKey: "free"}
+	multiLabels := map[string]string{DaemonMountsLabelKey: "abc", DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion()}
 
 	tests := []struct {
 		name       string
@@ -290,7 +291,7 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 		want       bool
 	}{
 		{"multi hash match reuses", multi, multiLabels, "", sub, false},
-		{"multi hash mismatch recreates", multi, map[string]string{DaemonMountsLabelKey: "zzz", DaemonSudoLabelKey: "free"}, "", sub, true},
+		{"multi hash mismatch recreates", multi, map[string]string{DaemonMountsLabelKey: "zzz", DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion()}, "", sub, true},
 		{"single exact root reuses", DaemonMounts{}, singleLabels, cfgJSON, root, false},
 		{"single subdir reuses", DaemonMounts{}, singleLabels, cfgJSON, sub, false},
 		{"single other root recreates", DaemonMounts{}, singleLabels, cfgJSON, other, true},
@@ -412,7 +413,7 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 				}
 			}
 
-			labels := map[string]string{DaemonSudoLabelKey: "free"}
+			labels := map[string]string{DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion()}
 			for k, v := range workspaceLabels {
 				labels[k] = v
 			}
@@ -785,7 +786,7 @@ func TestNeedsRecreateSudoPolicyToggle(t *testing.T) {
 	dm := DaemonMounts{Enabled: true, Hash: "abc"}
 	cfg := config.DefaultConfig()
 	cfg.Sandbox.MountSkills = false
-	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc"}
+	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion()}
 
 	if recreate, _ := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &cfg, ""); recreate {
 		t.Error("matching free-sudo label must not recreate")
@@ -826,6 +827,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 		DaemonSudoLabelKey:        "free",
 		DaemonMountsLabelKey:      "abc",
 		DaemonImageDigestLabelKey: newDigest,
+		DaemonSDKVersionLabelKey:  msb.SDKVersion(),
 	}
 
 	if recreate, reason := msbDaemonNeedsRecreate(dm, labeled, "{}", "", false, &cfg, newDigest); recreate {
@@ -836,6 +838,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 		DaemonSudoLabelKey:        "free",
 		DaemonMountsLabelKey:      "abc",
 		DaemonImageDigestLabelKey: "sha256:oldimage000000000000000000000000000000000000000000000000000000",
+		DaemonSDKVersionLabelKey:  msb.SDKVersion(),
 	}
 	recreate, reason := msbDaemonNeedsRecreate(dm, stale, "{}", "", false, &cfg, newDigest)
 	if !recreate {
@@ -848,7 +851,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 	// Legacy daemon (pre-label) recreates exactly once so the image
 	// digest label gets stamped — the same upgrade vehicle as the sudo
 	// label.
-	legacy := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc"}
+	legacy := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion()}
 	if recreate, _ := msbDaemonNeedsRecreate(dm, legacy, "{}", "", false, &cfg, newDigest); !recreate {
 		t.Error("legacy daemon without an image label must recreate once")
 	}

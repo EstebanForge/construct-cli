@@ -16,6 +16,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -35,8 +36,15 @@ func NewMsbBackend() *MsbBackend { return &MsbBackend{} }
 // Name returns the backend identifier.
 func (m *MsbBackend) Name() string { return "microvm" }
 
-// Available reports whether the msb runtime is installed.
+// Available reports whether the msb runtime is usable: the embedded pair
+// when this build ships one, else the host installation.
 func (m *MsbBackend) Available(_ context.Context) (bool, error) {
+	if msbembed.Available() {
+		if _, err := msbembed.Ensure(); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	if _, err := exec.LookPath("msb"); err == nil {
 		return true, nil
 	}
@@ -73,7 +81,11 @@ func MsbConstructImageRef() string {
 }
 
 func msbImageCached(ref string) bool {
-	cmd := exec.Command("msb", "image", "inspect", ref)
+	name, err := msbembed.Command()
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(name, "image", "inspect", ref)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
 	return cmd.Run() == nil
 }
@@ -92,8 +104,13 @@ var (
 
 // runMsbCmd is a seam around the msb exec calls inside EnsureImage's
 // acquisition flow (image rm on drift, pull) so tests stay hermetic on hosts
-// that have the msb CLI installed with a live image store.
+// that have the msb CLI installed with a live image store. Embedded-runtime
+// builds exec the extracted msb by absolute path: a host CLI of a different
+// version one-way-migrates the store schema it must still read.
 var runMsbCmd = func(name string, args ...string) ([]byte, error) {
+	if resolved, err := msbembed.Command(); err == nil {
+		name = resolved
+	}
 	cmd := exec.Command(name, args...)
 	cmd.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
 	return cmd.CombinedOutput()
@@ -209,7 +226,11 @@ func TransitionLocalConstructImageToMsb(cfg *config.Config) error {
 	if out, err := save.CombinedOutput(); err != nil {
 		return fmt.Errorf("docker save construct-box: %w: %s", err, out)
 	}
-	load := exec.Command("msb", "load", "-i", tmp.Name())
+	loadBin, loadErr := msbembed.Command()
+	if loadErr != nil {
+		return fmt.Errorf("resolve msb binary: %w", loadErr)
+	}
+	load := exec.Command(loadBin, "load", "-i", tmp.Name())
 	load.Stdin = nil // msb stdin trap: caller stdin must not stay open (§7.1)
 	if out, err := load.CombinedOutput(); err != nil {
 		return fmt.Errorf("msb load: %w: %s", err, out)
@@ -243,7 +264,11 @@ func loadedImageRef() string {
 func msbImageDigest(ref string) string {
 	// The inspect doubles as the cached check: a missing ref fails the
 	// command.
-	out, err := exec.Command("msb", "image", "inspect", ref).CombinedOutput()
+	digestBin, digestErr := msbembed.Command()
+	if digestErr != nil {
+		return ""
+	}
+	out, err := exec.Command(digestBin, "image", "inspect", ref).CombinedOutput()
 	if err != nil {
 		return ""
 	}

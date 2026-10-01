@@ -1,8 +1,17 @@
 # Embedded msb runtime pair
 
-Status: design, awaiting review.
-Owner: Esteban.
-Context: 1.17.19 shipped the launch compatibility gate (`ClassifyMsbLaunch`) as a bridge; this doc is the permanent fix.
+Status: SHIPPED 2026-10-01. Owner: Esteban.
+Context: 1.17.19 shipped the launch compatibility gate (`ClassifyMsbLaunch`) as a bridge; this doc is the permanent fix, now built. The gate stays only for builds without the pair (dev `make build`, darwin/amd64).
+
+## As-built notes (differences from the sketch below)
+
+- Assets: the upstream release publishes standalone `msb-<os>-<arch>` binaries and `libkrunfw-<os>-<arch>` libs (no per-platform msb bundle to unpack). The fetch script (`scripts/embed-msb-runtime.sh`) verifies both against upstream `checksums.sha256` and generates the manifest init file.
+- Platforms: darwin/amd64 has NO upstream assets (upstream publishes aarch64 macOS only). Tagged builds there compile the stub and keep the host-msb gate. linux amd64/arm64 and darwin arm64 embed.
+- Resolution: the SDK exposes no public `SetSdkMsbPath` wrapper, and the Rust resolver's Environment tier (`MSB_PATH`, `MSB_LIBKRUNFW_PATH` — both must exist, verified empirically: a bogus path fails create with "expected both <msb> and <lib>") outranks every other tier. `msbembed.Activate()` sets those plus `MSB_HOME` in the process env before anything touches msb; spawned VMM and CLI subprocesses inherit it.
+- `MSB_HOME` verified to relocate the catalog DB, image store, SDK FFI extraction, and the fork snapshot store; nothing touches `~/.microsandbox`.
+- Capture quirk found in live testing: a VMM spawned by an in-process `CreateSandbox` rejects snapshot capture from a later client process ("control operation rejected by peer"); `StartDetached` spawns accept them. The fork's capture ladder therefore recycles the daemon through a stop + detached boot and retries once (21s observed) before falling back to the cold recreate (~111s).
+- The daemon spec (`msb-daemon-spec.json`) gained `sdk_version`, stamped by `BuildMsbRunSpec` and compared on every decision, so a construct upgrade that bumps the embedded SDK recreates the daemon exactly once — forkable, since the fork restarts the VMM on the new pair.
+- Open gap (deliberate): the design's "doctor offers to clean the old `~/.microsandbox` store" is NOT built. The old store may hold sandboxes the user runs with their own msb CLI; deleting user data is not construct's call. Revisit only behind an explicit user confirmation flow.
 
 ## Problem
 

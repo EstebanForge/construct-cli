@@ -12,6 +12,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/doctor"
 	"github.com/EstebanForge/construct-cli/internal/logs"
 	"github.com/EstebanForge/construct-cli/internal/migration"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
@@ -20,6 +21,16 @@ import (
 )
 
 func main() {
+	// Embedded-runtime builds pin the msb pair + isolated home into the
+	// process env before anything can touch msb. Best-effort: a failed
+	// extraction surfaces as a hard error at the launch sites that need
+	// it, not as a global failure of e.g. `construct --help`.
+	if msbembed.Available() {
+		if err := msbembed.Activate(); err != nil {
+			ui.LogWarning("Embedded microsandbox runtime unavailable: %v", err)
+		}
+	}
+
 	// Parse global flags
 	args := os.Args[1:]
 	if len(args) > 0 && args[0] == "__gum" {
