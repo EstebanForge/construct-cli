@@ -44,13 +44,20 @@ func withShimLinked(t *testing.T, name string) (linkPath, shimPath string) {
 // stdout, stderr and exit code.
 func runShim(t *testing.T, linkPath string, env map[string]string, args []string, stdin []byte) (string, string, int) {
 	t.Helper()
+	return runShimReader(t, linkPath, env, args, strings.NewReader(string(stdin)))
+}
+
+// runShimReader is runShim with a raw stdin stream, for tests that control
+// WHEN the bytes arrive (the shim must tolerate a late pipe write).
+func runShimReader(t *testing.T, linkPath string, env map[string]string, args []string, stdin io.Reader) (string, string, int) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, linkPath, args...)
 	for k, v := range env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	cmd.Stdin = strings.NewReader(string(stdin))
+	cmd.Stdin = stdin
 	var out, errb strings.Builder
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
@@ -201,6 +208,49 @@ func TestShimPassesStdinBase64(t *testing.T) {
 		t.Fatalf("stdin b64 decode: %v", err)
 	}
 	if string(decoded) != "piped bytes\nsecond line" {
+		t.Fatalf("stdin=%q", decoded)
+	}
+}
+
+// TestShimStdinArrivesLateStillShips pins the CI race from the 1.17.15 tag
+// run: the shim's first non-blocking stdin peek can run before the parent's
+// pipe write lands (loaded runner), and a single peek-then-give-up shipped
+// stdin silently empty. The shim must poll a short grace window instead.
+func TestShimStdinArrivesLateStillShips(t *testing.T) {
+	linkPath, _ := withShimLinked(t, "wicket")
+	var gotBody execRequest
+	mux := http.NewServeMux()
+	mux.HandleFunc("/exec", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		exit := 0
+		frame := frame{Type: "exit", Code: &exit}
+		b, _ := json.Marshal(frame)
+		b = append(b, '\n')
+		_, _ = w.Write(b)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	pr, pw := io.Pipe()
+	go func() {
+		// Land the write well after the shim's first peek; the 300ms grace
+		// window must still catch it.
+		time.Sleep(100 * time.Millisecond)
+		_, _ = pw.Write([]byte("late bytes"))
+		_ = pw.Close()
+	}()
+	_, _, code := runShimReader(t, linkPath, map[string]string{
+		"CONSTRUCT_HOST_EXEC_URL":   srv.URL,
+		"CONSTRUCT_HOST_EXEC_TOKEN": "tok",
+	}, nil, pr)
+	if code != 0 {
+		t.Fatal("shim failed")
+	}
+	decoded, err := base64.StdEncoding.DecodeString(gotBody.Stdin)
+	if err != nil {
+		t.Fatalf("stdin b64 decode: %v", err)
+	}
+	if string(decoded) != "late bytes" {
 		t.Fatalf("stdin=%q", decoded)
 	}
 }
