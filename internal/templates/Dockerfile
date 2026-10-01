@@ -234,6 +234,22 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     rm -rf "$HOME" && \
     for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
 
+# Agent tier is user-writable: in-guest agent self-updates (pi update --all,
+# claude update, codex update, ...) run as `construct` and write their own
+# install prefix in place. The image lane stays authoritative (root fs is
+# replaced on image pull) and home-tier shadow copies stay banned; the
+# entrypoint never re-chowns /usr/local. The bin DIR is chowned
+# non-recursively so npm can add/remove agent symlinks while the system
+# toolchain (node, npm, bun, litellm, entrypoint scripts) stays image-owned.
+# In-guest updates live in the container layer: a daemon recreate reverts
+# them to the image version until the next update-all.sh pass re-applies
+# them.
+RUN chown -R construct:construct /usr/local/lib/node_modules && \
+    chown construct:construct /usr/local/bin && \
+    chown construct:construct /usr/local/bin/claude /usr/local/bin/agy \
+        /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
+        /usr/local/bin/pig
+
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
 

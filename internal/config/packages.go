@@ -604,9 +604,13 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 	b.WriteString("[composer]\n")
 	b.WriteString("self_update = false\n\n")
 
-	// Baked agents (claude/codex/agy/pi/opencode) update on the image lane.
-	// No [commands] section: in-guest self-updaters would EACCES on the
-	// root-owned /usr/local/bin or silently create shadowing bind copies.
+	// Baked agents stay off topgrade: one updater per lane, and the
+	// disable list may only carry keys valid in the pinned topgrade. pi
+	// has its dedicated step in update-all.sh. The image chowns the agent
+	// tier to construct, so in-guest self-updaters write their install
+	// prefix in place instead of EACCESing on a root-owned /usr/local.
+	// No [commands] section: user-tier command installs would drop
+	// shadowing bind copies in front of the baked binaries.
 
 	return b.String()
 }
