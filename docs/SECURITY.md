@@ -87,7 +87,7 @@ exec_as_host_user = true
 disable_seccomp = true
 ```
 
-This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct build` to regenerate the image/override and restart the container.
+This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct sys rebuild` to regenerate the image/override and restart the container.
 
 **Tradeoff:** `seccomp:unconfined` removes a kernel-level syscall-restriction layer. It is a deliberate security reduction, scoped to users who run browsers in-container. Default-off preserves isolation for everyone else. An alternative is a Chrome-tailored seccomp JSON profile (whitelist only the needed syscalls) if you need tighter control than full unconfined.
 

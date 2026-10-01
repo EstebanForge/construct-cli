@@ -213,8 +213,10 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 
 # 6. Bake core agents (LAST: most frequently updated layer)
 # Each installs via its official installer into a throwaway HOME, then the
-# binary is placed at /usr/local/bin — root-owned and OUTSIDE the home bind,
-# so bind-tier copies shadow it by PATH (the override contract).
+# binary is placed at /usr/local/bin — OUTSIDE the home bind, so bind-tier
+# copies shadow it by PATH (the override contract). The chown layer below
+# hands the installed tier to the construct user so in-guest self-updates
+# write in place.
 # pig is the exception: its installer accepts PIG_INSTALL_DIR, so it lands
 # straight in /usr/local/bin without the find/install dance. Fetch the
 # script from its source in the PiG repo: pi-in-go.dev (site + version

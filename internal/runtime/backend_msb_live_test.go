@@ -108,7 +108,7 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 	}
 }
 
-// TestMsbLiveAgentInstall is the Step 6 project gate (docs/VMs.md §7):
+// TestMsbLiveAgentInstall is the Step 6 project gate (docs/VMsv2.md):
 // runs the first-run install inside the VM and verifies a generated agent
 // binary lands on the host.
 //
@@ -193,7 +193,7 @@ npm install -g http-server@14 || echo "npm install failed"
 	}
 }
 
-// TestMsbLiveClipboardBridge is the Step 7 clipboard E2E gate (docs/VMs.md
+// TestMsbLiveClipboardBridge is the Step 7 clipboard E2E gate (docs/VMsv2.md
 // §7): the host clipboard server must be reachable from inside a sandbox
 // over the host.microsandbox.internal transport with token auth enforced,
 // under the strongest policy (offline: deny-by-default egress).
@@ -260,7 +260,7 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	}
 }
 
-// TestMsbLiveHostExecBridge is the Step 7 host exec E2E gate (docs/VMs.md
+// TestMsbLiveHostExecBridge is the Step 7 host exec E2E gate (docs/VMsv2.md
 // §7): the host exec bridge answers from inside the sandbox, token auth is
 // enforced, and a guest cwd (/workspace) translates to the host project dir
 // via MsbPathMaps (per-mount PathMap translation).
@@ -348,7 +348,7 @@ func base64Encode(s string) string {
 	return base64.StdEncoding.EncodeToString([]byte(s))
 }
 
-// TestMsbLiveSSHAgentBridge is the Step 7 SSH agent bridge gate (docs/VMs.md
+// TestMsbLiveSSHAgentBridge is the Step 7 SSH agent bridge gate (docs/VMsv2.md
 // §7): the guest socat proxy (UNIX socket -> host.microsandbox.internal)
 // answers agent protocol requests through the host SSH bridge, under
 // deny-by-default offline egress.

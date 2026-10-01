@@ -171,7 +171,7 @@ Move EVERYTHING dev-oriented from `packages.toml` into the image, and pre-instal
 **Baked into the image (build time):**
 
 - All `[apt]`, `[brew]`, `[cargo]`, `[pip]`, `[gems]`, `[tools]` dev packages — the full baseline
-- Core agents, installed via their official installers at `/usr/local/bin` (root-owned, NOT the bind path): **claude, codex, agy, pi, opencode**
+- Core agents, installed via their official installers at `/usr/local/bin` (construct-owned since 1.17.17 — the image chowns the agent tier so self-updates write in place; NOT the bind path): **claude, codex, agy, pi, opencode**
 
 **Stays in `packages.toml` (optional layer, runs at guest init, installs to the home bind):**
 
@@ -299,7 +299,7 @@ construct sys doctor --json    # machine-readable report (lab-matrix assertions,
 | 3 | Baked agents resolve | exec `command -v <agent>` for claude/codex/agy/pi/opencode → expected `/usr/local/bin/<agent>` | report only (resolution is fixed by the image lane or check 4) | both |
 | 4 | Guest sweep pending | bind copies of baked agents present in the three path families (`.local/bin`, `.npm-global/bin` + `lib/node_modules`, `.opencode/bin`) for tools NOT in `packages.toml` | run the generated installer once in the guest (it carries the Go-generated migration sweep; existence guards make this safe to repeat) | both |
 | 5 | Image freshness | local msb image digest ≠ GHCR `latest` digest | `msb pull` (bounded, prepull-style, best-effort) | msb |
-| 6 | Host CLI/SDK skew | `msbHostVersion()` ≠ SDK pin | report + doc link; NEVER auto-updates the host binary (schema lockstep is a manual decision) | msb |
+| 6 | Host CLI/SDK skew | `msbHostVersion()` ≠ embedded SDK version | report-only policy since 1.17.19: match OK, 0.x mismatch warning, 1.x error; the launch path gates separately and fails fast with the exact fix | msb |
 | 7 | Old hash-marker orphan | guest `~/.local/.entrypoint_hash` present while the relocated root-disk marker is authoritative | delete the orphan file | both |
 | 8 | Config template drift | user config missing newly introduced keys (`daemon.auto_update_packages`, …) | report the exact lines to add; never rewrite user config content | both |
 
@@ -344,9 +344,9 @@ Package updates for the sandbox run inside the daemon's idle window — the dead
 |---|---|---|
 | Bind layer (optional agents from `packages.toml`, user installs) | YES — `update-all.sh` | Home bind persists; updates survive everything |
 | Root-disk user additions (apt/brew the user added) | YES — generated topgrade config | Survives stop/start; a recreate resets to the baked floor (self-healing, deterministic) |
-| Baked baseline (dev packages + core agents at `/usr/local/bin`) | NEVER in-guest | A recreate reverts to the image anyway — in-guest updates would be pure churn. Baked tools move on the image lane (GHCR push) |
+| Baked baseline (dev packages + core agents at `/usr/local/bin`) | YES — agents via `update-all.sh` (pi) and in-place self-update; dev packages via topgrade's system step | The image chowns the agent tier to the construct user (1.17.17), so baked agents update in place. Updates live in the container layer and revert when the daemon is recreated — expected semantics; construct warns after each update and `construct sys update` re-applies. Dev packages additionally move with image updates. |
 
-The topgrade pass must EXCLUDE the baked set (generated config carries the exclusion list) or it burns bandwidth diverging from the image.
+The generated topgrade config excludes topgrade's built-in per-agent steps (`claude_code`, `pi`) — one updater per lane; pi has its dedicated `update-all.sh` step, and the disable list only carries step keys valid in the topgrade version pinned by the image (an unknown key makes topgrade silently drop every disable rule).
 
 ## Safety rails
 

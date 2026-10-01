@@ -243,7 +243,7 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	baseArgs := e.args
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
 
-	// 0. msb backend dispatch (docs/VMs.md §7 Step 7): persistent sandbox
+	// 0. msb backend dispatch (docs/VMsv2.md): persistent sandbox
 	// daemon path replaces the compose/daemon-container paths entirely.
 	if e.msbBackendSelected() {
 		return e.execViaMsbDaemon(baseArgs, mergedProviderEnv)

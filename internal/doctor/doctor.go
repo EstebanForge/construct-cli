@@ -243,7 +243,7 @@ func Run(args ...string) {
 		runtimeName = runtimepkg.ResolveContainerRuntime(cfg)
 	}
 
-	// Backend dispatch (docs/VMs.md §7 Step 6): under the msb backend the
+	// Backend dispatch (docs/VMsv2.md): under the msb backend the
 	// Docker-only checks below are not applicable. runtimeName is blanked
 	// after the Runtime Check so every runtimeName-gated check degrades to
 	// its skipped/not-applicable branch instead of probing a container
@@ -984,7 +984,7 @@ func Run(args ...string) {
 }
 
 // msbBackendCheck verifies the microsandbox backend prerequisites
-// (docs/VMs.md §7 Step 6): binary + version, hardware virtualization,
+// (docs/VMsv2.md): binary + version, hardware virtualization,
 // construct image loaded, packages volume present. Fail-closed flavor:
 // every missing piece is an error with a fix suggestion.
 func msbBackendCheck(fix bool) CheckResult {
@@ -1021,7 +1021,7 @@ func msbBackendCheck(fix bool) CheckResult {
 
 	msbRun := func(args ...string) bool {
 		cmd := exec.Command("msb", args...)
-		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMs.md §7.1)
+		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
 		return cmd.Run() == nil
 	}
 	// Daemon reachability: `msb list` needs a reachable daemon (auto-started
