@@ -13,6 +13,7 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestSshKeyNamesSkipsSocketsAndNonKeys(t *testing.T) {
@@ -1816,6 +1817,48 @@ func TestReadUpdateLogOutcome(t *testing.T) {
 			}
 			if strings.Join(steps, ",") != strings.Join(tc.wantSteps, ",") {
 				t.Fatalf("steps = %v, want %v", steps, tc.wantSteps)
+			}
+		})
+	}
+}
+
+// TestCheckSdkSkew pins the report-only view of the shared launch policy
+// (runtimepkg.ClassifyMsbLaunch): exact match OK, same-major mismatch a
+// warning naming the remedy, 1.x an error. The msb binary is faked on
+// PATH per row; the expected OK version is whatever SDK this build embeds.
+func TestCheckSdkSkew(t *testing.T) {
+	pinned := msb.SDKVersion()
+
+	cases := []struct {
+		name       string
+		hostOutput string
+		wantStatus CheckStatus
+		wantSubstr string
+	}{
+		{"match is OK", "msb " + pinned + "\n", CheckStatusOK, "matches"},
+		{"0.x mismatch warns with guidance", "msb 0.7.2\n", CheckStatusWarning, pinned},
+		{"1.x host errors", "msb 1.0.0\n", CheckStatusError, "1.x release"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			binDir := filepath.Join(t.TempDir(), "bin")
+			if err := os.MkdirAll(binDir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			script := "#!/bin/sh\ncat <<'VER'\n" + tc.hostOutput + "VER\n"
+			if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+			check := checkSdkSkew(true)
+			if check.Status != tc.wantStatus {
+				t.Errorf("status = %v, want %v (message %q, suggestion %q)",
+					check.Status, tc.wantStatus, check.Message, check.Suggestion)
+			}
+			joined := check.Message + " " + check.Suggestion
+			if !strings.Contains(joined, tc.wantSubstr) {
+				t.Errorf("message+suggestion %q must mention %q", joined, tc.wantSubstr)
 			}
 		})
 	}

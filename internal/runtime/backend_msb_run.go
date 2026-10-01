@@ -11,12 +11,14 @@ import (
 	goruntime "runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 
+	"github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -632,6 +634,14 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	bootReason := ""
 	bootCounts := msbBootCountsFor(cfg, projectDir)
 
+	// Fail fast on launch-contract mismatch BEFORE image acquisition: the
+	// embedded SDK refuses non-matching host runtimes at create time with
+	// a cryptic error, and without this gate construct would first pull
+	// gigabytes into a store it can never boot.
+	if err := ensureMsbLaunchCompat(); err != nil {
+		return nil, err
+	}
+
 	// Provision the image BEFORE the daemon lock: acquisition may now
 	// block on an interactive build-confirmation prompt, and holding the
 	// lock through it would stall every concurrent construct invocation.
@@ -872,6 +882,9 @@ func msbRunDefaultAsync(sb *msb.Sandbox) {
 // PrepareBackendAgnostic owns this on the normal path; MsbInstallAgents
 // regenerates it so a stale/empty script cannot silently skip the install.
 func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
+	if err := ensureMsbLaunchCompat(); err != nil {
+		return err
+	}
 	ui.InfoLn("📦 Installing agents inside microVM sandbox...")
 	if err := EnsureMsbVolumes(ctx); err != nil {
 		return fmt.Errorf("msb agent install: %w", err)
@@ -1051,6 +1064,117 @@ var msbHostVersion = sync.OnceValue(func() string {
 	// JSONL field parses without string surgery downstream.
 	return strings.TrimPrefix(strings.TrimSpace(string(out)), "msb ")
 })
+
+// MsbLaunchVerdict is the compatibility ruling for a host msb CLI version
+// against the runtime the embedded SDK launches.
+type MsbLaunchVerdict struct {
+	OK         bool // launch may proceed
+	Warning    bool // proceed, but flag it (doctor reporting)
+	HardStop   bool // untestable pairing (doctor escalates to an error)
+	Message    string
+	Suggestion string
+}
+
+// ClassifyMsbLaunch applies the host-msb launch policy, shared by the
+// launch path and doctor so they can never diverge. The embedded SDK's
+// FFI enforces this pairing internally at sandbox create (exact version
+// match, or the legacy 0.6.x<=18 window) and refuses anything else with
+// the cryptic "no tested sandbox launch contract"; classifying here turns
+// that into actionable guidance. The planned construct-managed runtime
+// pair removes the constraint entirely.
+func ClassifyMsbLaunch(host, sdk string) MsbLaunchVerdict {
+	if host == sdk {
+		return MsbLaunchVerdict{OK: true, Message: fmt.Sprintf("Host msb matches the embedded runtime (%s)", host)}
+	}
+	hMaj, hMin, hPat, hOK := parseSemverTriplet(host)
+	if !hOK {
+		return MsbLaunchVerdict{
+			HardStop:   true,
+			Message:    fmt.Sprintf("Unrecognized host msb version %q", host),
+			Suggestion: "Reinstall the host msb CLI, then retry",
+		}
+	}
+	align := "Align versions: run `msb update` for the host CLI and `ct sys self-update` for construct, then retry"
+	switch {
+	case hMaj == 0 && hMin == 6 && hPat <= 18:
+		// The FFI's legacy window: launches, but construct only exercises
+		// 0.7.x, so flag it rather than bless it.
+		return MsbLaunchVerdict{OK: true, Warning: true, Message: fmt.Sprintf("Host msb %s uses the SDK's legacy launch contract", host), Suggestion: align}
+	case hMaj >= 1:
+		return MsbLaunchVerdict{
+			HardStop:   true,
+			Message:    fmt.Sprintf("Host msb %s is a 1.x release; construct launches with %s and has no tested contract for it", host, sdk),
+			Suggestion: align,
+		}
+	}
+	sMaj, sMin, sPat, sOK := parseSemverTriplet(sdk)
+	if sOK && tupleNewer(hMaj, hMin, hPat, sMaj, sMin, sPat) {
+		return MsbLaunchVerdict{
+			Message:    fmt.Sprintf("Host msb %s is newer than construct's embedded runtime %s", host, sdk),
+			Suggestion: fmt.Sprintf("Run `ct sys self-update` to get a construct embedding msb %s, then retry", host),
+		}
+	}
+	return MsbLaunchVerdict{
+		Message:    fmt.Sprintf("Host msb %s cannot launch with construct's embedded runtime %s", host, sdk),
+		Suggestion: "Run `msb update`, then retry; if it lands a version construct does not embed yet, run `ct sys self-update` instead",
+	}
+}
+
+// parseSemverTriplet parses an x.y.z version into non-negative ints.
+// Build-metadata suffixes ("0.7.6-rc1") are rejected: the SDK compares
+// exact strings first, and suffixed hosts are genuinely unmatched.
+func parseSemverTriplet(v string) (maj, mi, pat int, ok bool) {
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 {
+			return 0, 0, 0, false
+		}
+		switch i {
+		case 0:
+			maj = n
+		case 1:
+			mi = n
+		case 2:
+			pat = n
+		}
+	}
+	return maj, mi, pat, true
+}
+
+// tupleNewer reports whether a > b component-wise.
+func tupleNewer(aMaj, aMin, aPat, bMaj, bMin, bPat int) bool {
+	if aMaj != bMaj {
+		return aMaj > bMaj
+	}
+	if aMin != bMin {
+		return aMin > bMin
+	}
+	return aPat > bPat
+}
+
+// ensureMsbLaunchCompat fails fast when the host msb cannot launch with
+// the embedded SDK, before any image acquisition spends bandwidth on a
+// sandbox create that the FFI would refuse.
+func ensureMsbLaunchCompat() error {
+	host := msbHostVersion()
+	if host == "" || host == "unknown" {
+		return fmt.Errorf("could not read the host msb version (`msb --version` failed)")
+	}
+	v := ClassifyMsbLaunch(host, msb.SDKVersion())
+	if v.OK {
+		return nil
+	}
+	return &cerrors.ConstructError{
+		Category:   cerrors.ErrorCategoryRuntime,
+		Operation:  "microVM launch compatibility check",
+		Suggestion: v.Suggestion,
+		Err:        fmt.Errorf("%s", v.Message),
+	}
+}
 
 // telemetryEnabled reports whether local telemetry file collection is on.
 // A nil config means defaults, and telemetry defaults to true (opt-out).
