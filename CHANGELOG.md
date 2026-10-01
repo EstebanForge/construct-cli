@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.17 -->
+## [1.17.17] - 2026-10-01
+
+### Added
+
+- **Agents pre-installed on the image can now update themselves in-guest.** The image chowns the agent tier to the runtime user (`/usr/local/lib/node_modules`, the bin directory, and the baked binaries), so self-updaters like `pi update --all`, `claude update`, and `codex update` write their install prefix in place instead of failing on root-owned paths, while the system toolchain and entrypoint scripts stay image-owned and the image lane stays authoritative — a root-fs replace on image pull still reaches every machine. `/usr/local/bin` carries the sticky bit, so the runtime user can replace its own agent symlinks but cannot remove the root-owned entrypoint scripts the next boot runs as root.
+- **`pi` now updates its extensions, models, and self inside the guest update routine.** update-all.sh runs `pi update --no-approve --models`, and when the baked binary is user-writable also `pi update --no-approve --all` (self + extensions); on older images with a still-root-owned binary, self-update is skipped with a note while user-tier extensions and models still refresh. `--no-approve` keeps the non-interactive run from trusting project-local files.
+- **`sys update` warns that in-VM updates revert on daemon recreate.** Agent and OS package updates live in the VM's writable layer, which a daemon recreate (image update or config change) replaces: a successful foreground update now says so and reminds to run `construct sys update` again afterwards, and the recreate banner repeats the reminder at the moment the revert happens. On the compose backend the wording differs on purpose — its update runs in a throwaway `--rm` container, so agent and OS updates there are discarded on exit and only home-directory updates persist.
+
+### Fixed
+
+- **Agent self-updates keep working on hosts whose uid is not 1000.** The build-time chown hardcodes the image default (1000:1000) while `ExecAsHostUser` remaps the runtime user to the host uid on every non-1000 host, and the entrypoint re-chowned only the home tree, so the remapped user lost write access exactly where remapping is enabled. The remap branch now re-aligns the agent tier to the remapped id, probed so the recursive chown only pays when the numeric id actually changed.
+
+<!-- RELEASE:END 1.17.17 -->
+
 <!-- RELEASE:START 1.17.16 -->
 ## [1.17.16] - 2026-10-01
 
