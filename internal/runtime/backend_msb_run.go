@@ -293,7 +293,7 @@ type MsbRunSpec struct {
 
 // BuildMsbRunSpec assembles the sandbox spec from config and project dir.
 // Pure function: no side effects, unit-testable without msb installed.
-func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []int) *MsbRunSpec {
+func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []int, imageRef string) *MsbRunSpec {
 	env := map[string]string{
 		"CONSTRUCT_HOST_ALIAS": msbHostAlias,
 	}
@@ -334,13 +334,21 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	// is built, so the local cache holds the freshly-pulled digest; a
 	// later decision run that sees a different digest recreates onto it.
 	labels[DaemonImageDigestLabelKey] = msbCachedImageDigest()
+	// Boot on the ref the caller's EnsureImage verified: create and image
+	// acquisition must never resolve independently. A listed-but-unusable
+	// entry (e.g. a legacy bare ref the acquisition sweep missed) winning
+	// the candidate race while EnsureImage verified GHCR sends msb create
+	// to resolve the bare name at docker.io, where the repo does not
+	// exist. Empty ref (install path probes independently / unit tests)
+	// falls back to candidate resolution.
+	if imageRef == "" {
+		imageRef = MsbConstructImageRef()
+	}
 	return &MsbRunSpec{
 		Name: name,
-		// Resolve the cached ref (bare / localhost/ / full registry): the
-		// daemon resolves image refs exactly as stored, and `msb load -i`
-		// imports as localhost/construct-box:latest. Falls back to the
-		// bare name when msb is unavailable (unit tests).
-		Image:        MsbConstructImageRef(),
+		// The daemon resolves image refs exactly as stored, and
+		// `msb load -i` imports as localhost/construct-box:latest.
+		Image:        imageRef,
 		Mounts:       msbSandboxMounts(cfg, projectDir),
 		Network:      msbNetworkConfig(cfg.Network.Mode, bridgePorts),
 		Env:          env,
@@ -630,7 +638,8 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	// Image provisioning never reads or mutates daemon state, so it needs
 	// no serialization.
 	m := NewMsbBackend()
-	if err := m.EnsureImage(cfg); err != nil {
+	bootRef, err := m.EnsureImage(cfg)
+	if err != nil {
 		return nil, err
 	}
 
@@ -795,7 +804,7 @@ create:
 	// mode (default-allow) needs no rule; offline/strict bridge egress is
 	// part of the Step 7 bridge wiring (docs/VMs.md §7 Step 7).
 	ui.InfoLn("🚀 Booting microVM daemon sandbox...")
-	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil)
+	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
 	spec.Detached = true
 	sb, err := CreateMsbSandbox(ctx, spec)
 	if err != nil {
@@ -867,7 +876,7 @@ func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
 	if err := EnsureMsbVolumes(ctx); err != nil {
 		return fmt.Errorf("msb agent install: %w", err)
 	}
-	if err := NewMsbBackend().EnsureImage(cfg); err != nil {
+	if _, err := NewMsbBackend().EnsureImage(cfg); err != nil {
 		return fmt.Errorf("msb agent install: %w", err)
 	}
 	if err := writeMsbInstallScript(); err != nil {
@@ -880,7 +889,7 @@ func MsbInstallAgents(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("msb agent install (stale sandbox): %w", err)
 	}
 
-	spec := BuildMsbRunSpec(cfg, name, "", nil)
+	spec := BuildMsbRunSpec(cfg, name, "", nil, "")
 	spec.Name = name
 	spec.Cmd = []string{"echo", "Installation complete"}
 	// CreateMsbSandbox blocks on the one-shot default workload (the
