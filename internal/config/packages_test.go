@@ -292,6 +292,9 @@ func TestGenerateTopgradeConfigClaudeCodeCommand(t *testing.T) {
 	if !strings.Contains(result, `"claude_code",`) {
 		t.Error("topgrade config must disable built-in claude_code step to avoid duplicate/conflicting Claude update runs")
 	}
+	if !strings.Contains(result, `"pi",`) {
+		t.Error("topgrade config must disable built-in pi step: topgrade 17.4+ runs pi update against the baked root-owned /usr/local/bin/pi and one EACCES fails the whole pass")
+	}
 	if !strings.Contains(result, `"mise",`) || !strings.Contains(result, "ignore_failures = [") {
 		t.Error("topgrade config should ignore mise failures to prevent transient API errors from failing whole update")
 	}

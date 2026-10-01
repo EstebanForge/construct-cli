@@ -21,7 +21,8 @@ disable = [
     "flatpak",       # Not installed in construct
     "snap",          # Not installed in construct
     "containers",    # Avoid recursive container updates
-    "claude_code",   # Avoid duplicate Claude step; use guarded custom command
+    "claude_code",   # Baked agents (claude, pi) update on the image lane, never in-guest
+    "pi",            # topgrade 17.4+ runs 'pi update --self' on the root-owned baked binary; one EACCES fails the whole run
     "pnpm",          # pnpm itself is npm-managed; no pnpm globals are baked
     "sdkman",        # Not used by default
     "vagrant",       # Not used in container

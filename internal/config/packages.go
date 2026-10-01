@@ -522,6 +522,7 @@ func (c *PackagesConfig) GenerateTopgradeConfig() string {
 		"snap",
 		"containers",
 		"claude_code",
+		"pi",
 		"pnpm",
 		"sdkman",
 		"vagrant",
