@@ -2,14 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
-<!-- RELEASE:START 1.17.15 -->
-## [1.17.15] - 2026-10-01
+<!-- RELEASE:START 1.17.16 -->
+## [1.17.16] - 2026-10-01
 
 ### Fixed
 
 - **`sys update` no longer fails on topgrade's built-in pi step.** topgrade 17.4.0 shipped a built-in `pi` step that runs `pi update --self`, and the image pins topgrade 17.7.0, so every in-guest update ran it against the baked root-owned `/usr/local/bin/pi`: pi refuses to self-update an npm-managed install on an unwritable path, the step fails, and topgrade exits 1, failing the whole pass. The run log naming the step `pi` (a `[commands]` entry would be named by its TOML key, `Pi Coding Agent`) proved the culprit was topgrade's binary detection, not the stale-config theory behind 1.17.14's derived-file refresh. The step is now disabled like `claude_code` (baked agents update on the image lane, never in-guest) in the shipped template, the generator, and the no-config fallback, with a test pinning the generated list. The disable list only carries step keys that exist in the pinned topgrade: an unknown key makes its config loader fall back to an empty default config and silently drop every other disable rule.
+- **The host-exec shim no longer drops stdin that arrives late.** The shim gated piped input on a single non-blocking peek, so a parent whose pipe write landed after shim startup shipped an empty stdin silently: a loaded CI runner hit exactly this on the 1.17.15 tag run, and any real-world writer slower than shim startup could too. The peek stays, keeping open-empty launcher pipes free of the 5s read budget, but it now polls across a 300ms grace window before concluding the pipe is empty, and a regression test writes stdin 100ms after start to pin the behavior.
 
-<!-- RELEASE:END 1.17.15 -->
+<!-- RELEASE:END 1.17.16 -->
 
 <!-- RELEASE:START 1.17.14 -->
 ## [1.17.14] - 2026-09-30
