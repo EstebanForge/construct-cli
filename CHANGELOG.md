@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.17.19 -->
+## [1.17.19] - 2026-10-01
+
+### Fixed
+
+- **`construct` now verifies the host msb runtime before every microVM launch and says exactly what to fix when it cannot pair.** The embedded microsandbox SDK refuses any host runtime except its own exact version with the cryptic `no tested sandbox launch contract` error — and since the 1.17.17 SDK bump embedded 0.7.3, a version no msb release ever shipped, every machine with any other msb failed at daemon create, often after pulling the image first. Both create entry points now fail fast before image acquisition, naming both versions and the side to update (`msb update` or `ct sys self-update`); 1.x hosts are refused as untested. The policy is shared with doctor's Host CLI/SDK Skew check (match OK, 0.x mismatch warning, 1.x error), which now reads the SDK version from the SDK itself instead of a hand-maintained constant that had silently drifted.
+- **Embedded the 0.7.6 SDK**, matching the current msb release, so version-matched hosts launch again.
+
+<!-- RELEASE:END 1.17.19 -->
+
 <!-- RELEASE:START 1.17.18 -->
 ## [1.17.18] - 2026-10-01
 
