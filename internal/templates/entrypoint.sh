@@ -499,6 +499,9 @@ if [ "$CURRENT_HASH" != "$PREVIOUS_HASH" ]; then
     if [ -f "$USER_INSTALL_SCRIPT" ]; then
         echo "📦 Installing system and user-defined packages..."
         bash "$USER_INSTALL_SCRIPT" || echo "⚠️ Package installation encountered errors"
+        # The apt cache bind is written by guest root; hand ownership back so
+        # host-side cache inspection/pruning stays user-owned. Best-effort.
+        chown -R "$RUN_AS_CHOWN" /var/cache/apt/archives 2>/dev/null || true
     fi
 
     # Configure npm prefix for any subsequent manual installs

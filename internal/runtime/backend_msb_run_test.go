@@ -150,8 +150,8 @@ func TestMsbSandboxMountsMultiPath(t *testing.T) {
 	cfg := msbTestConfigWithMountPaths(t, rootA, rootB)
 
 	mounts := msbSandboxMounts(&cfg, t.TempDir())
-	if len(mounts) != 3 { // home + two configured roots
-		t.Fatalf("expected home + 2 configured roots, got %d mounts: %v", len(mounts), mounts)
+	if len(mounts) != 4 { // home + two configured roots + apt cache
+		t.Fatalf("expected home + 2 configured roots + apt cache, got %d mounts: %v", len(mounts), mounts)
 	}
 	dm := ResolveDaemonMounts(&cfg)
 	if !dm.Enabled {

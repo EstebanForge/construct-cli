@@ -1,5 +1,13 @@
 FROM debian:trixie-slim
 
+# Keep downloaded .debs in the apt cache: the guest /var/cache/apt/archives
+# is a persistent host bind, so recreated sandboxes re-provision
+# packages.toml from local copies instead of re-downloading. debian docker
+# base images ship docker-clean, which purges the archive after every apt
+# run — remove it or the cache bind stays empty.
+RUN rm -f /etc/apt/apt.conf.d/docker-clean && \
+    echo 'APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/construct-keep-cache
+
 # 1. Create non-root user and install system packages
 RUN useradd -u 1000 -m -s /bin/bash construct && \
     echo "construct:construct" | chpasswd && \

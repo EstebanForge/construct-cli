@@ -151,24 +151,19 @@ Hard constraints recorded from review (the design must address each):
 - [x] P5.1 Write `docs/CREDS-PROXY.md`: threat model, component diagram, CA lifecycle, per-provider rule format, token store, guest env removal plan, rollout flags
 - [x] P5.2 Review round on the design doc (isolated peer review, 2026-09-21): six findings adopted into the doc — bridgePort exclusion, proxy-side mode enforcement (offline/strict tunnel risk), permissive-mode keys-not-egress clarification, CA-bundle env for certifi/undici, NO_PROXY loopback coverage, per-provider rollout list
 
-### Phase 6: snapshot fork (gated; do not start before the gate opens)
+### Phase 6: snapshot fork (SHIPPED 2026-10-01, mounts-only recreates)
 
-Gate: phase 0 numbers recorded in section 10 show median cold recreate above ~120 seconds AND recreates occur in the normal workflow (once per new project root). If warm reuse after phase 2 makes recreates rare enough and cheap enough, this phase stays parked. Re-evaluate after one dogfood week.
+Status: shipped behind a full cold-recreate fallback. Gate evidence: a learned-root recreate on zenless measured 546 seconds (section 10), clearing the >120s bar.
 
-Design sketch: after the first successful `msbWaitKeeper` on a cold boot, call `SandboxHandle.Snapshot(ctx, "construct-base")`. When a recreate is unavoidable, build the replacement with `WithFromSnapshot("construct-base")` plus FRESH mounts (see spike list). Staleness: invalidate the snapshot when `construct-box` image version, `packages.toml` hash, or entrypoint hash changes; store the invalidation key host-side (roots.json sibling or its own `snapshot.json`).
+As-built design (differs from the sketch below): each fork captures a FULL snapshot (disk + checkpoint) of the OUTGOING daemon with `Snapshot.Create{Full: true, GuestFlush: required}` while it still runs, stops it, destroys it, then `RestoreSandbox` disk-only into the same name with the NEW mount set. There is no persistent `construct-base` snapshot and no staleness bookkeeping: the outgoing disk is by definition the freshest install state, and image/sudo/skills-drift recreates keep the cold path, which refreshes everything.
 
-Spike checklist (must all pass before any wiring):
-- [ ] P6.1 Fork boot time vs cold boot (measured, recorded in section 10)
-- [ ] P6.2 Disk semantics: does a fork share or copy the base (du before/after several forks)
-- [ ] P6.3 Forked sandbox accepts fresh mounts; old `/workspaces` set is not frozen into the fork
-- [ ] P6.4 `/home/construct` host bind re-binds cleanly on the fork (marker still matches, no stale guest state)
-- [ ] P6.5 Fork labels/config can be set independently of the base
+Spike results (all answered by `TestMsbLiveSnapshotFork`, msb 0.7.x): a full capture needs a RUNNING source and `GuestFlushRequired` — without the forced writeback, dirty page cache lives only in the discarded memory state and pre-snapshot writes vanish; disk-only restore accepts a fresh volume set and the old binds do not survive; the restore carries NO workload, env, or labels; boot overhead is ~1-3s capture + ~1s restore.
 
-Wiring (only after the gate and spikes):
-- [ ] P6.6 Snapshot after first successful cold boot; invalidation key on image + packages + entrypoint hashes
-- [ ] P6.7 `EnsureMsbDaemon` recreate path prefers the snapshot fork; falls back to cold create if the snapshot is missing/stale
-- [ ] P6.8 `construct sys daemon snapshot refresh` manual command
-- [ ] P6.9 Telemetry tags fork-based recreates distinctly (`msb-boot: outcome=recreate-fork`)
+Wiring as-built: eligibility is an explicit reason allowlist (`msbRecreateForkable`: workspace-roots, mount_paths, skills) plus the bind-side install-complete marker; the entrypoint is booted explicitly (`Exec` + `WithExecEnv`) because restore has no workload surface; the recreate-decision inputs moved to a construct-owned spec file (`~/.config/construct-cli/msb-daemon-spec.json`, written on cold create and fork, migrated once from record labels) because msb records lose their labels across a restore; failures leave the daemon name free and fall back to the cold path.
+
+Known gaps: P6.2 disk-cost accounting (fork snapshots are full disk images, ~4 GiB each; only the newest is kept, prune is best-effort) and P6.8 (`sys daemon snapshot refresh`) are open; the first fork after an entrypoint or packages.toml change reinstalls by design — the restored disk's hash gate no longer matches.
+
+Original sketch (superseded by the as-built design above): after the first successful `msbWaitKeeper` on a cold boot, call `SandboxHandle.Snapshot(ctx, "construct-base")`. When a recreate is unavoidable, build the replacement with `WithFromSnapshot("construct-base")` plus FRESH mounts (see spike list). Staleness: invalidate the snapshot when `construct-box` image version, `packages.toml` hash, or entrypoint hash changes; store the invalidation key host-side (roots.json sibling or its own `snapshot.json`).
 
 ### Phase 7: host skills mount (docker + microvm)
 
