@@ -43,6 +43,16 @@ if [ "$(id -u)" = "0" ]; then
                 groupmod -g "$TARGET_GID" construct 2>/dev/null || usermod -g "$TARGET_GID" construct 2>/dev/null || true
             fi
             usermod -u "$TARGET_UID" -g "$TARGET_GID" construct 2>/dev/null || usermod -u "$TARGET_UID" construct 2>/dev/null || true
+            # The agent tier is baked construct-owned (1000:1000); a remap
+            # changes construct's numeric id, so re-align ownership or
+            # in-guest agent self-updates lose write access.
+            if [ "$(stat -c '%u' /usr/local/lib/node_modules 2>/dev/null)" != "$TARGET_UID" ]; then
+                chown -R "$RUN_AS_CHOWN" /usr/local/lib/node_modules 2>/dev/null || true
+                chown "$RUN_AS_CHOWN" /usr/local/bin 2>/dev/null || true
+                chown -h "$RUN_AS_CHOWN" /usr/local/bin/claude /usr/local/bin/agy \
+                    /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
+                    /usr/local/bin/pig 2>/dev/null || true
+            fi
         fi
     fi
 

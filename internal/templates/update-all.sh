@@ -128,10 +128,12 @@ if command -v npm &> /dev/null; then
 fi
 
 # pi user-tier resources (extensions, model catalogs) live in ~/.pi and
-# always update in-guest. The binary self-update only works against a
-# user-writable install (~/.npm-global): the baked /usr/local/bin/pi is
-# root-owned and stays on the image lane. --no-approve keeps the run
-# non-interactive; project-local files are never trusted from a routine.
+# always update in-guest. The baked /usr/local/bin/pi is construct-owned
+# (the image chowns the agent tier), so self-update writes its install
+# prefix in place; on older images where it is still root-owned, only
+# extensions and models update and self-update stays on the image lane.
+# --no-approve keeps the run non-interactive; project-local files are
+# never trusted from a routine.
 if command -v pi &> /dev/null; then
     echo ""
     echo "Updating pi (extensions, models, self)..."

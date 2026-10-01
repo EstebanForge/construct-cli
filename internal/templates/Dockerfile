@@ -246,9 +246,10 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
 # them.
 RUN chown -R construct:construct /usr/local/lib/node_modules && \
     chown construct:construct /usr/local/bin && \
-    chown construct:construct /usr/local/bin/claude /usr/local/bin/agy \
+    chown -h construct:construct /usr/local/bin/claude /usr/local/bin/agy \
         /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
-        /usr/local/bin/pig
+        /usr/local/bin/pig && \
+    chmod +t /usr/local/bin
 
 # Switch back to construct user
 # USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
