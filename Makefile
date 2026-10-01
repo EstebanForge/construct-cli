@@ -61,6 +61,9 @@ build-embedded: ## Build with the embedded msb runtime pair (fetches assets from
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) -tags msbembed $(LDFLAGS) -o $(BINARY_PATH) ./cmd/construct
 	@echo "✓ Built: $(BINARY_PATH) (embedded msb pair)"
+	@mkdir -p $(HOME)/.local/bin
+	cp $(BINARY_PATH) $(HOME)/.local/bin/$(BINARY_NAME)
+	@echo "✓ Installed: $(HOME)/.local/bin/$(BINARY_NAME)"
 
 build-release: ## Build optimized release binary for current platform
 	@echo "Building release binary..."
