@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -90,7 +91,11 @@ func PrepullRun() {
 	}
 
 	logPrepull("prepull started")
-	pull := exec.Command("msb", "pull", PrepullImageRef)
+	pullBin, pullErr := msbembed.Command()
+	if pullErr != nil {
+		return
+	}
+	pull := exec.Command(pullBin, "pull", PrepullImageRef)
 	pull.Stdout = f
 	pull.Stderr = f
 	if err := pull.Run(); err != nil {
@@ -111,7 +116,11 @@ func PrepullRun() {
 // — the prepull just runs redundantly, which is cheaper than a brittle
 // line-anchored parse.
 func imageLoadedForPrepull() bool {
-	out, err := exec.Command("msb", "image", "ls").CombinedOutput()
+	name, err := msbembed.Command()
+	if err != nil {
+		return false
+	}
+	out, err := exec.Command(name, "image", "ls").CombinedOutput()
 	if err != nil {
 		return false
 	}

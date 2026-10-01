@@ -97,8 +97,11 @@ jobs:
         env:
           VERSION: ${{ needs.resolve.outputs.version }}
         run: |
+          ./scripts/embed-msb-runtime.sh
           mkdir -p dist
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o dist/construct-linux-amd64 ./cmd/construct
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags msbembed -ldflags "-s -w" -o dist/construct-linux-amd64 ./cmd/construct
+      - name: Report artifact size delta
+        run: du -h dist/construct-linux-amd64
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -122,8 +125,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: Build linux/arm64 (cross-cgo)
         run: |
+          GOOS=linux GOARCH=arm64 ./scripts/embed-msb-runtime.sh
           mkdir -p dist
-          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -ldflags "-s -w" -o dist/construct-linux-arm64 ./cmd/construct
+          CGO_ENABLED=1 GOOS=linux GOARCH=arm64 CC=aarch64-linux-gnu-gcc go build -tags msbembed -ldflags "-s -w" -o dist/construct-linux-arm64 ./cmd/construct
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -146,8 +150,12 @@ jobs:
       - name: Build darwin (arm64 + amd64 via clang -arch)
         run: |
           mkdir -p dist
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o dist/construct-darwin-arm64 ./cmd/construct
-          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o dist/construct-darwin-amd64 ./cmd/construct
+          # darwin/arm64 embeds the msb pair; darwin/amd64 has no upstream
+          # assets and the script skips embedding for it (host-msb gate).
+          GOOS=darwin GOARCH=arm64 ./scripts/embed-msb-runtime.sh
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags msbembed -ldflags "-s -w" -o dist/construct-darwin-arm64 ./cmd/construct
+          GOOS=darwin GOARCH=amd64 ./scripts/embed-msb-runtime.sh
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags msbembed -ldflags "-s -w" -o dist/construct-darwin-amd64 ./cmd/construct
       - name: Optional release signing and notarization
         env:
           RELEASE_SIGN: ${{ vars.RELEASE_SIGN }}

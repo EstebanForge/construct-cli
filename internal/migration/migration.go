@@ -17,6 +17,7 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	semver "github.com/EstebanForge/construct-cli/internal/version"
@@ -854,8 +855,14 @@ func msbImageRefsToRemove() []string {
 }
 
 // msbRemoveImageRef is a seam so the teardown ref coverage is unit-testable.
+// Embedded-runtime builds exec the extracted msb so the remove lands in
+// the isolated store (a foreign-version CLI could refuse the schema).
 var msbRemoveImageRef = func(ref string) error {
-	return exec.Command("msb", "image", "remove", "-f", ref).Run()
+	name := "msb"
+	if resolved, err := msbembed.Command(); err == nil {
+		name = resolved
+	}
+	return exec.Command(name, "image", "remove", "-f", ref).Run()
 }
 
 // removeMsbImageCache drops every msb-cached ref form of the construct image.
@@ -961,12 +968,20 @@ func markImageForRebuild() {
 		}
 	}
 
-	// Try msb (microvm backend)
-	if _, err := exec.LookPath("msb"); err == nil {
-		if err := exec.Command("msb", "stop", "construct-cli-daemon").Run(); err != nil {
+	// Try msb (microvm backend): the embedded pair when present, else the
+	// host CLI. The daemon teardown must land in the same store construct
+	// boots from.
+	msbBinPath, msbErr := msbembed.Command()
+	msbOK := msbErr == nil
+	if msbOK && !msbembed.Available() {
+		_, lookErr := exec.LookPath(msbBinPath)
+		msbOK = lookErr == nil
+	}
+	if msbOK {
+		if err := exec.Command(msbBinPath, "stop", "construct-cli-daemon").Run(); err != nil {
 			ui.LogDebug("Failed to stop msb sandbox construct-cli-daemon: %v", err)
 		}
-		if err := exec.Command("msb", "remove", "-f", "construct-cli-daemon").Run(); err != nil {
+		if err := exec.Command(msbBinPath, "remove", "-f", "construct-cli-daemon").Run(); err != nil {
 			ui.LogDebug("Failed to remove msb sandbox construct-cli-daemon: %v", err)
 		}
 		removeMsbImageCache()

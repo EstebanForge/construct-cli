@@ -22,6 +22,7 @@ import (
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/sys"
 	"github.com/EstebanForge/construct-cli/internal/templates"
@@ -985,20 +986,49 @@ func Run(args ...string) {
 
 // msbBackendCheck verifies the microsandbox backend prerequisites
 // (docs/VMsv2.md): binary + version, hardware virtualization,
-// construct image loaded, packages volume present. Fail-closed flavor:
+// msbBin resolves the msb binary for doctor probes: the extracted embedded
+// pair when this build ships one, else the host CLI. ok=false means neither
+// is usable and the caller's check degrades to its skipped/error branch.
+func msbBin() (string, bool) {
+	name, err := msbembed.Command()
+	if err != nil {
+		return "", false
+	}
+	if !msbembed.Available() {
+		if _, err := exec.LookPath(name); err != nil {
+			return "", false
+		}
+	}
+	return name, true
+}
+
+// msbBackendCheck verifies the microvm launch stack. Fail-closed flavor:
 // every missing piece is an error with a fix suggestion.
 func msbBackendCheck(fix bool) CheckResult {
 	check := CheckResult{Name: "VM Backend (microsandbox)"}
-	if _, err := exec.LookPath("msb"); err != nil {
+	msbBinPath, haveMsb := msbBin()
+	if !haveMsb {
 		check.Status = CheckStatusError
-		check.Message = "msb binary not found"
-		check.Suggestion = "Install microsandbox: curl -fsSL https://install.microsandbox.dev | sh"
+		if msbembed.Available() {
+			check.Message = "Embedded msb runtime failed to extract"
+			check.Suggestion = "Run 'construct sys doctor --fix' to re-extract the embedded msb pair"
+		} else {
+			check.Message = "msb binary not found"
+			check.Suggestion = "Install microsandbox: curl -fsSL https://install.microsandbox.dev | sh"
+		}
 		return check
 	}
 	check.Status = CheckStatusOK
-	check.Message = "Found msb"
-	if out, err := exec.Command("msb", "--version").Output(); err == nil {
-		check.Details = append(check.Details, fmt.Sprintf("Version: %s", strings.TrimSpace(string(out))))
+	if msbembed.Available() {
+		check.Message = "Embedded msb ready"
+		if pair, err := msbembed.Ensure(); err == nil {
+			check.Details = append(check.Details, fmt.Sprintf("Version: msb %s (embedded pair at %s)", pair.Version, pair.Dir))
+		}
+	} else {
+		check.Message = "Found msb"
+		if out, err := exec.Command(msbBinPath, "--version").Output(); err == nil {
+			check.Details = append(check.Details, fmt.Sprintf("Version: %s", strings.TrimSpace(string(out))))
+		}
 	}
 
 	// Hardware virtualization: KVM on Linux, Hypervisor.framework on macOS.
@@ -1020,7 +1050,7 @@ func msbBackendCheck(fix bool) CheckResult {
 	}
 
 	msbRun := func(args ...string) bool {
-		cmd := exec.Command("msb", args...)
+		cmd := exec.Command(msbBinPath, args...)
 		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
 		return cmd.Run() == nil
 	}
@@ -1058,10 +1088,12 @@ func msbBackendCheck(fix bool) CheckResult {
 	}
 	// libkrunfw + host virtualization prerequisites, delegated to msb's own
 	// probe (covers libkrunfw presence, root clone support, arch).
-	if out, err := exec.Command("msb", "doctor").CombinedOutput(); err != nil {
-		check.Details = append(check.Details, fmt.Sprintf("msb doctor reported issues: %s", strings.TrimSpace(string(out))))
-	} else {
-		check.Details = append(check.Details, "msb doctor: host setup ready")
+	if deepBin, deepOK := msbBin(); deepOK {
+		if out, err := exec.Command(deepBin, "doctor").CombinedOutput(); err != nil {
+			check.Details = append(check.Details, fmt.Sprintf("msb doctor reported issues: %s", strings.TrimSpace(string(out))))
+		} else {
+			check.Details = append(check.Details, "msb doctor: host setup ready")
+		}
 	}
 	return check
 }
@@ -1306,13 +1338,14 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 		return check
 	}
 	imageRef := runtimepkg.PrepullImageRef
-	if _, err := exec.LookPath("msb"); err != nil {
+	msbBinPath, haveMsb := msbBin()
+	if !haveMsb {
 		check.Status = CheckStatusSkipped
 		check.Message = "msb binary not found"
 		return check
 	}
 	if !fix {
-		inspect := exec.Command("msb", "image", "inspect", imageRef)
+		inspect := exec.Command(msbBinPath, "image", "inspect", imageRef)
 		inspect.Stdin = nil // msb stdin trap: open pipe hangs
 		if inspect.Run() == nil {
 			check.Status = CheckStatusSkipped
@@ -1327,7 +1360,7 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "msb", "pull", runtimepkg.PrepullImageRef)
+	cmd := exec.CommandContext(ctx, msbBinPath, "pull", runtimepkg.PrepullImageRef)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -1352,6 +1385,23 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 // sandbox create; the launch path fails fast with the actionable
 // suggestion, so this check is the report-only view of the same ruling.
 func checkSdkSkew(msbBackend bool) CheckResult {
+	// Embedded builds replaced the host pairing question: construct launches
+	// its own extracted pair, so the check verifies the pair instead.
+	if msbembed.Available() {
+		check := CheckResult{Name: "Embedded Runtime"}
+		pair, err := msbembed.Ensure()
+		if err != nil {
+			check.Status = CheckStatusError
+			check.Message = "Embedded msb runtime unavailable"
+			check.Details = append(check.Details, err.Error())
+			check.Suggestion = "Run 'construct sys doctor --fix' to re-extract the embedded msb pair"
+			return check
+		}
+		check.Status = CheckStatusOK
+		check.Message = fmt.Sprintf("Embedded msb %s extracted (SDK %s)", pair.Version, msb.SDKVersion())
+		check.Details = append(check.Details, fmt.Sprintf("Pair: %s + %s", pair.MsbPath, pair.LibkrunfwPath))
+		return check
+	}
 	check := CheckResult{Name: "Host CLI/SDK Skew"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
@@ -1464,6 +1514,13 @@ func checkMsbLibkrunfwResolution(msbBackend, fix bool) CheckResult {
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
 		check.Message = "Not applicable (runtime backend is not microvm)"
+		return check
+	}
+	// Embedded builds ship the pair side by side; the host-resolution bug
+	// cannot apply to a binary construct extracts itself.
+	if msbembed.Available() {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (libkrunfw ships embedded with construct)"
 		return check
 	}
 	msbPath, err := exec.LookPath("msb")

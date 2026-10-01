@@ -75,10 +75,11 @@ func TestMsbDaemonSpecRoundtripAndDecision(t *testing.T) {
 		DaemonSkillsLabelKey:      "skills-hash",
 		DaemonSudoLabelKey:        "free",
 		DaemonImageDigestLabelKey: "sha256:abc",
+		DaemonSDKVersionLabelKey:  "0.7.6",
 		"construct.unrelated":     "ignored",
 	}
 	got := specFromLabels(labels).toLabels()
-	for _, k := range []string{"construct.project_dir", DaemonMountsLabelKey, DaemonSkillsLabelKey, DaemonSudoLabelKey, DaemonImageDigestLabelKey} {
+	for _, k := range []string{"construct.project_dir", DaemonMountsLabelKey, DaemonSkillsLabelKey, DaemonSudoLabelKey, DaemonImageDigestLabelKey, DaemonSDKVersionLabelKey} {
 		if got[k] != labels[k] {
 			t.Errorf("label %s: got %q want %q", k, got[k], labels[k])
 		}
