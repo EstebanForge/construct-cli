@@ -447,21 +447,40 @@ func (m *MsbBackend) Stop(ctx context.Context, name string) error {
 	return h.RequestStop(ctx)
 }
 
-// Cleanup removes the sandbox so it can be recreated: stop first if still
-// running, wait for the stop to land, then remove.
-func (m *MsbBackend) Cleanup(ctx context.Context, name string) error {
+// forceRemoveMsbDaemon is the canonical daemon teardown ahead of any
+// recreate: graceful stop (bounded), kill fallback, wait for stopped,
+// remove. Unlike a bare Cleanup call from a best-effort site it must be
+// HEARD: a failure here leaves the record behind and the recreate that
+// follows needs to know (it retries with a forced removal at create).
+func (m *MsbBackend) forceRemoveMsbDaemon(ctx context.Context, name string) error {
 	h, err := msb.GetSandbox(ctx, name)
 	if err != nil {
 		return nil // already gone
 	}
-	if h.Status() == msb.SandboxStatusRunning {
+	fresh, err := h.Refresh(ctx)
+	if err != nil {
+		return nil // gone
+	}
+	h = fresh
+	switch h.Status() {
+	case msb.SandboxStatusStopped:
+		// Nothing to tear down.
+	case msb.SandboxStatusRunning:
 		if err := h.Stop(ctx, msb.WithStopTimeout(30*time.Second)); err != nil {
-			// Convergent Stop bounds itself, but a wedged guest falls back to
-			// Kill so recreate is never blocked indefinitely — the root disk
-			// is about to be removed anyway.
+			// A wedged guest (e.g. its control channel stuck on a failed
+			// capture op) never finishes a graceful stop; kill so the
+			// recreate is never blocked — the disk is about to be removed.
 			if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
 				return fmt.Errorf("stop sandbox %s: %w (kill fallback: %v)", name, err, killErr)
 			}
+		}
+	default:
+		// Draining (a graceful stop is stuck in flight), starting, paused,
+		// crashed: graceful stop either already ran or cannot land; go
+		// straight to kill. Missing this state left a draining sandbox
+		// immune to teardown and blocked the recreate with "already exists".
+		if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
+			return fmt.Errorf("kill sandbox %s (status %s): %w", name, h.Status(), killErr)
 		}
 	}
 	// Re-resolve until fully stopped: the handle's status is a snapshot and
@@ -481,10 +500,23 @@ func (m *MsbBackend) Cleanup(ctx context.Context, name string) error {
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
+	if h.Status() != msb.SandboxStatusStopped {
+		// The wait expired mid-shutdown; Remove would refuse. Kill settles
+		// it, and its own expiry surfaces as the returned error.
+		if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
+			return fmt.Errorf("sandbox %s never reached stopped (status %s; kill: %v)", name, h.Status(), killErr)
+		}
+	}
 	if err := h.Remove(ctx); err != nil {
 		return fmt.Errorf("remove sandbox %s: %w", name, err)
 	}
 	return nil
+}
+
+// Cleanup removes the sandbox so it can be recreated: stop first if still
+// running, wait for the stop to land, then remove.
+func (m *MsbBackend) Cleanup(ctx context.Context, name string) error {
+	return m.forceRemoveMsbDaemon(ctx, name)
 }
 
 // WorkingDir is unsupported until sandbox inspect parity lands (Step 7).
