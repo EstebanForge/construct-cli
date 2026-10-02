@@ -65,6 +65,7 @@ build-embedded: ## Build with the embedded msb runtime pair (fetches assets from
 	@echo "✓ Built: $(BINARY_PATH) (embedded msb pair)"
 	@mkdir -p $(HOME)/.local/bin
 	cp $(BINARY_PATH) $(HOME)/.local/bin/$(BINARY_NAME)
+	@if [ "$$(uname -s)" = "Darwin" ]; then codesign --force --sign - $(HOME)/.local/bin/$(BINARY_NAME); fi
 	@echo "✓ Installed: $(HOME)/.local/bin/$(BINARY_NAME)"
 
 build-release: ## Build optimized release binary for current platform
