@@ -53,6 +53,7 @@ build: ## Build the binary
 	@echo "Building $(BINARY_NAME)..."
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BINARY_PATH) ./cmd/construct
+	@if [ "$$(uname -s)" = "Darwin" ]; then codesign --force --sign - $(BINARY_PATH); fi
 	@echo "✓ Built: $(BINARY_PATH)"
 
 build-embedded: ## Build with the embedded msb runtime pair (fetches assets from the upstream release)
@@ -60,6 +61,7 @@ build-embedded: ## Build with the embedded msb runtime pair (fetches assets from
 	./scripts/embed-msb-runtime.sh
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) -tags msbembed $(LDFLAGS) -o $(BINARY_PATH) ./cmd/construct
+	@if [ "$$(uname -s)" = "Darwin" ]; then codesign --force --sign - $(BINARY_PATH); fi
 	@echo "✓ Built: $(BINARY_PATH) (embedded msb pair)"
 	@mkdir -p $(HOME)/.local/bin
 	cp $(BINARY_PATH) $(HOME)/.local/bin/$(BINARY_NAME)

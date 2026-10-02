@@ -156,6 +156,11 @@ jobs:
           CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -tags msbembed -ldflags "-s -w" -o dist/construct-darwin-arm64 ./cmd/construct
           GOOS=darwin GOARCH=amd64 ./scripts/embed-msb-runtime.sh
           CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 go build -tags msbembed -ldflags "-s -w" -o dist/construct-darwin-amd64 ./cmd/construct
+          # The linker's strip can leave the ad-hoc signature stale, and
+          # macOS arm64 kernels SIGKILL such binaries at exec. Re-sign each
+          # slice; the merged binary is re-signed after lipo below.
+          codesign --force --sign - dist/construct-darwin-arm64
+          codesign --force --sign - dist/construct-darwin-amd64
       - name: Optional release signing and notarization
         env:
           RELEASE_SIGN: ${{ vars.RELEASE_SIGN }}
@@ -169,6 +174,7 @@ jobs:
         run: |
           lipo -create -output dist/construct dist/construct-darwin-amd64 dist/construct-darwin-arm64
           lipo -info dist/construct
+          codesign --force --sign - dist/construct
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
