@@ -770,8 +770,11 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 					ui.InfoF("⚠️  Snapshot fork unavailable (%v); doing a full recreate (installs will re-run)...\n", ferr)
 				}
 				ui.InfoLn("   In-VM agent and OS updates revert to image versions; run 'construct sys update' to re-apply them.")
-				_ = h.Stop(ctx, msb.WithStopTimeout(30*time.Second)) //nolint:errcheck // best-effort stop before recreate
-				_ = m.Cleanup(ctx, msbDaemonName)                    //nolint:errcheck // best-effort cleanup before recreate
+				if terr := m.forceRemoveMsbDaemon(ctx, msbDaemonName); terr != nil {
+					// Reported, not fatal: the create below retries with a forced
+					// removal if the record survived this pass.
+					ui.InfoF("⚠️  Old daemon teardown incomplete (%v); the create below will retry with a forced removal.\n", terr)
+				}
 				goto create
 			}
 		} else {
@@ -851,6 +854,15 @@ create:
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
 	spec.Detached = true
 	sb, err := CreateMsbSandbox(ctx, spec)
+	if err != nil && msb.IsKind(err, msb.ErrSandboxAlreadyExists) {
+		// A teardown that lost a race with a wedged shutdown leaves the
+		// record behind; absorb that state once instead of failing the run.
+		ui.InfoF("⚠️  A stale daemon record blocked the create (%v); forcing removal and retrying...\n", err)
+		if terr := m.forceRemoveMsbDaemon(ctx, msbDaemonName); terr != nil {
+			return nil, fmt.Errorf("create sandbox: %w (forced removal also failed: %w)", err, terr)
+		}
+		sb, err = CreateMsbSandbox(ctx, spec)
+	}
 	if err != nil {
 		return nil, err
 	}
