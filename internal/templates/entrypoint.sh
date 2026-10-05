@@ -47,7 +47,7 @@ if [ "$(id -u)" = "0" ]; then
             # changes construct's numeric id, so re-align ownership or
             # in-guest agent self-updates lose write access.
             if [ "$(stat -c '%u' /usr/local/lib/node_modules 2>/dev/null)" != "$TARGET_UID" ]; then
-                chown -R "$RUN_AS_CHOWN" /usr/local/lib/node_modules 2>/dev/null || true
+                chown -R "$RUN_AS_CHOWN" /usr/local/lib/node_modules /usr/local/lib/pi-agent 2>/dev/null || true
                 chown "$RUN_AS_CHOWN" /usr/local/bin 2>/dev/null || true
                 chown -h "$RUN_AS_CHOWN" /usr/local/bin/claude /usr/local/bin/agy \
                     /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \

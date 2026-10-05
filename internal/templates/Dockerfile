@@ -231,6 +231,11 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # API) 403s GitHub Actions runner egress. PIG_VERSION is pinned because
 # the installer's own latest-version lookup hits the same blocked domain;
 # bump the pin on new pig releases.
+# pi is the second exception: its official managed installer (PI_CODING_AGENT_DIR
+# steers placement) writes a launcher that derives its install root from its
+# own path, so /usr/local/bin/pi is a symlink into /usr/local/lib/pi-agent,
+# never a copy. Installer needs node >= 22.19 (NodeSource tier provides it)
+# and detects no tty in the build, so it runs unattended.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
@@ -239,7 +244,8 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://opencode.ai/install | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name opencode | sort | head -1)" /usr/local/bin/opencode && \
     npm install -g --prefix /usr/local @openai/codex && \
-    npm install -g --prefix /usr/local @earendil-works/pi-coding-agent && \
+    curl -fsSL https://pi.dev/install.sh | PI_CODING_AGENT_DIR=/usr/local/lib/pi-agent sh && \
+    ln -sf /usr/local/lib/pi-agent/bin/pi /usr/local/bin/pi && \
     curl -fsSL https://raw.githubusercontent.com/MichaelKinsy/PiG/main/docs/site/public/install.sh | PIG_VERSION=0.2.0 PIG_INSTALL_DIR=/usr/local/bin sh && \
     rm -rf "$HOME" && \
     for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
@@ -254,7 +260,7 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
 # In-guest updates live in the container layer: a daemon recreate reverts
 # them to the image version until the next update-all.sh pass re-applies
 # them.
-RUN chown -R construct:construct /usr/local/lib/node_modules && \
+RUN chown -R construct:construct /usr/local/lib/node_modules /usr/local/lib/pi-agent && \
     chown construct:construct /usr/local/bin && \
     chown -h construct:construct /usr/local/bin/claude /usr/local/bin/agy \
         /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
