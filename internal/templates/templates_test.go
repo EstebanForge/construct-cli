@@ -290,6 +290,7 @@ func TestEntrypointPrivilegeDropRegression(t *testing.T) {
 		`RUN_AS_USER="root"`,
 		`RUN_AS_CHOWN="0:0"`,
 		`SKIP_RECURSIVE_CHOWN=1`,
+		`chown -R "$RUN_AS_CHOWN" /usr/local/lib/node_modules /usr/local/lib/pi-agent`,
 		`if [ "$SKIP_RECURSIVE_CHOWN" = "0" ]; then`,
 		`export HOME="${HOME:-/home/construct}"`,
 		`exec gosu "$RUN_AS_USER" "$0" "$@"`,
