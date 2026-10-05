@@ -236,10 +236,20 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 # own path, so /usr/local/bin/pi is a symlink into /usr/local/lib/pi-agent,
 # never a copy. Installer needs node >= 22.19 (NodeSource tier provides it)
 # and detects no tty in the build, so it runs unattended.
+# antigravity is the third exception: antigravity.google serves install.sh
+# through a cache that sometimes returns the gzip variant of the script with
+# NO Content-Encoding header (no Vary: Accept-Encoding, same ETag for both
+# variants), so pipe-to-bash fed gzip bytes to bash and killed the image
+# build. curl --compressed cannot help (no header to react to); download to
+# a file, detect the gzip magic bytes, decompress when present, then execute.
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
-    curl -fsSL https://antigravity.google/cli/install.sh | bash && \
+    curl -fsSL https://antigravity.google/cli/install.sh -o "$HOME/agy-install.sh" && \
+    if [ "$(head -c 2 "$HOME/agy-install.sh" | od -An -tx1 | tr -d ' \n')" = "1f8b" ]; then \
+      mv "$HOME/agy-install.sh" "$HOME/agy-install.sh.gz" && gunzip -f "$HOME/agy-install.sh.gz"; \
+    fi && \
+    bash "$HOME/agy-install.sh" && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name agy | sort | head -1)" /usr/local/bin/agy && \
     curl -fsSL https://opencode.ai/install | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name opencode | sort | head -1)" /usr/local/bin/opencode && \
