@@ -108,6 +108,7 @@ jobs:
           name: construct-linux-amd64
           path: dist/construct-linux-amd64
           if-no-files-found: error
+          retention-days: 2
 
   build-linux-arm64:
     runs-on: ubuntu-latest
@@ -134,6 +135,7 @@ jobs:
           name: construct-linux-arm64
           path: dist/construct-linux-arm64
           if-no-files-found: error
+          retention-days: 2
 
   build-macos:
     runs-on: macos-latest
@@ -184,6 +186,7 @@ jobs:
             dist/construct-darwin-amd64
             dist/construct
           if-no-files-found: error
+          retention-days: 2
 
   release:
     runs-on: ubuntu-latest
