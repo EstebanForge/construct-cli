@@ -139,4 +139,4 @@ jobs:
       with:
         name: construct-${{ matrix.goos }}-${{ matrix.goarch }}
         path: dist/*
-        retention-days: 30
+        retention-days: 2
