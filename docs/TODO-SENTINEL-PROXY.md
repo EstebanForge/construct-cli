@@ -39,6 +39,8 @@ Discobox keeps real credentials out of agent boxes entirely. Boxes receive byte-
 
 Full research trail in agentmemory (decision entries 2026-09, librarian run `01a0c63b`).
 
+Corroborating prior art, 2026-10: [Overalls](https://overalls.dev) (MIT, Geoffrey Huntley) enforces the same invariant at fleet scale — its Ziggy component brokers provider calls through `llm.internal`, keeps provider credentials outside the guest entirely, and meters usage per account at the proxy, while Galileo serves named integrations at `.integration.internal` so a machine uses a secret without being able to read it. Independent convergence on keys-at-the-edge; no change to this design's mechanism, and Ziggy's metering role feeds the usage-accounting TODO in [TODO.md](TODO.md).
+
 ## 3. Design decision
 
 Adopt the sentinel substitution model, not the CREDS-PROXY header-injection model:

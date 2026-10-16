@@ -374,3 +374,42 @@ The generated topgrade config excludes topgrade's built-in per-agent steps (`cla
 ## Peer review round (Agy, 2026-09-21)
 
 Found the blocker this section now encodes: running the update inside the flock hangs incoming sessions for the timeout; running it without coordination lets a concurrent recreate destroy the sandbox mid-update, and the original "stop afterwards regardless" step could kill a session that registered mid-pass. Fixes adopted: no-flock execution with a dedicated update guard, `LiveSessionCount()` polling with stand-down, stop re-decided under the flock. Also adopted: single entry point `update-all.sh` (topgrade already inside — no double run).
+
+---
+
+# TODO: Inference Usage Accounting (unknown, never zero)
+
+Status: PROPOSED (idea intake 2026-10-16, from an [Overalls](https://overalls.dev) study). Desired behavior, not a decision. No design or peer review yet.
+
+## Background
+
+Construct cannot answer "how many tokens did this project, agent, or session burn?" Local telemetry (`docs/CONFIGURATION.md`, Local Telemetry) covers boot diagnostics only. Provider keys enter the guest as env until the [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) lands, so nothing on the host sees provider traffic. The only usage data available lives in provider dashboards, keyed by API key, not by project or agent.
+
+## Goal (the invariant)
+
+Per-run, per-agent, per-project usage accounting for local reporting, with an honesty rule borrowed from Overalls' Ziggy proxy: usage Construct cannot attribute is recorded as `unknown`, never as zero. Absence of a measurement is a data gap, not a zero bill. Every surface that sums usage must carry the unknown bucket and must never print a total that silently assumes measured equals everything.
+
+## Candidate metering points (open — pick during design)
+
+| Point | Gets | Costs |
+|---|---|---|
+| Sentinel proxy (once built) | Request counts, model, per session/machine, high attribution fidelity | Token counts live in response bodies (SSE usage frames). The sentinel design forbids scanning REQUEST bodies; response-side usage-frame reading needs its own design pass and must not buffer payloads |
+| Provider usage/reporting APIs | Exact token counts per API key | Attribution is per key: keys shared across agents or projects land in unknown; provider coverage and rate limits vary |
+| Guest-side wrappers/hooks | Per-process attribution | Fragile and spoofable by the agent itself; lowest trust |
+
+## Axes
+
+Per sandbox machine (project root), per agent binary, per session/run id, per provider plus model. Construct is single-user and local-first: a per-user axis is out of scope, and telemetry stays local-only by default (no network calls), matching the Local Telemetry contract.
+
+## Success criteria
+
+- A report exists (CLI first, likely `construct sys usage`) with totals per project, agent, and provider, plus an explicit `unknown` bucket.
+- Traffic Construct could not observe (proxy off, permissive-mode direct egress, unsupported providers) lands in `unknown` — never silently dropped, never reported as 0.
+- Cost estimation (if added) is labeled an estimate with a pricing snapshot date; tokens are the primary unit.
+- Telemetry stays local-only, 0600, rotating, same as `msb-telemetry.jsonl`.
+
+## Open questions
+
+- Does this gate on the sentinel proxy's S1 egress proxy, or run standalone on provider reporting APIs first?
+- Response-side usage frames: read-only SSE tail parsing vs the payload-buffering ban — needs a design round with the same rigor as the sentinel peer review.
+- Custom providers and `*_BASE_URL` overrides change what a "provider" is; the data model must carry endpoint identity, not just vendor name.
