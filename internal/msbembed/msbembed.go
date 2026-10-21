@@ -59,6 +59,15 @@ var (
 // Available reports whether this binary embeds the runtime pair.
 func Available() bool { return available() }
 
+// OverrideScratch redirects the runtime extraction and msb data roots.
+// Live gates use it so scratch VM state (catalog, image cache, sandbox
+// disks, snapshots) lands in a /tmp-backed temp dir instead of the real
+// config dir.
+func OverrideScratch(root, home string) {
+	rootFn = func() string { return root }
+	homeFn = func() string { return home }
+}
+
 // verifyAssetSumsOnce hashes the embedded assets once per process: the
 // check walks ~69 MiB of in-binary data and is deterministic for the
 // binary's lifetime.

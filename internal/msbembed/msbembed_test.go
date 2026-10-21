@@ -76,6 +76,25 @@ func TestMarkerMatches(t *testing.T) {
 	}
 }
 
+// TestOverrideScratch pins the live-gate redirect: after the override,
+// both roots resolve to the scratch paths so gate VMs never write the
+// real config dir.
+func TestOverrideScratch(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "msb-runtime")
+	home := filepath.Join(t.TempDir(), "msb-home")
+
+	restoreRoot, restoreHome := rootFn, homeFn
+	defer func() { rootFn, homeFn = restoreRoot, restoreHome }()
+	OverrideScratch(root, home)
+
+	if got := MSBHome(); got != home {
+		t.Fatalf("MSBHome() = %q, want %q", got, home)
+	}
+	if got := rootFn(); got != root {
+		t.Fatalf("rootFn() = %q, want %q", got, root)
+	}
+}
+
 // TestGCOldVersions removes sibling version dirs and keeps the live one,
 // including odd entries (a stray file must not block the sweep).
 func TestGCOldVersions(t *testing.T) {

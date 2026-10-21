@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,19 +25,45 @@ func msbLiveEnabled(t *testing.T) {
 	if os.Getenv("CONSTRUCT_MSB_LIVE") != "1" {
 		t.Skip("CONSTRUCT_MSB_LIVE not set; skipping live msb test")
 	}
-	if _, err := exec.LookPath("msb"); err != nil {
-		t.Skipf("msb binary not found: %v", err)
+	// Scratch VM state (catalog, image cache, sandbox disks, snapshots)
+	// goes to a /tmp-backed MSB_HOME, never the real config dir. The make
+	// target pins one shared home per run (image pulled once); bare go
+	// test runs fall back to a per-test temp home.
+	scratchHome := os.Getenv("MSB_HOME")
+	if scratchHome == "" {
+		scratchHome = filepath.Join(t.TempDir(), "msb-home")
+		t.Setenv("MSB_HOME", scratchHome)
 	}
+	if err := os.MkdirAll(scratchHome, 0o700); err != nil {
+		t.Fatalf("scratch home: %v", err)
+	}
+	msbembed.OverrideScratch(filepath.Join(filepath.Dir(scratchHome), "msb-runtime"), scratchHome)
 	kvm, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
 	if err != nil {
 		t.Skipf("no usable /dev/kvm: %v", err)
 	}
 	kvm.Close()
-	// Linking the embedded pair is not enough: without Activate the SDK
-	// resolver falls back to the system msb binary, whose version usually
-	// trails the SDK pin and fails the launch contract.
+	// The SDK create path wants the runtime pair inside MSB_HOME (or the
+	// MSB_PATH/MSB_LIBKRUNFW_PATH overrides, which Activate() sets to the
+	// extracted embedded pair). The embedded pair is pinned to the SDK
+	// version, so it is always the most recent tested runtime.
 	if err := msbembed.Activate(); err != nil {
 		t.Fatalf("activate embedded runtime: %v", err)
+	}
+}
+
+// msbLiveImageRef is the image every live gate boots; make test-live
+// pre-pulls it into the shared scratch home.
+const msbLiveImageRef = "ghcr.io/estebanforge/construct-box:latest"
+
+// msbLiveRequireImage skips when the boot image is not cached instead of
+// pulling gigabytes inside a bare go test run.
+func msbLiveRequireImage(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := msb.Image.Get(ctx, msbLiveImageRef); err != nil {
+		t.Skipf("%s not cached in MSB_HOME; run make test-live: %v", msbLiveImageRef, err)
 	}
 }
 
@@ -69,7 +94,8 @@ func TestMsbLiveBootBudget(t *testing.T) {
 	}
 
 	proj := t.TempDir()
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
+	msbLiveRequireImage(t)
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, msbLiveImageRef)
 
 	start := time.Now()
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
@@ -115,7 +141,8 @@ func TestMsbLiveVolumesSpecSandboxExec(t *testing.T) {
 		t.Fatalf("write marker: %v", err)
 	}
 
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
+	msbLiveRequireImage(t)
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, msbLiveImageRef)
 	sb, err := CreateMsbSandbox(ctx, spec)
 	if err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
@@ -221,7 +248,8 @@ npm install -g http-server@14 || echo "npm install failed"
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
 
-	spec := BuildMsbRunSpec(&cfg, name, "", nil, "")
+	msbLiveRequireImage(t)
+	spec := BuildMsbRunSpec(&cfg, name, "", nil, msbLiveImageRef)
 	spec.Mounts[msbHomeMountDest] = msb.Mount.Bind(home, msb.MountOptions{})
 	spec.Cmd = []string{"echo", "Installation complete"}
 
@@ -283,7 +311,8 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	// does: with network policy enforced, only rule-named ports reach the
 	// host, so a random :0 port outside the forwarded set would time out.
 	clipPort := portFromURL(t, cb.URL)
-	spec := BuildMsbRunSpec(&cfg, name, proj, []int{clipPort}, "")
+	msbLiveRequireImage(t)
+	spec := BuildMsbRunSpec(&cfg, name, proj, []int{clipPort}, msbLiveImageRef)
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -365,7 +394,8 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	if err := m.Cleanup(ctx, name); err != nil {
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
-	spec := BuildMsbRunSpec(&cfg, name, proj, []int{portFromURL(t, srv.URL)}, "")
+	msbLiveRequireImage(t)
+	spec := BuildMsbRunSpec(&cfg, name, proj, []int{portFromURL(t, srv.URL)}, msbLiveImageRef)
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
