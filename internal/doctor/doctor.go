@@ -235,12 +235,12 @@ func Run(args ...string) {
 
 	// Runtime is needed by multiple checks (env warnings, compose health/fixes, linux remap handling).
 	// The unified backend key doubles as the engine selector: auto/container/podman/docker
-	// resolve to an OCI binary. Under microvm the engine is NOT resolved at all:
+	// resolve to an OCI binary. Under msb the engine is NOT resolved at all:
 	// ResolveContainerRuntime -> DetectRuntime LAUNCHES engines (Docker/OrbStack),
 	// and the msb checks below do not use a container runtime. runtimeName stays
 	// blank so every runtimeName-gated check takes its skipped branch.
 	runtimeName := ""
-	if cfg == nil || cfg.Runtime.Backend != "microvm" {
+	if cfg == nil || cfg.Runtime.Backend != config.BackendMsb {
 		runtimeName = runtimepkg.ResolveContainerRuntime(cfg)
 	}
 
@@ -249,7 +249,7 @@ func Run(args ...string) {
 	// after the Runtime Check so every runtimeName-gated check degrades to
 	// its skipped/not-applicable branch instead of probing a container
 	// runtime the backend does not use.
-	msbBackend := cfg != nil && cfg.Runtime.Backend == "microvm"
+	msbBackend := cfg != nil && cfg.Runtime.Backend == config.BackendMsb
 
 	// 2. Environment Check
 	envCheck := CheckResult{Name: "Environment"}
@@ -333,7 +333,7 @@ func Run(args ...string) {
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
 	if msbBackend {
 		runtimeCheck.Status = CheckStatusSkipped
-		runtimeCheck.Message = "Not applicable (runtime backend = microvm)"
+		runtimeCheck.Message = "Not applicable (runtime backend = msb)"
 		runtimeCheck.Details = append(runtimeCheck.Details, "Isolation runs in microsandbox microVMs; see the VM Backend check")
 
 		// Blank from here on: every downstream container-runtime check keys
@@ -374,8 +374,8 @@ func Run(args ...string) {
 	}
 	checks = append(checks, runtimeCheck)
 
-	// 4.1 VM Backend Check (microvm only)
-	if cfg != nil && cfg.Runtime.Backend == "microvm" {
+	// 4.1 VM Backend Check (msb only)
+	if cfg != nil && cfg.Runtime.Backend == config.BackendMsb {
 		checks = append(checks, msbBackendCheck(fixRequested))
 	}
 
@@ -531,13 +531,13 @@ func Run(args ...string) {
 		checks = append(checks, daemonRecreateCheck)
 	}
 
-	// 5. Daemon Mode Check (compose daemon; the microvm daemon is covered
+	// 5. Daemon Mode Check (compose daemon; the msb daemon is covered
 	// by the VM Backend check and `construct sys daemon status`)
 	daemonCheck := CheckResult{Name: "Daemon Mode"}
 	if msbBackend {
 		daemonCheck.Status = CheckStatusSkipped
-		daemonCheck.Message = "Not applicable (runtime backend = microvm)"
-		daemonCheck.Details = append(daemonCheck.Details, "MicroVM daemon state: run 'construct sys daemon status'")
+		daemonCheck.Message = "Not applicable (runtime backend = msb)"
+		daemonCheck.Details = append(daemonCheck.Details, "msb daemon state: run 'construct sys daemon status'")
 	} else if cfg == nil || runtimeName == "" {
 		daemonCheck.Status = CheckStatusSkipped
 		daemonCheck.Message = "Unavailable (config/runtime missing)"
@@ -684,7 +684,7 @@ func Run(args ...string) {
 	}
 	checks = append(checks, setupCheck)
 
-	// 8. Update Log Check. The microvm updater (backend_msb_update.go)
+	// 8. Update Log Check. The msb updater (backend_msb_update.go)
 	// appends to the fixed logs/update.log; the compose era wrote dated
 	// update_*.log files. Prefer the fixed log when it exists.
 	updateCheck := CheckResult{Name: "Update Log"}
@@ -779,34 +779,34 @@ func Run(args ...string) {
 	// them on next init; --fix cleans host-side immediately.
 	checks = append(checks, checkBakedAgentBindCopies(fixRequested))
 
-	// 11d. Baked Image Freshness (microvm only): freshness vs GHCR is not
+	// 11d. Baked Image Freshness (msb only): freshness vs GHCR is not
 	// cheaply detectable; --fix runs a bounded best-effort msb pull.
 	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested))
 
-	// 11e. Host CLI/SDK Skew (microvm only): the host msb binary must match
+	// 11e. Host CLI/SDK Skew (msb only): the host msb binary must match
 	// the SDK pin exactly (schema migrations are one-way).
 	checks = append(checks, checkSdkSkew(msbBackend))
 
-	// 11f. msb libkrunfw Resolution (microvm only): msb 0.7.2 resolves the
+	// 11f. msb libkrunfw Resolution (msb only): msb 0.7.2 resolves the
 	// lib via ../lib of the UN-RESOLVED invocation path, so the official
 	// installer's symlinked msb breaks resolution despite a correct
 	// MSB_HOME/lib. --fix links the lib into the searched location.
 	checks = append(checks, checkMsbLibkrunfwResolution(msbBackend, fixRequested))
 
-	// 11g. Guest Home Helpers (microvm only): msb has no per-file binds, so
+	// 11g. Guest Home Helpers (msb only): msb has no per-file binds, so
 	// the guest reads update-all.sh etc. straight from the home volume.
 	// Stale bytes there mean in-guest updates run old logic. --fix refreshes
 	// them from the embedded templates.
 	checks = append(checks, checkMsbHomeHelpers(msbBackend, fixRequested))
 
-	// 12. Image Check. On the microvm backend the image lives in the msb
+	// 12. Image Check. On the msb backend the image lives in the msb
 	// store, not docker; probing it here always fails and reports a false
 	// "Image missing". The VM Backend and Baked Image Freshness checks
 	// already cover msb image presence natively.
 	imageCheck := CheckResult{Name: "Construct Image"}
 	if msbBackend {
 		imageCheck.Status = CheckStatusSkipped
-		imageCheck.Message = "Not applicable (runtime backend = microvm); see VM Backend and Baked Image Freshness"
+		imageCheck.Message = "Not applicable (runtime backend = msb); see VM Backend and Baked Image Freshness"
 	} else {
 		checkCmdArgs := runtimepkg.GetCheckImageCommand(runtimeName)
 		checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
@@ -1002,7 +1002,7 @@ func msbBin() (string, bool) {
 	return name, true
 }
 
-// msbBackendCheck verifies the microvm launch stack. Fail-closed flavor:
+// msbBackendCheck verifies the msb launch stack. Fail-closed flavor:
 // every missing piece is an error with a fix suggestion.
 func msbBackendCheck(fix bool) CheckResult {
 	check := CheckResult{Name: "VM Backend (microsandbox)"}
@@ -1098,7 +1098,7 @@ func msbBackendCheck(fix bool) CheckResult {
 	return check
 }
 
-// updateLogMarkerRe matches the microvm updater's log markers
+// updateLogMarkerRe matches the msb updater's log markers
 // (backend_msb_update.go logLine calls): "<RFC3339 UTC> update ok | failed |
 // stood-down | stood down: | skipped: ...". Anchored on the timestamp so
 // tool output tee'd into the log (apt/git chatter that merely CONTAINS
@@ -1106,7 +1106,7 @@ func msbBackendCheck(fix bool) CheckResult {
 var updateLogMarkerRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z update (?:ok \(|failed \(|stood-down \(|stood down:|skipped:)`)
 
 // readUpdateLogOutcome scans the tail of update.log for the newest
-// "<timestamp> update <outcome>" marker written by the microvm updater
+// "<timestamp> update <outcome>" marker written by the msb updater
 // (backend_msb_update.go) and returns the topgrade "step: FAILED" summary
 // lines belonging to that newest failed run. Each run writes
 // [step summary][marker], so the FAILED lines of a run PRECEDE its marker:
@@ -1175,11 +1175,11 @@ func checkStalePackagesVolume(fix bool, resolvedRuntime string, msbBackend bool)
 	check := CheckResult{Name: "Stale Packages Volume"}
 	if msbBackend {
 		// The host runs OCI-engine-free by choice: probing docker/podman here
-		// only produced scary "docker API unreachable" lines on microvm hosts.
+		// only produced scary "docker API unreachable" lines on msb hosts.
 		// A stale volume only matters when switching engines back; the sweep
 		// reruns then (this same check, non-skipped branch).
 		check.Status = CheckStatusSkipped
-		check.Message = "Not applicable (runtime backend = microvm)"
+		check.Message = "Not applicable (runtime backend = msb)"
 		check.Details = append(check.Details, "Stale OCI volume sweep runs on docker/podman backends")
 		return check
 	}
@@ -1201,7 +1201,7 @@ func checkStalePackagesVolume(fix bool, resolvedRuntime string, msbBackend bool)
 	out, err := execCombinedOutput(engine, "volume", "ls", "--format", "{{.Name}}")
 	if err != nil {
 		// No reachable daemon (e.g. docker CLI installed but engine not
-		// running) is the normal microvm case, not a defect: report it calm.
+		// running) is the normal msb case, not a defect: report it calm.
 		check.Status = CheckStatusSkipped
 		check.Message = "No reachable container daemon (stale-volume sweep skipped)"
 		check.Details = append(check.Details, strings.TrimSpace(string(out)))
@@ -1327,14 +1327,14 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 }
 
 // checkBakedImageFreshness verifies the local construct-box image is present
-// (microvm only). Plain runs verify local presence (cheap, no nag: --fix
+// (msb only). Plain runs verify local presence (cheap, no nag: --fix
 // already pulls on demand and self-updates prepull); --fix additionally runs
 // a bounded best-effort msb pull (exit-0 no-op when already current).
 func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	check := CheckResult{Name: "Baked Image Freshness"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
-		check.Message = "Not applicable (runtime backend is not microvm)"
+		check.Message = "Not applicable (runtime backend is not msb)"
 		return check
 	}
 	imageRef := runtimepkg.PrepullImageRef
@@ -1405,7 +1405,7 @@ func checkSdkSkew(msbBackend bool) CheckResult {
 	check := CheckResult{Name: "Host CLI/SDK Skew"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
-		check.Message = "Not applicable (runtime backend is not microvm)"
+		check.Message = "Not applicable (runtime backend is not msb)"
 		return check
 	}
 	if _, err := exec.LookPath("msb"); err != nil {
@@ -1513,7 +1513,7 @@ func checkMsbLibkrunfwResolution(msbBackend, fix bool) CheckResult {
 	check := CheckResult{Name: "msb libkrunfw Resolution"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
-		check.Message = "Not applicable (runtime backend is not microvm)"
+		check.Message = "Not applicable (runtime backend is not msb)"
 		return check
 	}
 	// Embedded builds ship the pair side by side; the host-resolution bug
@@ -1627,7 +1627,7 @@ func checkMsbHomeHelpers(msbBackend, fix bool) CheckResult {
 	check := CheckResult{Name: "Guest Home Helpers"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
-		check.Message = "Not applicable (runtime backend is not microvm)"
+		check.Message = "Not applicable (runtime backend is not msb)"
 		return check
 	}
 
@@ -2672,7 +2672,7 @@ func downgradeStatus(current, next CheckStatus) CheckStatus {
 	return current
 }
 
-// checkDaemonLock reports whether the microvm daemon flock is free or held
+// checkDaemonLock reports whether the msb daemon flock is free or held
 // (docs/VMsv2.md phase 1). Held means another construct invocation is in
 // the daemon setup critical section — either racing the user (likely a
 // stale process), or the user kicked off two constructs in parallel.

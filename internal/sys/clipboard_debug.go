@@ -172,7 +172,7 @@ func ClipboardDebug(cfg *config.Config) {
 	fmt.Println()
 	fmt.Println("=== Container clipboard diagnostics ===")
 
-	if cfg != nil && cfg.Runtime.Backend == "microvm" {
+	if cfg != nil && cfg.Runtime.Backend == config.BackendMsb {
 		ctx := context.Background()
 		m := internalRuntime.NewMsbBackend()
 		state, err := m.State(ctx, "construct-cli-daemon")

@@ -47,17 +47,17 @@ var runOwnershipFixRootlessFn = runOwnershipFixRootless
 var podmanIsRootlessFn = podmanIsRootless
 
 // ResolveContainerRuntime maps the unified runtime backend value onto an
-// OCI binary via DetectRuntime. Pinned container backends pin their binary;
-// microvm (and empty/unknown) values fall back to auto-detection: these
+// OCI binary via DetectRuntime. Pinned podman/docker backends pin their
+// binary; msb (and empty/unknown) values fall back to auto-detection: these
 // call sites only need an OCI binary for image transitions and compose
-// plumbing, which the microvm path also reaches via docker save / msb load.
+// plumbing, which the msb path also reaches via docker save / msb load.
 func ResolveContainerRuntime(cfg *config.Config) string {
 	b := ""
 	if cfg != nil {
 		b = strings.TrimSpace(cfg.Runtime.Backend)
 	}
 	switch b {
-	case "container", "podman", "docker", "auto":
+	case config.BackendPodman, config.BackendDocker:
 		return DetectRuntime(b)
 	default:
 		return DetectRuntime("auto")

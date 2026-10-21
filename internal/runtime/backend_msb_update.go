@@ -215,7 +215,7 @@ func IdleWindowUpdate(cfg *config.Config) error {
 }
 
 // RunForegroundUpdate is the manual `construct sys update` path for the
-// microvm backend: it brings the daemon sandbox up if needed and runs
+// msb backend: it brings the daemon sandbox up if needed and runs
 // update-all.sh with output streamed to the terminal (teeed into
 // update.log, same as the idle-window pass). Unlike the idle path there is
 // no stand-down and no zero-session precondition: the user asked for the
@@ -275,7 +275,7 @@ func RunForegroundUpdate(cfg *config.Config) error {
 	defer cancel()
 	sb, err := EnsureMsbDaemon(ctx, cfg, "")
 	if err != nil {
-		return fmt.Errorf("prepare microvm sandbox: %w", err)
+		return fmt.Errorf("prepare msb sandbox: %w", err)
 	}
 	// ExecStream opens its own connection; release this one.
 	_ = sb.Detach(context.Background()) //nolint:errcheck // best-effort detach

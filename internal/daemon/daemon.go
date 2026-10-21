@@ -28,7 +28,7 @@ func Start() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		startMsb(cfg)
 		return
 	}
@@ -137,7 +137,7 @@ func startMsb(cfg *config.Config) {
 			fmt.Println("Add its root to [daemon] mount_paths (config.toml) or disable daemon.multi_paths_enabled")
 			os.Exit(1)
 		}
-		ui.GumError(fmt.Sprintf("Failed to start microvm daemon: %v", err))
+		ui.GumError(fmt.Sprintf("Failed to start msb daemon: %v", err))
 		os.Exit(1)
 	}
 	// Detached sandbox: Detach releases the handle without stopping the VM.
@@ -162,7 +162,7 @@ func stopMsb() error {
 	}
 	ui.GumInfo("Stopping microVM daemon...")
 	if err := h.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop microvm daemon: %w", err)
+		return fmt.Errorf("failed to stop msb daemon: %w", err)
 	}
 	for i := 0; i < 30; i++ {
 		fresh, err := h.Refresh(ctx)
@@ -219,7 +219,7 @@ func attachMsb(cfg *config.Config) {
 // statusMsb reports the msb daemon sandbox state.
 func statusMsb() {
 	state, err := runtime.NewMsbBackend().State(context.Background(), "construct-cli-daemon")
-	fmt.Println("\n=== Daemon Status (microvm) ===")
+	fmt.Println("\n=== Daemon Status (msb) ===")
 	fmt.Println("Sandbox: construct-cli-daemon")
 	if err != nil {
 		fmt.Printf("Status: unknown (%v)\n", err)
@@ -255,7 +255,7 @@ func Stop() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		if err := stopMsb(); err != nil {
 			ui.GumWarning("Daemon is not running")
 			os.Exit(1)
@@ -296,7 +296,7 @@ func Stop() {
 	ui.GumSuccess("Daemon stopped")
 }
 
-// Recreate destroys the microvm daemon sandbox, guest root disk
+// Recreate destroys the msb daemon sandbox, guest root disk
 // included, and boots a fresh one from the current image. Sandbox setup
 // (sudo policy, mounts, skills, entrypoint) applies at build time only,
 // so this is the deliberate "wipe and rebuild" when the daemon is wedged
@@ -309,8 +309,8 @@ func Recreate() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend != "microvm" {
-		ui.GumError("Daemon recreate applies to the microvm backend only")
+	if cfg.Runtime.Backend != config.BackendMsb {
+		ui.GumError("Daemon recreate applies to the msb backend only")
 		os.Exit(1)
 	}
 	if n := runtime.LiveSessionCount(); n > 0 {
@@ -343,7 +343,7 @@ func Restart() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		_ = stopMsb() //nolint:errcheck // best-effort stop before start on restart
 		startMsb(cfg)
 		return
@@ -385,7 +385,7 @@ func Attach() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		attachMsb(cfg)
 		return
 	}
@@ -436,7 +436,7 @@ func Status() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		statusMsb()
 		ServiceStatus()
 		return

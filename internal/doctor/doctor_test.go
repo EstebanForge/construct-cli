@@ -1725,20 +1725,20 @@ func TestCheckStalePackagesVolumeNoDaemon(t *testing.T) {
 	}
 }
 
-// TestCheckStalePackagesVolumeSkipsOnMicrovm: a microvm host opted out of
+// TestCheckStalePackagesVolumeSkipsOnMsb: an msb host opted out of
 // OCI engines entirely, so the check must not probe docker/podman at all
-// (the old probe surfaced scary docker-API errors on healthy microvm hosts).
-func TestCheckStalePackagesVolumeSkipsOnMicrovm(t *testing.T) {
+// (the old probe surfaced scary docker-API errors on healthy msb hosts).
+func TestCheckStalePackagesVolumeSkipsOnMsb(t *testing.T) {
 	check := checkStalePackagesVolume(false, "", true)
 	if check.Status != CheckStatusSkipped {
 		t.Errorf("status = %v, want skipped", check.Status)
 	}
-	if !strings.Contains(check.Message, "Not applicable (runtime backend = microvm)") {
+	if !strings.Contains(check.Message, "Not applicable (runtime backend = msb)") {
 		t.Errorf("message %q should mark the check not applicable", check.Message)
 	}
 }
 
-// TestReadUpdateLogOutcome: the microvm updater writes [step summary][marker]
+// TestReadUpdateLogOutcome: the msb updater writes [step summary][marker]
 // per run, so FAILED step lines precede their run's marker. The parser must
 // report the steps of the NEWEST failed run and stay silent otherwise.
 func TestReadUpdateLogOutcome(t *testing.T) {

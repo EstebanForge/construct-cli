@@ -527,10 +527,115 @@ func TestInitReplacesDirectoryCollisionForTemplateFile(t *testing.T) {
 	}
 }
 
-func TestDefaultBackendIsAuto(t *testing.T) {
+func TestDefaultBackendIsContainers(t *testing.T) {
 	cfg := DefaultConfig()
-	if cfg.Runtime.Backend != "auto" {
-		t.Fatalf("default backend = %q, want auto", cfg.Runtime.Backend)
+	if cfg.Runtime.Backend != BackendContainers {
+		t.Fatalf("default backend = %q, want %q", cfg.Runtime.Backend, BackendContainers)
+	}
+}
+
+// TestMigrateBackendValues pins the in-file line surgery that renames
+// legacy backend spellings to the engine-named values: microvm→msb,
+// container/auto→containers. Idempotent; scoped to [runtime].
+func TestMigrateBackendValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		in      string
+		want    string
+		changed bool
+	}{
+		{
+			name:    "microvm becomes msb",
+			in:      "[runtime]\nbackend = \"microvm\"\n",
+			want:    "[runtime]\nbackend = \"msb\"\n",
+			changed: true,
+		},
+		{
+			name:    "container pin folds into containers",
+			in:      "[runtime]\nbackend = \"container\"\n",
+			want:    "[runtime]\nbackend = \"containers\"\n",
+			changed: true,
+		},
+		{
+			name:    "auto folds into containers",
+			in:      "[runtime]\nbackend = \"auto\"\n",
+			want:    "[runtime]\nbackend = \"containers\"\n",
+			changed: true,
+		},
+		{
+			name:    "podman pin untouched",
+			in:      "[runtime]\nbackend = \"podman\"\n",
+			want:    "[runtime]\nbackend = \"podman\"\n",
+			changed: false,
+		},
+		{
+			name:    "docker pin untouched",
+			in:      "[runtime]\nbackend = \"docker\"\n",
+			want:    "[runtime]\nbackend = \"docker\"\n",
+			changed: false,
+		},
+		{
+			name:    "comments preserved around migrated line",
+			in:      "# top\n[runtime]\n# keep me\nbackend = \"microvm\" # pin\nupdate_channel = \"stable\"\n",
+			want:    "# top\n[runtime]\n# keep me\nbackend = \"msb\" # pin\nupdate_channel = \"stable\"\n",
+			changed: true,
+		},
+		{
+			name:    "backend key outside runtime section ignored",
+			in:      "[other]\nbackend = \"microvm\"\n",
+			want:    "[other]\nbackend = \"microvm\"\n",
+			changed: false,
+		},
+		{
+			name:    "already migrated is a no-op",
+			in:      "[runtime]\nbackend = \"msb\"\n",
+			want:    "[runtime]\nbackend = \"msb\"\n",
+			changed: false,
+		},
+		{
+			name:    "section header with inline comment still scoped",
+			in:      "[runtime] # settings\nbackend = \"microvm\"\n",
+			want:    "[runtime] # settings\nbackend = \"msb\"\n",
+			changed: true,
+		},
+		{
+			name:    "CRLF line endings preserved on migrated line",
+			in:      "[runtime]\r\nbackend = \"microvm\"\r\nother = true\r\n",
+			want:    "[runtime]\r\nbackend = \"msb\"\r\nother = true\r\n",
+			changed: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := migrateBackendValues(tt.in)
+			if changed != tt.changed {
+				t.Fatalf("changed = %v, want %v (got %q)", changed, tt.changed, got)
+			}
+			if got != tt.want {
+				t.Errorf("migrated file:\ngot  %q\nwant %q", got, tt.want)
+			}
+			if changed {
+				if got2, changed2 := migrateBackendValues(got); changed2 || got2 != got {
+					t.Errorf("not idempotent: second pass changed %q -> %q", got, got2)
+				}
+			}
+		})
+	}
+}
+
+// TestBackendValueMigrationPipeline mirrors the Load() ordering: the legacy
+// engine-key fold runs first, then the value rename normalizes whatever the
+// fold emitted (e.g. engine = "container" lands as backend = "containers").
+func TestBackendValueMigrationPipeline(t *testing.T) {
+	in := "[runtime]\nengine = \"container\"\n"
+	step1, _ := migrateLegacyEngineKey(in)
+	step2, changed := migrateBackendValues(step1)
+	if !changed {
+		t.Fatal("value migration did not fire after engine fold")
+	}
+	want := "[runtime]\nbackend = \"containers\"\n"
+	if step2 != want {
+		t.Fatalf("pipeline output:\ngot  %q\nwant %q", step2, want)
 	}
 }
 
@@ -679,12 +784,15 @@ func TestFoldLegacyEngine(t *testing.T) {
 		want            string
 	}{
 		{"pinned engine wins over auto", "podman", "auto", "podman"},
-		{"pinned engine wins over explicit docker", "container", "docker", "container"},
-		{"microvm always wins", "podman", "microvm", "microvm"},
+		{"pinned engine folds then normalizes", "container", "docker", "containers"},
+		{"microvm always wins, renamed to msb", "podman", "microvm", "msb"},
 		{"explicit non-default backend wins", "docker", "podman", "podman"},
-		{"auto engine changes nothing", "auto", "auto", "auto"},
+		{"auto engine normalizes to containers", "auto", "auto", "containers"},
 		{"empty engine changes nothing", "", "docker", "docker"},
-		{"unknown engine ignored", "weird", "auto", "auto"},
+		{"unknown engine ignored", "weird", "auto", "containers"},
+		{"no engine, microvm normalizes to msb", "", "microvm", "msb"},
+		{"no engine, container normalizes to containers", "", "container", "containers"},
+		{"no engine, empty backend normalizes to containers", "", "", "containers"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

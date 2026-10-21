@@ -32,7 +32,7 @@ const prepullLogName = "prepull.log"
 // No-op when:
 //   - cfg is nil
 //   - cfg.Runtime.PrepullImage is false
-//   - cfg.Runtime.Backend is not "microvm" (the prepull pulls the msb
+//   - cfg.Runtime.Backend is not "msb" (the prepull pulls the msb
 //     image; the docker backend does not benefit)
 //   - the construct-box image is already loaded locally (skip the work)
 //
@@ -43,7 +43,7 @@ func MaybePrepullImage(cfg *config.Config) {
 	if cfg == nil || !cfg.Runtime.PrepullImage {
 		return
 	}
-	if !strings.EqualFold(strings.TrimSpace(cfg.Runtime.Backend), "microvm") {
+	if !strings.EqualFold(strings.TrimSpace(cfg.Runtime.Backend), config.BackendMsb) {
 		return
 	}
 	if imageLoadedForPrepull() {

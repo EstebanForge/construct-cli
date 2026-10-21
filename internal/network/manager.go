@@ -64,7 +64,7 @@ func AddRule(target, action string) {
 	}
 	ui.GumSuccess("Updated config.toml")
 
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		applyRuleMsb(target, action, resolvedIPs)
 		return
 	}
@@ -137,7 +137,7 @@ func RemoveRule(target string) {
 	}
 	ui.GumSuccess("Removed from config.toml")
 
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		removeRuleMsb(target)
 		return
 	}
@@ -310,7 +310,7 @@ func ShowStatus() {
 		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
 		os.Exit(1)
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		showStatusMsb()
 		return
 	}

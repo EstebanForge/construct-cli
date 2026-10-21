@@ -20,7 +20,7 @@ func TestMaybePrepullImageDisabledByFlag(t *testing.T) {
 	withPrepullTestHome(t)
 	cfg := &config.Config{
 		Runtime: config.RuntimeConfig{
-			Backend:      "microvm",
+			Backend:      config.BackendMsb,
 			PrepullImage: false,
 		},
 	}

@@ -388,7 +388,7 @@ func SelfUpdate(cfg ...*config.Config) error {
 	// /proc/self/exe points to the running process's inode (which the
 	// rename already updated under us).
 	resolvedCfg := resolveUpdateCfg(cfg...)
-	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, "microvm") {
+	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, config.BackendMsb) {
 		runtimepkg.MaybePrepullImage(resolvedCfg)
 		// The sandbox applies its setup at build time only. Stop an idle
 		// daemon now so the next ct command rebuilds it against this

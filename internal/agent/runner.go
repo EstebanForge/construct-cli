@@ -33,9 +33,9 @@ func RunWithArgs(args []string, networkFlag string) {
 
 	applyNetworkFlag(cfg, networkFlag)
 
-	// microvm backend: run path is wired (engine dispatches to the persistent
+	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		os.Exit(runMsbWithArgs(args, cfg, nil))
 	}
 
@@ -141,9 +141,9 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 
 	applyNetworkFlag(cfg, networkFlag)
 
-	// microvm backend: run path is wired (engine dispatches to the persistent
+	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		os.Exit(runMsbWithArgs(args, cfg, providerEnv))
 	}
 

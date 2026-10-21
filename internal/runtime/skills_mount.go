@@ -183,7 +183,7 @@ func SkillsMountOptions(cfg *config.Config, selinuxSuffix string) string {
 }
 
 // SkillsDaemonHash computes a hash that uniquely identifies the host skills
-// mount set for the microvm daemon. The daemon recreate check (see
+// mount set for the msb daemon. The daemon recreate check (see
 // msbDaemonNeedsRecreate in backend_msb_run.go) compares this hash against
 // the value stamped on the sandbox as construct.daemon.skills_hash; a
 // mismatch forces a recreate so the running VM picks up the new mounts.

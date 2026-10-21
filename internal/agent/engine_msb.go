@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -25,7 +26,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	var maxEntries int
 	if e.cfg != nil {
 		if strings.EqualFold(e.cfg.Network.Mode, "strict") {
-			return 1, errors.New("network mode 'strict' is not yet supported under the microvm backend (use backend = \"docker\" or network mode = \"permissive\")")
+			return 1, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
 		}
 		allowHome = e.cfg.Sandbox.AllowHomeWorkspace
 		maxEntries = e.cfg.Sandbox.WorkspaceMaxEntries
@@ -70,7 +71,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		args = []string{shell}
 		ui.InfoLn("Entering Construct daemon shell...")
 	} else {
-		ui.InfoF("Running in Construct daemon (microvm): %v\n", args)
+		ui.InfoF("Running in Construct daemon (msb): %v\n", args)
 	}
 
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
@@ -97,11 +98,11 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	if e.sshBridge != nil {
 		e.sshProxySock = fmt.Sprintf("/tmp/construct-ssh-agent.%d.sock", os.Getpid())
 		if err := msbEnsureSSHProxy(e.sshBridge.Port, e.sshProxySock, execUser); err != nil {
-			ui.InfoF("⚠️  SSH agent proxy not ready (microvm): %v\n", err)
+			ui.InfoF("⚠️  SSH agent proxy not ready (msb): %v\n", err)
 		} else {
 			env.SetEnvVar(&envVars, "SSH_AUTH_SOCK", e.sshProxySock)
 			e.sshProxyContainer = "construct-cli-daemon" // Teardown cleans the socat via the msb exec path
-			ui.InfoLn("✓ Started SSH Agent proxy (microvm)")
+			ui.InfoLn("✓ Started SSH Agent proxy (msb)")
 		}
 	}
 	envVars = e.sec.MaskEnv(envVars)
@@ -178,9 +179,9 @@ func msbWaitForSSHProxy(sockPath, execUser string) error {
 	return nil
 }
 
-// msbBackendSelected reports whether the engine should take the microvm path.
+// msbBackendSelected reports whether the engine should take the msb path.
 func (e *RuntimeEngine) msbBackendSelected() bool {
-	return e.cfg != nil && strings.EqualFold(e.cfg.Runtime.Backend, "microvm")
+	return e.cfg != nil && strings.EqualFold(e.cfg.Runtime.Backend, config.BackendMsb)
 }
 
 // msbClipboardHost returns the guest-visible host alias for bridge servers

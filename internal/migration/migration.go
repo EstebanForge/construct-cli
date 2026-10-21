@@ -880,7 +880,7 @@ func removeMsbImageCache() {
 // historical default).
 func isMicrovmBackend() bool {
 	cfg, _, err := config.Load()
-	return err == nil && cfg != nil && cfg.Runtime.Backend == "microvm"
+	return err == nil && cfg != nil && cfg.Runtime.Backend == config.BackendMsb
 }
 
 // isMicrovmBackendFn is a seam so note wording is unit-testable.
@@ -968,7 +968,7 @@ func markImageForRebuild() {
 		}
 	}
 
-	// Try msb (microvm backend): the embedded pair when present, else the
+	// Try msb (msb backend): the embedded pair when present, else the
 	// host CLI. The daemon teardown must land in the same store construct
 	// boots from.
 	msbBinPath, msbErr := msbembed.Command()
