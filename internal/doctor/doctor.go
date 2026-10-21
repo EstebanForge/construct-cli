@@ -1360,7 +1360,11 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, msbBinPath, "pull", runtimepkg.PrepullImageRef)
+	// --force: a plain pull no-ops on any cached ref (msb never re-resolves
+	// a cached tag), so the old "up to date (pull completed)" claim was
+	// always true of the cache, never of the registry. Also refused
+	// outright while the daemon pins the ref.
+	cmd := exec.CommandContext(ctx, msbBinPath, "pull", "--force", runtimepkg.PrepullImageRef)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs
 	out, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
@@ -1375,7 +1379,7 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 		return check
 	}
 	check.Status = CheckStatusOK
-	check.Message = fmt.Sprintf("Image %s up to date (pull completed)", imageRef)
+	check.Message = fmt.Sprintf("Image %s force-refreshed from the registry", imageRef)
 	return check
 }
 

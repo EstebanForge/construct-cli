@@ -54,14 +54,14 @@ func LogWarning(msg string, args ...interface{}) {
 // LogInfo prints an info message to stdout if current log level is Info or higher.
 func LogInfo(msg string, args ...interface{}) {
 	if CurrentLogLevel >= LogLevelInfo {
-		fmt.Printf("Info: "+msg+"\n", args...)
+		fmt.Fprintf(os.Stderr, "Info: "+msg+"\n", args...)
 	}
 }
 
-// LogDebug prints a debug message to stdout if current log level is Debug or higher.
+// LogDebug prints a debug message to stderr if current log level is Debug or higher.
 func LogDebug(msg string, args ...interface{}) {
 	if CurrentLogLevel >= LogLevelDebug {
-		fmt.Printf("Debug: "+msg+"\n", args...)
+		fmt.Fprintf(os.Stderr, "Debug: "+msg+"\n", args...)
 	}
 }
 
@@ -85,7 +85,7 @@ func GumAvailable() bool {
 
 // GumSuccess prints a success message using ANSI colors
 func GumSuccess(msg string) {
-	fmt.Printf("%s✓ %s%s\n", ColorPink, msg, ColorReset)
+	fmt.Fprintf(os.Stderr, "%s✓ %s%s\n", ColorPink, msg, ColorReset)
 }
 
 // GumError prints an error message using ANSI colors
@@ -95,12 +95,12 @@ func GumError(msg string) {
 
 // GumWarning prints a warning message using ANSI colors
 func GumWarning(msg string) {
-	fmt.Printf("%s⚠️  %s%s\n", ColorOrange, msg, ColorReset)
+	fmt.Fprintf(os.Stderr, "%s⚠️  %s%s\n", ColorOrange, msg, ColorReset)
 }
 
 // GumInfo prints an info message using ANSI colors
 func GumInfo(msg string) {
-	fmt.Printf("%sℹ️  %s%s\n", ColorCyan, msg, ColorReset)
+	fmt.Fprintf(os.Stderr, "%sℹ️  %s%s\n", ColorCyan, msg, ColorReset)
 }
 
 // GetGumCommand returns an exec.Cmd for embedded gum-compatible commands.

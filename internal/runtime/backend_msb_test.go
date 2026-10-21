@@ -222,6 +222,146 @@ func TestEnsureImageDigestDriftFallsThroughToPull(t *testing.T) {
 	}
 }
 
+// TestEnsureImageDriftUsesForcePull: the daemon sandbox pins the GHCR ref
+// in the msb store, so the old unforced rm+pull pair never refreshed it —
+// rm was refused (error discarded) and the plain pull no-ops on any cached
+// ref. The drift refresh must pass --force to pull and verify the store
+// digest actually moved before reporting ready.
+func TestEnsureImageDriftUsesForcePull(t *testing.T) {
+	origDigest, origRemote := msbImageDigestFn, ghcrRemoteDigestFn
+	origCached := msbImageCachedFn
+	origRun := runMsbCmd
+	t.Cleanup(func() {
+		msbImageDigestFn, ghcrRemoteDigestFn = origDigest, origRemote
+		msbImageCachedFn = origCached
+		runMsbCmd = origRun
+	})
+
+	digestReads := 0
+	msbImageDigestFn = func(string) string {
+		digestReads++
+		if digestReads == 1 {
+			return "sha256:old" // drift probe before the pull
+		}
+		return "sha256:new" // store digest after the forced re-download
+	}
+	ghcrRemoteDigestFn = func(string) string { return "sha256:new" }
+	msbImageCachedFn = func(ref string) bool { return ref == PrepullImageRef }
+
+	var pullArgs []string
+	runMsbCmd = func(_ string, args ...string) ([]byte, error) {
+		if len(args) > 0 && args[0] == "pull" {
+			pullArgs = args
+		}
+		return nil, nil
+	}
+
+	cfg := config.DefaultConfig()
+	ref, err := (&MsbBackend{}).EnsureImage(&cfg)
+	if err != nil || ref != PrepullImageRef {
+		t.Fatalf("drift refresh must land the registry ref, got ref=%q err=%v", ref, err)
+	}
+	if len(pullArgs) == 0 {
+		t.Fatal("drift must reach the pull")
+	}
+	forced := false
+	for _, a := range pullArgs[1:] {
+		if a == "--force" || a == "-f" {
+			forced = true
+		}
+	}
+	if !forced {
+		t.Fatalf("drift pull must pass --force (unforced rm is refused on a pinned ref), got args %v", pullArgs)
+	}
+	if digestReads < 2 {
+		t.Fatalf("post-pull store digest must be re-verified, read %d time(s)", digestReads)
+	}
+}
+
+// TestMsbRecreateGate: a needed recreate (fork or cold) tears the daemon
+// down, killing every attached session. With zero sessions it never
+// interferes; a learned root cannot defer (the run needs its mount) and
+// fails busy; config/image drift rides the current daemon and recreates
+// on the next idle run.
+func TestMsbRecreateGate(t *testing.T) {
+	if d, err := msbRecreateGate("workspace roots changed (learned root added, removed, or evicted)", "~/proj", 0); d || err != nil {
+		t.Fatalf("zero sessions must never gate: deferred=%v err=%v", d, err)
+	}
+	d, err := msbRecreateGate("workspace roots changed (learned root added, removed, or evicted)", "~/proj", 2)
+	if d || !errors.Is(err, ErrMsbDaemonBusy) {
+		t.Fatalf("learned root with live sessions must fail busy, got deferred=%v err=%v", d, err)
+	}
+	d, err = msbRecreateGate("embedded msb runtime changed (construct upgrade)", "", 1)
+	if !d || err != nil {
+		t.Fatalf("drift with live sessions must defer without error, got deferred=%v err=%v", d, err)
+	}
+	if d, err = msbRecreateGate("embedded msb runtime changed (construct upgrade)", "", 0); d || err != nil {
+		t.Fatalf("drift with zero sessions must proceed: deferred=%v err=%v", d, err)
+	}
+}
+
+// TestGetMsbWorkspaceMountDestCollision: two roots with the same basename
+// used to share one guest mount (/workspaces/<name>), so the second root
+// in sort order silently won and sessions ran in the wrong tree. The dest
+// now carries a path hash: unique per root, stable across runs, still
+// readable.
+func TestGetMsbWorkspaceMountDestCollision(t *testing.T) {
+	work := filepath.Join(t.TempDir(), "api")
+	oss := filepath.Join(t.TempDir(), "api")
+	for _, d := range []string{work, oss} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, b := GetMsbWorkspaceMountDest(work), GetMsbWorkspaceMountDest(oss)
+	if a == b {
+		t.Fatalf("same-basename roots must not collide on %q", a)
+	}
+	if GetMsbWorkspaceMountDest(work) != a {
+		t.Fatal("dest must be stable across calls")
+	}
+	if !strings.HasPrefix(a, "/workspaces/api-") {
+		t.Fatalf("dest must keep the readable base prefix, got %q", a)
+	}
+	if GetMsbWorkspaceMountDest("") != "/workspaces" {
+		t.Fatal("empty dir must map to the bare /workspaces root")
+	}
+}
+
+// TestMapHostWorkdirToGuest: the workdir mapper must resolve by
+// longest-prefix over the actual mount maps, disambiguate same-basename
+// roots, refuse the home bind as a workdir, and fail closed on unmapped
+// dirs instead of landing blind in /workspaces.
+func TestMapHostWorkdirToGuest(t *testing.T) {
+	maps := []MsbPathMap{
+		{Guest: "/home/construct", Host: "/h/u/.config/construct-cli/home"},
+		{Guest: "/workspaces/api-11111111", Host: "/h/u/work/api"},
+		{Guest: "/workspaces/api-22222222", Host: "/h/u/oss/api"},
+	}
+
+	got, err := MapHostWorkdirToGuest(maps, "/h/u/work/api")
+	if err != nil || got != "/workspaces/api-11111111" {
+		t.Fatalf("root itself: got %q err=%v", got, err)
+	}
+	got, err = MapHostWorkdirToGuest(maps, "/h/u/work/api/cmd/x")
+	if err != nil || got != "/workspaces/api-11111111/cmd/x" {
+		t.Fatalf("subfolder: got %q err=%v", got, err)
+	}
+	got, err = MapHostWorkdirToGuest(maps, "/h/u/oss/api/cmd/x")
+	if err != nil || got != "/workspaces/api-22222222/cmd/x" {
+		t.Fatalf("same-basename sibling must resolve to its own root: got %q err=%v", got, err)
+	}
+	if _, err = MapHostWorkdirToGuest(maps, "/h/u/.config/construct-cli/home/x"); err == nil {
+		t.Fatal("the home bind must not host a workdir")
+	}
+	if _, err = MapHostWorkdirToGuest(maps, "/h/u/other"); !errors.Is(err, ErrMsbDaemonWorkdirUnmapped) {
+		t.Fatalf("unmapped dir must fail closed with ErrMsbDaemonWorkdirUnmapped, got %v", err)
+	}
+	if _, err = MapHostWorkdirToGuest(nil, "/h/u/work/api"); err == nil {
+		t.Fatal("empty map set must fail closed")
+	}
+}
+
 // TestMsbConstructImageRefPrefersLocalBuildOverGhcr: when both the stale
 // GHCR ref and a deliberate local build are cached, the boot image and
 // daemon digest label must resolve to the LOCAL build. The candidates

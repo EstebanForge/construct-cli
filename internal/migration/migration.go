@@ -18,6 +18,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/msbembed"
+	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 	semver "github.com/EstebanForge/construct-cli/internal/version"
@@ -978,13 +979,20 @@ func markImageForRebuild() {
 		msbOK = lookErr == nil
 	}
 	if msbOK {
-		if err := exec.Command(msbBinPath, "stop", "construct-cli-daemon").Run(); err != nil {
-			ui.LogDebug("Failed to stop msb sandbox construct-cli-daemon: %v", err)
+		// Live agent sessions share this daemon: a teardown here kills them.
+		// Defer the whole refresh to the next idle run instead — EnsureImage's
+		// digest drift check re-pulls (forced, B4) once the daemon is free.
+		if runtimepkg.LiveSessionCount() > 0 {
+			ui.LogDebug("image rebuild mark deferred: live msb sessions attached")
+		} else {
+			if err := runtimepkg.StopMsbDaemonBestEffort(); err != nil {
+				ui.LogDebug("Failed to stop msb sandbox construct-cli-daemon: %v", err)
+			}
+			if err := exec.Command(msbBinPath, "remove", "-f", "construct-cli-daemon").Run(); err != nil {
+				ui.LogDebug("Failed to remove msb sandbox construct-cli-daemon: %v", err)
+			}
+			removeMsbImageCache()
 		}
-		if err := exec.Command(msbBinPath, "remove", "-f", "construct-cli-daemon").Run(); err != nil {
-			ui.LogDebug("Failed to remove msb sandbox construct-cli-daemon: %v", err)
-		}
-		removeMsbImageCache()
 	}
 
 	if ui.GumAvailable() {

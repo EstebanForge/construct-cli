@@ -4,11 +4,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -286,22 +286,21 @@ func underAnyRoot(p string, roots []string) bool {
 	return false
 }
 
-// copyFileBestEffort copies a regular file with 0644.
+// copyBackLimit caps one staged-file copy-back: session payloads are
+// small text, and an unbounded guest-grown file would fill the host disk
+// at teardown.
+const copyBackLimit = 64 << 20
+
+// copyFileBestEffort copies a regular file with 0644, refusing symlinks:
+// the staged file lives in the guest-writable home bind, and a guest that
+// swaps it for a symlink would otherwise have the host copy the target's
+// bytes out of the bind (or follow a dangling link to create one).
 func copyFileBestEffort(src, dst string) error {
-	in, err := os.Open(src)
+	data, err := safefs.ReadFileRegular(src, copyBackLimit)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = in.Close() }() //nolint:errcheck // read-only close
-	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
-	if err != nil {
-		return err
-	}
-	if _, err := io.Copy(out, in); err != nil {
-		_ = out.Close() //nolint:errcheck // best-effort close on error path
-		return err
-	}
-	return out.Close()
+	return safefs.WriteFile(dst, data, 0o644)
 }
 
 // syncBack copies staged files back to their original host paths. Called

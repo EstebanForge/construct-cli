@@ -190,17 +190,13 @@ func attachMsb(cfg *config.Config) {
 	}
 	ctx := context.Background()
 	workdir := "/workspaces"
-	if dm := runtime.ResolveDaemonMounts(cfg); dm.Enabled {
-		// Multi-path mode: land the shell in the creating cwd mapped under
-		// the configured mount set (hash-validated by the daemon path).
-		if projectRoot := runtime.GetMsbDaemonProjectDir(ctx); projectRoot != "" {
-			if mapped, ok := runtime.MapDaemonWorkdirFromMounts(projectRoot, dm.Mounts); ok {
-				workdir = mapped
-			}
+	// Land the shell in the cwd's mount when one covers it (configured or
+	// learned roots alike); an unmapped cwd falls back to the bare
+	// /workspaces root rather than failing an interactive attach.
+	if cwd, werr := os.Getwd(); werr == nil {
+		if mapped, merr := runtime.MapHostWorkdirToGuest(runtime.MsbPathMaps(cfg, cwd), cwd); merr == nil {
+			workdir = mapped
 		}
-	} else {
-		projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
-		workdir = runtime.GetMsbWorkspaceMountDest(projectRoot)
 	}
 
 	code, err := m.ExecInteractive(ctx, runtime.ExecOptions{

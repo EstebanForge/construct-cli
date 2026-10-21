@@ -2,6 +2,8 @@ package runtime
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +24,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/msbembed"
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -63,7 +66,11 @@ func cleanProjectDir(projectDir string) string {
 	return filepath.Clean(projectDir)
 }
 
-// GetMsbWorkspaceMountDest returns the guest mount destination for a project dir (/workspaces/<name>).
+// GetMsbWorkspaceMountDest returns the guest mount destination for a
+// project dir (/workspaces/<name>-<hash8>). The hash disambiguates
+// same-basename roots: two ~/.../api trees must not share a mount, where
+// the second root in sort order silently won and sessions ran in the
+// wrong tree.
 func GetMsbWorkspaceMountDest(projectDir string) string {
 	cleaned := cleanProjectDir(projectDir)
 	if cleaned == "" {
@@ -73,7 +80,8 @@ func GetMsbWorkspaceMountDest(projectDir string) string {
 	if projectName == "." || projectName == "/" || projectName == "" {
 		return "/workspaces"
 	}
-	return "/workspaces/" + projectName
+	sum := sha256.Sum256([]byte(cleaned))
+	return "/workspaces/" + projectName + "-" + hex.EncodeToString(sum[:4])
 }
 
 // msbSandboxMounts maps the construct mount layout onto msb MountConfig:
@@ -126,6 +134,33 @@ func msbSandboxMounts(cfg *config.Config, projectDir string) map[string]msb.Moun
 type MsbPathMap struct {
 	Guest string
 	Host  string
+}
+
+// MapHostWorkdirToGuest returns the guest working directory for hostDir
+// by longest-prefix match over the daemon's mount maps, failing closed
+// when no workspace root covers it: landing blind in /workspaces starts
+// the agent in the parent of every project. The home bind is not a
+// workspace root and never hosts a workdir.
+func MapHostWorkdirToGuest(maps []MsbPathMap, hostDir string) (string, error) {
+	cleaned := cleanProjectDir(hostDir)
+	if cleaned == "" {
+		return "", fmt.Errorf("%w: empty working directory", ErrMsbDaemonWorkdirUnmapped)
+	}
+	bestHost, bestDest := "", ""
+	for _, m := range maps {
+		if m.Host == "" || m.Guest == msbHomeMountDest {
+			continue
+		}
+		if cleaned == m.Host || strings.HasPrefix(cleaned+string(os.PathSeparator), m.Host+string(os.PathSeparator)) {
+			if len(m.Host) > len(bestHost) {
+				bestHost, bestDest = m.Host, m.Guest
+			}
+		}
+	}
+	if bestHost == "" {
+		return "", fmt.Errorf("%w: %s is outside every mounted workspace root", ErrMsbDaemonWorkdirUnmapped, cleaned)
+	}
+	return bestDest + strings.TrimPrefix(cleaned, bestHost), nil
 }
 
 // MsbPathMaps returns the guest→host path translations for every bind in
@@ -537,6 +572,29 @@ var ErrMsbDaemonWorkdirUnmapped = errors.New("msb daemon: current directory is o
 // subsystem prefix: callers (agent engine) already wrap with "msb daemon:".
 var ErrMsbDaemonWorkdirDeclined = errors.New("workdir mounting was declined for this folder")
 
+// ErrMsbDaemonBusy reports that the daemon needs a recreate but live
+// agent sessions are attached: tearing it down would kill them. Callers
+// surface it to the user; the recreate applies automatically on the next
+// run once sessions end. No subsystem prefix: callers (agent engine)
+// already wrap with "msb daemon:".
+var ErrMsbDaemonBusy = errors.New("msb daemon needs a recreate but live sessions are attached")
+
+// msbRecreateGate decides how a needed recreate interacts with live
+// sessions, which a fork or cold recreate both kill. Zero sessions never
+// gates. A learned root cannot defer (this run needs its mount) and fails
+// busy; every drift reason rides the current daemon and recreates on the
+// next idle run. Called under the daemon flock, so the count is stable.
+func msbRecreateGate(reason, learnedRoot string, live int) (deferred bool, busyErr error) {
+	if live <= 0 {
+		return false, nil
+	}
+	if learnedRoot != "" {
+		return false, fmt.Errorf("%w: learned root %s needs a daemon recreate to mount; it is remembered and applies on the next idle run", ErrMsbDaemonBusy, learnedRoot)
+	}
+	ui.InfoF("⚠️  Daemon drift deferred (%s): %d live session(s) attached; recreate happens on the next idle run\n", reason, live)
+	return true, nil
+}
+
 // msbDaemonNeedsRecreate decides whether an existing daemon sandbox can
 // serve projectDir. Multi-path mode (daemon.mount_paths): recreate only
 // when the mounted hash drifted from config (mounts are create-time only;
@@ -746,6 +804,13 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 				// daemon's msb record carries no labels (restore drops them), and
 				// a stale record would read as total drift and recreate forever.
 				needRecreate, reason = msbDaemonNeedsRecreate(dm, msbDaemonDecisionLabels(sbc.Labels), h.ConfigJSON(), projectDir, allowHome, cfg, msbCachedImageDigest())
+			}
+			if needRecreate {
+				if deferred, busyErr := msbRecreateGate(reason, learnedRoot, LiveSessionCount()); busyErr != nil {
+					return nil, busyErr
+				} else if deferred {
+					needRecreate = false
+				}
 			}
 			if needRecreate {
 				bootOutcome = msbBootRecreate
@@ -990,7 +1055,9 @@ func writeMsbInstallScript() error {
 		return err
 	}
 	scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
-	return os.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0o755)
+	// safefs, not os.WriteFile: the script lives in the guest-writable
+	// home bind; a planted symlink must not redirect the host write.
+	return safefs.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0o755)
 }
 
 // msbSeedAutoFiles copies file-sized conditional auto-mounts (global
