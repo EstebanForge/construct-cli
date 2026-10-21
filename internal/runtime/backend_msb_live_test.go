@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -18,6 +20,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
+	"github.com/EstebanForge/construct-cli/internal/msbembed"
 )
 
 func msbLiveEnabled(t *testing.T) {
@@ -27,6 +30,61 @@ func msbLiveEnabled(t *testing.T) {
 	}
 	if _, err := exec.LookPath("msb"); err != nil {
 		t.Skipf("msb binary not found: %v", err)
+	}
+	kvm, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
+	if err != nil {
+		t.Skipf("no usable /dev/kvm: %v", err)
+	}
+	kvm.Close()
+	// Linking the embedded pair is not enough: without Activate the SDK
+	// resolver falls back to the system msb binary, whose version usually
+	// trails the SDK pin and fails the launch contract.
+	if err := msbembed.Activate(); err != nil {
+		t.Fatalf("activate embedded runtime: %v", err)
+	}
+}
+
+// msbBootBudget is generous on purpose: the gate guards against hangs
+// and runaway boots, not regressions in the seconds range. The logged
+// duration is the baseline the suite tightens against.
+const msbBootBudget = 90 * time.Second
+
+// TestMsbLiveBootBudget boots the standard spec through the production
+// create path and records the create-to-ready time.
+func TestMsbLiveBootBudget(t *testing.T) {
+	msbLiveEnabled(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cfg := config.DefaultConfig()
+	cfg.Network.Mode = "permissive"
+
+	if err := EnsureMsbVolumes(ctx); err != nil {
+		t.Fatalf("EnsureMsbVolumes: %v", err)
+	}
+
+	name := fmt.Sprintf("construct-msb-boot-budget-%d", time.Now().UnixMilli())
+	m := NewMsbBackend()
+	if err := m.Cleanup(ctx, name); err != nil {
+		t.Fatalf("pre-run Cleanup: %v", err)
+	}
+
+	proj := t.TempDir()
+	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
+
+	start := time.Now()
+	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
+		t.Fatalf("CreateMsbSandbox: %v", err)
+	}
+	booted := time.Since(start)
+	t.Logf("boot-to-ready: %s", booted)
+	if booted > msbBootBudget {
+		t.Errorf("boot took %s, budget %s", booted, msbBootBudget)
+	}
+
+	if err := m.Cleanup(context.Background(), name); err != nil {
+		t.Fatalf("post Cleanup: %v", err)
 	}
 }
 
@@ -223,7 +281,11 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	}
 
 	proj := t.TempDir()
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "") // nil ports: engine binds random bridge ports per run
+	// The clipboard port rides the spec's bridgePorts exactly as the engine
+	// does: with network policy enforced, only rule-named ports reach the
+	// host, so a random :0 port outside the forwarded set would time out.
+	clipPort := portFromURL(t, cb.URL)
+	spec := BuildMsbRunSpec(&cfg, name, proj, []int{clipPort}, "")
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -244,13 +306,21 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	}
 
 	// 2. Authorized: correct token -> 200 (host clipboard has text) or 404
-	// (empty clipboard). Either proves the transport carries the request;
-	// anything else is a bridge failure.
+	// (empty clipboard). 500 means the host clipboard provider itself is
+	// unavailable (headless shell, no display) — a skip, not a bridge
+	// failure: the 401-vs-authorized split already proved the transport.
 	status, code, err = curl("-H", "X-Construct-Clip-Token: "+cb.Token, cb.URL+"/paste?type=text/plain")
-	if err != nil || code != 0 || (status != "200" && status != "404") {
-		t.Fatalf("token paste: status=%s code=%d err=%v (want 200 or 404)", status, code, err)
+	if err != nil || code != 0 {
+		t.Fatalf("token paste: status=%s code=%d err=%v", status, code, err)
 	}
-	t.Logf("authorized paste status: %s", status)
+	switch status {
+	case "200", "404":
+		t.Logf("authorized paste status: %s", status)
+	case "500":
+		t.Skipf("clipboard provider unavailable on this host (authorized paste returned 500)")
+	default:
+		t.Fatalf("token paste: status=%s (want 200 or 404)", status)
+	}
 
 	// 3. Offline means offline: public egress must fail even though the
 	// host transport rule is any-port (destination-scoped to host).
@@ -297,7 +367,7 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	if err := m.Cleanup(ctx, name); err != nil {
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
+	spec := BuildMsbRunSpec(&cfg, name, proj, []int{portFromURL(t, srv.URL)}, "")
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -329,14 +399,15 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 		t.Fatalf("token exec: status=%s code=%d err=%v", status, code, err)
 	}
 
-	// 3. PathMap proof: rerun with body visible; stdout frame must carry the
-	// HOST project dir (base64), i.e. guest workspace translated to $proj.
+	// 3. PathMap proof: the stdout frame carries the HOST project dir
+	// base64-encoded; pwd emits a trailing newline, so the match must be
+	// newline-tolerant (the raw-path fallback only ever matched on macOS).
 	cmd := append([]string{"curl", "-s", "--max-time", "30", "-X", "POST", "-d", body, "-H", "X-Construct-Exec-Token: " + srv.Token, "-H", "Content-Type: application/json"}, srv.URL+"/exec")
 	out, code, err := m.Exec(ctx, ExecOptions{Name: name, Command: cmd})
 	if err != nil || code != 0 {
 		t.Fatalf("token exec (body): code=%d out=%q err=%v", code, out, err)
 	}
-	if !strings.Contains(out, base64Encode(proj)) && !strings.Contains(out, proj) {
+	if !strings.Contains(out, base64Encode(proj)) && !strings.Contains(out, base64Encode(proj+"\n")) && !strings.Contains(out, proj) {
 		t.Fatalf("exec output missing host project dir %q: %q", proj, out)
 	}
 	if !strings.Contains(out, `"type":"exit"`) {
@@ -346,6 +417,21 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 
 func base64Encode(s string) string {
 	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+// portFromURL extracts the TCP port from a test server's URL so it can
+// ride the spec's bridgePorts like a production bridge port.
+func portFromURL(t *testing.T, rawURL string) int {
+	t.Helper()
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse server url %q: %v", rawURL, err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil || port <= 0 {
+		t.Fatalf("server url %q has no usable port", rawURL)
+	}
+	return port
 }
 
 // TestMsbLiveSSHAgentBridge is the Step 7 SSH agent bridge gate (docs/VMsv2.md
@@ -373,7 +459,16 @@ func TestMsbLiveSSHAgentBridge(t *testing.T) {
 		t.Fatalf("pre-run Cleanup: %v", err)
 	}
 	proj := t.TempDir()
-	spec := BuildMsbRunSpec(&cfg, name, proj, nil, "")
+	// Host side first so the port rides the spec's bridgePorts: with policy
+	// enforced, only rule-named ports reach the host. Production wires the
+	// session's ports the same way.
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("host listener: %v", err)
+	}
+	defer l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	spec := BuildMsbRunSpec(&cfg, name, proj, []int{port}, "")
 	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}
@@ -381,13 +476,6 @@ func TestMsbLiveSSHAgentBridge(t *testing.T) {
 		_ = m.Cleanup(context.Background(), name)
 	}()
 
-	// Host side: TCP listener -> host SSH_AUTH_SOCK (backend-agnostic).
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("host listener: %v", err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	defer l.Close()
 	go func() {
 		for {
 			c, err := l.Accept()
@@ -408,9 +496,11 @@ func TestMsbLiveSSHAgentBridge(t *testing.T) {
 		}
 	}()
 
-	// Guest side: per-session socat -> host alias (same shape as engine_msb.go).
-	sockPath := "/home/construct/.ssh/agent.msbtest.sock"
-	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; mkdir -p "$(dirname "$PROXY_SOCK")" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$PORT" >/tmp/socat.log 2>&1 & sleep 1; [ -S "$PROXY_SOCK" ] && echo ready`
+	// Guest side: per-session socat -> host alias, same shape and guest-
+	// native /tmp socket path as engine_msb.go. Unix binds on the virtiofs
+	// home mount are unsupported by the guest, so /home/... sockets fail.
+	sockPath := "/tmp/construct-ssh-agent-livecheck.sock"
+	script := `if ! command -v socat >/dev/null; then echo "socat missing in guest image" >&2; exit 9; fi; PROXY_SOCK="` + sockPath + `"; mkdir -p "$(dirname "$PROXY_SOCK")" >/dev/null 2>&1 || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$PORT" >/tmp/socat.log 2>&1 & sleep 1; if [ -S "$PROXY_SOCK" ]; then echo ready; else echo "socat did not bind:"; cat /tmp/socat.log; exit 1; fi`
 	out, code, err := m.Exec(ctx, ExecOptions{Name: name, User: "construct", Env: []string{fmt.Sprintf("PORT=%d", port)}, Command: []string{"bash", "-c", script}})
 	if err != nil || code != 0 || !strings.Contains(out, "ready") {
 		t.Fatalf("socat proxy setup: code=%d out=%q err=%v", code, out, err)
