@@ -130,8 +130,78 @@ func TestBridgeBindHostBackendScoping(t *testing.T) {
 
 func TestStartSSHBridgeRequiresAuthSock(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
+	// Isolate HOME: a live ~/.ssh/agent.sock (bw-ssh bridge) would let the
+	// bridge start via the fallback path and legitimately return no error.
+	t.Setenv("HOME", t.TempDir())
 	if _, err := StartSSHBridge("seed-noauth", "127.0.0.1"); err == nil {
-		t.Fatal("expected error when SSH_AUTH_SOCK is unset")
+		t.Fatal("expected error when no agent socket is reachable")
+	}
+}
+
+// TestResolveAgentSocket pins the probe order: a live SSH_AUTH_SOCK wins,
+// a dead one falls through to the bw-ssh bridge socket under $HOME, and
+// absence everywhere yields an empty string.
+func TestResolveAgentSocket(t *testing.T) {
+	t.Run("live env socket wins", func(t *testing.T) {
+		live := filepath.Join(shortTempDir(t), "live.sock")
+		stop := startFakeAgent(t, live, "LIVE")
+		defer stop()
+		t.Setenv("SSH_AUTH_SOCK", live)
+		t.Setenv("HOME", t.TempDir())
+		if got := resolveAgentSocket(); got != live {
+			t.Fatalf("resolveAgentSocket() = %q, want %q", got, live)
+		}
+	})
+
+	t.Run("dead env socket falls back to bridge socket", func(t *testing.T) {
+		dead := filepath.Join(shortTempDir(t), "dead.sock")
+		home := t.TempDir()
+		fb := filepath.Join(home, ".ssh", "agent.sock")
+		if err := os.MkdirAll(filepath.Dir(fb), 0o700); err != nil {
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		stop := startFakeAgent(t, fb, "FALLBACK")
+		defer stop()
+		t.Setenv("SSH_AUTH_SOCK", dead)
+		t.Setenv("HOME", home)
+		if got := resolveAgentSocket(); got != fb {
+			t.Fatalf("resolveAgentSocket() = %q, want %q", got, fb)
+		}
+	})
+
+	t.Run("no live socket anywhere", func(t *testing.T) {
+		t.Setenv("SSH_AUTH_SOCK", filepath.Join(shortTempDir(t), "dead.sock"))
+		t.Setenv("HOME", t.TempDir())
+		if got := resolveAgentSocket(); got != "" {
+			t.Fatalf("resolveAgentSocket() = %q, want empty", got)
+		}
+	})
+}
+
+// TestStartSSHBridgeRelayFallsBackToBridgeSocket proves the end-to-end
+// heal: with SSH_AUTH_SOCK pointing at a refusing socket (the Bitwarden
+// desktop Flatpak exports its socket path globally, dead when the app is
+// closed), the bridge relays through ~/.ssh/agent.sock instead.
+func TestStartSSHBridgeRelayFallsBackToBridgeSocket(t *testing.T) {
+	home := t.TempDir()
+	fb := filepath.Join(home, ".ssh", "agent.sock")
+	if err := os.MkdirAll(filepath.Dir(fb), 0o700); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	stop := startFakeAgent(t, fb, "FALLBACK")
+	defer stop()
+
+	t.Setenv("HOME", home)
+	t.Setenv("SSH_AUTH_SOCK", filepath.Join(shortTempDir(t), "dead.sock"))
+
+	bridge, err := StartSSHBridge("seed-fallback", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("StartSSHBridge: %v", err)
+	}
+	t.Cleanup(bridge.Stop)
+
+	if got := dialAndRead(t, bridge.Port); got != "FALLBACK" {
+		t.Fatalf("relayed payload = %q, want FALLBACK via ~/.ssh/agent.sock", got)
 	}
 }
 

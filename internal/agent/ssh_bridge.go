@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -21,7 +22,42 @@ type SSHBridge struct {
 	Listener net.Listener
 	Port     int
 	Quit     chan struct{}
-	wg       sync.WaitGroup
+	// fallbackSock is a live agent socket found when SSH_AUTH_SOCK was
+	// dead or unset at start; handleConnection tries the env path first,
+	// then this, so a Bitwarden recycling its env socket still wins.
+	fallbackSock string
+	wg           sync.WaitGroup
+}
+
+// sockPathAnswers reports whether a unix socket accepts connections.
+// Presence on disk proves nothing: GUI-launched processes inherit the
+// Bitwarden desktop Flatpak's SSH_AUTH_SOCK even when the app is closed.
+func sockPathAnswers(path string) bool {
+	c, err := net.DialTimeout("unix", path, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	_ = c.Close() //nolint:errcheck // probe dial: close errors are irrelevant
+	return true
+}
+
+// resolveAgentSocket returns the first SSH agent socket that accepts
+// connections: $SSH_AUTH_SOCK, then the bw-ssh bridge socket under
+// $HOME. Empty string means no live agent was found.
+func resolveAgentSocket() string {
+	candidates := make([]string, 0, 2)
+	if s := os.Getenv("SSH_AUTH_SOCK"); s != "" {
+		candidates = append(candidates, s)
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates, filepath.Join(home, ".ssh", "agent.sock"))
+	}
+	for _, c := range candidates {
+		if sockPathAnswers(c) {
+			return c
+		}
+	}
+	return ""
 }
 
 // sshBridgePortBase/Span define a deterministic port band used to give each
@@ -93,8 +129,17 @@ func sshPinIdentitiesEnv(cfg *config.Config) string {
 // host loopback, so 127.0.0.1 is reachable; docker's Linux host-gateway is
 // the bridge IP, which needs 0.0.0.0.
 func StartSSHBridge(seed, bindHost string) (*SSHBridge, error) {
-	if os.Getenv("SSH_AUTH_SOCK") == "" {
-		return nil, fmt.Errorf("SSH_AUTH_SOCK not set on host")
+	// A live socket elsewhere heals a dead or unset SSH_AUTH_SOCK; when
+	// the env path itself answers, no fallback is needed.
+	liveSock := resolveAgentSocket()
+	envSock := os.Getenv("SSH_AUTH_SOCK")
+	fallback := ""
+	if liveSock != "" && liveSock != envSock {
+		fallback = liveSock
+		ui.LogInfo("SSH bridge: SSH_AUTH_SOCK (%s) is not answering; using %s", envSock, liveSock)
+	}
+	if envSock == "" && fallback == "" {
+		return nil, fmt.Errorf("no SSH agent socket found (SSH_AUTH_SOCK unset, ~/.ssh/agent.sock missing)")
 	}
 
 	bindAddr := func(port int) string {
@@ -112,9 +157,10 @@ func StartSSHBridge(seed, bindHost string) (*SSHBridge, error) {
 	}
 
 	bridge := &SSHBridge{
-		Listener: l,
-		Port:     l.Addr().(*net.TCPAddr).Port,
-		Quit:     make(chan struct{}),
+		Listener:     l,
+		Port:         l.Addr().(*net.TCPAddr).Port,
+		Quit:         make(chan struct{}),
+		fallbackSock: fallback,
 	}
 
 	bridge.wg.Add(1)
@@ -144,6 +190,22 @@ func (b *SSHBridge) serve() {
 	}
 }
 
+func dialAgentWithRetry(sock string) (net.Conn, error) {
+	var conn net.Conn
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		conn, err = net.Dial("unix", sock)
+		if err == nil {
+			return conn, nil
+		}
+		ui.LogDebug("SSH bridge dial attempt %d failed on %s: %v", attempt+1, sock, err)
+		if attempt < 2 {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+	return nil, err
+}
+
 // handleConnection proxies a single connection to the SSH agent.
 // Re-reads SSH_AUTH_SOCK on each connection to handle agents like Bitwarden
 // that recycle socket paths on vault lock/unlock.
@@ -156,21 +218,24 @@ func (b *SSHBridge) handleConnection(localConn net.Conn) {
 	}()
 
 	sshAuthSock := os.Getenv("SSH_AUTH_SOCK")
-	if sshAuthSock == "" {
-		ui.LogDebug("SSH bridge: SSH_AUTH_SOCK not set, dropping connection")
+	if sshAuthSock == "" && b.fallbackSock == "" {
+		ui.LogDebug("SSH bridge: no agent socket available, dropping connection")
 		return
 	}
 
 	var remoteConn net.Conn
 	var err error
-	for attempt := 0; attempt < 3; attempt++ {
-		remoteConn, err = net.Dial("unix", sshAuthSock)
+	candidates := []string{sshAuthSock}
+	if b.fallbackSock != "" && b.fallbackSock != sshAuthSock {
+		candidates = append(candidates, b.fallbackSock)
+	}
+	for _, cand := range candidates {
+		if cand == "" {
+			continue
+		}
+		remoteConn, err = dialAgentWithRetry(cand)
 		if err == nil {
 			break
-		}
-		ui.LogDebug("SSH bridge dial attempt %d failed: %v", attempt+1, err)
-		if attempt < 2 {
-			time.Sleep(100 * time.Millisecond)
 		}
 	}
 	if err != nil {
