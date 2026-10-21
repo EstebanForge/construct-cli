@@ -154,18 +154,27 @@ func (m *MsbBackend) ExecInteractive(ctx context.Context, opts ExecOptions) (int
 	return msbDrain(ctx, h, os.Stdout, os.Stderr)
 }
 
+// execEventSource is the slice of msb.ExecHandle msbDrain consumes; the
+// interface exists so tests can script event sequences.
+type execEventSource interface {
+	Recv(ctx context.Context) (*msb.ExecEvent, error)
+	Kill(ctx context.Context) error
+}
+
 // msbDrain pumps ExecStream events to the host streams until the process
 // exits and returns its exit code. ctx-aware: cancellation kills the guest
 // process (h.Close does NOT signal it - sdk/go/exec.go), then the drain
-// continues until the exit event confirms termination.
-func msbDrain(ctx context.Context, h *msb.ExecHandle, stdout, stderr io.Writer) (int, error) {
+// continues until the exit event confirms termination. A StdinError keeps
+// draining: a host-side stdin pump failure is not the process ending, and
+// returning early would lose the guest's real exit code.
+func msbDrain(ctx context.Context, src execEventSource, stdout, stderr io.Writer) (int, error) {
 	for {
-		ev, err := h.Recv(ctx)
+		ev, err := src.Recv(ctx)
 		if ctx.Err() != nil {
 			// Canceled: terminate the guest process explicitly, then keep
 			// draining until the exit event confirms it is gone.
-			_ = h.Kill(context.Background()) //nolint:errcheck // best-effort kill during cancellation
-			ev, err = h.Recv(context.Background())
+			_ = src.Kill(context.Background()) //nolint:errcheck // best-effort kill during cancellation
+			ev, err = src.Recv(context.Background())
 			if err != nil {
 				return 1, fmt.Errorf("msb exec stream: %w", err)
 			}
@@ -188,7 +197,10 @@ func msbDrain(ctx context.Context, h *msb.ExecHandle, stdout, stderr io.Writer) 
 			}
 		case msb.ExecEventExited:
 			return ev.ExitCode, nil
-		case msb.ExecEventFailed, msb.ExecEventStdinError:
+		case msb.ExecEventStdinError:
+			// Keep draining; the bounded ctx covers a guest that never
+			// exits after its stdin died.
+		case msb.ExecEventFailed:
 			msg := "unknown failure"
 			if ev.Failure != nil && ev.Failure.Message != "" {
 				msg = ev.Failure.Message

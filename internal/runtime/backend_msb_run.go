@@ -798,7 +798,42 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 // mount count, and (for recreate) the reason. The start clock is captured
 // at the top; the log is fire-and-forget and never affects the returned
 // sandbox. See msbLogBoot + docs/VMsv2.md phase 0.
+// ensureMsbDaemonCore is the flock-held daemon ensure body; the var
+// exists so tests can stub it while asserting wrapper invariants.
+var ensureMsbDaemonCore = ensureMsbDaemonLocked
+
+// EnsureMsbDaemon ensures the msb daemon sandbox is running for the
+// project and returns it. The whole operation holds the daemon flock.
 func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string) (*msb.Sandbox, error) {
+	release, err := acquireDaemonLock()
+	if err != nil {
+		return nil, fmt.Errorf("acquire daemon lock: %w", err)
+	}
+	defer release()
+	return ensureMsbDaemonCore(ctx, cfg, projectDir)
+}
+
+// EnsureMsbDaemonAndRegister is the run-path entry: ensure + session
+// registration inside ONE flock section. Registering after the lock
+// release left a window where an idle watcher could acquire the lock,
+// count zero sessions, and stop the daemon under the incoming run.
+func EnsureMsbDaemonAndRegister(ctx context.Context, cfg *config.Config, projectDir string) (*msb.Sandbox, error) {
+	release, err := acquireDaemonLock()
+	if err != nil {
+		return nil, fmt.Errorf("acquire daemon lock: %w", err)
+	}
+	defer release()
+	sb, err := ensureMsbDaemonCore(ctx, cfg, projectDir)
+	if err != nil {
+		return nil, err
+	}
+	if rerr := Register(os.Getpid(), msbDaemonName); rerr != nil {
+		ui.InfoF("⚠️  Could not register idle session: %v\n", rerr)
+	}
+	return sb, nil
+}
+
+func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir string) (*msb.Sandbox, error) {
 	bootStart := msbBootClock()
 	bootOutcome := msbBootCold
 	bootReason := ""
@@ -829,12 +864,8 @@ func EnsureMsbDaemon(ctx context.Context, cfg *config.Config, projectDir string)
 	// different roots cannot produce last-write-wins root loss or a double
 	// recreate. Blocking is correct: a 10-minute first boot behind the
 	// lock is expected (the prior install path runs inside it). The lock
-	// is host-local; one per construct config dir.
-	releaseLock, err := acquireDaemonLock()
-	if err != nil {
-		return nil, fmt.Errorf("acquire daemon lock: %w", err)
-	}
-	defer releaseLock()
+	// is host-local; one per construct config dir. The acquisition lives
+	// in the EnsureMsbDaemon / EnsureMsbDaemonAndRegister wrappers.
 
 	// Regenerate the guest installer from the current packages.toml on
 	// every daemon start: agent runs and first-run do this elsewhere

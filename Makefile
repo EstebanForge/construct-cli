@@ -2,7 +2,7 @@
 	test-unit-ci test-integration test-coverage bench clean clean-docker clean-all \
 	install install-local install-dev uninstall uninstall-local release cross-compile \
 	check ci lint lint-ci lint-fix fmt vet dev dev-check run run-dev version \
-	deps check-version release-preflight test-acceptance test-live
+	deps check-version release-preflight test-acceptance test-live test-mutation
 
 # Variables
 BINARY_NAME := construct
@@ -153,6 +153,13 @@ test-live: ## Run live msb VM gates (real sandbox boots; KVM + msb required)
 	msb image pull ghcr.io/estebanforge/construct-box:latest >/dev/null || { echo "image pre-pull failed" >&2; exit 1; }; \
 	CONSTRUCT_MSB_LIVE=1 $(GOTEST) -tags msbembed -v -run 'TestMsbLive' -timeout 60m ./internal/runtime/
 	@echo "✓ Live msb gates passed"
+
+test-mutation: ## Run gremlins mutation testing when installed (skipped otherwise)
+	@if command -v gremlins >/dev/null 2>&1; then \
+		gremlins unleash --path .; \
+	else \
+		echo "gremlins not installed; skipping (go install github.com/gremlins-dev/gremlins/cmd/gremlins@latest)"; \
+	fi
 
 test-ci: ## Run CI tests
 	@$(MAKE) --no-print-directory test

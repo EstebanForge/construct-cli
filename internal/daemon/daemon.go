@@ -130,7 +130,11 @@ func startMsb(cfg *config.Config) {
 	}
 
 	ui.GumInfo("Starting daemon sandbox...")
-	sb, err := runtime.EnsureMsbDaemon(context.Background(), cfg, cwd)
+	// Registered as a live session: an interactive attach deserves the
+	// daemon as much as an agent run, and the registration rides the
+	// ensure's flock section so the idle watcher cannot stop the daemon
+	// under the attach.
+	sb, err := runtime.EnsureMsbDaemonAndRegister(context.Background(), cfg, cwd)
 	if err != nil {
 		if errors.Is(err, runtime.ErrMsbDaemonWorkdirUnmapped) {
 			ui.GumError("Current directory is outside the configured daemon mount paths")
