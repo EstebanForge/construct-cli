@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -434,87 +432,6 @@ func portFromURL(t *testing.T, rawURL string) int {
 	return port
 }
 
-// TestMsbLiveSSHAgentBridge is the Step 7 SSH agent bridge gate (docs/VMsv2.md
-// §7): the guest socat proxy (UNIX socket -> host.microsandbox.internal)
-// answers agent protocol requests through the host SSH bridge, under
-// deny-by-default offline egress.
-func TestMsbLiveSSHAgentBridge(t *testing.T) {
-	msbLiveEnabled(t)
-	if os.Getenv("SSH_AUTH_SOCK") == "" {
-		t.Skip("SSH_AUTH_SOCK not set on host; skipping SSH bridge gate")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-	defer cancel()
-
-	cfg := config.DefaultConfig()
-	cfg.Network.Mode = "offline"
-
-	if err := EnsureMsbVolumes(ctx); err != nil {
-		t.Fatalf("EnsureMsbVolumes: %v", err)
-	}
-	name := "construct-msb-ssh-test"
-	m := NewMsbBackend()
-	if err := m.Cleanup(ctx, name); err != nil {
-		t.Fatalf("pre-run Cleanup: %v", err)
-	}
-	proj := t.TempDir()
-	// Host side first so the port rides the spec's bridgePorts: with policy
-	// enforced, only rule-named ports reach the host. Production wires the
-	// session's ports the same way.
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("host listener: %v", err)
-	}
-	defer l.Close()
-	port := l.Addr().(*net.TCPAddr).Port
-	spec := BuildMsbRunSpec(&cfg, name, proj, []int{port}, "")
-	if _, err := CreateMsbSandbox(ctx, spec); err != nil {
-		t.Fatalf("CreateMsbSandbox: %v", err)
-	}
-	defer func() {
-		_ = m.Cleanup(context.Background(), name)
-	}()
-
-	go func() {
-		for {
-			c, err := l.Accept()
-			if err != nil {
-				return
-			}
-			go func(c net.Conn) {
-				agent, derr := net.Dial("unix", os.Getenv("SSH_AUTH_SOCK"))
-				if derr != nil {
-					_ = c.Close()
-					return
-				}
-				defer agent.Close()
-				defer c.Close()
-				go func() { _, _ = io.Copy(agent, c); _ = agent.Close() }()
-				_, _ = io.Copy(c, agent)
-			}(c)
-		}
-	}()
-
-	// Guest side: per-session socat -> host alias, same shape and guest-
-	// native /tmp socket path as engine_msb.go. Unix binds on the virtiofs
-	// home mount are unsupported by the guest, so /home/... sockets fail.
-	sockPath := "/tmp/construct-ssh-agent-livecheck.sock"
-	script := `if ! command -v socat >/dev/null; then echo "socat missing in guest image" >&2; exit 9; fi; PROXY_SOCK="` + sockPath + `"; mkdir -p "$(dirname "$PROXY_SOCK")" >/dev/null 2>&1 || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$PORT" >/tmp/socat.log 2>&1 & sleep 1; if [ -S "$PROXY_SOCK" ]; then echo ready; else echo "socat did not bind:"; cat /tmp/socat.log; exit 1; fi`
-	out, code, err := m.Exec(ctx, ExecOptions{Name: name, User: "construct", Env: []string{fmt.Sprintf("PORT=%d", port)}, Command: []string{"bash", "-c", script}})
-	if err != nil || code != 0 || !strings.Contains(out, "ready") {
-		t.Fatalf("socat proxy setup: code=%d out=%q err=%v", code, out, err)
-	}
-
-	// Gate: SSH_AGENT_PROTOCOL request through the proxy: `ssh-add -l`
-	// (lists identities; exit 0 with keys, 1 with an empty agent, 2 on
-	// connection failure). Anything but 2 proves the full chain works.
-	out, code, err = m.Exec(ctx, ExecOptions{Name: name, User: "construct", Env: []string{"SSH_AUTH_SOCK=" + sockPath}, Command: []string{"bash", "-c", `ssh-add -l 2>&1; echo "exit=$?"`}})
-	if err != nil || code != 0 {
-		t.Fatalf("ssh-add via proxy: code=%d out=%q err=%v", code, out, err)
-	}
-	if strings.Contains(out, "exit=2") || !strings.Contains(out, "exit=") {
-		t.Fatalf("ssh agent chain broken (exit=2 = connect failure): %q", out)
-	}
-	t.Logf("ssh-add via msb proxy: %q", strings.TrimSpace(out))
-}
+// TestMsbLiveSSHAgentBridge moved to backend_msb_ssh_live_test.go (package
+// runtime_test) so it can drive the production StartSSHBridge without an
+// import cycle.
