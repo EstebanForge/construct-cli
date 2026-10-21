@@ -19,6 +19,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/security"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -128,8 +129,10 @@ func (e *RuntimeEngine) Prepare() error {
 
 	// 2.1 Write Global Agent Instructions (AGENTS.md)
 	globalAgentsMD := filepath.Join(e.configPath, "home", "AGENTS.md")
-	if _, err := os.Stat(globalAgentsMD); os.IsNotExist(err) {
-		if err := os.WriteFile(globalAgentsMD, []byte(templates.GlobalAgentsRules), 0644); err != nil {
+	// Lstat, not Stat: a guest-planted dangling symlink passes the Stat
+	// not-exist check and the write would follow the link to its target.
+	if _, err := os.Lstat(globalAgentsMD); os.IsNotExist(err) {
+		if err := safefs.WriteFile(globalAgentsMD, []byte(templates.GlobalAgentsRules), 0644); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to write global AGENTS.md: %v\n", err)
 		}
 	}

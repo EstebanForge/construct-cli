@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,8 +46,9 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if mounts := spec.Mounts; mounts[msbHomeMountDest].Bind == "" {
 		t.Errorf("home bind mount missing: %+v", mounts[msbHomeMountDest])
 	}
-	if spec.Mounts["/workspaces/proj"].Bind != "/tmp/proj" {
-		t.Errorf("project mount missing: %+v", spec.Mounts["/workspaces/proj"])
+	projDest := msbTestDest("/tmp/proj")
+	if spec.Mounts[projDest].Bind != "/tmp/proj" {
+		t.Errorf("project mount missing at %s: %+v", projDest, spec.Mounts[projDest])
 	}
 	if spec.HostAliasEnv != msbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != msbHostAlias {
 		t.Errorf("host alias env missing: %+v", spec.Env)
@@ -512,26 +515,44 @@ func TestResolveExecUserMsb(t *testing.T) {
 }
 
 func TestGetMsbWorkspaceMountDest(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"", "/workspaces"},
-		{"/", "/workspaces"},
+	tests := []string{
+		"",
+		"/",
 		// Relative inputs canonicalize first: "." resolves to the process
 		// cwd (pre-cleanProjectDir it collapsed to the /workspaces fallback).
-		{"/Users/esteban/Dev/my-proj", "/workspaces/my-proj"},
-		{"/Users/esteban/Dev/my-proj/", "/workspaces/my-proj"},
-		{"/tmp/workspace", "/workspaces/workspace"},
-		{"/tmp/nested/deep/project", "/workspaces/project"},
+		"/Users/esteban/Dev/my-proj",
+		"/Users/esteban/Dev/my-proj/",
+		"/tmp/workspace",
+		"/tmp/nested/deep/project",
 	}
 
 	for _, tt := range tests {
-		got := GetMsbWorkspaceMountDest(tt.input)
-		if got != tt.expected {
-			t.Errorf("GetMsbWorkspaceMountDest(%q) = %q, want %q", tt.input, got, tt.expected)
+		got := GetMsbWorkspaceMountDest(tt)
+		if tt == "" || tt == "/" {
+			if got != "/workspaces" {
+				t.Errorf("GetMsbWorkspaceMountDest(%q) = %q, want /workspaces", tt, got)
+			}
+			continue
+		}
+		cleaned, serr := filepath.EvalSymlinks(tt)
+		if serr != nil {
+			cleaned = filepath.Clean(tt)
+		}
+		want := msbTestDest(cleaned)
+		if got != want {
+			t.Errorf("GetMsbWorkspaceMountDest(%q) = %q, want %q", tt, got, want)
+		}
+		if !strings.HasPrefix(got, "/workspaces/") {
+			t.Errorf("dest %q must stay under /workspaces", got)
 		}
 	}
+}
+
+// msbTestDest mirrors GetMsbWorkspaceMountDest's name-hash convention so
+// tests compute expectations instead of hardcoding digests.
+func msbTestDest(cleaned string) string {
+	sum := sha256.Sum256([]byte(cleaned))
+	return "/workspaces/" + filepath.Base(cleaned) + "-" + hex.EncodeToString(sum[:4])
 }
 
 func TestParseMsbConfigMounts(t *testing.T) {
@@ -770,7 +791,7 @@ func TestGetMsbWorkspaceMountDestRelativeCwd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "/workspaces/" + filepath.Base(cwd)
+	want := msbTestDest(cwd)
 	if got := GetMsbWorkspaceMountDest("."); got != want {
 		t.Errorf("GetMsbWorkspaceMountDest(\".\") = %q, want %q", got, want)
 	}

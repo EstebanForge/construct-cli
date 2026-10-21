@@ -109,22 +109,15 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 
 	workdir := "/workspaces"
 	if e.cwd != "" {
-		if dm := runtime.ResolveDaemonMounts(e.cfg); dm.Enabled {
-			// Multi-path mode: the workdir is the cwd mapped under the
-			// configured mount set (Docker parity with MapDaemonWorkdirFromMounts).
-			if mapped, ok := runtime.MapDaemonWorkdirFromMounts(e.cwd, dm.Mounts); ok {
-				workdir = mapped
-			}
-		} else {
-			projectRoot := runtime.GetMsbDaemonProjectDir(ctx)
-			if projectRoot == "" {
-				projectRoot = e.cwd
-			}
-			dest := runtime.GetMsbWorkspaceMountDest(projectRoot)
-			if mapped, ok := runtime.MapDaemonWorkdir(e.cwd, projectRoot, dest); ok {
-				workdir = mapped
-			}
+		// Longest-prefix over the daemon's actual mount set (multi-path
+		// config and learned roots alike), failing closed: an unmapped cwd
+		// must not silently start the agent in /workspaces, the parent of
+		// every project.
+		mapped, merr := runtime.MapHostWorkdirToGuest(runtime.MsbPathMaps(e.cfg, e.cwd), e.cwd)
+		if merr != nil {
+			return 1, fmt.Errorf("msb daemon: %w", merr)
 		}
+		workdir = mapped
 	}
 
 	code, err := runtime.NewMsbBackend().ExecInteractive(ctx, runtime.ExecOptions{

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -155,37 +153,16 @@ func buildExecEnv() []string {
 
 // msbExecWorkdir maps the host cwd to the guest directory the msb daemon
 // serves, mirroring the daemon's mount layout:
-//   - multi-path mode: every configured root lives under /workspaces/<sha8>.
-//     A cwd outside the set fails closed with the same error the daemon
-//     start path uses — silently execing from the wrong place is worse.
-//   - single-path mode: the boot-time project dir is mounted at
-//     /workspaces/<name>; same-project execs land exactly there.
+//   - any mode: the cwd resolves by longest-prefix over the daemon's
+//     actual mount set (configured roots and learned roots alike). A cwd
+//     outside every mounted root fails closed — silently execing from
+//     /workspaces (the parent of all projects) or an absent guest dir is
+//     worse.
 //
 // The msb daemon never mounts /workspace (that is the docker-compose
 // layout), which is why this must not reuse the container path.
-func msbExecWorkdir(ctx context.Context, cfg *config.Config, cwd string) (string, error) {
-	dm := runtime.ResolveDaemonMounts(cfg)
-	if dm.Enabled {
-		mapped, ok := runtime.MapDaemonWorkdirFromMounts(cwd, dm.Mounts)
-		if !ok {
-			return "", fmt.Errorf("%w: %s (add the root to [daemon] mount_paths or disable daemon.multi_paths_enabled)", runtime.ErrMsbDaemonWorkdirUnmapped, cwd)
-		}
-		return mapped, nil
-	}
-	// Single-path: the daemon mounts its boot-time project dir under
-	// /workspaces/<name>. A cross-project cwd would chdir into an absent
-	// guest dir and die on an unexplained ENOENT — enforce the boot-time
-	// label when it is readable, degrade to the blind mapping when not.
-	if bootDir := runtime.GetMsbDaemonProjectDir(ctx); bootDir != "" {
-		resolved := cwd
-		if r, err := filepath.EvalSymlinks(cwd); err == nil {
-			resolved = r
-		}
-		if resolved != bootDir && !strings.HasPrefix(resolved+string(os.PathSeparator), bootDir+string(os.PathSeparator)) {
-			return "", fmt.Errorf("%w: the daemon serves %s, current directory is %s", runtime.ErrMsbDaemonWorkdirUnmapped, bootDir, cwd)
-		}
-	}
-	return runtime.GetMsbWorkspaceMountDest(cwd), nil
+func msbExecWorkdir(cfg *config.Config, cwd string) (string, error) {
+	return runtime.MapHostWorkdirToGuest(runtime.MsbPathMaps(cfg, cwd), cwd)
 }
 
 // execMsbCommand streams a non-interactive command inside the running msb
@@ -209,7 +186,7 @@ func execMsbCommand(cfg *config.Config, cmdArgs []string) int {
 		fmt.Fprintf(os.Stderr, "Error: failed to get working directory: %v\n", err)
 		return 1
 	}
-	workdir, werr := msbExecWorkdir(ctx, cfg, cwd)
+	workdir, werr := msbExecWorkdir(cfg, cwd)
 	if werr != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", werr)
 		return 1

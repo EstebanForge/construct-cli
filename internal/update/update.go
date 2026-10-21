@@ -194,14 +194,16 @@ func DisplayNotification(latestVersion string) {
 			ui.GumInfo("Run 'construct sys self-update' to upgrade")
 		}
 	} else {
-		fmt.Println()
-		fmt.Println(msg)
+		// stderr: this fires mid-run on agent paths, where stdout is the
+		// harness's line-delimited JSON stream.
+		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(os.Stderr, msg)
 		if IsBrewInstalled() {
-			fmt.Println("Run 'construct sys self-update' to upgrade (installs user-local override)")
+			fmt.Fprintln(os.Stderr, "Run 'construct sys self-update' to upgrade (installs user-local override)")
 		} else {
-			fmt.Println("Run 'construct sys self-update' to upgrade")
+			fmt.Fprintln(os.Stderr, "Run 'construct sys self-update' to upgrade")
 		}
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -135,9 +136,13 @@ func syncIntegrationFile(src, dst string) {
 		ui.LogDebug("integration sync: mkdir failed for %s: %v", dst, err)
 		return
 	}
-	if err := os.WriteFile(dst, srcBytes, 0644); err != nil {
+	// safefs, not os.WriteFile: dst is in the guest-writable bind and a
+	// planted symlink would redirect the host write to an arbitrary file.
+	if err := safefs.WriteFile(dst, srcBytes, 0644); err != nil {
 		ui.LogDebug("integration sync: write failed for %s: %v", dst, err)
 		return
 	}
-	fmt.Printf("✓ Synced Herdr integration for %s\n", filepath.Base(dst))
+	// stderr: fires mid-run on agent paths, where stdout is the harness's
+	// JSON stream.
+	fmt.Fprintf(os.Stderr, "✓ Synced Herdr integration for %s\n", filepath.Base(dst))
 }

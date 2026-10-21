@@ -159,10 +159,15 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 	// EnsureImage verified
 	// resolve cached refs via constructImageRefCandidates.
 	cached, remote := msbImageDigestFn(PrepullImageRef), ghcrRemoteDigestFn(PrepullImageRef)
+	forcePull := false
 	switch {
 	case cached != "" && remote != "" && cached != remote:
 		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~2 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
-		_, _ = runMsbCmd("msb", "image", "rm", PrepullImageRef) //nolint:errcheck // best-effort clear before the pull below
+		// An unforced `image rm` is refused while any sandbox (the stopped
+		// daemon, always) pins the ref, and the error is not actionable:
+		// the plain pull below would no-op on the still-cached ref and the
+		// stale image would ship forever. --force re-downloads in place.
+		forcePull = true
 	case cached != "":
 		// Cached at a matching or unverifiable digest: the pull below would
 		// no-op (msb never re-resolves a cached tag), so report ready
@@ -172,9 +177,20 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 	default:
 		ui.InfoLn("→ Pulling construct-box image from GHCR (~2 GiB download)...")
 	}
-	if _, err := runMsbCmd("msb", "pull", PrepullImageRef); err == nil && msbImageCachedFn(PrepullImageRef) {
-		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
-		return PrepullImageRef, nil
+	pullArgs := []string{"pull"}
+	if forcePull {
+		pullArgs = append(pullArgs, "--force")
+	}
+	pullArgs = append(pullArgs, PrepullImageRef)
+	if _, err := runMsbCmd("msb", pullArgs...); err == nil && msbImageCachedFn(PrepullImageRef) {
+		// Verify the store digest actually moved: a forced pull that no-ops
+		// or dies mid-stream leaves the old digest cached, and reporting
+		// ready would hide the drift for another cycle.
+		if !forcePull || msbImageDigestFn(PrepullImageRef) == remote {
+			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
+			return PrepullImageRef, nil
+		}
+		ui.InfoLn("⚠️  Image refresh did not land (store digest unchanged); using cached construct-box image (may be stale)")
 	}
 
 	// Pull failed (offline, rate limited): fall back to any cached ref,
