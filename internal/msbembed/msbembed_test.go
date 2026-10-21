@@ -134,3 +134,24 @@ func TestSumMatchesDetectsCorruption(t *testing.T) {
 		t.Fatalf("corrupt payload must fail with a checksum error, got: %v", err)
 	}
 }
+
+// TestEmbeddedAssetsMatchManifest pins the asset/manifest pairing: a
+// half-refreshed embed (one asset swapped without re-running
+// scripts/embed-msb-runtime.sh) must fail go test, not the first
+// sandbox create on a user machine.
+func TestEmbeddedAssetsMatchManifest(t *testing.T) {
+	if !Available() {
+		t.Skip("binary built without the embedded runtime pair")
+	}
+	sum, ok := assetChecksums[embeddedMsbName]
+	if !ok {
+		t.Fatalf("manifest has no checksum for %s", embeddedMsbName)
+	}
+	libSum, ok := assetChecksums[embeddedLibkrunfwName]
+	if !ok {
+		t.Fatalf("manifest has no checksum for %s", embeddedLibkrunfwName)
+	}
+	if err := verifyEmbeddedSums(sum, libSum); err != nil {
+		t.Fatalf("embedded assets do not match the manifest: %v", err)
+	}
+}

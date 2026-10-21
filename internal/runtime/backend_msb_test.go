@@ -569,3 +569,50 @@ func TestTransitionLocalConstructImageToMsbNoLocalImage(t *testing.T) {
 		t.Fatalf("no local image must no-op with nil, got: %v", err)
 	}
 }
+
+// TestMsbNetworkPublicDenyCap pins the public-mode rule shape: msb 0.7.8
+// treats DefaultEgress allow as opening EVERY host port (live-probed:
+// an unlisted bound port is reachable with per-port rules alone), so
+// public modes must end their rules with a first-match deny cap after
+// the per-port allows and DNS, keeping the allows a whitelist. Offline
+// keeps the bare additive shape: its deny default already scopes.
+func TestMsbNetworkPublicDenyCap(t *testing.T) {
+	isDenyHostAny := func(r msb.PolicyRule, proto msb.PolicyProtocol) bool {
+		return r.Action == msb.PolicyActionDeny &&
+			r.Direction == msb.PolicyDirectionEgress &&
+			r.Destination == "host" &&
+			r.Protocol == proto &&
+			r.Port == ""
+	}
+	for _, mode := range []string{"permissive", "strict"} {
+		net := msbNetworkPublic([]int{40001})
+		if len(net.Rules) < 4 {
+			t.Fatalf("%s: want allows + dns + tcp cap + udp cap, got %d rules", mode, len(net.Rules))
+		}
+		tail := net.Rules[len(net.Rules)-2:]
+		if !isDenyHostAny(tail[0], msb.PolicyProtocolTCP) {
+			t.Errorf("%s: second-to-last rule must deny any host TCP, got %+v", mode, tail[0])
+		}
+		if !isDenyHostAny(tail[1], msb.PolicyProtocolUDP) {
+			t.Errorf("%s: last rule must deny any host UDP, got %+v", mode, tail[1])
+		}
+		// DNS must precede the caps so first-match keeps 53 allowed.
+		dnsIdx := -1
+		for i, r := range net.Rules {
+			if r.Destination == "host" && r.Port == "53" {
+				dnsIdx = i
+				break
+			}
+		}
+		if dnsIdx < 0 || dnsIdx > len(net.Rules)-3 {
+			t.Errorf("%s: dns rule must precede the deny caps (idx %d)", mode, dnsIdx)
+		}
+	}
+
+	offline := msbNetworkOffline([]int{40001})
+	for _, r := range offline.Rules {
+		if r.Action == msb.PolicyActionDeny {
+			t.Errorf("offline rules must stay additive allows, got deny %+v", r)
+		}
+	}
+}

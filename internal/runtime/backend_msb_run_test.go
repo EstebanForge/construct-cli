@@ -628,6 +628,10 @@ func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
 		hostRules := 0
 		for _, r := range net.Rules {
 			if r.Destination == "host" && r.Protocol == msb.PolicyProtocolTCP {
+				if r.Action == msb.PolicyActionDeny && r.Port == "" {
+					// The first-match deny cap is not a transport rule.
+					continue
+				}
 				hostRules++
 				if _, ok := wantPorts[r.Port]; !ok {
 					t.Errorf("%s: transport port %q is outside the bridge bands", mode, r.Port)

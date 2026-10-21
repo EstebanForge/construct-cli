@@ -1,0 +1,22 @@
+# The backend value names the engine: an explicit pin is honored and the
+# containers default auto-picks in Apple container > podman > docker
+# order. Detection is LookPath-based, so these assertions only need the
+# engine binaries present, not a running stack.
+
+mkdir .config/construct-cli
+cp podman-in .config/construct-cli/config.toml
+exec construct sys doctor --json
+stdout '"name": "Container Runtime"'
+stdout 'Found podman'
+
+cp docker-in .config/construct-cli/config.toml
+exec construct sys doctor --json
+stdout 'Found docker'
+
+-- podman-in --
+[runtime]
+backend = "podman"
+
+-- docker-in --
+[runtime]
+backend = "docker"
