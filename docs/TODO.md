@@ -74,12 +74,12 @@ Remove hard-coded install from `packages.go`.
 
 # TODO: MicroVM Engine General Availability (GA) Checklist
 
-Items required before graduating `backend = "microvm"` out of experimental status.
+Items required before graduating `backend = "msb"` out of experimental status.
 
 ## Prerequisites
 
 - [x] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` for `linux/amd64` and `linux/arm64` — DONE 2026-09-25. Mechanism note: publishes are NOT part of the release workflow; they ride the manual `workflow_dispatch` `.github/workflows/image.yml` (dispatch it whenever the Dockerfile or its COPY'd templates change). Users pull via `msb` with no Docker engine; the 1.17.8+ digest-drift check refreshes stale caches automatically.
-- [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "microvm"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
+- [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "msb"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
 - [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
 - [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
 

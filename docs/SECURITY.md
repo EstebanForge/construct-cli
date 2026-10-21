@@ -17,7 +17,7 @@ Complete security documentation for The Construct CLI, including container secur
 The Construct CLI provides multiple layers of security:
 
 1. **Container Isolation**: Agents run in isolated containers
-2. **MicroVM Isolation**: Optional hardware-level isolation via dedicated guest kernels (`backend = "microvm"`)
+2. **MicroVM Isolation**: Optional hardware-level isolation via dedicated guest kernels (`backend = "msb"`)
 3. **Network Isolation**: Optional network modes (permissive/strict/offline)
 4. **Secret Redaction**: Experimental feature to hide secrets from agents
 5. **Ephemeral Sandboxes**: Clean slate on every run
@@ -95,7 +95,7 @@ This emits `security_opt: [seccomp:unconfined]` in the generated override. After
 
 ### Overview
 
-When `backend = "microvm"` is enabled in `[runtime]`, Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
+When `backend = "msb"` is enabled in `[runtime]`, Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
 
 ### Threat Model Difference
 

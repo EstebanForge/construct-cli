@@ -4,14 +4,23 @@
 
 # Runtime Preferences
 [runtime]
-# Isolation backend: "auto" (default; detects container > podman > docker), or pin a specific
-# OCI runtime ("container", "podman", "docker"), or "microvm" (microsandbox microVMs,
-# experimental).
-# With "microvm": use the daemon and set [daemon] multi_paths_enabled + mount_paths to cover
+# Isolation backend. One value, one engine; the value names the engine, not
+# the technology:
+#
+#   "containers"  (default) Any OCI engine, auto-picked in this order:
+#                 Apple container (macOS 26+), then podman, then docker.
+#                 Works with podman and docker alike.
+#   "podman"      Pin the podman binary.
+#   "docker"      Pin the docker binary.
+#   "msb"         Microsandbox (https://microsandbox.dev) microVMs: one
+#                 dedicated guest Linux kernel per sandbox. Requires Apple
+#                 Silicon macOS or Linux with KVM.
+#
+# With "msb": use the daemon and set [daemon] multi_paths_enabled + mount_paths to cover
 # your project roots. The daemon sandbox is then created once and reused across projects;
 # without it, switching project roots recreates the sandbox and re-runs guest initialization
 # (first boot takes minutes).
-# backend = "auto"
+# backend = "containers"
 
 # Automatically check for updates once per day (true/false)
 auto_update_check = true
@@ -30,7 +39,7 @@ update_channel = "stable"
 # manually. Default true.
 prepull_image = true
 
-# Local telemetry for the microVM engine: one structured line per daemon boot
+# Local telemetry for the msb engine: one structured line per daemon boot
 # (outcome, duration, mount count, host msb + construct versions) under
 # ~/.config/construct-cli/logs/msb-boot.log and msb-telemetry.jsonl.
 # Offline by design — telemetry is local-only and never sent anywhere; share
@@ -42,7 +51,7 @@ telemetry = true
 # Mount the entire home directory? (Dangerous, default: false)
 mount_home = false
 
-# Allow mounting host $HOME as /workspace under microvm backend? (Dangerous, default: false)
+# Allow mounting host $HOME as /workspace under the msb backend? (Dangerous, default: false)
 # virtiofs has no exclusion filter; recursive scans across $HOME can freeze the microVM.
 allow_home_workspace = false
 
@@ -238,7 +247,7 @@ auto_start = true
 # Enable multi-root daemon mounts (advanced, default: false)
 # Purpose: allow the daemon to serve runs from multiple host roots, not just the current repo.
 # Benefits: faster agent startups across different projects without restarting the daemon.
-# Recommended with backend = "microvm": the microVM daemon sandbox is created once and reused
+# Recommended with backend = "msb": the msb daemon sandbox is created once and reused
 # for every project under these roots; without it, switching project roots recreates the
 # sandbox (guest state resets, first boot takes minutes).
 multi_paths_enabled = false

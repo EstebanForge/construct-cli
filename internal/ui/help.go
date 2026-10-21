@@ -87,7 +87,7 @@ Commands:
                      # [--restore] Restore config.toml from backup
   daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|install|uninstall|roots)
   packages           # Manage packages.toml and package lifecycle
-  prepull            # Stage the microVM image in the background (backend=microvm only)
+  prepull            # Stage the microVM image in the background (backend=msb only)
   doctor             # System health operations
                      # [--fix] Append missing defaults to config.toml (backup first)
   clipboard-debug    # Show clipboard bridge logs and patch state for Copilot

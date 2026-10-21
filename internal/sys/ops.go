@@ -14,7 +14,7 @@ import (
 
 // UpdateAgents runs the update-all script inside the container.
 func UpdateAgents(cfg *config.Config) {
-	// Microvm backend: run the update pass inside the daemon sandbox
+	// msb backend: run the update pass inside the daemon sandbox
 	// (update-all.sh via msb exec). The compose-based path below is
 	// docker/podman-only.
 	if cfg == nil {
@@ -25,12 +25,12 @@ func UpdateAgents(cfg *config.Config) {
 		}
 		cfg = loaded
 	}
-	if cfg.Runtime.Backend == "microvm" {
+	if cfg.Runtime.Backend == config.BackendMsb {
 		if err := runtime.RunForegroundUpdate(cfg); err != nil {
 			ui.LogError(&cerrors.ConstructError{
 				Category:   cerrors.ErrorCategoryRuntime,
 				Operation:  "update guest packages",
-				Runtime:    "microvm",
+				Runtime:    "msb",
 				Err:        err,
 				Suggestion: "Run 'construct sys doctor' to diagnose",
 			})
@@ -142,7 +142,7 @@ func UpdateAgents(cfg *config.Config) {
 	}
 	fmt.Println("ℹ️  This update ran in a throwaway compose container: agent and OS updates")
 	fmt.Println("   are discarded when it exits. Only home-directory updates (~/.pi,")
-	fmt.Println("   ~/.npm-global) persist. Use the microvm backend to keep system updates.")
+	fmt.Println("   ~/.npm-global) persist. Use the msb backend to keep system updates.")
 }
 
 // ResetVolumes deletes persistent volumes to force agent reinstall on next run.

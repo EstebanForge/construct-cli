@@ -72,7 +72,7 @@ brew install EstebanForge/tap/construct-cli
 
 **Option 4: MicroVM Isolation (Experimental)**
 - Install microsandbox: `curl -fsSL https://install.microsandbox.dev | sh`
-- Set `backend = "microvm"` in `~/.config/construct-cli/config.toml` under `[runtime]`
+- Set `backend = "msb"` in `~/.config/construct-cli/config.toml` under `[runtime]`
 - Runs sandboxes with dedicated Linux guest kernels via Apple Hypervisor.framework
 
 #### Installation Steps
@@ -133,7 +133,7 @@ curl -fsSL https://install.microsandbox.dev | sh
 # Ensure KVM access (/dev/kvm)
 sudo usermod -aG kvm $USER
 
-# Set backend in config.toml: [runtime] backend = "microvm"
+# Set backend in config.toml: [runtime] backend = "msb"
 ```
 
 #### Installation Steps
@@ -278,7 +278,7 @@ If auto-detection fails, specify runtime explicitly:
 ```toml
 # ~/.config/construct-cli/config.toml
 [runtime]
-backend = "podman"  # or "auto", "container", "docker", "microvm"
+backend = "podman"  # or "containers", "docker", "msb"
 ```
 
 ### Verification

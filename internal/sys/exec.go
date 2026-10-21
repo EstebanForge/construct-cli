@@ -26,7 +26,7 @@ func ExecCommand(cfg *config.Config, cmdArgs []string) int {
 		return 1
 	}
 
-	if cfg != nil && cfg.Runtime.Backend == "microvm" {
+	if cfg != nil && cfg.Runtime.Backend == config.BackendMsb {
 		return execMsbCommand(cfg, cmdArgs)
 	}
 

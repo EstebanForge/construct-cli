@@ -2,7 +2,7 @@
 
 Status: approved direction, phased implementation. Owner: Esteban. Last updated: 2026-08-26 (phase 7 added; skills daemon-recreate gap closed).
 
-Scope: the microVM backend (`backend = "microvm"`, microsandbox SDK v0.7.2 as of 2026-09-21) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
+Scope: the microVM backend (`backend = "msb"`, microsandbox SDK v0.7.2 as of 2026-09-21) and the cross-backend host-skills mount feature. This document is the forward plan that improves speed, ease of use, and user satisfaction without changing the construct-cli fundamentals and without weakening security.
 
 Provenance: the approach was derived from studying Docker Sandboxes (`sbx`, docs.docker.com/ai/sandboxes) and survived two adversarial peer-review rounds (isolated reviewer sessions). The review history is recorded in section 9. The shipped design baseline is `docs/ARCHITECTURE-DESIGN.md` section 4.1 plus everything tagged 1.16.2 in `CHANGELOG.md`. This file is the forward plan; code comments cite it directly (retargeted from the removed `docs/VMs.md`).
 
@@ -131,7 +131,7 @@ Design (host-side only, per the fundamentals):
 
 Goal: remove the first-run "why is this downloading gigabytes" surprise. Install and update pull `construct-box` in the background.
 
-Design: after a successful `construct update` (and on first-run init when `backend = "microvm"` is detected in config), spawn a detached best-effort process running the equivalent of the GHCR pull path in `EnsureImage` (`msb pull ghcr.io/estebanforge/construct-box:latest` + `msb image tag ... construct-box:latest`), output appended to the construct log dir. Never blocks, never fails the parent command. Opt-out: `runtime.prepull_image = false`. Note: `EnsureImage` currently pulls `:latest` only; keep that behavior here (do not "fix" it in this phase).
+Design: after a successful `construct update` (and on first-run init when `backend = "msb"` is detected in config), spawn a detached best-effort process running the equivalent of the GHCR pull path in `EnsureImage` (`msb pull ghcr.io/estebanforge/construct-box:latest` + `msb image tag ... construct-box:latest`), output appended to the construct log dir. Never blocks, never fails the parent command. Opt-out: `runtime.prepull_image = false`. Note: `EnsureImage` currently pulls `:latest` only; keep that behavior here (do not "fix" it in this phase).
 
 - [x] P4.1 Detached pre-pull helper (pull + tag + log), reused by update and first-run paths
 - [x] P4.2 Config flag `runtime.prepull_image` (default true) + template/docs

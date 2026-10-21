@@ -34,7 +34,7 @@ type MsbBackend struct{}
 func NewMsbBackend() *MsbBackend { return &MsbBackend{} }
 
 // Name returns the backend identifier.
-func (m *MsbBackend) Name() string { return "microvm" }
+func (m *MsbBackend) Name() string { return "msb" }
 
 // Available reports whether the msb runtime is usable: the embedded pair
 // when this build ships one, else the host installation.
@@ -201,7 +201,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 
 // TransitionLocalConstructImageToMsb moves a locally built construct-box
 // docker/podman image into the msb image cache (docker save + msb load).
-// The microvm backend never compose-builds, so `construct sys rebuild`
+// The msb backend never compose-builds, so `construct sys rebuild`
 // calls this after BuildImage to land the fresh build where the guest
 // actually boots from. No local docker image: no-op success — the GHCR
 // pull remains the acquisition path.
@@ -586,44 +586,48 @@ func envSliceToMap(env []string) map[string]string {
 var _ Backend = (*MsbBackend)(nil)
 
 // DetectBackend resolves the configured isolation backend, fail closed:
-// backend = "microvm" with msb missing is a hard error with install instructions,
-// never a silent Docker fallback.
+// backend = "msb" with microsandbox missing is a hard error with install
+// instructions, never a silent Docker fallback.
 func DetectBackend(cfg *config.Config) (Backend, error) {
 	backend := cfg.Runtime.Backend
 	if backend == "" {
-		backend = "auto"
+		backend = config.BackendContainers
 	}
 	switch backend {
-	case "auto", "container", "podman", "docker":
-		rt := DetectRuntime(backend)
+	case config.BackendContainers, config.BackendPodman, config.BackendDocker:
+		preferred := "auto" // never pass the category value as a binary pin
+		if backend != config.BackendContainers {
+			preferred = backend
+		}
+		rt := DetectRuntime(preferred)
 		if rt == "" {
-			return nil, errors.New("no container runtime found (container/podman/docker). Install Docker Desktop or Podman")
+			return nil, errors.New("no OCI container runtime found (Apple container, podman, or docker). Install Docker Desktop or Podman")
 		}
 		return NewDockerBackend(rt)
-	case "microvm":
+	case config.BackendMsb:
 		if cfg != nil && strings.EqualFold(cfg.Network.Mode, "strict") {
-			return nil, errors.New("network mode 'strict' is not yet supported under the microvm backend (use backend = \"docker\" or network mode = \"permissive\")")
+			return nil, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
 		}
 		m := NewMsbBackend()
 		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
-			return nil, errors.New("runtime backend = \"microvm\" but microsandbox is not installed. Install it: curl -fsSL https://install.microsandbox.dev | sh (Apple Silicon macOS or Linux with KVM)")
+			return nil, errors.New("runtime backend = \"msb\" but microsandbox is not installed. Install it: curl -fsSL https://install.microsandbox.dev | sh (Apple Silicon macOS or Linux with KVM)")
 		}
 		return m, nil
 	default:
-		return nil, fmt.Errorf("unknown runtime backend %q (want \"auto\", \"container\", \"podman\", \"docker\", or \"microvm\")", backend)
+		return nil, fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", backend)
 	}
 }
 
 // ValidateBackendSelected reports whether the compose-based run path can
 // serve the configured backend. Entry points call this before any container
-// operation: backend = "microvm" must fail closed with a clear message on compose-only
-// commands, never silently fall through to Docker.
+// operation: backend = "msb" must fail closed with a clear message on
+// compose-only commands, never silently fall through to Docker.
 func ValidateBackendSelected(cfg *config.Config) error {
 	switch cfg.Runtime.Backend {
-	case "", "auto", "container", "podman", "docker":
+	case "", config.BackendContainers, config.BackendPodman, config.BackendDocker:
 		return nil
-	case "microvm":
-		return errors.New("the microvm backend does not support this operation. Set `backend` to \"auto\", \"container\", \"podman\", or \"docker\" in [runtime] to use Docker")
+	case config.BackendMsb:
+		return errors.New("the msb backend does not support this operation. Set `backend` to \"containers\", \"podman\", or \"docker\" in [runtime] to use OCI containers")
 	}
-	return fmt.Errorf("unknown runtime backend %q (want \"auto\", \"container\", \"podman\", \"docker\", or \"microvm\")", cfg.Runtime.Backend)
+	return fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", cfg.Runtime.Backend)
 }
