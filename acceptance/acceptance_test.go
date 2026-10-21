@@ -19,7 +19,12 @@ import (
 
 // binDir holds the once-per-run binary build, prepended to every script's
 // PATH so scenarios exercise the compiled artifact, not in-process code.
-var binDir string
+// CONSTRUCT_ACCEPTANCE_COVER=1 builds with -cover and reports subprocess
+// coverage after the suite.
+var (
+	binDir   string
+	coverDir string
+)
 
 func TestMain(m *testing.M) {
 	var err error
@@ -28,7 +33,17 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, "acceptance: temp dir:", err)
 		os.Exit(1)
 	}
-	build := exec.Command("go", "build", "-o", filepath.Join(binDir, "construct"), "./cmd/construct")
+	buildArgs := []string{"build"}
+	if os.Getenv("CONSTRUCT_ACCEPTANCE_COVER") == "1" {
+		coverDir = filepath.Join(binDir, "cover")
+		if err := os.MkdirAll(coverDir, 0o700); err != nil {
+			fmt.Fprintln(os.Stderr, "acceptance: cover dir:", err)
+			os.Exit(1)
+		}
+		buildArgs = append(buildArgs, "-cover")
+	}
+	buildArgs = append(buildArgs, "-o", filepath.Join(binDir, "construct"), "./cmd/construct")
+	build := exec.Command("go", buildArgs...)
 	// go test runs with the package dir as cwd; build from the module root.
 	modOut, err := exec.Command("go", "env", "GOMOD").Output()
 	if err != nil {
@@ -43,6 +58,12 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	code := m.Run()
+	if coverDir != "" {
+		report := exec.Command("go", "tool", "covdata", "percent", "-i", coverDir)
+		report.Stdout = os.Stdout
+		report.Stderr = os.Stderr
+		_ = report.Run()
+	}
 	os.RemoveAll(binDir)
 	os.Exit(code)
 }
@@ -55,6 +76,9 @@ func TestCLI(t *testing.T) {
 			// config dir from HOME, so every scenario gets an isolated one.
 			setVar(&e.Vars, "HOME", e.WorkDir)
 			setVar(&e.Vars, "PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if coverDir != "" {
+				setVar(&e.Vars, "GOCOVERDIR", coverDir)
+			}
 			return nil
 		},
 	})

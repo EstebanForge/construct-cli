@@ -105,6 +105,51 @@ func TestReadFileRegularRefusesFifoSwap(t *testing.T) {
 	}
 }
 
+// TestRefusesMultiHopSymlinkTraversal pins the component walk against a
+// symlink CHAIN: dir -> symlink -> symlink -> outside target. One-hop
+// refusals are covered by TestRefusesPlantedComponents; a chain must not
+// pass because the final hop resolves outside the tree.
+func TestRefusesMultiHopSymlinkTraversal(t *testing.T) {
+	root := t.TempDir()
+	aDir := filepath.Join(root, "a")
+	bDir := filepath.Join(aDir, "b")
+	cDir := filepath.Join(bDir, "c")
+	if err := os.MkdirAll(cDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := filepath.Join(cDir, "file.txt")
+	if err := os.WriteFile(reg, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outside := t.TempDir()
+	hop1 := filepath.Join(root, "hop1")
+	hop2 := filepath.Join(root, "hop2")
+	if err := os.Symlink(outside, hop1); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hop1, hop2); err != nil {
+		t.Fatal(err)
+	}
+	// Rebuild a/b as a symlink chain escaping through hop2.
+	if err := os.Rename(bDir, filepath.Join(root, "b.bak")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(hop2, bDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ReadFileRegular(reg, 1<<20); err == nil {
+		t.Error("a symlinked component chain must refuse reads")
+	}
+	if err := WriteFile(reg, []byte("escaped"), 0o644); err == nil {
+		t.Error("a symlinked component chain must refuse writes")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "file.txt")); !os.IsNotExist(err) {
+		t.Error("the write must not land in the chain target")
+	}
+}
+
 func TestWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	dst := filepath.Join(dir, "out.txt")

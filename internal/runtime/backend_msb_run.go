@@ -345,9 +345,21 @@ func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
 
 func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
 	// Public egress with explicit guest->host transport rules (§3.1):
-	// allow@host:tcp per bridge + DNS resolution.
+	// allow@host:tcp per bridge + DNS resolution. msb 0.7.8 treats
+	// DefaultEgress allow as opening EVERY host port (live-probed: an
+	// unlisted bound port is reachable with per-port rules alone), so the
+	// rules end with a first-match deny cap that keeps the allows a
+	// whitelist; DNS precedes the cap or first-match would block TCP 53.
 	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionAllow}
-	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule())
+	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule(),
+		msb.PolicyRule{
+			Action: msb.PolicyActionDeny, Direction: msb.PolicyDirectionEgress,
+			Destination: "host", Protocol: msb.PolicyProtocolTCP,
+		},
+		msb.PolicyRule{
+			Action: msb.PolicyActionDeny, Direction: msb.PolicyDirectionEgress,
+			Destination: "host", Protocol: msb.PolicyProtocolUDP,
+		})
 	return net
 }
 
@@ -496,10 +508,16 @@ func msbBaseEnv(cfg *config.Config) []string {
 // the next recreate instead of failing open on the stale env.
 func msbEnvHash(cfg *config.Config) string {
 	lines := slices.Clone(msbBaseEnv(cfg))
+	lines = append(lines, netRulesHashSalt)
 	sort.Strings(lines)
 	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
 	return hex.EncodeToString(sum[:8])
 }
+
+// netRulesHashSalt forces one daemon recreate when the transport rule
+// shape changes; v2 added the public-mode first-match deny cap (msb 0.7.8
+// DefaultEgress allow opens every host port). Bump on future shape changes.
+const netRulesHashSalt = "net-rules=v2"
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
 // The entrypoint aligns the guest construct user with CONSTRUCT_HOST_UID:GID,

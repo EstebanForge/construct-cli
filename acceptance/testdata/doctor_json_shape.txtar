@@ -1,0 +1,8 @@
+# construct sys doctor --json prints a stable machine-readable shape:
+# a checks array whose entries carry name and status keys.
+
+exec construct sys doctor --json
+
+stdout '"checks": \['
+stdout '"name":'
+stdout '"status":'
