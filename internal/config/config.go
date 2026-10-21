@@ -107,6 +107,28 @@ type NetworkConfig struct {
 	BlockedIPs     []string `toml:"blocked_ips"`
 }
 
+// EnvVars renders the guest network environment (NETWORK_MODE plus the
+// allow/block lists). Lives here because both the network package and the
+// runtime package need the identical mapping and neither can import the
+// other.
+func (n NetworkConfig) EnvVars() []string {
+	var env []string
+	env = append(env, "NETWORK_MODE="+n.Mode)
+	if len(n.AllowedDomains) > 0 {
+		env = append(env, "NETWORK_ALLOWED_DOMAINS="+strings.Join(n.AllowedDomains, ","))
+	}
+	if len(n.AllowedIPs) > 0 {
+		env = append(env, "NETWORK_ALLOWED_IPS="+strings.Join(n.AllowedIPs, ","))
+	}
+	if len(n.BlockedDomains) > 0 {
+		env = append(env, "NETWORK_BLOCKED_DOMAINS="+strings.Join(n.BlockedDomains, ","))
+	}
+	if len(n.BlockedIPs) > 0 {
+		env = append(env, "NETWORK_BLOCKED_IPS="+strings.Join(n.BlockedIPs, ","))
+	}
+	return env
+}
+
 // MaintenanceConfig holds log cleanup settings.
 type MaintenanceConfig struct {
 	CleanupEnabled         bool `toml:"cleanup_enabled"`

@@ -755,6 +755,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{home}),
 		DaemonSudoLabelKey:       "free",
 		DaemonSDKVersionLabelKey: msb.SDKVersion(),
+		DaemonEnvHashLabelKey:    msbEnvHash(&cfg),
 	}
 	cfgJSONHomeBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home)
 
@@ -783,6 +784,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{sub}),
 		DaemonSudoLabelKey:       "free",
 		DaemonSDKVersionLabelKey: msb.SDKVersion(),
+		DaemonEnvHashLabelKey:    msbEnvHash(&cfg),
 	}
 	cfgJSONSubBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q}]}`, subDest, sub)
 
@@ -802,6 +804,7 @@ func TestDaemonReuseInterleavedHomeAndSubproject(t *testing.T) {
 		DaemonMountsLabelKey:     hashDaemonMountPaths(combinedRoots),
 		DaemonSudoLabelKey:       "free",
 		DaemonSDKVersionLabelKey: msb.SDKVersion(),
+		DaemonEnvHashLabelKey:    msbEnvHash(&cfg),
 	}
 	cfgJSONCombinedBoot := fmt.Sprintf(`{"mounts":[{"type":"Bind","guest":%q,"host":%q},{"type":"Bind","guest":%q,"host":%q}]}`, homeDest, home, subDest, sub)
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestDetectBackendFailClosed(t *testing.T) {
@@ -443,6 +444,97 @@ func TestEnsureImageDriftVerifySeesPostPullDigest(t *testing.T) {
 	}
 	if inspectCalls < 2 {
 		t.Fatalf("post-pull verify must re-inspect past the memo: %d inspect calls", inspectCalls)
+	}
+}
+
+// TestMsbDaemonNeedsRecreateEnvDrift: the create-time env hash label is
+// checked like the sudo/skills labels — a [network] or env toggle must
+// recreate the daemon or the old env keeps applying.
+func TestMsbDaemonNeedsRecreateEnvDrift(t *testing.T) {
+	cfg := config.DefaultConfig()
+	dm := DaemonMounts{Enabled: true, Hash: "h"}
+	clean := func(cfg *config.Config) map[string]string {
+		return map[string]string{
+			DaemonSkillsLabelKey:     SkillsDaemonHash(cfg),
+			DaemonSudoLabelKey:       sudoPolicy(cfg),
+			DaemonSDKVersionLabelKey: msb.SDKVersion(),
+			DaemonEnvHashLabelKey:    msbEnvHash(cfg),
+			DaemonMountsLabelKey:     "h",
+		}
+	}
+
+	need, reason := msbDaemonNeedsRecreate(dm, clean(&cfg), "{}", "", false, &cfg, "")
+	if need {
+		t.Fatalf("clean labels must reuse the daemon, got reason %q", reason)
+	}
+
+	drifted := config.DefaultConfig()
+	drifted.Network.Mode = "offline"
+	labels := clean(&cfg) // daemon still carries the old env
+	need, reason = msbDaemonNeedsRecreate(dm, labels, "{}", "", false, &drifted, "")
+	if !need {
+		t.Fatal("a network mode change must recreate the daemon")
+	}
+	if !strings.Contains(reason, "network") {
+		t.Fatalf("reason %q must name the env drift", reason)
+	}
+}
+
+// TestMsbDaemonNeedsRecreateCollectsAllReasons: drift evaluation must not
+// stop at the first drifted label — a fork decision taken on the first
+// reason alone would mask image/sudo drift behind a forkable one.
+func TestMsbDaemonNeedsRecreateCollectsAllReasons(t *testing.T) {
+	cfg := config.DefaultConfig()
+	labels := map[string]string{
+		DaemonSkillsLabelKey:     "stale",
+		DaemonSudoLabelKey:       "stale",
+		DaemonSDKVersionLabelKey: msb.SDKVersion(),
+		DaemonEnvHashLabelKey:    msbEnvHash(&cfg),
+		DaemonMountsLabelKey:     "stale",
+	}
+	dm := DaemonMounts{Enabled: true, Hash: "h"}
+	need, reason := msbDaemonNeedsRecreate(dm, labels, "{}", "", false, &cfg, "")
+	if !need {
+		t.Fatal("stale labels must recreate")
+	}
+	for _, fragment := range []string{"skills", "sudo", "mount_paths"} {
+		if !strings.Contains(reason, fragment) {
+			t.Errorf("joined reason %q missing %q", reason, fragment)
+		}
+	}
+}
+
+// TestMsbRecreateForkableJoinedReasons: a joined reason is forkable only
+// when EVERY part is forkable — forking preserves the old disk, so one
+// non-forkable drift (image, sudo) must force the full recreate.
+func TestMsbRecreateForkableJoinedReasons(t *testing.T) {
+	forkable := "daemon.mount_paths changed; workspace roots changed (learned root added, removed, or evicted)"
+	mixed := "host skills mounts changed (source, mode, or targets); construct-box image changed"
+	if !msbRecreateForkable(forkable) {
+		t.Error("all-forkable parts must stay forkable")
+	}
+	if msbRecreateForkable(mixed) {
+		t.Errorf("mixed reasons must not fork (forking would carry the drifted disk)")
+	}
+	if msbRecreateForkable("construct-box image changed") {
+		t.Error("image drift alone must not fork")
+	}
+}
+
+// TestDNSRuleGatewayScoped: the DNS allow must be gateway-scoped (the SDK
+// factory's UDP+TCP 53); a bare UDP/53 rule with no destination is a raw
+// UDP exfil channel to any host.
+func TestDNSRuleGatewayScoped(t *testing.T) {
+	got, want := dnsRule(), msb.Rule.AllowDNS()
+	protosEqual := len(got.Protocols) == len(want.Protocols)
+	for i := range got.Protocols {
+		if got.Protocols[i] != want.Protocols[i] {
+			protosEqual = false
+		}
+	}
+	if got.Action != want.Action || got.Direction != want.Direction || got.Destination != want.Destination ||
+		got.Port != want.Port || !protosEqual {
+		t.Errorf("dnsRule = %+v, want the SDK gateway-scoped AllowDNS rule %+v", got, want)
 	}
 }
 

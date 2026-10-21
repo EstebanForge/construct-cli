@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -109,11 +110,27 @@ func TestSSHProxySockForPID(t *testing.T) {
 	}
 }
 
-// TestStartSSHBridgeRequiresAuthSock verifies the bridge refuses to start when
-// the host has no agent to forward.
+// TestBridgeBindHostBackendScoping: msb's VMM proxies allowed guest→host
+// ports to host loopback (live-verified 2026-10), so msb bridges bind
+// 127.0.0.1; docker's Linux host-gateway is the bridge IP, which needs a
+// 0.0.0.0 bind.
+func TestBridgeBindHostBackendScoping(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("backend scoping only diverges on Linux")
+	}
+	if got := bridgeBindHost(config.BackendMsb); got != "127.0.0.1" {
+		t.Errorf("msb bind host = %q, want loopback", got)
+	}
+	for _, b := range []string{config.BackendContainers, config.BackendDocker, config.BackendPodman, ""} {
+		if got := bridgeBindHost(b); got != "0.0.0.0" {
+			t.Errorf("%q bind host = %q, want 0.0.0.0 (host-gateway is the bridge IP)", b, got)
+		}
+	}
+}
+
 func TestStartSSHBridgeRequiresAuthSock(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "")
-	if _, err := StartSSHBridge("seed-noauth"); err == nil {
+	if _, err := StartSSHBridge("seed-noauth", "127.0.0.1"); err == nil {
 		t.Fatal("expected error when SSH_AUTH_SOCK is unset")
 	}
 }
@@ -127,7 +144,7 @@ func TestSSHBridgeProxiesToAgent(t *testing.T) {
 	defer stop()
 
 	t.Setenv("SSH_AUTH_SOCK", sock)
-	bridge, err := StartSSHBridge("seed-proxy")
+	bridge, err := StartSSHBridge("seed-proxy", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("StartSSHBridge: %v", err)
 	}
@@ -151,7 +168,7 @@ func TestSSHBridgeRereadsAuthSockPerConnection(t *testing.T) {
 	defer stop2()
 
 	t.Setenv("SSH_AUTH_SOCK", s1)
-	bridge, err := StartSSHBridge("seed-reread")
+	bridge, err := StartSSHBridge("seed-reread", "127.0.0.1")
 	if err != nil {
 		t.Fatalf("StartSSHBridge: %v", err)
 	}

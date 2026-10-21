@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	runtimepkg "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -30,9 +31,12 @@ type SSHBridge struct {
 // OS-allocated port; StartSSHBridge handles that by falling back to an
 // OS-assigned ephemeral port on bind failure (correctness is still guaranteed by
 // the per-exec socat restart).
+// sshBridgePortBase/Span alias the deterministic bridge band owned by the
+// runtime package: the msb network policy names the same band, so both
+// sides must move together.
 const (
-	sshBridgePortBase = 38500
-	sshBridgePortSpan = 10000
+	sshBridgePortBase = runtimepkg.MsbBridgePortBase
+	sshBridgePortSpan = runtimepkg.MsbBridgePortSpan
 )
 
 // sshBridgePortForSeed derives a stable TCP port from a seed (typically the box
@@ -43,6 +47,22 @@ func sshBridgePortForSeed(seed string) int {
 	h := sha256.Sum256([]byte(seed))
 	v := int(h[0])<<8 | int(h[1])
 	return sshBridgePortBase + v%sshBridgePortSpan
+}
+
+// bridgeBindHost returns the address bridges should bind for a backend:
+// msb's VMM proxies allowed guest→host ports to host loopback
+// (live-verified 2026-10), so 127.0.0.1 is reachable and the listener
+// stops exposing every port LAN-wide; docker's Linux host-gateway is the
+// bridge IP, which requires 0.0.0.0. macOS Docker Desktop routes
+// loopback into containers on every backend.
+func bridgeBindHost(backend string) string {
+	if runtime.GOOS == "darwin" {
+		return "127.0.0.1"
+	}
+	if backend == config.BackendMsb {
+		return "127.0.0.1"
+	}
+	return "0.0.0.0"
 }
 
 // sshPinIdentitiesEnv serializes cfg.Sandbox.SSHPinIdentities into the
@@ -69,18 +89,16 @@ func sshPinIdentitiesEnv(cfg *config.Config) string {
 // The port is derived deterministically from seed so it is stable per box across
 // invocations; if that port is already in use it falls back to an ephemeral port
 // (correctness is still guaranteed by the per-exec socat restart).
-// On macOS it binds 127.0.0.1 (Docker Desktop handles routing).
-// On Linux it binds 0.0.0.0 so containers can reach it via host.docker.internal.
-func StartSSHBridge(seed string) (*SSHBridge, error) {
+// bindHost decides exposure: msb's VMM proxies allowed guest→host ports to
+// host loopback, so 127.0.0.1 is reachable; docker's Linux host-gateway is
+// the bridge IP, which needs 0.0.0.0.
+func StartSSHBridge(seed, bindHost string) (*SSHBridge, error) {
 	if os.Getenv("SSH_AUTH_SOCK") == "" {
 		return nil, fmt.Errorf("SSH_AUTH_SOCK not set on host")
 	}
 
 	bindAddr := func(port int) string {
-		if runtime.GOOS == "linux" {
-			return fmt.Sprintf("0.0.0.0:%d", port)
-		}
-		return fmt.Sprintf("127.0.0.1:%d", port)
+		return fmt.Sprintf("%s:%d", bindHost, port)
 	}
 
 	port := sshBridgePortForSeed(seed)

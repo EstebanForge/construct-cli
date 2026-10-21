@@ -210,7 +210,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// On Linux: bridge binds 0.0.0.0, containers reach it via host.docker.internal.
 	if e.cfg.Sandbox.ForwardSSHAgent {
 		if os.Getenv("SSH_AUTH_SOCK") != "" {
-			bridge, err := StartSSHBridge(cwdContainerName(e.cwd))
+			bridge, err := StartSSHBridge(cwdContainerName(e.cwd), bridgeBindHost(e.cfg.Runtime.Backend))
 			if err == nil {
 				e.sshBridge = bridge
 				e.sshProxySock = sshProxySockForPID(os.Getpid())
@@ -224,7 +224,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// This lets per-agent integrations (e.g. pi's herdr-agent-state.ts) report
 	// turn-level state, producing the idle/working status panel natively.
 	if socket := os.Getenv("HERDR_SOCKET_PATH"); socket != "" {
-		bridge, err := StartHerdrBridge(cwdContainerName(e.cwd), socket)
+		bridge, err := StartHerdrBridge(cwdContainerName(e.cwd), socket, bridgeBindHost(e.cfg.Runtime.Backend))
 		if err == nil {
 			e.herdrBridge = bridge
 			e.herdrProxySock = herdrProxySockForPID(os.Getpid())
@@ -1284,7 +1284,7 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 		return nil, nil, nil
 	}
 
-	bridge, err := StartSSHBridge(daemonName)
+	bridge, err := StartSSHBridge(daemonName, bridgeBindHost(cfg.Runtime.Backend))
 	if err != nil {
 		return nil, nil, err
 	}
