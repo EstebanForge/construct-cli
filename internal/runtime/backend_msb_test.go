@@ -362,6 +362,90 @@ func TestMapHostWorkdirToGuest(t *testing.T) {
 	}
 }
 
+// TestImageInspectMemo: `msb image inspect` results are memoized per ref
+// for the process lifetime (drift decision, candidate walk, and verify
+// otherwise spawn 3-5 inspects per run); bust forces re-inspection.
+func TestImageInspectMemo(t *testing.T) {
+	origDigest, origCached := inspectDigestFn, inspectCachedFn
+	t.Cleanup(func() {
+		inspectDigestFn, inspectCachedFn = origDigest, origCached
+		bustImageInspectMemo()
+	})
+	bustImageInspectMemo()
+
+	digestCalls, cachedCalls := 0, 0
+	inspectDigestFn = func(string) string { digestCalls++; return "sha256:aa" }
+	inspectCachedFn = func(string) bool { cachedCalls++; return true }
+
+	for range 2 {
+		if got := msbImageDigest("ref-a"); got != "sha256:aa" {
+			t.Fatalf("digest = %q", got)
+		}
+	}
+	if digestCalls != 1 {
+		t.Fatalf("digest inspect ran %d times, want 1 (memoized)", digestCalls)
+	}
+	for range 2 {
+		if !msbImageCached("ref-a") {
+			t.Fatal("cached = false")
+		}
+	}
+	if cachedCalls != 1 {
+		t.Fatalf("cached inspect ran %d times, want 1 (memoized)", cachedCalls)
+	}
+	_ = msbImageDigest("ref-b")
+	if digestCalls != 2 {
+		t.Fatalf("a second ref must not hit ref-a's memo entry: %d calls", digestCalls)
+	}
+
+	bustImageInspectMemo()
+	_ = msbImageDigest("ref-a")
+	if digestCalls != 3 {
+		t.Fatalf("bust must force re-inspection: %d calls", digestCalls)
+	}
+}
+
+// TestEnsureImageDriftVerifySeesPostPullDigest pins the bust: the drift
+// decision memoizes the pre-pull store digest, and the post-pull verify
+// must re-inspect or a successful refresh would read as its old digest.
+func TestEnsureImageDriftVerifySeesPostPullDigest(t *testing.T) {
+	origInspect, origCached, origFetch, origRun := inspectDigestFn, msbImageCachedFn, ghcrFetchDigest, runMsbCmd
+	t.Cleanup(func() {
+		inspectDigestFn, msbImageCachedFn, ghcrFetchDigest, runMsbCmd = origInspect, origCached, origFetch, origRun
+		bustImageInspectMemo()
+	})
+	t.Setenv("HOME", t.TempDir()) // isolate the remote-digest cache file
+	bustImageInspectMemo()
+
+	pulled := false
+	inspectCalls := 0
+	inspectDigestFn = func(string) string {
+		inspectCalls++
+		if pulled {
+			return "sha256:new"
+		}
+		return "sha256:old"
+	}
+	ghcrFetchDigest = func(string) string { return "sha256:new" }
+	msbImageCachedFn = func(ref string) bool { return ref == PrepullImageRef }
+	runMsbCmd = func(_ string, _ ...string) ([]byte, error) {
+		pulled = true
+		return nil, nil
+	}
+
+	cfg := config.DefaultConfig()
+	ref, err := (&MsbBackend{}).EnsureImage(&cfg)
+	if err != nil || ref != PrepullImageRef {
+		t.Fatalf("EnsureImage = %q, %v", ref, err)
+	}
+	if !pulled {
+		t.Fatal("drift must force a pull")
+	}
+	if inspectCalls < 2 {
+		t.Fatalf("post-pull verify must re-inspect past the memo: %d inspect calls", inspectCalls)
+	}
+}
+
 // TestMsbConstructImageRefPrefersLocalBuildOverGhcr: when both the stale
 // GHCR ref and a deliberate local build are cached, the boot image and
 // daemon digest label must resolve to the LOCAL build. The candidates

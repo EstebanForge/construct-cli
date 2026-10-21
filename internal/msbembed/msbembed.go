@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -58,6 +59,31 @@ var (
 // Available reports whether this binary embeds the runtime pair.
 func Available() bool { return available() }
 
+// verifyAssetSumsOnce hashes the embedded assets once per process: the
+// check walks ~69 MiB of in-binary data and is deterministic for the
+// binary's lifetime.
+var (
+	verifySumsOnce sync.Once
+	verifySumsErr  error
+)
+
+func verifyAssetSumsOnce() error {
+	verifySumsOnce.Do(func() {
+		sum, ok := assetChecksums[embeddedMsbName]
+		if !ok {
+			verifySumsErr = fmt.Errorf("embedded runtime manifest has no checksum for %s (build did not run scripts/embed-msb-runtime.sh)", embeddedMsbName)
+			return
+		}
+		libSum, ok := assetChecksums[embeddedLibkrunfwName]
+		if !ok {
+			verifySumsErr = fmt.Errorf("embedded runtime manifest has no checksum for %s (build did not run scripts/embed-msb-runtime.sh)", embeddedLibkrunfwName)
+			return
+		}
+		verifySumsErr = verifyEmbeddedSums(sum, libSum)
+	})
+	return verifySumsErr
+}
+
 // Ensure returns the extracted pair, extracting (or re-extracting) it when
 // missing, size-mismatched, or left behind by a different SDK version.
 func Ensure() (*Pair, error) {
@@ -67,17 +93,10 @@ func Ensure() (*Pair, error) {
 	if embeddedMsbName == "" || embeddedLibkrunfwName == "" {
 		return nil, errors.New("embedded runtime assets missing for this platform")
 	}
-	sum, ok := assetChecksums[embeddedMsbName]
-	if !ok {
-		return nil, fmt.Errorf("embedded runtime manifest has no checksum for %s (build did not run scripts/embed-msb-runtime.sh)", embeddedMsbName)
-	}
-	libSum, ok := assetChecksums[embeddedLibkrunfwName]
-	if !ok {
-		return nil, fmt.Errorf("embedded runtime manifest has no checksum for %s (build did not run scripts/embed-msb-runtime.sh)", embeddedLibkrunfwName)
-	}
-	if err := verifyEmbeddedSums(sum, libSum); err != nil {
+	if err := verifyAssetSumsOnce(); err != nil {
 		return nil, err
 	}
+	sum, libSum := assetChecksums[embeddedMsbName], assetChecksums[embeddedLibkrunfwName]
 
 	version := versionFn()
 	dir := filepath.Join(rootFn(), version)

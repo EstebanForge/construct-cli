@@ -47,10 +47,16 @@ const msbHomeMountDest = "/home/construct"
 // volumes remain.
 func EnsureMsbVolumes(_ context.Context) error { return nil }
 
-func cleanProjectDir(projectDir string) string {
-	if projectDir == "" {
-		return ""
-	}
+// projectDirMemo caches cleanProjectDir results per input for the process
+// lifetime: the walk-based risk gate costs 1-2s on a large workspace and
+// runs 6-8 times per create (run spec, mounts hash, workdir mapping).
+var projectDirMemo sync.Map
+
+func resetProjectDirMemo() { projectDirMemo = sync.Map{} }
+
+// cleanProjectDirFn is the raw canonicalization behind the memo; seam so
+// the memo layer is unit-testable.
+var cleanProjectDirFn = func(projectDir string) string {
 	// Canonicalize BEFORE symlink evaluation: EvalSymlinks returns relative
 	// results for relative inputs ("." stays "."), and store keys must be
 	// absolute so decline records and mount hashes are cwd-independent.
@@ -64,6 +70,18 @@ func cleanProjectDir(projectDir string) string {
 		return resolved
 	}
 	return filepath.Clean(projectDir)
+}
+
+func cleanProjectDir(projectDir string) string {
+	if projectDir == "" {
+		return ""
+	}
+	if v, ok := projectDirMemo.Load(projectDir); ok {
+		return v.(string)
+	}
+	cleaned := cleanProjectDirFn(projectDir)
+	projectDirMemo.Store(projectDir, cleaned)
+	return cleaned
 }
 
 // GetMsbWorkspaceMountDest returns the guest mount destination for a
