@@ -76,11 +76,18 @@ func cleanProjectDir(projectDir string) string {
 	if projectDir == "" {
 		return ""
 	}
-	if v, ok := projectDirMemo.Load(projectDir); ok {
+	// Memoize on the ABSOLUTE input: canonicalization resolves relative
+	// inputs against the process cwd, so the raw string is not a stable
+	// key if the cwd ever changes mid-process.
+	abs := projectDir
+	if a, err := filepath.Abs(projectDir); err == nil {
+		abs = a
+	}
+	if v, ok := projectDirMemo.Load(abs); ok {
 		return v.(string)
 	}
 	cleaned := cleanProjectDirFn(projectDir)
-	projectDirMemo.Store(projectDir, cleaned)
+	projectDirMemo.Store(abs, cleaned)
 	return cleaned
 }
 

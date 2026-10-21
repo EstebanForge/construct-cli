@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -45,6 +46,62 @@ func TestReadFileRegular(t *testing.T) {
 	}
 	if _, err := ReadFileRegular(fifoAsFile, 1024); err == nil || !strings.Contains(err.Error(), "exceeds") {
 		t.Fatalf("oversize file must be refused with a size error, got %v", err)
+	}
+}
+
+// TestRefusesPlantedComponents: the bind paths run through guest-writable
+// directories, so a symlinked INTERMEDIATE component (not just the leaf)
+// must refuse — a planted dir symlink persists and would redirect every
+// later host open, no race required.
+func TestRefusesPlantedComponents(t *testing.T) {
+	root := t.TempDir()
+	dirReal := filepath.Join(root, "real")
+	if err := os.MkdirAll(dirReal, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reg := filepath.Join(dirReal, "file.txt")
+	if err := os.WriteFile(reg, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFileRegular(reg, 1<<20); err != nil {
+		t.Fatalf("baseline read: %v", err)
+	}
+	if err := WriteFile(reg, []byte("payload2"), 0o644); err != nil {
+		t.Fatalf("baseline write: %v", err)
+	}
+
+	// Plant a symlinked directory pointing at a WRITABLE outside target:
+	// the refusal must be the guard, not /etc's permissions. A write that
+	// lands in outsideDir proves the escape.
+	if err := os.Rename(dirReal, filepath.Join(root, "real.bak")); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, dirReal); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFileRegular(reg, 1<<20); err == nil {
+		t.Error("a symlinked intermediate directory must refuse reads")
+	}
+	if err := WriteFile(reg, []byte("escaped"), 0o644); err == nil {
+		t.Error("a symlinked intermediate directory must refuse writes")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "file.txt")); !os.IsNotExist(err) {
+		t.Error("the write must not land in the symlink target")
+	}
+}
+
+// TestReadFileRegularRefusesFifoSwap pins the FIFO defense: a guest can
+// swap a regular file for a FIFO after any check; the read must fail
+// instead of hanging the host on the pipe open.
+func TestReadFileRegularRefusesFifoSwap(t *testing.T) {
+	dir := t.TempDir()
+	fifo := filepath.Join(dir, "pipe")
+	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
+		t.Skipf("mkfifo unavailable: %v", err)
+	}
+	if _, err := ReadFileRegular(fifo, 1<<20); err == nil {
+		t.Error("a FIFO must be refused, not opened")
 	}
 }
 

@@ -3,7 +3,9 @@ package agent
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,11 +306,16 @@ func copyFileBestEffort(src, dst string) error {
 }
 
 // syncBack copies staged files back to their original host paths. Called
-// from Teardown; every failure is a debug log only.
+// from Teardown; a vanished staged file stays a debug log, anything else
+// (refused copy, size cap) is real data loss and surfaces visibly.
 func (s *argStager) syncBack() {
 	for _, cb := range s.copyBacks {
 		if err := copyFileBestEffort(cb.staged, cb.host); err != nil {
-			ui.LogDebug("staging copy-back failed %s -> %s: %v", cb.staged, cb.host, err)
+			if errors.Is(err, fs.ErrNotExist) {
+				ui.LogDebug("staging copy-back failed %s -> %s: %v", cb.staged, cb.host, err)
+				continue
+			}
+			ui.InfoF("⚠ staging copy-back failed %s -> %s: %v\n", cb.staged, cb.host, err)
 		}
 	}
 }
