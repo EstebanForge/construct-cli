@@ -9,8 +9,10 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
@@ -81,6 +83,42 @@ func MsbConstructImageRef() string {
 }
 
 func msbImageCached(ref string) bool {
+	imageInspectMemo.Lock()
+	defer imageInspectMemo.Unlock()
+	if v, ok := imageInspectMemo.cached[ref]; ok {
+		return v
+	}
+	v := inspectCachedFn(ref)
+	imageInspectMemo.cached[ref] = v
+	return v
+}
+
+// imageInspectMemo caches `msb image inspect` results per ref for the
+// process lifetime: the drift decision, the ref-candidate walk, and the
+// post-pull verify otherwise spawn 3-5 inspects per run.
+// bustImageInspectMemo must follow any in-process pull or image rm, or a
+// refreshed image reads as its old digest.
+var imageInspectMemo = struct {
+	sync.Mutex
+	digests map[string]string
+	cached  map[string]bool
+}{digests: map[string]string{}, cached: map[string]bool{}}
+
+func bustImageInspectMemo() {
+	imageInspectMemo.Lock()
+	defer imageInspectMemo.Unlock()
+	imageInspectMemo.digests = map[string]string{}
+	imageInspectMemo.cached = map[string]bool{}
+}
+
+// inspectCachedFn and inspectDigestFn are the raw `msb image inspect`
+// spawns behind the memo; seams so the memo layer is unit-testable.
+var (
+	inspectCachedFn = inspectImageCached
+	inspectDigestFn = inspectImageDigest
+)
+
+func inspectImageCached(ref string) bool {
 	name, err := msbembed.Command()
 	if err != nil {
 		return false
@@ -99,8 +137,51 @@ var msbImageCachedFn = msbImageCached
 // is unit-testable without the msb CLI or registry access.
 var (
 	msbImageDigestFn   = msbImageDigest
-	ghcrRemoteDigestFn = ghcrRemoteDigest
+	ghcrRemoteDigestFn = cachedRemoteDigest
 )
+
+const remoteDigestCacheTTL = 6 * time.Hour
+
+// remoteDigestCacheEntry is the file-backed registry digest cache
+// (<config dir>/msb-remote-digest.json), 0600 like the telemetry files.
+type remoteDigestCacheEntry struct {
+	Ref     string `json:"ref"`
+	Digest  string `json:"digest"`
+	Fetched int64  `json:"fetched_unix"`
+}
+
+// ghcrFetchDigest is the raw registry fetch behind the file cache; seam
+// so cachedRemoteDigest is unit-testable.
+var ghcrFetchDigest = ghcrRemoteDigest
+
+// cachedRemoteDigest serves the registry digest from a file-backed cache
+// inside remoteDigestCacheTTL: the anonymous-token fetch costs ~1s best
+// case and a 15s timeout worst, on every create otherwise. A failed fetch
+// returns "" (callers keep the cached image) and leaves the previous
+// cache entry alone so a stale entry is never served as fresh.
+func cachedRemoteDigest(ref string) string {
+	cachePath := filepath.Join(config.GetConfigDir(), "msb-remote-digest.json")
+	if b, err := os.ReadFile(cachePath); err == nil {
+		var e remoteDigestCacheEntry
+		if json.Unmarshal(b, &e) == nil && e.Ref == ref && time.Since(time.Unix(e.Fetched, 0)) < remoteDigestCacheTTL {
+			return e.Digest
+		}
+	}
+	digest := ghcrFetchDigest(ref)
+	if digest == "" {
+		return ""
+	}
+	if b, err := json.Marshal(remoteDigestCacheEntry{Ref: ref, Digest: digest, Fetched: time.Now().Unix()}); err == nil {
+		//nolint:errcheck // cache write is best-effort; a missing dir means no HOME config yet
+		os.MkdirAll(config.GetConfigDir(), 0o700)
+		tmp := cachePath + ".tmp"
+		if os.WriteFile(tmp, b, 0o600) == nil {
+			//nolint:errcheck // cache write is best-effort; the fetch result is already in hand
+			_ = os.Rename(tmp, cachePath)
+		}
+	}
+	return digest
+}
 
 // runMsbCmd is a seam around the msb exec calls inside EnsureImage's
 // acquisition flow (image rm on drift, pull) so tests stay hermetic on hosts
@@ -182,15 +263,21 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 		pullArgs = append(pullArgs, "--force")
 	}
 	pullArgs = append(pullArgs, PrepullImageRef)
-	if _, err := runMsbCmd("msb", pullArgs...); err == nil && msbImageCachedFn(PrepullImageRef) {
-		// Verify the store digest actually moved: a forced pull that no-ops
-		// or dies mid-stream leaves the old digest cached, and reporting
-		// ready would hide the drift for another cycle.
-		if !forcePull || msbImageDigestFn(PrepullImageRef) == remote {
-			ui.InfoLn("✓ MicroVM image ready (from GHCR)")
-			return PrepullImageRef, nil
+	if _, err := runMsbCmd("msb", pullArgs...); err == nil {
+		// A pull invalidates the memoized store digests: without the bust
+		// the post-pull verify re-reads the pre-pull digest and a successful
+		// refresh would read as its old digest.
+		bustImageInspectMemo()
+		if msbImageCachedFn(PrepullImageRef) {
+			// Verify the store digest actually moved: a forced pull that no-ops
+			// or dies mid-stream leaves the old digest cached, and reporting
+			// ready would hide the drift for another cycle.
+			if !forcePull || msbImageDigestFn(PrepullImageRef) == remote {
+				ui.InfoLn("✓ MicroVM image ready (from GHCR)")
+				return PrepullImageRef, nil
+			}
+			ui.InfoLn("⚠️  Image refresh did not land (store digest unchanged); using cached construct-box image (may be stale)")
 		}
-		ui.InfoLn("⚠️  Image refresh did not land (store digest unchanged); using cached construct-box image (may be stale)")
 	}
 
 	// Pull failed (offline, rate limited): fall back to any cached ref,
@@ -278,6 +365,20 @@ func loadedImageRef() string {
 // (parsed from `msb image inspect`), or "" when the ref is not cached or
 // the output cannot be parsed.
 func msbImageDigest(ref string) string {
+	imageInspectMemo.Lock()
+	defer imageInspectMemo.Unlock()
+	if v, ok := imageInspectMemo.digests[ref]; ok {
+		return v
+	}
+	v := inspectDigestFn(ref)
+	imageInspectMemo.digests[ref] = v
+	return v
+}
+
+// inspectImageDigest resolves a ref's store digest via one `msb image
+// inspect` (parsed from output), or "" when the ref is not cached or the
+// output cannot be parsed.
+func inspectImageDigest(ref string) string {
 	// The inspect doubles as the cached check: a missing ref fails the
 	// command.
 	digestBin, digestErr := msbembed.Command()

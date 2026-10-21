@@ -22,6 +22,110 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 )
 
+// TestCleanProjectDirMemoizes: the walk-based risk gate costs 1-2s on a
+// large workspace and runs 6-8 times per create, so results are memoized
+// per input for the process lifetime.
+func TestCleanProjectDirMemoizes(t *testing.T) {
+	orig := cleanProjectDirFn
+	t.Cleanup(func() { cleanProjectDirFn = orig; resetProjectDirMemo() })
+	resetProjectDirMemo()
+
+	calls := 0
+	cleanProjectDirFn = func(dir string) string { calls++; return "/cleaned" + dir }
+	if got := cleanProjectDir("/a"); got != "/cleaned/a" {
+		t.Fatalf("first call = %q", got)
+	}
+	if got := cleanProjectDir("/a"); got != "/cleaned/a" {
+		t.Fatalf("memoized call = %q", got)
+	}
+	if calls != 1 {
+		t.Fatalf("compute ran %d times, want 1", calls)
+	}
+	if got := cleanProjectDir(""); got != "" {
+		t.Fatal("empty input must bypass the memo and stay empty")
+	}
+}
+
+// TestCachedRemoteDigest: the registry digest is served from a file-backed
+// cache inside the TTL, re-fetched once expired, keyed by ref, and never
+// cached from a failed fetch.
+func TestCachedRemoteDigest(t *testing.T) {
+	orig := ghcrFetchDigest
+	t.Cleanup(func() { ghcrFetchDigest = orig })
+
+	t.Run("serves fresh cache without refetching", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		calls := 0
+		ghcrFetchDigest = func(string) string { calls++; return "sha256:d1" }
+		for range 2 {
+			if got := cachedRemoteDigest("ghcr.io/x/y:latest"); got != "sha256:d1" {
+				t.Fatalf("digest = %q", got)
+			}
+		}
+		if calls != 1 {
+			t.Fatalf("fetch ran %d times, want 1", calls)
+		}
+	})
+
+	t.Run("refetches after the TTL expires", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		seq := []string{"sha256:d1", "sha256:d2"}
+		calls := 0
+		ghcrFetchDigest = func(string) string {
+			d := seq[calls]
+			calls++
+			return d
+		}
+		if got := cachedRemoteDigest("ghcr.io/x/y:latest"); got != "sha256:d1" {
+			t.Fatalf("first = %q", got)
+		}
+		cachePath := filepath.Join(config.GetConfigDir(), "msb-remote-digest.json")
+		b, err := os.ReadFile(cachePath)
+		if err != nil {
+			t.Fatalf("cache file missing: %v", err)
+		}
+		var e remoteDigestCacheEntry
+		if err := json.Unmarshal(b, &e); err != nil {
+			t.Fatal(err)
+		}
+		e.Fetched = time.Now().Add(-remoteDigestCacheTTL - time.Minute).Unix()
+		if b, err = json.Marshal(e); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(cachePath, b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got := cachedRemoteDigest("ghcr.io/x/y:latest"); got != "sha256:d2" {
+			t.Fatalf("after expiry = %q, want a refetch", got)
+		}
+		if calls != 2 {
+			t.Fatalf("fetch ran %d times, want 2", calls)
+		}
+	})
+
+	t.Run("cache is keyed by ref", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		ghcrFetchDigest = func(ref string) string { return "d-" + ref }
+		if got := cachedRemoteDigest("ghcr.io/a:latest"); got != "d-ghcr.io/a:latest" {
+			t.Fatalf("first ref = %q", got)
+		}
+		if got := cachedRemoteDigest("ghcr.io/b:latest"); got != "d-ghcr.io/b:latest" {
+			t.Fatalf("second ref must miss the first ref's entry, got %q", got)
+		}
+	})
+
+	t.Run("failed fetch is not cached", func(t *testing.T) {
+		t.Setenv("HOME", t.TempDir())
+		ghcrFetchDigest = func(string) string { return "" }
+		if got := cachedRemoteDigest("ghcr.io/x/y:latest"); got != "" {
+			t.Fatalf("failure must return empty, got %q", got)
+		}
+		if _, err := os.Stat(filepath.Join(config.GetConfigDir(), "msb-remote-digest.json")); !os.IsNotExist(err) {
+			t.Fatal("a failed fetch must not write a cache entry")
+		}
+	})
+}
+
 func TestBuildMsbRunSpecMounts(t *testing.T) {
 	// The home bind only exists when the host construct home is present.
 	// Isolate HOME and create it so the test does not depend on machine
