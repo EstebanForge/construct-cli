@@ -2,7 +2,7 @@
 	test-unit-ci test-integration test-coverage bench clean clean-docker clean-all \
 	install install-local install-dev uninstall uninstall-local release cross-compile \
 	check ci lint lint-ci lint-fix fmt vet dev dev-check run run-dev version \
-	deps check-version release-preflight test-acceptance
+	deps check-version release-preflight test-acceptance test-live
 
 # Variables
 BINARY_NAME := construct
@@ -143,6 +143,11 @@ test-acceptance: ## Run CLI acceptance scenarios (testscript, real binary)
 	@echo "Running acceptance scenarios..."
 	$(GOTEST) -tags acceptance ./acceptance/...
 	@echo "✓ Acceptance scenarios passed"
+
+test-live: ## Run live msb VM gates (real sandbox boots; KVM required)
+	@echo "Running live msb gates..."
+	CONSTRUCT_MSB_LIVE=1 $(GOTEST) -tags msbembed -v -run 'TestMsbLive' -timeout 60m ./internal/runtime/
+	@echo "✓ Live msb gates passed"
 
 test-ci: ## Run CI tests
 	@$(MAKE) --no-print-directory test
