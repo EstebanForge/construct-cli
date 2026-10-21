@@ -41,7 +41,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		}
 	}
 
-	sb, err := runtime.EnsureMsbDaemon(ctx, e.cfg, e.cwd)
+	sb, err := runtime.EnsureMsbDaemonAndRegister(ctx, e.cfg, e.cwd)
 	if err != nil {
 		if errors.Is(err, runtime.ErrMsbDaemonWorkdirUnmapped) {
 			// Docker parity ends here: msb has no per-invocation sandbox path,
@@ -51,12 +51,11 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		}
 		return 1, fmt.Errorf("msb daemon: %w", err)
 	}
-	// Register this PID as a live session (phase 3 idle stop). The
-	// companion Unregister + MaybeSpawnIdleWatcher runs in Teardown, so
-	// when the last concurrent ct invocation exits, the daemon stops
-	// after the configured idle window.
-	//nolint:errcheck // best-effort; the watch loop sweeps stale entries on next Register
-	_ = runtime.Register(os.Getpid(), "construct-cli-daemon")
+	// The ensure call registered this PID as a live session (phase 3 idle
+	// stop) inside the daemon flock section. The companion Unregister +
+	// MaybeSpawnIdleWatcher runs in Teardown, so when the last concurrent
+	// ct invocation exits, the daemon stops after the configured idle
+	// window.
 	e.registeredSession = true // arm the Teardown idle-watch spawn
 	defer func() {
 		_ = sb.Detach(context.Background()) //nolint:errcheck // daemon keeps running detached
