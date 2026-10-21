@@ -2,7 +2,7 @@
 	test-unit-ci test-integration test-coverage bench clean clean-docker clean-all \
 	install install-local install-dev uninstall uninstall-local release cross-compile \
 	check ci lint lint-ci lint-fix fmt vet dev dev-check run run-dev version \
-	deps check-version release-preflight
+	deps check-version release-preflight test-acceptance
 
 # Variables
 BINARY_NAME := construct
@@ -138,6 +138,11 @@ test-unit: ## Run Go unit tests
 	@echo "Running unit tests..."
 	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
 	@echo "✓ Unit tests passed"
+
+test-acceptance: ## Run CLI acceptance scenarios (testscript, real binary)
+	@echo "Running acceptance scenarios..."
+	$(GOTEST) -tags acceptance ./acceptance/...
+	@echo "✓ Acceptance scenarios passed"
 
 test-ci: ## Run CI tests
 	@$(MAKE) --no-print-directory test

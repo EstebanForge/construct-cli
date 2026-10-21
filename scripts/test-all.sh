@@ -29,10 +29,12 @@ fi
 
 UNIT_LOG="$(mktemp)"
 INTEGRATION_LOG="$(mktemp)"
-trap 'rm -f "$UNIT_LOG" "$INTEGRATION_LOG"' EXIT
+ACCEPTANCE_LOG="$(mktemp)"
+trap 'rm -f "$UNIT_LOG" "$INTEGRATION_LOG" "$ACCEPTANCE_LOG"' EXIT
 
 unit_exit=0
 integration_exit=0
+acceptance_exit=0
 
 if [[ "$CI_MODE" == "true" ]]; then
   echo "Running unit tests (CI fast)..."
@@ -72,6 +74,10 @@ integration_pass=$(awk -F: '/Tests passed:/ {gsub(/[[:space:]]/, "", $2); print 
 integration_fail=$(awk -F: '/Tests failed:/ {gsub(/[[:space:]]/, "", $2); print $2}' "$integration_clean_log" | tail -n1)
 rm -f "$integration_clean_log"
 
+echo "Running acceptance scenarios (testscript)..."
+go test -tags acceptance ./acceptance/... | tee "$ACCEPTANCE_LOG"
+acceptance_exit=${PIPESTATUS[0]}
+
 integration_total=${integration_total:-0}
 integration_pass=${integration_pass:-0}
 integration_fail=${integration_fail:-0}
@@ -100,6 +106,11 @@ fi
 if [[ "$integration_total" -eq 0 ]]; then
   integration_total_color="$YELLOW"
 fi
+
+acceptance_exit_color="$GREEN"
+if [[ $acceptance_exit -ne 0 ]]; then
+  acceptance_exit_color="$RED"
+fi
 if [[ "$integration_pass" -eq 0 ]]; then
   integration_pass_color="$YELLOW"
 fi
@@ -116,8 +127,9 @@ echo -e "Unit packages failed:   ${unit_pkg_fail_color}${unit_pkg_fail}${NC}"
 echo -e "Integration total:      ${integration_total_color}${integration_total}${NC}"
 echo -e "Integration passed:     ${integration_pass_color}${integration_pass}${NC}"
 echo -e "Integration failed:     ${integration_fail_color}${integration_fail}${NC}"
+echo -e "Acceptance scenarios:   ${acceptance_exit_color}$(grep -cE '^ok[[:space:]]' "$ACCEPTANCE_LOG" || true) packages ok${NC}"
 
-if [[ $unit_exit -ne 0 || $integration_exit -ne 0 ]]; then
+if [[ $unit_exit -ne 0 || $integration_exit -ne 0 || $acceptance_exit -ne 0 ]]; then
   echo -e "Overall status:         ${RED}FAILED${NC}"
   echo "======================================"
   exit 1
