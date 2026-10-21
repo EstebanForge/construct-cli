@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,27 +13,56 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	rt "github.com/EstebanForge/construct-cli/internal/runtime"
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// msbLiveEnabled gates every live test: CONSTRUCT_MSB_LIVE=1, a msb binary
-// on PATH, usable KVM, and the embedded runtime pair activated (without
-// activation the SDK resolver falls back to the system msb, whose version
-// usually trails the SDK pin and fails the launch contract).
+// msbLiveEnabled gates every live test: CONSTRUCT_MSB_LIVE=1, usable KVM,
+// scratch VM state redirected to a /tmp-backed home (never the real
+// config dir), and the embedded runtime pair activated.
 func msbLiveEnabled(t *testing.T) {
 	t.Helper()
 	if os.Getenv("CONSTRUCT_MSB_LIVE") != "1" {
 		t.Skip("CONSTRUCT_MSB_LIVE not set; skipping live msb test")
 	}
-	if _, err := exec.LookPath("msb"); err != nil {
-		t.Skipf("msb binary not found: %v", err)
+	// Scratch VM state (catalog, image cache, sandbox disks, snapshots)
+	// goes to a /tmp-backed MSB_HOME, never the real config dir. The make
+	// target pins one shared home per run (image pulled once); bare go
+	// test runs fall back to a per-test temp home.
+	scratchHome := os.Getenv("MSB_HOME")
+	if scratchHome == "" {
+		scratchHome = filepath.Join(t.TempDir(), "msb-home")
+		t.Setenv("MSB_HOME", scratchHome)
 	}
+	if err := os.MkdirAll(scratchHome, 0o700); err != nil {
+		t.Fatalf("scratch home: %v", err)
+	}
+	msbembed.OverrideScratch(filepath.Join(filepath.Dir(scratchHome), "msb-runtime"), scratchHome)
 	kvm, err := os.OpenFile("/dev/kvm", os.O_RDWR, 0)
 	if err != nil {
 		t.Skipf("no usable /dev/kvm: %v", err)
 	}
 	kvm.Close()
+	// The SDK create path wants the runtime pair inside MSB_HOME (or the
+	// MSB_PATH/MSB_LIBKRUNFW_PATH overrides, which Activate() sets to the
+	// extracted embedded pair). The embedded pair is pinned to the SDK
+	// version, so it is always the most recent tested runtime.
 	if err := msbembed.Activate(); err != nil {
 		t.Fatalf("activate embedded runtime: %v", err)
+	}
+}
+
+// msbLiveImageRef is the image every live gate boots; make test-live
+// pre-pulls it into the shared scratch home.
+const msbLiveImageRef = "ghcr.io/estebanforge/construct-box:latest"
+
+// msbLiveRequireImage skips when the boot image is not cached instead of
+// pulling gigabytes inside a bare go test run.
+func msbLiveRequireImage(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := msb.Image.Get(ctx, msbLiveImageRef); err != nil {
+		t.Skipf("%s not cached in MSB_HOME; run make test-live: %v", msbLiveImageRef, err)
 	}
 }
 
@@ -72,7 +101,8 @@ func TestMsbLiveSSHAgentBridge(t *testing.T) {
 	// The bridge port rides the spec's bridgePorts: with policy enforced,
 	// only rule-named ports reach the host. Production wires the session's
 	// ports the same way.
-	spec := rt.BuildMsbRunSpec(&cfg, name, proj, []int{bridge.Port}, "")
+	msbLiveRequireImage(t)
+	spec := rt.BuildMsbRunSpec(&cfg, name, proj, []int{bridge.Port}, msbLiveImageRef)
 	if _, err := rt.CreateMsbSandbox(ctx, spec); err != nil {
 		t.Fatalf("CreateMsbSandbox: %v", err)
 	}

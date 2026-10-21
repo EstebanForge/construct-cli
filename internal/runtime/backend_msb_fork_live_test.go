@@ -117,11 +117,18 @@ func TestMsbLiveSnapshotFork(t *testing.T) {
 	}
 
 	// Spike unknown #2 + #3: restore disk-only with a NEW volume set.
+	// SDK 0.7.8 requires a destination binding for every source mount
+	// path, so /probe-a gets a fresh host dir too.
+	tmpA2 := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpA2, "new-bind-marker"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	restoreStart := time.Now()
 	forked, err := msb.RestoreSandbox(ctx, snap, forkName,
 		msb.WithRestoreConfig(msb.RestoreConfig{
 			SnapshotDiskOnly: true,
 			Volumes: map[string]msb.MountConfig{
+				"/probe-a": msb.Mount.Bind(tmpA2, msb.MountOptions{}),
 				"/probe-b": msb.Mount.Bind(tmpB, msb.MountOptions{}),
 			},
 			CPUs:      ptrUint8(1),
@@ -138,18 +145,19 @@ func TestMsbLiveSnapshotFork(t *testing.T) {
 	if out, err := forked.Exec(ctx, "bash", []string{"-c", "cat /root/fork-payload"}); err != nil || out == nil || strings.TrimSpace(out.Stdout()) != "payload" {
 		t.Fatalf("pre-snapshot payload lost on restore: err=%v out=%+v", err, out)
 	}
-	// The NEW bind must be a live mount, and the OLD bind must not mount.
-	// Mountpoint DIRECTORIES may survive inside the captured rootfs; only
-	// /proc/mounts tells bind state apart from leftover dirs.
+	// The NEW binds must be live mounts, and the OLD host content must
+	// not be served. SDK 0.7.8 requires a destination binding for every
+	// source mount path, so /probe-a is re-bound to fresh tmpA2 rather
+	// than dropped: mount presence no longer distinguishes old from new,
+	// content does.
 	if out, err := forked.Exec(ctx, "bash", []string{"-c", "grep -q ' /probe-b ' /proc/mounts"}); err != nil || out == nil || out.ExitCode() != 0 {
 		t.Fatalf("new bind /probe-b not mounted on restored VM: err=%v out=%+v", err, out)
 	}
-	if out, err := forked.Exec(ctx, "bash", []string{"-c", "grep -q ' /probe-a ' /proc/mounts"}); err != nil || out == nil || out.ExitCode() == 0 {
-		t.Fatalf("old bind /probe-a still mounted on restored VM: err=%v out=%+v", err, out)
-	}
-	// And the leftover mountpoint dir must not serve the old host content.
 	if out, err := forked.Exec(ctx, "test", []string{"-e", "/probe-a/host-a.txt"}); err != nil || out == nil || out.ExitCode() == 0 {
 		t.Fatalf("old bind content reachable on restored VM: err=%v out=%+v", err, out)
+	}
+	if out, err := forked.Exec(ctx, "test", []string{"-e", "/probe-a/new-bind-marker"}); err != nil || out == nil || out.ExitCode() != 0 {
+		t.Fatalf("new /probe-a binding not live on restored VM: err=%v out=%+v", err, out)
 	}
 
 	// Spike unknown #4: the restored VM carries no sandbox-level workload or

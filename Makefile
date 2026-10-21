@@ -144,8 +144,13 @@ test-acceptance: ## Run CLI acceptance scenarios (testscript, real binary)
 	$(GOTEST) -tags acceptance ./acceptance/...
 	@echo "✓ Acceptance scenarios passed"
 
-test-live: ## Run live msb VM gates (real sandbox boots; KVM required)
+test-live: ## Run live msb VM gates (real sandbox boots; KVM + msb required)
 	@echo "Running live msb gates..."
+	@live_home=$$(mktemp -d /var/tmp/construct-live.XXXXXX) || exit 1; \
+	trap 'rm -rf "$$live_home"' EXIT; \
+	export MSB_HOME="$$live_home/msb-home"; \
+	mkdir -p "$$MSB_HOME" || exit 1; \
+	msb image pull ghcr.io/estebanforge/construct-box:latest >/dev/null || { echo "image pre-pull failed" >&2; exit 1; }; \
 	CONSTRUCT_MSB_LIVE=1 $(GOTEST) -tags msbembed -v -run 'TestMsbLive' -timeout 60m ./internal/runtime/
 	@echo "✓ Live msb gates passed"
 
