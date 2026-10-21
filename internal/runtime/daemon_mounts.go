@@ -43,6 +43,13 @@ const DaemonSDKVersionLabelKey = "construct.daemon.sdk_version"
 // well its config labels match. Empty local digests never force one.
 const DaemonImageDigestLabelKey = "construct.daemon.image_digest"
 
+// DaemonEnvHashLabelKey stamps the create-time guest env (network mode
+// and lists, loopback ports, sudo opt-out, UID/GID alignment). Env is
+// create-time only: without this label a [network] toggle on a running
+// daemon fails open — the old env keeps applying until a mount drift
+// happens to force a recreate.
+const DaemonEnvHashLabelKey = "construct.daemon.env_hash"
+
 // DaemonMount defines a host-to-container mount mapping.
 type DaemonMount struct {
 	HostPath      string

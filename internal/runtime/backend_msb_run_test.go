@@ -126,6 +126,53 @@ func TestCachedRemoteDigest(t *testing.T) {
 	})
 }
 
+// TestMsbBaseEnvIncludesNetwork: [network] reaches the guest only at
+// create time; without injection the entrypoint's network-filter.sh sees
+// no NETWORK_MODE and silently no-ops.
+func TestMsbBaseEnvIncludesNetwork(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Network.Mode = "strict"
+	cfg.Network.AllowedDomains = []string{"a.com", "b.com"}
+	env := envSliceToMap(msbBaseEnv(&cfg))
+	if env["NETWORK_MODE"] != "strict" {
+		t.Errorf("NETWORK_MODE = %q, want strict", env["NETWORK_MODE"])
+	}
+	if env["NETWORK_ALLOWED_DOMAINS"] != "a.com,b.com" {
+		t.Errorf("NETWORK_ALLOWED_DOMAINS = %q", env["NETWORK_ALLOWED_DOMAINS"])
+	}
+
+	def := config.DefaultConfig() // mode defaults to permissive
+	envDef := envSliceToMap(msbBaseEnv(&def))
+	if envDef["NETWORK_MODE"] != "permissive" {
+		t.Errorf("default NETWORK_MODE = %q, want permissive", envDef["NETWORK_MODE"])
+	}
+}
+
+// TestBuildMsbRunSpecStampsEnvHash: the create-time env (network mode and
+// lists, loopback ports, sudo opt-out, UID/GID alignment) is hashed into a
+// label so a drift recreates the daemon instead of failing open.
+func TestBuildMsbRunSpecStampsEnvHash(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	cfg := config.DefaultConfig()
+	spec := BuildMsbRunSpec(&cfg, "sb", t.TempDir(), nil, "")
+	first := spec.Labels[DaemonEnvHashLabelKey]
+	if first == "" {
+		t.Fatal("env hash label missing")
+	}
+
+	again := BuildMsbRunSpec(&cfg, "sb", t.TempDir(), nil, "")
+	if again.Labels[DaemonEnvHashLabelKey] != first {
+		t.Error("same config must hash identically")
+	}
+
+	drifted := config.DefaultConfig()
+	drifted.Network.Mode = "offline"
+	other := BuildMsbRunSpec(&drifted, "sb", t.TempDir(), nil, "")
+	if other.Labels[DaemonEnvHashLabelKey] == first {
+		t.Error("a network mode change must change the env hash")
+	}
+}
+
 func TestBuildMsbRunSpecMounts(t *testing.T) {
 	// The home bind only exists when the host construct home is present.
 	// Isolate HOME and create it so the test does not depend on machine
@@ -379,15 +426,17 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 	// effective roots (boot project; the store is empty under the isolated
 	// HOME). The subdir case computes the same set: a subdir rides the
 	// parent mount instead of becoming a shadow root.
+	defaultCfg := config.DefaultConfig()
 	singleLabels := map[string]string{
 		"construct.project_dir":  root,
 		DaemonMountsLabelKey:     hashDaemonMountPaths([]string{root}),
 		DaemonSudoLabelKey:       "free",
 		DaemonSDKVersionLabelKey: msb.SDKVersion(),
+		DaemonEnvHashLabelKey:    msbEnvHash(&defaultCfg),
 	}
 
 	multi := DaemonMounts{Enabled: true, Hash: "abc", Mounts: []DaemonMount{{HostPath: root, ContainerPath: "/workspaces/x"}}}
-	multiLabels := map[string]string{DaemonMountsLabelKey: "abc", DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion()}
+	multiLabels := map[string]string{DaemonMountsLabelKey: "abc", DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion(), DaemonEnvHashLabelKey: msbEnvHash(&defaultCfg)}
 
 	tests := []struct {
 		name       string
@@ -520,7 +569,7 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 				}
 			}
 
-			labels := map[string]string{DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion()}
+			labels := map[string]string{DaemonSudoLabelKey: "free", DaemonSDKVersionLabelKey: msb.SDKVersion(), DaemonEnvHashLabelKey: msbEnvHash(&cfg)}
 			for k, v := range workspaceLabels {
 				labels[k] = v
 			}
@@ -562,24 +611,38 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 }
 
 func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
-	// No known bridge ports (engine binds random ports per run): a single
-	// any-port host-TCP rule must be emitted so bridges stay reachable.
+	// No explicit bridge ports: the transport rules must name the two
+	// deterministic bridge bands (SSH + herdr). A bare any-port rule is
+	// dead weight — the live check (2026-10) proved the VMM forwards only
+	// rule-named ports to the host — and it overstates what the guest may
+	// reach.
+	wantPorts := map[string]bool{
+		fmt.Sprintf("%d-%d", MsbBridgePortBase, MsbBridgePortBase+MsbBridgePortSpan-1):                false,
+		fmt.Sprintf("%d-%d", MsbHerdrBridgePortBase, MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan-1): false,
+	}
 	for _, mode := range []string{"offline", "permissive"} {
 		net := msbNetworkConfig(mode, nil)
+		for port := range wantPorts {
+			wantPorts[port] = false
+		}
 		hostRules := 0
 		for _, r := range net.Rules {
-			if r.Destination == "host" {
+			if r.Destination == "host" && r.Protocol == msb.PolicyProtocolTCP {
 				hostRules++
-				if r.Port != "" {
-					t.Errorf("%s: empty ports must yield any-port host rule, got port %q", mode, r.Port)
-				}
-				if r.Protocol != msb.PolicyProtocolTCP {
-					t.Errorf("%s: host rule must be TCP, got %q", mode, r.Protocol)
+				if _, ok := wantPorts[r.Port]; !ok {
+					t.Errorf("%s: transport port %q is outside the bridge bands", mode, r.Port)
+				} else {
+					wantPorts[r.Port] = true
 				}
 			}
 		}
 		if hostRules == 0 {
 			t.Errorf("%s: no host transport rule emitted", mode)
+		}
+		for port, seen := range wantPorts {
+			if !seen {
+				t.Errorf("%s: bridge band rule %q missing", mode, port)
+			}
 		}
 	}
 }
@@ -911,7 +974,7 @@ func TestNeedsRecreateSudoPolicyToggle(t *testing.T) {
 	dm := DaemonMounts{Enabled: true, Hash: "abc"}
 	cfg := config.DefaultConfig()
 	cfg.Sandbox.MountSkills = false
-	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion()}
+	freeLabels := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion(), DaemonEnvHashLabelKey: msbEnvHash(&cfg)}
 
 	if recreate, _ := msbDaemonNeedsRecreate(dm, freeLabels, "{}", "", false, &cfg, ""); recreate {
 		t.Error("matching free-sudo label must not recreate")
@@ -953,6 +1016,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 		DaemonMountsLabelKey:      "abc",
 		DaemonImageDigestLabelKey: newDigest,
 		DaemonSDKVersionLabelKey:  msb.SDKVersion(),
+		DaemonEnvHashLabelKey:     msbEnvHash(&cfg),
 	}
 
 	if recreate, reason := msbDaemonNeedsRecreate(dm, labeled, "{}", "", false, &cfg, newDigest); recreate {
@@ -964,6 +1028,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 		DaemonMountsLabelKey:      "abc",
 		DaemonImageDigestLabelKey: "sha256:oldimage000000000000000000000000000000000000000000000000000000",
 		DaemonSDKVersionLabelKey:  msb.SDKVersion(),
+		DaemonEnvHashLabelKey:     msbEnvHash(&cfg),
 	}
 	recreate, reason := msbDaemonNeedsRecreate(dm, stale, "{}", "", false, &cfg, newDigest)
 	if !recreate {
@@ -976,7 +1041,7 @@ func TestNeedsRecreateImageDigestDrift(t *testing.T) {
 	// Legacy daemon (pre-label) recreates exactly once so the image
 	// digest label gets stamped — the same upgrade vehicle as the sudo
 	// label.
-	legacy := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion()}
+	legacy := map[string]string{DaemonSudoLabelKey: "free", DaemonMountsLabelKey: "abc", DaemonSDKVersionLabelKey: msb.SDKVersion(), DaemonEnvHashLabelKey: msbEnvHash(&cfg)}
 	if recreate, _ := msbDaemonNeedsRecreate(dm, legacy, "{}", "", false, &cfg, newDigest); !recreate {
 		t.Error("legacy daemon without an image label must recreate once")
 	}

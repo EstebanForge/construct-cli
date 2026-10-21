@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"runtime"
 	"sync"
 	"time"
 
@@ -28,11 +27,12 @@ type HerdrBridge struct {
 	wg       sync.WaitGroup
 }
 
-// herdrBridgePortBase/Span define a deterministic port band (must not overlap
-// the SSH bridge's 38500-48499). Lives inside the Linux ephemeral range.
+// herdrBridgePortBase/Span alias the deterministic herdr band owned by
+// the runtime package (named in the msb network policy alongside the SSH
+// band; the two must not overlap and must move together).
 const (
-	herdrBridgePortBase = 48600
-	herdrBridgePortSpan = 10000
+	herdrBridgePortBase = containerruntime.MsbHerdrBridgePortBase
+	herdrBridgePortSpan = containerruntime.MsbHerdrBridgePortSpan
 )
 
 // herdrBridgePortForSeed derives a stable TCP port from a seed (container name)
@@ -48,18 +48,16 @@ func herdrBridgePortForSeed(seed string) int {
 // StartHerdrBridge starts a local TCP server proxying to the host Herdr unix
 // socket. The port is derived deterministically from seed; if that port is in
 // use it falls back to an ephemeral port.
-// On macOS it binds 127.0.0.1 (Docker Desktop routes it into containers).
-// On Linux it binds 0.0.0.0 so containers reach it via host.docker.internal.
-func StartHerdrBridge(seed, socket string) (*HerdrBridge, error) {
+// bindHost decides exposure: msb's VMM proxies allowed guest→host ports to
+// host loopback, so 127.0.0.1 is reachable; docker's Linux host-gateway is
+// the bridge IP, which needs 0.0.0.0.
+func StartHerdrBridge(seed, socket, bindHost string) (*HerdrBridge, error) {
 	if socket == "" {
 		return nil, fmt.Errorf("herdr socket path not set")
 	}
 
 	bindAddr := func(port int) string {
-		if runtime.GOOS == "linux" {
-			return fmt.Sprintf("0.0.0.0:%d", port)
-		}
-		return fmt.Sprintf("127.0.0.1:%d", port)
+		return fmt.Sprintf("%s:%d", bindHost, port)
 	}
 
 	port := herdrBridgePortForSeed(seed)

@@ -57,7 +57,7 @@ func TestHerdrBridgeProxiesToUnixSocket(t *testing.T) {
 		}
 	}()
 
-	bridge, err := StartHerdrBridge("test-seed", sockPath)
+	bridge, err := StartHerdrBridge("test-seed", sockPath, "127.0.0.1")
 	if err != nil {
 		t.Fatalf("StartHerdrBridge: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestHerdrBridgeProxiesToUnixSocket(t *testing.T) {
 }
 
 func TestHerdrBridge_RejectsEmptySocket(t *testing.T) {
-	if _, err := StartHerdrBridge("seed", ""); err == nil {
+	if _, err := StartHerdrBridge("seed", "", "127.0.0.1"); err == nil {
 		t.Fatal("expected error for empty socket path")
 	} else if !strings.Contains(err.Error(), "herdr socket path not set") {
 		t.Fatalf("expected 'not set' error, got %v", err)

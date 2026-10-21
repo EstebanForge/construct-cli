@@ -281,19 +281,47 @@ func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
 	}
 }
 
+// MsbBridgePortBase/Span define the deterministic bridge port band handed
+// to the msb network policy: the VMM forwards only rule-named ports to
+// the host (live-verified 2026-10 — unlisted ports never arrive even when
+// an any-port allow rule exists), so the band must be named in full. The
+// band sits inside the Linux ephemeral range; bridge listeners fall back
+// to ephemeral ports when the derived port is taken (correctness rides on
+// the per-exec socat restart, not on the port).
+const (
+	MsbBridgePortBase = 38500
+	MsbBridgePortSpan = 10000
+)
+
+// MsbHerdrBridgePortBase/Span is the herdr bridge band; must not overlap
+// the SSH band above.
+const (
+	MsbHerdrBridgePortBase = 48600
+	MsbHerdrBridgePortSpan = 10000
+)
+
 // msbHostTransportRules emits the guest->host transport rules (§3.1).
-// bridgePorts are the known bridge listener ports; when empty (the engine
-// binds random ports per run and the sandbox outlives them) a single
-// any-port host-TCP rule is emitted instead. Safe: destination is the host
-// only, and every bridge enforces token auth.
+// bridgePorts are the known bridge listener ports; when empty the full
+// deterministic bridge band is named instead, so any bridge started later
+// inside the band stays reachable (per-port rules are create-time only).
 func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
 	if len(bridgePorts) == 0 {
-		return []msb.PolicyRule{{
-			Action:      msb.PolicyActionAllow,
-			Direction:   msb.PolicyDirectionEgress,
-			Destination: "host",
-			Protocol:    msb.PolicyProtocolTCP,
-		}}
+		// Both deterministic bridge bands (SSH + herdr), as ranges: the gap
+		// between them stays unforwarded so guest traffic cannot probe
+		// unrelated host loopback services.
+		band := func(base, span int) msb.PolicyRule {
+			return msb.PolicyRule{
+				Action:      msb.PolicyActionAllow,
+				Direction:   msb.PolicyDirectionEgress,
+				Destination: "host",
+				Protocol:    msb.PolicyProtocolTCP,
+				Port:        fmt.Sprintf("%d-%d", base, base+span-1),
+			}
+		}
+		return []msb.PolicyRule{
+			band(MsbBridgePortBase, MsbBridgePortSpan),
+			band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
+		}
 	}
 	rules := make([]msb.PolicyRule, 0, len(bridgePorts))
 	for _, port := range bridgePorts {
@@ -324,12 +352,10 @@ func msbNetworkOffline(bridgePorts []int) *msb.NetworkConfig {
 }
 
 func dnsRule() msb.PolicyRule {
-	return msb.PolicyRule{
-		Action:    msb.PolicyActionAllow,
-		Direction: msb.PolicyDirectionEgress,
-		Protocol:  msb.PolicyProtocolUDP,
-		Port:      "53",
-	}
+	// Gateway-scoped via the SDK factory (UDP+TCP 53 to the resolver): a
+	// bare UDP/53 allow with no destination is a raw UDP exfil channel to
+	// any host on the internet.
+	return msb.Rule.AllowDNS()
 }
 
 // msbHostAlias is the per-backend host alias (Spike B winner, §3.1).
@@ -364,6 +390,7 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	}
 	labels := map[string]string{
 		"construct.project_dir": cleanProjectDir(projectDir),
+		DaemonEnvHashLabelKey:   msbEnvHash(cfg),
 	}
 	// Mount-set hash, stamped in BOTH layouts so the daemon reuse check
 	// detects changes without re-deriving mounts: multi-path uses the
@@ -450,7 +477,21 @@ func msbBaseEnv(cfg *config.Config) []string {
 			envVars = append(envVars, fmt.Sprintf("CONSTRUCT_HOST_GID=%d", os.Getgid()))
 		}
 	}
+	// [network] reaches the guest only at create time; without this the
+	// entrypoint's network-filter.sh sees no NETWORK_MODE and no-ops.
+	if cfg != nil {
+		envVars = append(envVars, cfg.Network.EnvVars()...)
+	}
 	return envVars
+}
+
+// msbEnvHash hashes the full create-time env so a config toggle lands on
+// the next recreate instead of failing open on the stale env.
+func msbEnvHash(cfg *config.Config) string {
+	lines := slices.Clone(msbBaseEnv(cfg))
+	sort.Strings(lines)
+	sum := sha256.Sum256([]byte(strings.Join(lines, "\n")))
+	return hex.EncodeToString(sum[:8])
 }
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
@@ -625,11 +666,16 @@ func msbRecreateGate(reason, learnedRoot string, live int) (deferred bool, busyE
 // toggle, RO/RW flip, source appearance, or supported-agent-list growth
 // must recreate the running daemon so the new mounts take effect.
 func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, configJSON, projectDir string, allowHome bool, cfg *config.Config, imageDigest string) (bool, string) {
+	// Reasons accumulate: evaluation must not stop at the first drifted
+	// label, or a fork decision taken on the first reason alone masks
+	// image/sudo drift behind a forkable one.
+	var reasons []string
+
 	// Skills hash parity. Checked FIRST because it is the cheapest decision
 	// (no mount parsing) and the most likely drift source in routine use.
 	if currentSkills := SkillsDaemonHash(cfg); currentSkills != "" || sandboxLabels[DaemonSkillsLabelKey] != "" {
 		if sandboxLabels[DaemonSkillsLabelKey] != currentSkills {
-			return true, "host skills mounts changed (source, mode, or targets)"
+			reasons = append(reasons, "host skills mounts changed (source, mode, or targets)")
 		}
 	}
 	// Sudo policy parity: the entrypoint applies the sudoers drop-in at
@@ -637,13 +683,20 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// predate the label; their empty label compares unequal to the current
 	// policy only when the user actually opted out, which recreates once.
 	if sandboxLabels[DaemonSudoLabelKey] != sudoPolicy(cfg) {
-		return true, "sudo policy changed (sandbox.passwordless_sudo)"
+		reasons = append(reasons, "sudo policy changed (sandbox.passwordless_sudo)")
 	}
 	// Embedded-runtime parity: construct upgrades that bump the SDK
 	// recreate once, like the sudo and image labels. Daemons predating the
 	// label carry an empty value and recreate exactly once.
 	if sandboxLabels[DaemonSDKVersionLabelKey] != msb.SDKVersion() {
-		return true, "embedded msb runtime changed (construct upgrade)"
+		reasons = append(reasons, "embedded msb runtime changed (construct upgrade)")
+	}
+	// Create-time env parity ([network], loopback ports, sudo opt-out,
+	// UID/GID alignment): env is create-time only, so a toggle on a running
+	// daemon fails open without this check. Daemons predating the label
+	// recreate exactly once.
+	if cfg != nil && sandboxLabels[DaemonEnvHashLabelKey] != msbEnvHash(cfg) {
+		reasons = append(reasons, "[network] mode or sandbox env changed")
 	}
 	// Image drift: the daemon may outlive image republishes. The label
 	// records the digest the sandbox was created from; a mismatch with the
@@ -653,13 +706,13 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// failed) never forces a recreate, and daemons predating the label
 	// recreate exactly once — the same upgrade vehicle as the sudo label.
 	if imageDigest != "" && sandboxLabels[DaemonImageDigestLabelKey] != imageDigest {
-		return true, "construct-box image changed"
+		reasons = append(reasons, "construct-box image changed")
 	}
 	if dm.Enabled {
 		if sandboxLabels[DaemonMountsLabelKey] != dm.Hash {
-			return true, "daemon.mount_paths changed"
+			reasons = append(reasons, "daemon.mount_paths changed")
 		}
-		return false, ""
+		return len(reasons) > 0, strings.Join(reasons, "; ")
 	}
 	// Single-path: the mount set is the effective workspace roots (boot
 	// project + learned roots). The stamped hash decides — a learned root
@@ -699,15 +752,15 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 
 	switch {
 	case !hasProjectLabel && len(roots) == 0:
-		return true, "daemon has no workspace label"
+		reasons = append(reasons, "daemon has no workspace label")
 	case sandboxLabels[DaemonMountsLabelKey] != hashDaemonMountPaths(roots):
-		return true, "workspace roots changed (learned root added, removed, or evicted)"
+		reasons = append(reasons, "workspace roots changed (learned root added, removed, or evicted)")
 	case currentProjectDir != "" && mounts[GetMsbWorkspaceMountDest(currentProjectDir)] != currentProjectDir:
-		return true, "workspace label does not match mounted state"
+		reasons = append(reasons, "workspace label does not match mounted state")
 	case !allowHome && currentProjectDir != "" && EvaluateWorkspace(currentProjectDir, 0).Risk == WorkspaceRiskHome:
-		return true, "mounted workspace is no longer allowed"
+		reasons = append(reasons, "mounted workspace is no longer allowed")
 	}
-	return false, ""
+	return len(reasons) > 0, strings.Join(reasons, "; ")
 }
 
 // EnsureMsbDaemon guarantees the persistent daemon sandbox exists and is
@@ -1197,14 +1250,25 @@ func recycleDaemonForCapture(ctx context.Context, h *msb.SandboxHandle) error {
 // only, image drift means stale baked content, and the remaining reasons
 // repair config/label state the fork cannot set.
 func msbRecreateForkable(reason string) bool {
-	switch reason {
-	case "host skills mounts changed (source, mode, or targets)",
-		"daemon.mount_paths changed",
-		"workspace roots changed (learned root added, removed, or evicted)",
-		"embedded msb runtime changed (construct upgrade)":
-		return true
+	forkable := map[string]bool{
+		"host skills mounts changed (source, mode, or targets)":             true,
+		"daemon.mount_paths changed":                                        true,
+		"workspace roots changed (learned root added, removed, or evicted)": true,
+		"embedded msb runtime changed (construct upgrade)":                  true,
 	}
-	return false
+	// A joined reason forks only when EVERY part is forkable: a fork
+	// restores the outgoing root disk, so one non-forkable drift (image,
+	// sudo, env) would ride along and ship stale state.
+	parts := strings.Split(reason, "; ")
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts {
+		if !forkable[part] {
+			return false
+		}
+	}
+	return true
 }
 
 // msbDaemonInstallComplete reports whether the daemon's bind-side
