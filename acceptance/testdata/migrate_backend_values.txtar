@@ -1,0 +1,16 @@
+# Legacy backend values migrate in place when the config loads on any
+# command; the trailing comment survives the rewrite.
+
+mkdir .config/construct-cli
+cp config-in .config/construct-cli/config.toml
+
+# doctor loads the config: the migration writes the file before checks run
+exec construct sys doctor --json
+
+# the legacy spelling is gone and the migrated value kept its comment
+grep 'backend = "msb" # pin' .config/construct-cli/config.toml
+! grep 'backend = "microvm"' .config/construct-cli/config.toml
+
+-- config-in --
+[runtime]
+backend = "microvm" # pin
