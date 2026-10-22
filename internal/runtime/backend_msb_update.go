@@ -211,6 +211,18 @@ func IdleWindowUpdate(cfg *config.Config) error {
 	if standDown {
 		return ErrUpdateStoodDown
 	}
+
+	// Store GC rides the idle window: I/O heavy and never on the run path.
+	// Runs even after a failed update pass — image and snapshot hygiene is
+	// independent of package updates. Runs after a "failed" pass too.
+	gcCtx, gcCancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer gcCancel()
+	if rep, gerr := RunMsbStoreGC(gcCtx); gerr != nil {
+		logLine("gc failed: %v (skipped for this window)", gerr)
+	} else if !rep.Empty() {
+		logLine("gc reclaimed %s", rep)
+	}
+
 	return res.err
 }
 
