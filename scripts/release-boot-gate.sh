@@ -13,7 +13,14 @@ TAG=${1:-}
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 command -v gh >/dev/null 2>&1 || fail "gh CLI not found"
-command -v sha256sum >/dev/null 2>&1 || fail "sha256sum not found"
+# macOS ships shasum, not sha256sum; both consume the same checksums.txt format.
+if command -v sha256sum >/dev/null 2>&1; then
+	SUM=(sha256sum -c -)
+elif command -v shasum >/dev/null 2>&1; then
+	SUM=(shasum -a 256 -c -)
+else
+	fail "neither sha256sum nor shasum found"
+fi
 
 if [ -z "$TAG" ]; then
 	TAG=$(gh release view --json tagName -q .tagName) || fail "could not resolve latest release tag"
@@ -39,7 +46,7 @@ gh release download "$TAG" -p "$ARCH_ASSET" -p checksums.txt -D "$WORK" \
 	|| fail "release download failed (asset $ARCH_ASSET on tag $TAG)"
 
 # Checksum verification against the release's checksums.txt.
-( cd "$WORK" && grep -F "$ARCH_ASSET" checksums.txt | sha256sum -c - ) \
+( cd "$WORK" && grep -F "$ARCH_ASSET" checksums.txt | "${SUM[@]}" ) \
 	|| fail "checksum mismatch for $ARCH_ASSET"
 
 tar -xzf "$WORK/$ARCH_ASSET" -C "$WORK"

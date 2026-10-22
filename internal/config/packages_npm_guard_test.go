@@ -32,3 +32,21 @@ func TestGenerateInstallScriptSkipsInstalledNpm(t *testing.T) {
 		t.Error("guard checks the tagged package name; the tag must be stripped")
 	}
 }
+
+// TestGenerateInstallScriptComparesPinnedVersions: an explicit version pin
+// that differs from the installed one must reinstall — a bare dir check
+// would pin users to whatever version first landed.
+func TestGenerateInstallScriptComparesPinnedVersions(t *testing.T) {
+	cfg := &PackagesConfig{Npm: NpmConfig{Packages: []string{"@openai/codex@2.0.0"}}}
+	script := cfg.GenerateInstallScript()
+
+	if !strings.Contains(script, `= "2.0.0"`) {
+		t.Errorf("missing version comparison for the pinned install: %s", script)
+	}
+	if !strings.Contains(script, `package.json').version`) {
+		t.Errorf("missing installed-version probe: %s", script)
+	}
+	if !strings.Contains(script, "npm install -g @openai/codex@2.0.0") {
+		t.Errorf("missing install command for the pinned package")
+	}
+}
