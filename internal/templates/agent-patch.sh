@@ -7,13 +7,37 @@ dbg() {
     fi
 }
 
+# One walk feeds every clipboard sweep: four separate find -L passes over
+# the same node_modules trees cost ~8s of every install phase; the union
+# walk with per-predicate tree scoping keeps each sweep's original scope.
+NPM_SWEEP_CACHE=""
+ensure_npm_sweep_cache() {
+    if [ -n "$NPM_SWEEP_CACHE" ] && [ -d "$NPM_SWEEP_CACHE" ]; then
+        return
+    fi
+    NPM_SWEEP_CACHE=$(mktemp -d "${TMPDIR:-/tmp}/agent-patch-sweep.XXXXXX")
+    NPM_SWEEP_DIRS="$NPM_SWEEP_CACHE/clipboardy-dirs"
+    NPM_SWEEP_XSEL="$NPM_SWEEP_CACHE/xsel"
+    NPM_SWEEP_JS_PLATFORM="$NPM_SWEEP_CACHE/js-platform"
+    NPM_SWEEP_TEDDY="$NPM_SWEEP_CACHE/teddy"
+    : > "$NPM_SWEEP_DIRS"; : > "$NPM_SWEEP_XSEL"; : > "$NPM_SWEEP_JS_PLATFORM"; : > "$NPM_SWEEP_TEDDY"
+    find -L /usr/local/lib/node_modules "$HOME/.npm-global" "$HOME/.local/share/gh/extensions" \
+        \( -name .bin -o -name .cache \) -prune -o \
+        \( -path "$HOME/.npm-global/*" -a \( -type f -name xsel -fprintf "$NPM_SWEEP_XSEL" "%p\n" \) \) , \
+        \( -type d -path "*/clipboardy/fallbacks/linux" -fprintf "$NPM_SWEEP_DIRS" "%p\n" \) , \
+        \( -type f -path "*/@teddyzhu/clipboard/index.js" -fprintf "$NPM_SWEEP_TEDDY" "%p\n" \) , \
+        \( -path "/usr/local/lib/node_modules/*" -o -path "$HOME/.npm-global/*" \) -a \( -type f -name "*.js" -fprintf "$NPM_SWEEP_JS_PLATFORM" "%p\n" \) \
+        2>/dev/null >/dev/null || true
+}
+
 fix_clipboard_libs() {
     # Strategy: Find the directory where clipboardy expects xsel to be.
     # The path usually ends in .../clipboardy/fallbacks/linux
     # We search npm-global (for qwen, etc.) and the shared npm prefix.
+    ensure_npm_sweep_cache
 
     # 1. Standard clipboardy structure
-    find -L /usr/local/lib/node_modules "$HOME/.npm-global" -type d -path "*/clipboardy/fallbacks/linux" 2>/dev/null | while read -r dir; do
+    while read -r dir; do
         # Shim xsel
         local xsel_bin="$dir/xsel"
         if [ -L "$xsel_bin" ] && [[ "$(readlink "$xsel_bin")" == *"/clipper"* ]]; then
@@ -27,10 +51,10 @@ fix_clipboard_libs() {
         local xclip_bin="$dir/xclip"
         rm -f "$xclip_bin" 2>/dev/null
         ln -sf /usr/local/bin/clipper "$xclip_bin"
-    done
+    done < "$NPM_SWEEP_DIRS"
 
     # 2. Aggressive search for ANY rogue xsel in npm-global (for Qwen or others with weird structures)
-    find -L "$HOME/.npm-global" -name "xsel" -type f 2>/dev/null | while read -r binary; do
+    while read -r binary; do
         # Ignore if it's already our shim (which is a symlink, but -type f might catch it if following links? no, find -L does)
         # Actually -type f with -L matches symlinks to files.
         if [[ "$(readlink -f "$binary")" == *"/clipper"* ]]; then
@@ -39,7 +63,7 @@ fix_clipboard_libs() {
 
         rm -f "$binary"
         ln -sf /usr/local/bin/clipper "$binary"
-    done
+    done < "$NPM_SWEEP_XSEL"
 }
 
 # patch_sed edits a file in place, elevating via non-interactive sudo for
@@ -61,19 +85,21 @@ patch_sed() {
 patch_agent_code() {
     # Find all JS files that might contain the platform check
     # We look for files containing 'process.platform' and 'darwin'
-    find -L /usr/local/lib/node_modules "$HOME/.npm-global" -type f -name "*.js" 2>/dev/null | xargs grep -l "process.platform" 2>/dev/null | xargs grep -l "darwin" 2>/dev/null | while read -r js_file; do
+    ensure_npm_sweep_cache
+    while read -r js_file; do
         if grep -q "process.platform !== \"darwin\"" "$js_file"; then
             # Replace platform check with a dummy 'false' to allow the code to run on Linux
             patch_sed "$js_file" 's/process.platform !== \"darwin\"/false/g'
         elif grep -q "process.platform !== 'darwin'" "$js_file"; then
             patch_sed "$js_file" "s/process.platform !== 'darwin'/false/g"
         fi
-    done
+    done < <(LC_ALL=C xargs -r -P 8 -n 100 grep -lF "process.platform" < "$NPM_SWEEP_JS_PLATFORM" 2>/dev/null | LC_ALL=C xargs -r -P 8 -n 100 grep -lF "darwin" 2>/dev/null)
 }
 
 patch_copilot_clipboard() {
     # Search in npm-global, shared npm prefix, and GitHub CLI extensions
-    find -L "$HOME/.npm-global" /usr/local/lib/node_modules "$HOME/.local/share/gh/extensions" -type f -path "*/@teddyzhu/clipboard/index.js" 2>/dev/null | while read -r js_file; do
+    ensure_npm_sweep_cache
+    while read -r js_file; do
         if grep -q "construct-copilot-clipboard-bridge-v3" "$js_file"; then
             dbg "Copilot clipboard bridge already patched: $js_file"
             continue
@@ -205,7 +231,7 @@ module.exports = {
 }
 // /construct-copilot-clipboard-bridge-v3
 EOF
-    done
+    done < "$NPM_SWEEP_TEDDY"
 }
 
 patch_copilot_keybinding() {

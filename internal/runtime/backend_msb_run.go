@@ -876,6 +876,12 @@ func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir s
 	if err := writeMsbInstallScript(); err != nil {
 		ui.InfoF("⚠️  Could not regenerate install script: %v (using the previous one)\n", err)
 	}
+	// Same best-effort contract for the mounted helper templates: without
+	// this a template fix reaches msb homes only via the idle-window update
+	// or doctor, so the daemon boots a stale agent-patch/entrypoint.
+	if err := EnsureMountedTemplateFiles(config.GetConfigDir()); err != nil {
+		ui.InfoF("⚠️  Could not refresh mounted helper templates: %v\n", err)
+	}
 
 	// Multi-path mode (Docker parity): the mount set is static config. A cwd
 	// outside every configured root is a hard error, never a recreate — the

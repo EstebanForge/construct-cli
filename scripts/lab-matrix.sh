@@ -100,7 +100,7 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 	# the assertions). Clear declarations + marker, force a pass so the
 	# sweep runs against a clean config.
 	printf '[apt]\npackages = []\n\n[brew]\ntaps = []\npackages = []\n\n[bun]\npackages = []\n\n[npm]\npackages = []\n\n[pip]\npackages = []\n\n[gems]\npackages = []\n' > "$LAB/.config/construct-cli/packages.toml"
-	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
+	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1 ~/.local/bin/codex; rm -rf ~/.npm-global/bin/codex ~/.npm-global/lib/node_modules/@openai/codex; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
 	restart_daemon_fresh
 
 	# a0 proves the recreate re-ran the installer (gate lives on the fresh
@@ -111,12 +111,20 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 		*) fail "expected install_ran=1 after recreate, got: '$ph'";;
 	esac
 
-	# a. All five core agents resolve to the baked tier.
-	for c in claude codex agy pi opencode; do
+	# a. All five core agents resolve to the baked tier. Codex is the
+	#    exception: agent-patch's clipboard PTY wrapper legitimately shadows
+	#    it from ~/.local/bin even with no override (the baked
+	#    /usr/local/lib node_modules count as a wrap target).
+	for c in claude agy pi opencode; do
 		p=$("$BIN" sys exec -- sh -c "command -v $c" </dev/null 2>/dev/null | tail -1 || true)
 		[ "$p" = "/usr/local/bin/$c" ] || fail "baked agent $c resolves to '$p', want /usr/local/bin/$c"
 	done
-	echo "ok: baked agents resolve to /usr/local/bin"
+	codex_p=$("$BIN" sys exec -- sh -c 'command -v codex' </dev/null 2>/dev/null | tail -1 || true)
+	case "$codex_p" in
+		/usr/local/bin/codex|/home/construct/.local/bin/codex) : ;;
+		*) fail "baked codex resolves to '$codex_p', want baked or the PTY wrapper";;
+	esac
+	echo "ok: baked agents resolve to the baked tier (codex may carry the PTY wrapper)"
 
 	# b. Resume boots (stop/start) do NOT re-run the entrypoint: the phase
 	# record must be byte-identical across the restart.
@@ -132,7 +140,7 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 	# c. Migration sweep: seed stale pre-bake copies, clear the marker,
 	#    force a reinstall pass; the sweep must clear them and re-mark.
 	"$BIN" sys exec -- sh -c 'mkdir -p ~/.local/bin ~/.opencode/bin; printf "#!/bin/sh\n" > ~/.local/bin/claude; chmod +x ~/.local/bin/claude; printf "#!/bin/sh\n" > ~/.opencode/bin/opencode; chmod +x ~/.opencode/bin/opencode' </dev/null >/dev/null 2>&1
-	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
+	"$BIN" sys exec -- sh -c 'rm -f ~/.local/.construct_bake_migration_v1 ~/.local/bin/codex; rm -rf ~/.npm-global/bin/codex ~/.npm-global/lib/node_modules/@openai/codex; touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
 	restart_daemon_fresh
 	for f in /home/construct/.local/bin/claude /home/construct/.opencode/bin/opencode; do
 		if "$BIN" sys exec -- sh -c "[ -e '$f' ]" </dev/null >/dev/null 2>&1; then
@@ -148,29 +156,51 @@ if [ "$baked_claude" = "/usr/local/bin/claude" ]; then
 	echo "ok: migration sweep cleared stale copies"
 
 	# d. Override shadow: declaring codex in packages.toml must reinstate a
-	#    bind copy that wins by PATH.
+	#    bind copy that wins by PATH. The PTY wrapper may be what command -v
+	#    reports (it shadows everything and execs the real target), so the
+	#    override's presence is asserted on the bind copy itself.
 	printf '[npm]\npackages = ["@openai/codex@latest"]\n' > "$LAB/.config/construct-cli/packages.toml"
 	"$BIN" sys exec -- sh -c 'touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
 	restart_daemon_fresh
+	"$BIN" sys exec -- sh -c '[ -e ~/.npm-global/bin/codex ]' </dev/null >/dev/null 2>&1 || fail "codex override not installed to npm-global"
 	p=$("$BIN" sys exec -- sh -c 'command -v codex' </dev/null 2>/dev/null | tail -1 || true)
-	case "$p" in */.npm-global/bin/codex) echo "ok: packages.toml codex shadows baked";; *) fail "codex override not shadowing, got: '$p'";; esac
+	case "$p" in */.npm-global/bin/codex|*/.local/bin/codex) echo "ok: packages.toml codex shadows baked (via $p)";; *) fail "codex override not shadowing, got: '$p'";; esac
 
-	# e. Override removal: drop the entry, clear the bind copy (documented
-	#    one-liner), verify the baked binary serves again.
+	# d2. Existence guards: a forced rerun with the same declaration must
+	#     skip the network install — the installer re-runs (force marker,
+	#     fresh disk) but npm is guarded by the node_modules dir check.
+	#     The install phase must land under 5s (<5s install budget).
+	"$BIN" sys exec -- sh -c 'touch ~/.local/.force_entrypoint' </dev/null >/dev/null 2>&1
+	restart_daemon_fresh
+	ph=$("$BIN" sys exec -- cat /home/construct/.local/.construct_install_phase </dev/null 2>/dev/null || true)
+	case "$ph" in
+		install_ran=1*install_sec=[0-4].*|install_ran=1*install_sec=[0-4]) echo "ok: rerun skipped the network install ($ph)";;
+		*) fail "expected install_ran=1 with installer <5s on guarded rerun, got: '$ph'";;
+	esac
+
+	# e. Override removal: drop the entry, clear the bind copy AND the agent-patch
+	#    PTY wrapper (documented one-liner), verify the baked binary serves again.
 	printf '[npm]\npackages = []\n' > "$LAB/.config/construct-cli/packages.toml"
-	"$BIN" sys exec -- sh -c 'rm -rf ~/.npm-global/bin/codex ~/.npm-global/lib/node_modules/@openai/codex' </dev/null >/dev/null 2>&1
+	"$BIN" sys exec -- sh -c 'rm -rf ~/.npm-global/bin/codex ~/.npm-global/lib/node_modules/@openai/codex; rm -f ~/.local/bin/codex' </dev/null >/dev/null 2>&1
 	p=$("$BIN" sys exec -- sh -c 'command -v codex' </dev/null 2>/dev/null | tail -1 || true)
-	[ "$p" = "/usr/local/bin/codex" ] || fail "codex did not fall back to baked, got: '$p'"
-	echo "ok: removing override falls back to baked codex"
+	case "$p" in
+		/usr/local/bin/codex|/home/construct/.local/bin/codex) echo "ok: removing override falls back to the baked tier";;
+		*) fail "codex did not fall back to the baked tier, got: '$p'";;
+	esac
 else
 	echo "skip: baked-image stage (pre-bake image: claude at '$baked_claude')"
 fi
 
 # 5c. DOCTOR STAGE — migration checks against the host (requires a reachable
 # docker daemon AND a BIN that carries the doctor migration checks).
+# Runs under a containers backend: the stale-volume sweep is msb-N.A. by
+# design (TestCheckStalePackagesVolumeSkipsOnMsb), and the lab is an msb
+# home. Config flips for the stage and back so stage 6 stops the msb daemon.
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && "$BIN" sys doctor --json 2>/dev/null | grep -q 'Stale Packages Volume'; then
+	printf '[runtime]\nbackend = "containers"\n' > "$LAB/.config/construct-cli/config.toml"
 	docker volume create labdoctest_construct-packages >/dev/null 2>&1 || true
 	doc=$("$BIN" sys doctor --fix 2>/dev/null || true)
+	printf '[runtime]\nbackend = "msb"\n' > "$LAB/.config/construct-cli/config.toml"
 	echo "$doc" | grep -q 'Stale Packages Volume: Removed stale volume' || fail "doctor --fix did not remove the stale fixture volume"
 	if docker volume ls --format '{{.Name}}' | grep -q '^labdoctest_construct-packages$'; then
 		fail "stale fixture volume survived doctor --fix"

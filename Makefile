@@ -2,7 +2,7 @@
 	test-unit-ci test-integration test-coverage bench clean clean-docker clean-all \
 	install install-local install-dev uninstall uninstall-local release cross-compile \
 	check ci lint lint-ci lint-fix fmt vet dev dev-check run run-dev version \
-	deps check-version release-preflight test-acceptance test-live test-mutation
+	deps check-version release-preflight test-acceptance test-live test-containers test-release-gate test-mutation
 
 # Variables
 BINARY_NAME := construct
@@ -153,6 +153,24 @@ test-live: ## Run live msb VM gates (real sandbox boots; KVM + msb required)
 	msb image pull ghcr.io/estebanforge/construct-box:latest >/dev/null || { echo "image pre-pull failed" >&2; exit 1; }; \
 	CONSTRUCT_MSB_LIVE=1 $(GOTEST) -tags msbembed -v -run 'TestMsbLive' -timeout 60m ./internal/runtime/
 	@echo "✓ Live msb gates passed"
+
+test-containers: ## Run live OCI container gates (docker/podman + construct-box image required)
+	@echo "Running live container gates..."
+	@if ! command -v podman >/dev/null 2>&1 && ! command -v docker >/dev/null 2>&1; then \
+		echo "no podman or docker found" >&2; exit 1; fi; \
+	rt=$$(command -v podman >/dev/null 2>&1 && echo podman || echo docker); \
+	if ! $$rt image inspect construct-box:latest >/dev/null 2>&1; then \
+		echo "Pulling construct-box image (one-time)..."; \
+		$$rt pull ghcr.io/estebanforge/construct-box:latest || { echo "image pull failed" >&2; exit 1; }; \
+		$$rt tag ghcr.io/estebanforge/construct-box:latest construct-box:latest || exit 1; \
+	fi; \
+	CONSTRUCT_CONTAINER_LIVE=1 $(GOTEST) -v -run 'TestContainerLive' -timeout 20m ./internal/runtime/
+	@echo "✓ Live container gates passed"
+
+test-release-gate: ## Boot-gate the latest published release artifact (gh + network required)
+	@echo "Running release boot gate..."
+	@scripts/release-boot-gate.sh
+	@echo "✓ Release boot gate passed"
 
 test-mutation: ## Run gremlins mutation testing when installed (skipped otherwise)
 	@if command -v gremlins >/dev/null 2>&1; then \
