@@ -26,6 +26,7 @@ import (
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -628,7 +629,9 @@ func refreshDerivedGuestFiles(configPath string) error {
 		warnConfigPermission(err, configPath)
 	}
 	scriptPath := filepath.Join(containerDir, "install_user_packages.sh")
-	if err := os.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0755); err != nil {
+	// Atomic (temp+rename): the guest sources this script; a torn write is
+	// a broken init, not a recoverable warning.
+	if err := safefs.WriteFile(scriptPath, []byte(pkgs.GenerateInstallScript()), 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to write user installation script: %v\n", err)
 		warnConfigPermission(err, configPath)
 	}

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 )
 
 // Session is one live run of construct that has the daemon in use. The
@@ -53,7 +54,10 @@ func Register(pid int, sandbox string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(sessionFileName(pid), data, 0o600)
+	// Atomic (temp+rename): a reader mid-write must see the old complete
+	// file or the new one, never a truncated JSON that reads as zero
+	// sessions while the daemon is busy.
+	return safefs.WriteFile(sessionFileName(pid), data, 0o600)
 }
 
 // Unregister removes the session file for pid. Missing file is not an
