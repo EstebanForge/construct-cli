@@ -56,9 +56,9 @@ A Go HTTP server that starts on a random port when an agent session begins. It r
 StartServer(host string) (*Server, error)
 ```
 
-- Binds to `0.0.0.0:0` (OS-assigned random port).
+- Docker path: `StartServer` binds `0.0.0.0:0` (OS-assigned random port) and defaults the host to `host.docker.internal`.
+- msb path: `StartServerOn` serves on a listener from `runtime.ListenInBridgeBand` (loopback bind, deterministic port inside the bridge band the egress rules allowlist) and uses `host.microsandbox.internal`; `[sandbox].clipboard_host` is ignored under msb.
 - Generates a 32-byte cryptographically random token (hex-encoded, 64 chars).
-- Default host: `host.docker.internal` (Docker's magic hostname for reaching the host).
 - Logs to `~/.config/construct-cli/logs/clipboard_server.log` (always-on).
 
 ### HTTP Endpoint: `GET /paste`
@@ -404,6 +404,7 @@ Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash
 **Server starts but no requests arrive:**
 - The wrapper or shim is not running (check wrapper log and shim symlinks).
 - `host.docker.internal` is not reachable (try `curl http://host.docker.internal:PORT/paste` inside the container).
+- Under msb the alias is `host.microsandbox.internal` instead (try `curl http://host.microsandbox.internal:PORT/paste`); `host.docker.internal` does not resolve there.
 
 **Server shows `serving image: 0 bytes` or `GetText error`:**
 - Host clipboard is empty or does not contain a PNG image.
@@ -447,8 +448,8 @@ Early wrapper versions logged to `/tmp/construct-copilot-wrapper.log`. Because c
 **The `CONSTRUCT_FILE_PASTE_AGENTS` constant vs clipper default:**
 `constants.go` defines `FileBasedPasteAgents = "qwen,codex"`. The clipper shim uses this from the `CONSTRUCT_FILE_PASTE_AGENTS` env var. Claude and Copilot are absent — they use raw-bytes mode through the shim (Claude/Pi) or bypass the shim entirely (Copilot via PTY wrapper). Codex now uses the PTY wrapper as primary path and this list is legacy-safe for clipper compatibility.
 
-**Clipboard server port is random per session:**
-A new port is assigned each time `construct <agent>` starts. The wrapper's `CONSTRUCT_CLIPBOARD_URL` env var is only valid for that session. If you restart the agent without a fresh `ct <agent>` invocation, the URL may be stale.
+**Clipboard server port is random per session (Docker only):**
+A new port is assigned each time `construct <agent>` starts on the Docker backend, so the wrapper's `CONSTRUCT_CLIPBOARD_URL` env var is only valid for that session; a restarted agent without a fresh `ct <agent>` invocation may hold a stale URL. Under msb the port is deterministic (seed-derived inside the bridge band the sandbox egress rules allowlist), so only the per-session token rotates.
 
 ---
 

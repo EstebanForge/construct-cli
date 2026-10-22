@@ -79,16 +79,32 @@ type frame struct {
 	Code *int   `json:"code,omitempty"` // exit only
 }
 
-// StartServer resolves each binary on the host, binds a random port, and starts
-// serving in a background goroutine. host is the hostname the container will
-// use to reach us (typically host.docker.internal). binaries may be empty
-// (in which case the allowlist accepts nothing and the bridge is useless; the
-// caller normally guards StartServer on len(binaries) > 0).
-//
-// bindAddr follows the SSH bridge split: macOS binds loopback (Docker Desktop
-// routes host.docker.internal there), Linux binds 0.0.0.0 so the container can
-// reach us. The per-session token (D4) is what makes the 0.0.0.0 bind safe.
+// StartServer is the Docker-path constructor: per-GOOS bind (macOS loopback
+// — Docker Desktop routes host.docker.internal there — Linux 0.0.0.0, the
+// host-gateway is the bridge IP) and an OS-random port; the per-session
+// token (D4) is what makes the wide bind safe. Under msb use StartServerOn
+// with a ListenInBridgeBand loopback listener instead: msb egress rules are
+// create-time-only and reach only the bridge band.
 func StartServer(host string, binaries []string, timeout time.Duration, pathMaps []PathMap) (*Server, error) {
+	bindAddr := "127.0.0.1:0"
+	if runtime.GOOS == "linux" {
+		bindAddr = "0.0.0.0:0"
+	}
+	listener, err := net.Listen("tcp", bindAddr)
+	if err != nil {
+		return nil, fmt.Errorf("hostexec: listen: %w", err)
+	}
+	return StartServerOn(listener, host, binaries, timeout, pathMaps)
+}
+
+// StartServerOn serves /exec on an existing listener; urlHost is the
+// hostname guests use to reach us. binaries may be empty (in which case the
+// allowlist accepts nothing and the bridge is useless; the caller normally
+// guards on len(binaries) > 0).
+func StartServerOn(listener net.Listener, urlHost string, binaries []string, timeout time.Duration, pathMaps []PathMap) (*Server, error) {
+	if listener == nil {
+		return nil, fmt.Errorf("hostexec: nil listener")
+	}
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -116,24 +132,16 @@ func StartServer(host string, binaries []string, timeout time.Duration, pathMaps
 		return nil, fmt.Errorf("hostexec: generate token: %w", err)
 	}
 
-	bindAddr := "127.0.0.1:0"
-	if runtime.GOOS == "linux" {
-		bindAddr = "0.0.0.0:0"
-	}
-	listener, err := net.Listen("tcp", bindAddr)
-	if err != nil {
-		return nil, fmt.Errorf("hostexec: listen: %w", err)
-	}
 	port := listener.Addr().(*net.TCPAddr).Port
 
-	if host == "" {
-		host = "host.docker.internal"
+	if urlHost == "" {
+		urlHost = "host.docker.internal"
 	}
 
 	s := &Server{
 		Port:     port,
 		Token:    token,
-		URL:      fmt.Sprintf("http://%s:%d", host, port),
+		URL:      fmt.Sprintf("http://%s:%d", urlHost, port),
 		timeout:  timeout,
 		resolved: resolved,
 		pathMaps: cleanPathMaps(pathMaps),

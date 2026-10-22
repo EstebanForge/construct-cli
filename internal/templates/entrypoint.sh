@@ -612,34 +612,12 @@ EOF
 }
 setup_shell_environment
 
-# Start a headless X11 clipboard bridge for agents using native X11 clipboard access.
+# Headless X11 clipboard bridge for agents using native X11 clipboard access.
+# clipboard-x11-sync.sh bootstraps its own Xvfb. msb sessions also (re)start
+# the sync per exec with the fresh session URL/token; msb daemon boots carry
+# no clipboard env, so the guard below only fires on the Docker path.
 if [ -n "$CONSTRUCT_CLIPBOARD_URL" ]; then
-    if [ -z "$DISPLAY" ]; then
-        if command -v Xvfb >/dev/null; then
-            export DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
-            if ! pgrep -x Xvfb >/dev/null 2>&1; then
-                Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
-                # Wait for Xvfb to be ready
-                for _ in $(seq 1 20); do
-                    if [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ]; then
-                        break
-                    fi
-                    sleep 0.1
-                done
-                if [ "$CONSTRUCT_DEBUG" = "1" ]; then
-                    echo "✓ Started Xvfb for headless clipboard"
-                fi
-            fi
-        else
-            if [ "$CONSTRUCT_DEBUG" = "1" ]; then
-                echo "⚠️  Xvfb not found; headless clipboard bridge disabled"
-            fi
-        fi
-    fi
-
-    if [ -n "$DISPLAY" ]; then
-        /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
-    fi
+    /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
 fi
 
 # Configure network filtering (if in strict mode)

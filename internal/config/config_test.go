@@ -201,7 +201,7 @@ func TestConfigStructure(t *testing.T) {
 			EnvPassthrough:         []string{"CONTEXT7_API_KEY"},
 			EnvPassthroughPrefixes: []string{"CNSTR_"},
 			Shell:                  "/bin/bash",
-			ClipboardHost:          "host.docker.internal",
+			ClipboardHost:          "",
 		},
 		Network: NetworkConfig{
 			Mode:           "permissive",
@@ -226,8 +226,8 @@ func TestConfigStructure(t *testing.T) {
 	if config.Network.Mode != "permissive" {
 		t.Error("Network config initialization failed")
 	}
-	if config.Sandbox.ClipboardHost != "host.docker.internal" {
-		t.Error("Clipboard config initialization failed")
+	if config.Sandbox.ClipboardHost != "" {
+		t.Error("Clipboard config initialization failed: default must be empty (docker fallback resolves at run time; msb ignores the value)")
 	}
 	if config.Sandbox.NonRootStrict {
 		t.Error("Expected non_root_strict to be false")

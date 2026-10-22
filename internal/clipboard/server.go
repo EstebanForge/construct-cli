@@ -25,29 +25,39 @@ const (
 	serverIdleTimeout  = 30 * time.Second
 )
 
-// StartServer starts the clipboard server on a random port.
+// StartServer is the Docker-path constructor: all-interfaces bind (the
+// Linux host-gateway is the bridge IP) and an OS-random port. Under msb use
+// StartServerOn with a ListenInBridgeBand listener instead: msb egress
+// rules are create-time-only and reach only the bridge band.
 func StartServer(host string) (*Server, error) {
-	// Generate random token
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start listener: %w", err)
+	}
+	return StartServerOn(listener, host)
+}
 
+// StartServerOn serves /paste on an existing listener; urlHost is the
+// hostname guests use to reach it. Every request needs the fresh token.
+func StartServerOn(listener net.Listener, urlHost string) (*Server, error) {
+	if listener == nil {
+		return nil, fmt.Errorf("clipboard: nil listener")
+	}
+
+	// Generate random token
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate token: %w", err)
 	}
 	token := hex.EncodeToString(tokenBytes)
 
-	// Listen on random port (all interfaces to allow container access)
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
-	if err != nil {
-		return nil, fmt.Errorf("failed to start listener: %w", err)
-	}
-
 	port := listener.Addr().(*net.TCPAddr).Port
 
 	// Determine URL host (default to host.docker.internal).
-	if host == "" {
-		host = "host.docker.internal"
+	if urlHost == "" {
+		urlHost = "host.docker.internal"
 	}
-	url := fmt.Sprintf("http://%s:%d", host, port)
+	url := fmt.Sprintf("http://%s:%d", urlHost, port)
 
 	server := &Server{
 		Port:     port,

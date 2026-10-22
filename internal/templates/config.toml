@@ -170,8 +170,10 @@ selinux_labels = "auto"
 # Default shell inside the container
 shell = "/bin/bash"
 
-# Hostname for the host clipboard bridge
-clipboard_host = "host.docker.internal"
+# Hostname for the host clipboard bridge. Docker backend only: the msb
+# backend always uses its own host alias (host.microsandbox.internal) and
+# ignores this value. Empty falls back to host.docker.internal.
+clipboard_host = ""
 
 # Host service environment variables (injected into container, localhost → host.docker.internal)
 # Format: "VAR_NAME=http://localhost:PORT" — localhost/127.0.0.1 is auto-rewritten to host.docker.internal.

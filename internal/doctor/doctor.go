@@ -865,13 +865,19 @@ func Run(args ...string) {
 	clipboardHost := ""
 	networkMode := ""
 	if cfg != nil {
-		clipboardHost = cfg.Sandbox.ClipboardHost
 		networkMode = cfg.Network.Mode
+		if strings.EqualFold(cfg.Runtime.Backend, config.BackendMsb) {
+			// Backend-owned alias: the msb guest resolver serves only this
+			// name, so the Docker-oriented clipboard_host cannot apply there.
+			clipboardHost = runtimepkg.MsbHostAlias
+		} else {
+			clipboardHost = cfg.Sandbox.ClipboardHost
+		}
 	}
 	if clipboardHost == "" {
 		clipboardCheck.Status = CheckStatusWarning
 		clipboardCheck.Message = "clipboard_host not set"
-		clipboardCheck.Suggestion = "Set [sandbox].clipboard_host in config.toml (default: host.docker.internal)"
+		clipboardCheck.Suggestion = "Set [sandbox].clipboard_host in config.toml; empty falls back to host.docker.internal"
 	} else {
 		clipboardCheck.Status = CheckStatusOK
 		clipboardCheck.Message = "Clipboard host configured"

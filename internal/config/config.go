@@ -87,7 +87,7 @@ type SandboxConfig struct {
 	EnvPassthrough         []string `toml:"env_passthrough"`
 	EnvPassthroughPrefixes []string `toml:"env_passthrough_prefixes"`
 	Shell                  string   `toml:"shell"`
-	ClipboardHost          string   `toml:"clipboard_host"`
+	ClipboardHost          string   `toml:"clipboard_host"` // Docker bridge hostname; ignored under msb (backend-owned alias)
 	SelinuxLabels          string   `toml:"selinux_labels"`
 	HostServiceEnv         []string `toml:"host_service_env"`    // ENV=http://localhost:port, rewritten to host.docker.internal
 	HostLoopbackPorts      []int    `toml:"host_loopback_ports"` // container 127.0.0.1 ports relayed to host.docker.internal (Chromium-hardcoded *.localhost/localhost traffic)
@@ -212,7 +212,7 @@ func DefaultConfig() Config {
 			},
 			EnvPassthroughPrefixes: []string{"CNSTR_"},
 			Shell:                  "/bin/bash",
-			ClipboardHost:          "host.docker.internal",
+			ClipboardHost:          "",
 			SelinuxLabels:          "auto",
 			HostLoopbackPorts:      []int{80, 443},
 		},
