@@ -268,7 +268,7 @@ Existing home binds carry agent copies installed under the old model — those w
 
 ## Post-publish follow-ups
 
-- msb store garbage collection (keep `latest` + active images) — probe leftovers already demonstrated store growth
+- ~~msb store garbage collection (keep `latest` + active images)~~ DONE: `ScanMsbStoreGC`/`RunMsbStoreGC` (internal/runtime/backend_msb_gc.go) reclaim every cached construct candidate ref except the boot ref, plus construct-owned fork snapshots (dead daemon groups entirely, all but the newest for a live daemon); runs in the idle window and from `construct sys doctor --fix`, whose MSB Store check scans without --fix. User snapshots and foreign images are never touched; snapshot GC fails closed when sandbox liveness is unknown
 - ~~Refresh mechanism for cached images on existing installs~~ DONE 1.17.8/1.17.9: `EnsureImage` compares the cached platform-manifest digest against the registry (linux/<host-arch> resolution) and re-pulls on drift; the `construct.daemon.image_digest` recreate label makes a refreshed image reach the daemon with exactly one recreate
 - ~~Unify `construct sys update` across engines~~ DONE: both backends run the in-guest `update-all.sh` (foreground `sys update` pass and the idle-window pass), covering the optional layer; the baked baseline moves on the image lane
 

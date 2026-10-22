@@ -799,6 +799,11 @@ func Run(args ...string) {
 	// them from the embedded templates.
 	checks = append(checks, checkMsbHomeHelpers(msbBackend, fixRequested))
 
+	// 11h. MSB Store (msb only): duplicate candidate image refs and leaked
+	// fork snapshots grow the store unbounded. Scan reports reclaimables;
+	// --fix runs the GC. Skipped without an msb binary.
+	checks = append(checks, checkMsbStore(msbBackend, fixRequested))
+
 	// 12. Image Check. On the msb backend the image lives in the msb
 	// store, not docker; probing it here always fails and reports a false
 	// "Image missing". The VM Backend and Baked Image Freshness checks
@@ -1380,6 +1385,57 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	}
 	check.Status = CheckStatusOK
 	check.Message = fmt.Sprintf("Image %s force-refreshed from the registry", imageRef)
+	return check
+}
+
+// checkMsbStore reports construct-owned store growth (duplicate candidate
+// image refs, leaked fork snapshots). Without --fix it scans only; --fix
+// runs the GC for real. Skipped on non-msb backends and when no msb
+// binary is present (the SDK-backed scan needs one).
+func checkMsbStore(msbBackend, fix bool) CheckResult {
+	check := CheckResult{Name: "MSB Store"}
+	if !msbBackend {
+		check.Status = CheckStatusSkipped
+		check.Message = "Not applicable (runtime backend is not msb)"
+		return check
+	}
+	if _, haveMsb := msbBin(); !haveMsb {
+		check.Status = CheckStatusSkipped
+		check.Message = "msb binary not found"
+		return check
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	if !fix {
+		rep, err := runtimepkg.ScanMsbStoreGC(ctx)
+		if err != nil {
+			check.Status = CheckStatusWarning
+			check.Message = fmt.Sprintf("Store scan failed: %v", err)
+			return check
+		}
+		if rep.Empty() {
+			check.Status = CheckStatusOK
+			check.Message = "No reclaimable construct images or fork snapshots"
+			return check
+		}
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("Reclaimable: %s", rep)
+		check.Suggestion = "Run 'construct sys doctor --fix' to reclaim"
+		return check
+	}
+	rep, err := runtimepkg.RunMsbStoreGC(ctx)
+	if err != nil {
+		check.Status = CheckStatusWarning
+		check.Message = fmt.Sprintf("Store GC partial: %v", err)
+		check.Details = append(check.Details, "Removed: "+rep.String())
+		return check
+	}
+	check.Status = CheckStatusOK
+	if rep.Empty() {
+		check.Message = "Nothing to reclaim"
+	} else {
+		check.Message = "Reclaimed " + rep.String()
+	}
 	return check
 }
 
