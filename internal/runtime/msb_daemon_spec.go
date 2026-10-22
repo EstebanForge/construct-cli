@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/safefs"
 )
 
 // The msb daemon recreate decision reads drift inputs (project dir, mount
@@ -71,7 +72,9 @@ func saveMsbDaemonSpec(spec *msbDaemonSpec) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	// Atomic (temp+rename): the recreate decision reads this file; a torn
+	// spec loses drift inputs and forces pointless recreates.
+	return safefs.WriteFile(path, data, 0o600)
 }
 
 // specFromLabels mirrors a sandbox record's construct.* labels into a spec.

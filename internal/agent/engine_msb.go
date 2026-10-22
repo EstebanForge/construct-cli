@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"golang.org/x/term"
 
@@ -15,12 +17,22 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// signalRunContext wraps the msb exec lifetime in a context that cancels
+// on SIGINT/SIGTERM: cancellation kills the guest exec (msbDrain), Execute
+// returns, and the deferred Teardown in runWithProviderEnv runs the same
+// cleanup as a normal exit. Without it a signal skipped unregister and
+// copy-back entirely.
+func signalRunContext() (context.Context, func()) {
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+}
+
 // execViaMsbDaemon is the msb run path (docs/VMsv2.md): guarantee
 // the persistent daemon sandbox, install agents on first use, then exec the
 // agent interactively with the same env contract the Docker daemon path
 // builds (buildDaemonExecEnv + MaskEnv + exit-code fidelity).
 func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (int, error) {
-	ctx := context.Background()
+	ctx, stopSignals := signalRunContext()
+	defer stopSignals()
 
 	var allowHome bool
 	var maxEntries int
