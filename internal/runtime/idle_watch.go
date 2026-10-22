@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -205,6 +206,37 @@ func LiveSessionCount() int {
 	return len(sessions)
 }
 
+// errIdleWatchActive reports that another watcher process already holds
+// the idle-watch lock.
+var errIdleWatchActive = errors.New("idle-watch: another watcher is already active")
+
+// idleWatchLockPath is the lock file serializing idle watchers. The lock
+// dies with the process (Go opens files CLOEXEC), so a crashed watcher
+// never blocks the next one.
+func idleWatchLockPath() string {
+	return filepath.Join(config.GetConfigDir(), "idle-watch.lock")
+}
+
+// acquireIdleWatchLock takes a non-blocking exclusive flock for the
+// watcher's whole lifetime. errIdleWatchActive means a watcher is already
+// running and this invocation must exit: stacked agent runs each spawn a
+// watcher on last-unregister, and without this N simultaneous exits
+// produce N watchers racing the update lock and stop path.
+func acquireIdleWatchLock() (*os.File, error) {
+	if merr := os.MkdirAll(filepath.Dir(idleWatchLockPath()), 0o700); merr != nil {
+		return nil, fmt.Errorf("idle-watch lock dir: %w", merr)
+	}
+	f, err := os.OpenFile(idleWatchLockPath(), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open idle-watch lock: %w", err)
+	}
+	if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
+		_ = f.Close() //nolint:errcheck // best-effort close on failed lock
+		return nil, errIdleWatchActive
+	}
+	return f, nil
+}
+
 // IdleWatchRun is the body of `construct sys daemon idle-watch`. Sleeps
 // for the configured minutes (rechecked every 30s) and stops the daemon
 // if and only if the session count is still zero at the deadline. The
@@ -218,6 +250,19 @@ func IdleWatchRun(minutes int) {
 	if minutes <= 0 {
 		ui.InfoLn("idle-watch: minutes <= 0, exiting")
 		return
+	}
+	lockF, lerr := acquireIdleWatchLock()
+	if lerr != nil {
+		if errors.Is(lerr, errIdleWatchActive) {
+			ui.InfoLn("idle-watch: another watcher is active, exiting")
+			return
+		}
+		ui.InfoF("⚠️ idle-watch: could not take the lock (%v); continuing single-shot\n", lerr)
+	} else {
+		defer func() {
+			_ = syscall.Flock(int(lockF.Fd()), syscall.LOCK_UN) //nolint:errcheck // best-effort unlock
+			_ = lockF.Close()                                   //nolint:errcheck // best-effort close
+		}()
 	}
 	ui.InfoF("⏳ idle-watch armed: %d minutes; checking every 30s\n", minutes)
 	deadline := time.Now().Add(time.Duration(minutes) * time.Minute)
