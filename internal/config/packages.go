@@ -418,7 +418,17 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	if len(c.Npm.Packages) > 0 {
 		b.WriteString("echo 'Installing NPM packages...'\n")
 		for _, pkg := range c.Npm.Packages {
-			b.WriteString("npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n")
+			// Existence guard: forced reinstall passes must skip the network
+			// or the install-phase budget blows out (lab-matrix asserts <5s).
+			pkgDir := pkg
+			if i := strings.LastIndex(pkg, "@"); i > 0 {
+				pkgDir = pkg[:i]
+			}
+			b.WriteString("if [ -d \"$HOME/.npm-global/lib/node_modules/" + pkgDir + "\" ]; then\n")
+			b.WriteString("    echo 'npm: " + pkgDir + " already installed; skipping'\n")
+			b.WriteString("else\n")
+			b.WriteString("    npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n")
+			b.WriteString("fi\n")
 		}
 		b.WriteString("\n\n")
 	}
