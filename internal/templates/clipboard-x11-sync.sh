@@ -6,6 +6,8 @@ HOST_URL="${CONSTRUCT_CLIPBOARD_URL}"
 AUTH_TOKEN="${CONSTRUCT_CLIPBOARD_TOKEN}"
 XCLIP_BIN="/usr/bin/xclip-real"
 TMP_IMG="/tmp/construct-clipboard.png"
+CURL_ERR="/tmp/construct-clipboard-curl.err"
+FETCH_REPORTED=0
 DEBUG="${CONSTRUCT_DEBUG:-0}"
 
 # Poll interval in seconds. Agents using native X11 clipboard bindings (e.g.
@@ -25,6 +27,26 @@ if [ -z "$HOST_URL" ] || [ -z "$AUTH_TOKEN" ]; then
     exit 0
 fi
 
+# Bootstrap the X server if the session has no DISPLAY (msb per-exec starts
+# bypass the entrypoint block). Idempotent: the entrypoint may have started
+# Xvfb already, and pgrep keeps concurrent syncs from spawning duplicates.
+if [ -z "$DISPLAY" ]; then
+    if command -v Xvfb >/dev/null; then
+        export DISPLAY="${CONSTRUCT_X11_DISPLAY:-:0}"
+        if ! pgrep -x Xvfb >/dev/null 2>&1; then
+            Xvfb "$DISPLAY" -screen 0 1024x768x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
+            for _ in $(seq 1 20); do
+                [ -S "/tmp/.X11-unix/X${DISPLAY#:}" ] && break
+                sleep 0.1
+            done
+        fi
+    fi
+fi
+if [ -z "$DISPLAY" ]; then
+    dbg "No DISPLAY and no Xvfb available, exiting"
+    exit 0
+fi
+
 if [ ! -x "$XCLIP_BIN" ]; then
     dbg "xclip-real not found at $XCLIP_BIN, exiting"
     exit 0
@@ -33,13 +55,25 @@ fi
 dbg "Starting sync loop: interval=${SYNC_INTERVAL}s url=${HOST_URL} display=${DISPLAY}"
 
 while true; do
-    # Try image clipboard first.
+    # Try image clipboard first. curl stderr is captured so a dead bridge
+    # can be reported once (FETCH_REPORTED) instead of every 200ms; HTTP
+    # misses are the normal empty-clipboard poll and stay quiet.
     HTTP_CODE=$(curl -s -o "$TMP_IMG" -w "%{http_code}" \
         -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
-        "${HOST_URL}/paste?type=image/png" 2>/dev/null)
+        "${HOST_URL}/paste?type=image/png" 2>"$CURL_ERR")
     CURL_EXIT=$?
 
+    if [ "$CURL_EXIT" -ne 0 ] && [ "$FETCH_REPORTED" != "1" ]; then
+        dbg "Bridge unreachable (curl exit ${CURL_EXIT}): $(head -c 160 "$CURL_ERR" | tr '\n' ' ')"
+        echo "[x11-sync] $(date -u +%H:%M:%S) bridge unreachable (curl exit ${CURL_EXIT}): $(head -c 160 "$CURL_ERR" | tr '\n' ' ')" >> /tmp/clipboard-x11-sync.log
+        FETCH_REPORTED=1
+    fi
+    if [ "$CURL_EXIT" -eq 0 ]; then
+        FETCH_REPORTED=0
+    fi
+
     if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ] && [ -s "$TMP_IMG" ]; then
+        FETCH_REPORTED=0
         IMG_SIZE=$(wc -c < "$TMP_IMG")
         dbg "Image fetched: ${IMG_SIZE} bytes, loading into X11"
         if "$XCLIP_BIN" -selection clipboard -t image/png -i "$TMP_IMG" >/dev/null 2>&1; then

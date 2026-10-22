@@ -179,7 +179,7 @@ func execMsbCommand(cfg *config.Config, cmdArgs []string) int {
 	}
 
 	osEnv := buildExecEnv()
-	env.SetEnvVar(&osEnv, "CONSTRUCT_HOST_ALIAS", "host.microsandbox.internal")
+	env.SetEnvVar(&osEnv, "CONSTRUCT_HOST_ALIAS", runtime.MsbHostAlias)
 
 	cwd, err := os.Getwd()
 	if err != nil {

@@ -201,7 +201,7 @@ func TestBuildMsbRunSpecMounts(t *testing.T) {
 	if spec.Mounts[projDest].Bind != "/tmp/proj" {
 		t.Errorf("project mount missing at %s: %+v", projDest, spec.Mounts[projDest])
 	}
-	if spec.HostAliasEnv != msbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != msbHostAlias {
+	if spec.HostAliasEnv != MsbHostAlias || spec.Env["CONSTRUCT_HOST_ALIAS"] != MsbHostAlias {
 		t.Errorf("host alias env missing: %+v", spec.Env)
 	}
 	if spec.Env["CONSTRUCT_LOOPBACK_PORTS"] != "80,443" {

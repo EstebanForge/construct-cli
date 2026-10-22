@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/term"
 
+	"github.com/EstebanForge/construct-cli/internal/clipboard"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
@@ -88,7 +89,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
 	applyConstructPath(&envVars)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
-	env.SetEnvVar(&envVars, "CONSTRUCT_HOST_ALIAS", "host.microsandbox.internal")
+	env.SetEnvVar(&envVars, "CONSTRUCT_HOST_ALIAS", runtime.MsbHostAlias)
 	// Pin xterm-256color to guarantee terminfo compatibility inside the guest image
 	env.SetEnvVar(&envVars, "TERM", "xterm-256color")
 
@@ -115,6 +116,26 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 			e.sshProxyContainer = "construct-cli-daemon" // Teardown cleans the socat via the msb exec path
 			ui.InfoLn("✓ Started SSH Agent proxy (msb)")
 		}
+	}
+	// Herdr bridge: same socat pattern as the SSH proxy; present only when
+	// construct was launched from a Herdr pane.
+	if e.herdrBridge != nil {
+		if err := msbEnsureHerdrProxy(e.herdrBridge, e.herdrProxySock, execUser); err != nil {
+			ui.LogDebug("Herdr proxy not started (msb): %v", err)
+		} else {
+			e.herdrProxyContainer = "construct-cli-daemon"
+			e.herdrProxyUser = execUser
+			envVars = append(envVars, e.herdrExecEnv()...)
+		}
+	}
+
+	// X11 clipboard sync: the daemon entrypoint gets no clipboard env (msb
+	// daemon env carries none) and the bridge URL/token are per-session, so
+	// restart the sync here with the fresh values. Env-passed to keep the
+	// token out of the guest process list. Best-effort: clipper-shim and
+	// JS-patch agents read the exec env directly and need no X11 loop.
+	if err := msbEnsureClipboardSync(e.cbServer, execUser); err != nil {
+		ui.LogDebug("Clipboard X11 sync not started (msb): %v", err)
 	}
 	envVars = e.sec.MaskEnv(envVars)
 
@@ -150,7 +171,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 // Same script shape as the Docker path's ensureDaemonSSHProxy; the port is
 // passed via env to keep it out of the shell string.
 func msbEnsureSSHProxy(port int, sockPath, execUser string) error {
-	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.microsandbox.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" </dev/null >/tmp/socat.log 2>&1 &`
+	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:` + runtime.MsbHostAlias + `:"$CONSTRUCT_SSH_BRIDGE_PORT" </dev/null >/tmp/socat.log 2>&1 &`
 	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
 		Command: []string{"bash", "-lc", script},
@@ -183,11 +204,54 @@ func msbWaitForSSHProxy(sockPath, execUser string) error {
 	return nil
 }
 
+// msbEnsureClipboardSync (re)starts the in-guest X11 clipboard sync with the
+// current session's bridge URL and token. The sync script bootstraps its own
+// Xvfb, so no DISPLAY setup is needed here.
+func msbEnsureClipboardSync(cbServer *clipboard.Server, execUser string) error {
+	if cbServer == nil {
+		return nil
+	}
+	script := `pkill -f clipboard-x11-sync.sh 2>/dev/null || true; nohup /usr/local/bin/clipboard-x11-sync.sh </dev/null >/tmp/clipboard-x11-sync.log 2>&1 &`
+	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
+		Name:    "construct-cli-daemon",
+		Command: []string{"bash", "-lc", script},
+		Env: []string{
+			"CONSTRUCT_CLIPBOARD_URL=" + cbServer.URL,
+			"CONSTRUCT_CLIPBOARD_TOKEN=" + cbServer.Token,
+		},
+		User: execUser,
+	})
+	if err != nil {
+		return fmt.Errorf("start clipboard x11 sync: %w", err)
+	}
+	if code != 0 {
+		return fmt.Errorf("clipboard x11 sync exited with code %d", code)
+	}
+	return nil
+}
+
+// msbEnsureHerdrProxy (re)starts the in-guest socat bridging the per-session
+// herdr unix socket to the host TCP bridge. Same shape as the docker proxy
+// script; the msb alias is fixed and the port arrives via env like the SSH
+// proxy.
+func msbEnsureHerdrProxy(bridge *HerdrBridge, sockPath, execUser string) error {
+	script := `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:` + runtime.MsbHostAlias + `:"$CONSTRUCT_HDR_BRIDGE_PORT" >/tmp/herdr-socat.log 2>&1 &`
+	_, code, err := runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{
+		Name:    "construct-cli-daemon",
+		Command: []string{"bash", "-lc", script},
+		Env:     []string{fmt.Sprintf("CONSTRUCT_HDR_BRIDGE_PORT=%d", bridge.Port)},
+		User:    execUser,
+	})
+	if err != nil {
+		return fmt.Errorf("start herdr proxy socat (socket %s, port %d): %w", sockPath, bridge.Port, err)
+	}
+	if code != 0 {
+		return fmt.Errorf("herdr proxy socat exited with code %d", code)
+	}
+	return nil
+}
+
 // msbBackendSelected reports whether the engine should take the msb path.
 func (e *RuntimeEngine) msbBackendSelected() bool {
 	return e.cfg != nil && strings.EqualFold(e.cfg.Runtime.Backend, config.BackendMsb)
 }
-
-// msbClipboardHost returns the guest-visible host alias for bridge servers
-// under the msb backend; empty means Docker (caller keeps its default).
-func msbClipboardHost() string { return "host.microsandbox.internal" }

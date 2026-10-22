@@ -290,7 +290,11 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Network.Mode = "offline" // strongest proof: bridges must survive deny-by-default
 
-	cb, err := clipboard.StartServer(msbHostAlias)
+	listener, err := ListenInBridgeBand("live-clipboard-test", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("ListenInBridgeBand: %v", err)
+	}
+	cb, err := clipboard.StartServerOn(listener, MsbHostAlias)
 	if err != nil {
 		t.Fatalf("StartServer: %v", err)
 	}
@@ -307,9 +311,10 @@ func TestMsbLiveClipboardBridge(t *testing.T) {
 	}
 
 	proj := t.TempDir()
-	// The clipboard port rides the spec's bridgePorts exactly as the engine
-	// does: with network policy enforced, only rule-named ports reach the
-	// host, so a random :0 port outside the forwarded set would time out.
+	// The transport mirrors the production engine: band-probed port on a
+	// loopback bind, URL host = MsbHostAlias. With network policy enforced,
+	// only rule-named ports reach the host, so an out-of-band port would
+	// time out even with the alias resolvable.
 	clipPort := portFromURL(t, cb.URL)
 	msbLiveRequireImage(t)
 	spec := BuildMsbRunSpec(&cfg, name, proj, []int{clipPort}, msbLiveImageRef)
@@ -380,7 +385,7 @@ func TestMsbLiveHostExecBridge(t *testing.T) {
 	for _, pm := range MsbPathMaps(&cfg, proj) {
 		pathMaps = append(pathMaps, hostexec.PathMap{Container: pm.Guest, Host: pm.Host})
 	}
-	srv, err := hostexec.StartServer(msbHostAlias, cfg.Sandbox.HostBinaries, hostexec.DefaultTimeout, pathMaps)
+	srv, err := hostexec.StartServer(MsbHostAlias, cfg.Sandbox.HostBinaries, hostexec.DefaultTimeout, pathMaps)
 	if err != nil {
 		t.Fatalf("hostexec StartServer: %v", err)
 	}

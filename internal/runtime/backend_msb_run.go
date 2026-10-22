@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -377,8 +378,42 @@ func dnsRule() msb.PolicyRule {
 	return msb.Rule.AllowDNS()
 }
 
-// msbHostAlias is the per-backend host alias (Spike B winner, §3.1).
-const msbHostAlias = "host.microsandbox.internal"
+// MsbHostAlias is the per-backend host alias (Spike B winner, §3.1): the
+// guest resolver serves only this name for the host, so every guest-visible
+// bridge URL under msb must use it. Single source of truth; do not inline
+// the literal elsewhere.
+const MsbHostAlias = "host.microsandbox.internal"
+
+// ListenInBridgeBand binds the first free seed-derived port inside the
+// bridge band. The msb egress allowlist is create-time only, so guest
+// traffic reaches only rule-named ports: a bridge binding an OS-random
+// port stays reachable only when the draw lands in-band (~71% on Linux,
+// ~58% on macOS). Deterministic probing keeps every run reachable.
+// bindHost should be loopback under msb: the VMM proxies allowed
+// guest→host ports to host loopback. Callers under msb must fail closed
+// on error; an ephemeral fallback would reintroduce the lottery.
+func ListenInBridgeBand(seed, bindHost string) (net.Listener, error) {
+	return ListenInBand(seed, bindHost, MsbBridgePortBase, MsbBridgePortSpan)
+}
+
+// ListenInBand is ListenInBridgeBand over an arbitrary rule-named port band.
+func ListenInBand(seed, bindHost string, base, span int) (net.Listener, error) {
+	for i := 0; i < 256; i++ {
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindHost, bandCandidate(seed, i, base, span)))
+		if err == nil {
+			return listener, nil
+		}
+	}
+	return nil, fmt.Errorf("port band %d-%d exhausted for seed %q", base, base+span-1, seed)
+}
+
+// bandCandidate derives the i-th preferred port for seed inside
+// [base, base+span). Same scheme as the SSH/herdr bridge seeds (first two
+// hash bytes), so all banded bridges spread the same way.
+func bandCandidate(seed string, i, base, span int) int {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s#%d", seed, i)))
+	return base + (int(sum[0])<<8|int(sum[1]))%span
+}
 
 // MsbRunSpec is the sandbox-creation input assembled from config; the
 // engine-side port (Step 6 wiring) consumes it.
@@ -402,7 +437,7 @@ type MsbRunSpec struct {
 // Pure function: no side effects, unit-testable without msb installed.
 func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []int, imageRef string) *MsbRunSpec {
 	env := map[string]string{
-		"CONSTRUCT_HOST_ALIAS": msbHostAlias,
+		"CONSTRUCT_HOST_ALIAS": MsbHostAlias,
 	}
 	for k, v := range envSliceToMap(msbBaseEnv(cfg)) {
 		env[k] = v
@@ -464,7 +499,7 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 		Network:      msbNetworkConfig(cfg.Network.Mode, bridgePorts),
 		Env:          env,
 		Labels:       labels,
-		HostAliasEnv: msbHostAlias,
+		HostAliasEnv: MsbHostAlias,
 		CPUs:         4,
 		MemoryMiB:    4096,
 	}
@@ -500,6 +535,18 @@ func msbBaseEnv(cfg *config.Config) []string {
 	// entrypoint's network-filter.sh sees no NETWORK_MODE and no-ops.
 	if cfg != nil {
 		envVars = append(envVars, cfg.Network.EnvVars()...)
+	}
+	// host_service_env targets host-side services from the guest; loopback
+	// names must become the alias the guest resolver actually serves.
+	if cfg != nil {
+		for _, envDef := range cfg.Sandbox.HostServiceEnv {
+			if envDef == "" {
+				continue
+			}
+			rewritten := strings.ReplaceAll(envDef, "localhost", MsbHostAlias)
+			rewritten = strings.ReplaceAll(rewritten, "127.0.0.1", MsbHostAlias)
+			envVars = append(envVars, rewritten)
+		}
 	}
 	return envVars
 }
@@ -1044,10 +1091,10 @@ create:
 	// Not present (or mount set changed): create with the workspace binds so
 	// agent workdirs resolve — multi-path mode mounts every configured root;
 	// single-path mode mounts the project dir.
-	// Bridge ports are omitted: host bridges bind random ports at engine run
-	// time, which cannot be baked into boot-time egress rules. Permissive
-	// mode (default-allow) needs no rule; offline/strict bridge egress is
-	// part of the Step 7 bridge wiring (docs/VMsv2.md).
+	// Bridge ports stay nil: bridges bind inside the deterministic band
+	// (ListenInBridgeBand), which msbHostTransportRules allowlists
+	// wholesale when no per-port rules are given, so create-time per-port
+	// entries are neither possible for per-run listeners nor needed.
 	ui.InfoLn("🚀 Booting microVM daemon sandbox...")
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
 	spec.Detached = true

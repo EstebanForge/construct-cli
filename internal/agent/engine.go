@@ -41,6 +41,48 @@ func sshProxySockForPID(pid int) string {
 var startClipboardServerFn = clipboard.StartServer
 var execInteractiveAsUserFn = runtime.ExecInteractiveAsUser
 
+// bridgeURLHost resolves the guest-visible hostname for host-side bridge
+// servers (clipboard, host-exec). The msb guest resolver serves only
+// runtime.MsbHostAlias, so the Docker-oriented clipboard_host override must
+// not leak into msb URLs.
+func bridgeURLHost(backend, clipboardHostOverride string) string {
+	if strings.EqualFold(backend, config.BackendMsb) {
+		return runtime.MsbHostAlias
+	}
+	if clipboardHostOverride != "" {
+		return clipboardHostOverride
+	}
+	return "host.docker.internal"
+}
+
+// startClipboardServer starts the /paste bridge. Under msb it binds a
+// deterministic port inside the egress band on loopback (the VMM proxies
+// banded ports to host loopback); an OS-random port is guest-reachable only
+// when the draw happens to land in-band. Docker keeps the legacy wide-bind
+// random-port server: host-gateway routing reaches any port.
+func (e *RuntimeEngine) startClipboardServer(backend, urlHost, bindHost string) (*clipboard.Server, error) {
+	if !strings.EqualFold(backend, config.BackendMsb) {
+		return startClipboardServerFn(urlHost)
+	}
+	listener, err := runtime.ListenInBridgeBand(cwdContainerName(e.cwd)+"/clipboard", bindHost)
+	if err != nil {
+		return nil, err
+	}
+	return clipboard.StartServerOn(listener, urlHost)
+}
+
+// startHostExecServer mirrors startClipboardServer for the host-exec bridge.
+func (e *RuntimeEngine) startHostExecServer(backend, urlHost, bindHost string, binaries []string, timeout time.Duration, pathMaps []hostexec.PathMap) (*hostexec.Server, error) {
+	if !strings.EqualFold(backend, config.BackendMsb) {
+		return hostexec.StartServer(urlHost, binaries, timeout, pathMaps)
+	}
+	listener, err := runtime.ListenInBridgeBand(cwdContainerName(e.cwd)+"/hostexec", bindHost)
+	if err != nil {
+		return nil, err
+	}
+	return hostexec.StartServerOn(listener, urlHost, binaries, timeout, pathMaps)
+}
+
 // RuntimeEngine handles the high-level orchestration of agent execution.
 type RuntimeEngine struct {
 	cfg              *config.Config
@@ -78,6 +120,7 @@ type RuntimeEngine struct {
 	herdrProxySock      string // in-container unix socket path
 	herdrProxyContainer string // container running our socat (for Teardown)
 	herdrProxyUser      string // exec user for Teardown cleanup
+	bridgeHost          string // guest-visible hostname for host bridge servers
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -149,14 +192,15 @@ func (e *RuntimeEngine) Prepare() error {
 	e.loginForward, e.loginPorts = shouldEnableLoginForward(e.args)
 
 	// 5. Clipboard Server
-	clipboardHost := "host.docker.internal"
-	if e.msbBackendSelected() {
-		clipboardHost = msbClipboardHost() // §3.1 transport: host alias from the msb gateway DNS
+	backend, clipboardOverride := "", ""
+	if e.cfg != nil {
+		backend = e.cfg.Runtime.Backend
+		clipboardOverride = e.cfg.Sandbox.ClipboardHost
 	}
-	if e.cfg != nil && e.cfg.Sandbox.ClipboardHost != "" {
-		clipboardHost = e.cfg.Sandbox.ClipboardHost
-	}
-	cbServer, err := startClipboardServerFn(clipboardHost)
+	clipboardHost := bridgeURLHost(backend, clipboardOverride)
+	e.bridgeHost = clipboardHost
+	bindHost := bridgeBindHost(backend)
+	cbServer, err := e.startClipboardServer(backend, clipboardHost, bindHost)
 	if err == nil {
 		e.cbServer = cbServer
 	} else {
@@ -171,7 +215,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// on the host up front (fail closed) and reconciles per-binary symlinks in
 	// the host-mounted ~/.local/bin so the agent can discover them on PATH.
 	if e.cfg != nil && len(e.cfg.Sandbox.HostBinaries) > 0 {
-		execHost := clipboardHost // reuse the resolved host.docker.internal / override
+		execHost := clipboardHost
 		timeout := hostexec.DefaultTimeout
 		if t := resolveHostExecTimeout(); t > 0 {
 			timeout = t
@@ -189,7 +233,7 @@ func (e *RuntimeEngine) Prepare() error {
 				pathMaps = append(pathMaps, hostexec.PathMap{Container: m.ContainerPath, Host: m.HostPath})
 			}
 		}
-		srv, err := hostexec.StartServer(execHost, e.cfg.Sandbox.HostBinaries, timeout, pathMaps)
+		srv, err := e.startHostExecServer(backend, execHost, bindHost, e.cfg.Sandbox.HostBinaries, timeout, pathMaps)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: host exec bridge not started: %v\n", err)
 		} else {
@@ -224,7 +268,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// This lets per-agent integrations (e.g. pi's herdr-agent-state.ts) report
 	// turn-level state, producing the idle/working status panel natively.
 	if socket := os.Getenv("HERDR_SOCKET_PATH"); socket != "" {
-		bridge, err := StartHerdrBridge(cwdContainerName(e.cwd), socket, bridgeBindHost(e.cfg.Runtime.Backend))
+		bridge, err := StartHerdrBridge(cwdContainerName(e.cwd), socket, bridgeBindHost(e.cfg.Runtime.Backend), e.cfg.Runtime.Backend)
 		if err == nil {
 			e.herdrBridge = bridge
 			e.herdrProxySock = herdrProxySockForPID(os.Getpid())
@@ -455,7 +499,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 
 	// Setup Herdr Bridge Proxy if launched from a Herdr pane.
 	if e.herdrBridge != nil {
-		if err := ensureDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
+		if err := ensureDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, e.herdrBridge.Port, execUser, e.bridgeHost); err != nil {
 			ui.InfoF("⚠️  Herdr proxy restart failed (daemon): %v\n", err)
 		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, daemonName, e.herdrProxySock, execUser); err != nil {
 			ui.InfoF("⚠️  Herdr proxy not ready (daemon): %v\n", err)
@@ -653,7 +697,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	// Herdr bridge proxy (only when launched from a Herdr pane).
 	if e.herdrBridge != nil {
 		execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
-		if err := ensureDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, e.herdrBridge.Port, execUser); err != nil {
+		if err := ensureDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, e.herdrBridge.Port, execUser, e.bridgeHost); err != nil {
 			ui.InfoF("⚠️  Herdr proxy restart failed: %v\n", err)
 		} else if err := waitForDaemonHerdrProxy(e.containerRuntime, containerName, e.herdrProxySock, execUser); err != nil {
 			ui.InfoF("⚠️  Herdr proxy not ready: %v\n", err)
@@ -829,7 +873,7 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 }
 
 func (e *RuntimeEngine) ensureDaemonSSHProxy(daemonName string, port int, execUser string) error {
-	return ensureDaemonSSHProxy(e.containerRuntime, daemonName, e.sshProxySock, port, execUser)
+	return ensureDaemonSSHProxy(e.containerRuntime, daemonName, e.sshProxySock, port, execUser, e.bridgeHost)
 }
 
 func (e *RuntimeEngine) waitForDaemonSSHProxy(daemonName, execUser string) error {
@@ -860,6 +904,16 @@ func (e *RuntimeEngine) cleanupDaemonSSHProxy() {
 // socket so a long-lived daemon does not accumulate dead proxies. Best-effort.
 func (e *RuntimeEngine) cleanupDaemonHerdrProxy() {
 	if e.herdrProxyContainer == "" || e.herdrProxySock == "" {
+		return
+	}
+	if e.msbBackendSelected() {
+		// Same best-effort teardown through the SDK exec path as the SSH proxy.
+		script := `pkill -f "socat UNIX-LISTEN:` + e.herdrProxySock + `" 2>/dev/null || true; rm -f "` + e.herdrProxySock + `" 2>/dev/null || true`
+		_, _, _ = runtime.NewMsbBackend().Exec(context.Background(), runtime.ExecOptions{ //nolint:errcheck // best-effort teardown
+			Name:    e.herdrProxyContainer,
+			Command: []string{"bash", "-lc", script},
+			User:    "construct",
+		})
 		return
 	}
 	cmdArgs := []string{"bash", "-lc", `pkill -f "socat UNIX-LISTEN:` + e.herdrProxySock + `" 2>/dev/null || true; rm -f "` + e.herdrProxySock + `" 2>/dev/null || true`}
@@ -1290,7 +1344,7 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 	}
 
 	sock := sshProxySockForPID(os.Getpid())
-	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, sock, bridge.Port, execUser); err != nil {
+	if err := ensureDaemonSSHProxy(containerRuntime, daemonName, sock, bridge.Port, execUser, bridgeURLHost(cfg.Runtime.Backend, cfg.Sandbox.ClipboardHost)); err != nil {
 		bridge.Stop()
 		return nil, nil, err
 	}
@@ -1306,9 +1360,9 @@ func startDaemonSSHBridge(cfg *config.Config, containerRuntime, daemonName, exec
 	return bridge, envVars, nil
 }
 
-func ensureDaemonSSHProxy(containerRuntime, daemonName, sockPath string, port int, execUser string) error {
+func ensureDaemonSSHProxy(containerRuntime, daemonName, sockPath string, port int, execUser, hostAlias string) error {
 	envVars := []string{fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", port)}
-	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
+	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:` + hostAlias + `:"$CONSTRUCT_SSH_BRIDGE_PORT" >/tmp/socat.log 2>&1 &`}
 	if _, err := runtime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser); err != nil {
 		return fmt.Errorf("start ssh proxy socat on %s (socket %s, port %d): %w", daemonName, sockPath, port, err)
 	}

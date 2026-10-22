@@ -6,9 +6,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/EstebanForge/construct-cli/internal/config"
 	containerruntime "github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -46,41 +48,48 @@ func herdrBridgePortForSeed(seed string) int {
 }
 
 // StartHerdrBridge starts a local TCP server proxying to the host Herdr unix
-// socket. The port is derived deterministically from seed; if that port is in
-// use it falls back to an ephemeral port.
+// socket. Docker keeps the deterministic port with an ephemeral fallback (any
+// port is guest-reachable through host-gateway routing). msb binds a
+// band-probed port on loopback only: an ephemeral port would never be
+// guest-reachable there, so the start fails closed instead.
 // bindHost decides exposure: msb's VMM proxies allowed guest→host ports to
 // host loopback, so 127.0.0.1 is reachable; docker's Linux host-gateway is
 // the bridge IP, which needs 0.0.0.0.
-func StartHerdrBridge(seed, socket, bindHost string) (*HerdrBridge, error) {
+func StartHerdrBridge(seed, socket, bindHost, backend string) (*HerdrBridge, error) {
 	if socket == "" {
 		return nil, fmt.Errorf("herdr socket path not set")
 	}
 
-	bindAddr := func(port int) string {
-		return fmt.Sprintf("%s:%d", bindHost, port)
+	if strings.EqualFold(backend, config.BackendMsb) {
+		listener, err := containerruntime.ListenInBand(seed, bindHost, herdrBridgePortBase, herdrBridgePortSpan)
+		if err != nil {
+			return nil, fmt.Errorf("failed to start Herdr bridge listener: %w", err)
+		}
+		return newHerdrBridge(listener, socket), nil
 	}
 
 	port := herdrBridgePortForSeed(seed)
-	l, err := net.Listen("tcp", bindAddr(port))
+	l, err := net.Listen("tcp", fmt.Sprintf("%s:%d", bindHost, port))
 	if err != nil {
 		ui.LogDebug("Herdr bridge: deterministic port %d unavailable (%v); using ephemeral", port, err)
-		l, err = net.Listen("tcp", bindAddr(0))
+		l, err = net.Listen("tcp", fmt.Sprintf("%s:0", bindHost))
 		if err != nil {
 			return nil, fmt.Errorf("failed to start Herdr bridge listener: %w", err)
 		}
 	}
+	return newHerdrBridge(l, socket), nil
+}
 
+func newHerdrBridge(listener net.Listener, socket string) *HerdrBridge {
 	bridge := &HerdrBridge{
-		Listener: l,
-		Port:     l.Addr().(*net.TCPAddr).Port,
+		Listener: listener,
+		Port:     listener.Addr().(*net.TCPAddr).Port,
 		socket:   socket,
 		Quit:     make(chan struct{}),
 	}
-
 	bridge.wg.Add(1)
 	go bridge.serve()
-
-	return bridge, nil
+	return bridge
 }
 
 // serve accepts connections and proxies each to the Herdr unix socket.
@@ -167,10 +176,11 @@ func herdrProxySockForPID(pid int) string {
 // ensureDaemonHerdrProxy launches (or relaunches) the in-container socat that
 // bridges the per-session unix socket to the host TCP port. Mirrors the SSH
 // agent proxy: socat is already required in the image, so this is a runtime
-// docker exec (no image rebuild). Best-effort; callers log on error.
-func ensureDaemonHerdrProxy(containerRuntime, daemonName, sockPath string, port int, execUser string) error {
+// docker exec (no image rebuild). hostAlias is the guest-visible hostname of
+// the host (bridgeURLHost result). Best-effort; callers log on error.
+func ensureDaemonHerdrProxy(containerRuntime, daemonName, sockPath string, port int, execUser, hostAlias string) error {
 	envVars := []string{fmt.Sprintf("CONSTRUCT_HDR_BRIDGE_PORT=%d", port)}
-	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:host.docker.internal:"$CONSTRUCT_HDR_BRIDGE_PORT" >/tmp/herdr-socat.log 2>&1 &`}
+	cmdArgs := []string{"bash", "-lc", `if ! command -v socat >/dev/null; then echo "socat not found" >&2; exit 1; fi; PROXY_SOCK="` + sockPath + `"; PROXY_DIR="$(dirname "$PROXY_SOCK")"; mkdir -p "$PROXY_DIR" 2>/dev/null || true; chmod 700 "$PROXY_DIR" 2>/dev/null || true; pkill -f "socat UNIX-LISTEN:$PROXY_SOCK" 2>/dev/null || true; rm -f "$PROXY_SOCK"; nohup socat UNIX-LISTEN:"$PROXY_SOCK",fork,mode=600 TCP:` + hostAlias + `:"$CONSTRUCT_HDR_BRIDGE_PORT" >/tmp/herdr-socat.log 2>&1 &`}
 	if _, err := containerruntime.ExecInContainerWithEnv(containerRuntime, daemonName, cmdArgs, envVars, execUser); err != nil {
 		return fmt.Errorf("start herdr proxy socat on %s (socket %s, port %d): %w", daemonName, sockPath, port, err)
 	}

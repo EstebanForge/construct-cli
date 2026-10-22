@@ -86,9 +86,22 @@ fi
 TMP_RAW="/tmp/construct-clipboard-raw.png"
 
 fetch_image() {
+    local curl_err curl_exit
+    curl_err="$(mktemp)"
     curl -s -f \
         -H "X-Construct-Clip-Token: ${AUTH_TOKEN}" \
-        "${HOST_URL}/paste?type=image/png" -o "$TMP_RAW"
+        "${HOST_URL}/paste?type=image/png" -o "$TMP_RAW" 2>"$curl_err"
+    curl_exit=$?
+    if [ "$curl_exit" -ne 0 ]; then
+        # 404/no-image is the routine fallback path; only transport failures
+        # (DNS, refused, timeout) are worth surfacing to the agent.
+        if [ "$curl_exit" -ne 22 ]; then
+            echo "construct clipboard: bridge unreachable (curl exit ${curl_exit}): $(head -c 160 "$curl_err" | tr '\n' ' ')(run: construct sys clipboard-debug)" >&2
+        fi
+        rm -f "$curl_err"
+        return 1
+    fi
+    rm -f "$curl_err"
 }
 
 emit_image_bytes() {

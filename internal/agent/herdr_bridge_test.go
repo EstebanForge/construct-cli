@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/EstebanForge/construct-cli/internal/config"
 )
 
 func TestHerdrBridgePortForSeed_StableAndBounded(t *testing.T) {
@@ -57,7 +59,7 @@ func TestHerdrBridgeProxiesToUnixSocket(t *testing.T) {
 		}
 	}()
 
-	bridge, err := StartHerdrBridge("test-seed", sockPath, "127.0.0.1")
+	bridge, err := StartHerdrBridge("test-seed", sockPath, "127.0.0.1", config.BackendDocker)
 	if err != nil {
 		t.Fatalf("StartHerdrBridge: %v", err)
 	}
@@ -82,10 +84,23 @@ func TestHerdrBridgeProxiesToUnixSocket(t *testing.T) {
 }
 
 func TestHerdrBridge_RejectsEmptySocket(t *testing.T) {
-	if _, err := StartHerdrBridge("seed", "", "127.0.0.1"); err == nil {
+	if _, err := StartHerdrBridge("seed", "", "127.0.0.1", config.BackendDocker); err == nil {
 		t.Fatal("expected error for empty socket path")
 	} else if !strings.Contains(err.Error(), "herdr socket path not set") {
 		t.Fatalf("expected 'not set' error, got %v", err)
+	}
+}
+
+func TestHerdrBridge_MsbBindsInsideHerdrBand(t *testing.T) {
+	bridge, err := StartHerdrBridge("msb-band-seed", "/tmp/does-not-matter.sock", "127.0.0.1", config.BackendMsb)
+	if err != nil {
+		t.Fatalf("StartHerdrBridge(msb): %v", err)
+	}
+	t.Cleanup(bridge.Stop)
+
+	port := bridge.Listener.Addr().(*net.TCPAddr).Port
+	if port < herdrBridgePortBase || port >= herdrBridgePortBase+herdrBridgePortSpan {
+		t.Fatalf("msb bridge port %d outside herdr band [%d,%d)", port, herdrBridgePortBase, herdrBridgePortBase+herdrBridgePortSpan)
 	}
 }
 
