@@ -16,6 +16,9 @@ ensure_npm_sweep_cache() {
         return
     fi
     NPM_SWEEP_CACHE=$(mktemp -d "${TMPDIR:-/tmp}/agent-patch-sweep.XXXXXX")
+    # The sweep lists die with the script; without this every boot litters
+    # a temp dir.
+    trap 'rm -rf "$NPM_SWEEP_CACHE"' EXIT
     NPM_SWEEP_DIRS="$NPM_SWEEP_CACHE/clipboardy-dirs"
     NPM_SWEEP_XSEL="$NPM_SWEEP_CACHE/xsel"
     NPM_SWEEP_JS_PLATFORM="$NPM_SWEEP_CACHE/js-platform"
@@ -93,7 +96,7 @@ patch_agent_code() {
         elif grep -q "process.platform !== 'darwin'" "$js_file"; then
             patch_sed "$js_file" "s/process.platform !== 'darwin'/false/g"
         fi
-    done < <(LC_ALL=C xargs -r -P 8 -n 100 grep -lF "process.platform" < "$NPM_SWEEP_JS_PLATFORM" 2>/dev/null | LC_ALL=C xargs -r -P 8 -n 100 grep -lF "darwin" 2>/dev/null)
+    done < <(LC_ALL=C xargs -r -P 8 -n 100 -d '\n' grep -lF "process.platform" < "$NPM_SWEEP_JS_PLATFORM" 2>/dev/null | LC_ALL=C xargs -r -P 8 -n 100 -d '\n' grep -lF "darwin" 2>/dev/null)
 }
 
 patch_copilot_clipboard() {

@@ -232,7 +232,12 @@ func acquireIdleWatchLock() (*os.File, error) {
 	}
 	if ferr := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); ferr != nil {
 		_ = f.Close() //nolint:errcheck // best-effort close on failed lock
-		return nil, errIdleWatchActive
+		if errors.Is(ferr, syscall.EWOULDBLOCK) || errors.Is(ferr, syscall.EAGAIN) {
+			return nil, errIdleWatchActive
+		}
+		// EINTR, ENOLCK, fs failure: exiting would silently disarm the
+		// daemon stop; surface the real error instead.
+		return nil, fmt.Errorf("flock idle-watch: %w", ferr)
 	}
 	return f, nil
 }

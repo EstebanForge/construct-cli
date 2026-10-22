@@ -23,7 +23,7 @@ import (
 // cleanup as a normal exit. Without it a signal skipped unregister and
 // copy-back entirely.
 func signalRunContext() (context.Context, func()) {
-	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 }
 
 // execViaMsbDaemon is the msb run path (docs/VMsv2.md): guarantee

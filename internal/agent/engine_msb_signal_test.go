@@ -36,4 +36,17 @@ func TestSignalRunContextCancelsOnSignals(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatalf("SIGINT did not cancel the run context")
 	}
+
+	// SIGHUP (terminal close) is a common kill path for interactive runs;
+	// it must tear down cleanly like the others.
+	ctx3, stop3 := signalRunContext()
+	defer stop3()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatalf("send SIGHUP: %v", err)
+	}
+	select {
+	case <-ctx3.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatalf("SIGHUP did not cancel the run context")
+	}
 }

@@ -16,7 +16,9 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
@@ -197,14 +199,11 @@ func msbStoreGC(ctx context.Context, act func(kind, name string, size uint64) er
 		}
 	}
 
-	sandboxes, err := gcListSandboxesFn(ctx)
-	if err != nil {
+	// Fail-closed gate: if sandbox liveness cannot be determined (msb
+	// unreachable, possibly mid-fork), no snapshot is touched.
+	if _, err := gcListSandboxesFn(ctx); err != nil {
 		recordErr(fmt.Errorf("snapshot GC skipped (cannot determine sandbox liveness): %w", err))
 		return rep, firstErr
-	}
-	live := make(map[string]bool, len(sandboxes))
-	for _, n := range sandboxes {
-		live[n] = true
 	}
 
 	snaps, err := gcListSnapshotsFn(ctx)
@@ -213,26 +212,18 @@ func msbStoreGC(ctx context.Context, act func(kind, name string, size uint64) er
 		return rep, firstErr
 	}
 	scopedPrefix := msbDaemonName + ":" + msbForkSnapshotPrefix
-	// All matching snapshots belong to the daemon group (the name embeds
-	// the source sandbox); keep the newest when the daemon exists, by name:
-	// fork names embed unix seconds, so the lexicographic max is newest.
-	var items []msbGCSnapshot
-	newest := ""
+	// Fork snapshots are copies, never the daemon's live state; the next
+	// fork captures fresh. Retention is purely age-based: fresh captures
+	// survive (one may be mid-fork — the restore reads it after the daemon
+	// record blinks out of the sandbox list), stale ones go even when the
+	// daemon is live, so the kept-newest snapshot is never a 4 GiB
+	// immortal. Names embed unix seconds.
+	cutoff := time.Now().Add(-msbForkSnapshotRetention)
 	for _, sn := range snaps {
 		if !strings.HasPrefix(sn.name, scopedPrefix) {
 			continue
 		}
-		items = append(items, sn)
-		if sn.name > newest {
-			newest = sn.name
-		}
-	}
-	keep := ""
-	if live[msbDaemonName] {
-		keep = newest
-	}
-	for _, sn := range items {
-		if sn.name == keep {
+		if gcSnapshotFresh(sn.name, cutoff) {
 			continue
 		}
 		if aerr := act("snapshot", sn.name, sn.sizeBytes); aerr != nil {
@@ -243,6 +234,26 @@ func msbStoreGC(ctx context.Context, act func(kind, name string, size uint64) er
 		rep.SnapshotBytesReclaimed += sn.sizeBytes
 	}
 	return rep, firstErr
+}
+
+// msbForkSnapshotRetention bounds how long a fork snapshot may occupy the
+// store. Generous enough that a snapshot captured before a crash is still
+// inspectable within the same working session.
+const msbForkSnapshotRetention = time.Hour
+
+// gcSnapshotFresh reports whether the snapshot's embedded timestamp is
+// newer than the cutoff. Unparseable names count as fresh: deleting data
+// whose age is unknown is the wrong failure mode.
+func gcSnapshotFresh(name string, cutoff time.Time) bool {
+	i := strings.LastIndex(name, "-")
+	if i < 0 {
+		return true
+	}
+	ts, err := strconv.ParseInt(name[i+1:], 10, 64)
+	if err != nil {
+		return true
+	}
+	return time.Unix(ts, 0).After(cutoff)
 }
 
 func isConstructImageCandidate(ref string) bool {

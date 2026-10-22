@@ -420,11 +420,24 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 		for _, pkg := range c.Npm.Packages {
 			// Existence guard: forced reinstall passes must skip the network
 			// or the install-phase budget blows out (lab-matrix asserts <5s).
+			// An explicit (non-latest) pin also compares against the installed
+			// package.json version, so bumping the pin reinstalls instead of
+			// silently keeping whatever landed first.
 			pkgDir := pkg
+			pinned := ""
 			if i := strings.LastIndex(pkg, "@"); i > 0 {
 				pkgDir = pkg[:i]
+				pinned = pkg[i+1:]
+				if pinned == "latest" {
+					pinned = ""
+				}
 			}
-			b.WriteString("if [ -d \"$HOME/.npm-global/lib/node_modules/" + pkgDir + "\" ]; then\n")
+			modDir := "$HOME/.npm-global/lib/node_modules/" + pkgDir
+			b.WriteString("if [ -d \"" + modDir + "\" ]")
+			if pinned != "" {
+				b.WriteString(" && [ \"$(node -p \"require('" + modDir + "/package.json').version\" 2>/dev/null)\" = \"" + pinned + "\" ]")
+			}
+			b.WriteString(" ]; then\n")
 			b.WriteString("    echo 'npm: " + pkgDir + " already installed; skipping'\n")
 			b.WriteString("else\n")
 			b.WriteString("    npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n")

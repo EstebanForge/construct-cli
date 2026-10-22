@@ -3,9 +3,11 @@ package runtime
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 type gcStub struct {
@@ -121,23 +123,40 @@ func TestMsbStoreGCDeadDaemonSnapshotsRemoved(t *testing.T) {
 }
 
 func TestMsbStoreGCKeepsNewestForkSnapshotForLiveDaemon(t *testing.T) {
+	// Fresh captures survive regardless of daemon liveness: a snapshot
+	// taken seconds ago may be mid-fork (the restore reads it after the
+	// daemon record blinks out of the sandbox list).
+	now := time.Now().Unix()
+	s := &gcStub{snapshots: []msbGCSnapshot{
+		{name: fmt.Sprintf("%s:construct-daemon-fork-%d", msbDaemonName, now-10), sizeBytes: 4 << 30},
+		{name: fmt.Sprintf("%s:construct-daemon-fork-%d", msbDaemonName, now-5), sizeBytes: 4 << 30},
+	}, sandboxes: []string{}}
+	installGcStubs(t, s)
+	rep, err := RunMsbStoreGC(context.Background())
+	if err != nil {
+		t.Fatalf("gc: %v", err)
+	}
+	if len(rep.SnapshotsRemoved) != 0 {
+		t.Fatalf("fresh snapshots must never be touched: %v", rep.SnapshotsRemoved)
+	}
+}
+
+// TestMsbStoreGCRemovesStaleForkSnapshotsEvenForLiveDaemon: a fork
+// snapshot is a copy, never the daemon's live state — the next fork
+// captures fresh. Without an age bound the kept-newest snapshot is a
+// 4 GiB immortal.
+func TestMsbStoreGCRemovesStaleForkSnapshotsEvenForLiveDaemon(t *testing.T) {
 	s := &gcStub{snapshots: []msbGCSnapshot{
 		{name: msbDaemonName + ":construct-daemon-fork-100", sizeBytes: 4 << 30},
-		{name: msbDaemonName + ":construct-daemon-fork-300", sizeBytes: 4 << 30},
 		{name: msbDaemonName + ":construct-daemon-fork-200", sizeBytes: 4 << 30},
-	}, sandboxes: []string{msbDaemonName, "other-sb"}}
+	}, sandboxes: []string{msbDaemonName}}
 	installGcStubs(t, s)
 	rep, err := RunMsbStoreGC(context.Background())
 	if err != nil {
 		t.Fatalf("gc: %v", err)
 	}
 	if len(rep.SnapshotsRemoved) != 2 {
-		t.Fatalf("want the two stale forks removed, got %v", rep.SnapshotsRemoved)
-	}
-	for _, n := range rep.SnapshotsRemoved {
-		if strings.HasSuffix(n, "-300") {
-			t.Fatalf("newest fork snapshot must stay: %v", rep.SnapshotsRemoved)
-		}
+		t.Fatalf("stale fork snapshots must go even on a live daemon, got %v", rep.SnapshotsRemoved)
 	}
 }
 
