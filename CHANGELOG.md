@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.19.0 -->
+## [1.19.0] - 2026-10-23
+
+### Added
+
+- **`construct sys push` — one command to keep host and sandbox agent configs in sync, one way.** Agent configs lived twice: on the host (`~/.claude`, `~/.codex`, `~/.pi/agent`, ...) and as fresh seeded copies inside the sandbox, so a host login or MCP server change never reached the agents construct runs, and there was no way to carry it over short of manual copying. `sys push` imports host agent configs into the construct home from a curated per-agent table (settings, rules such as `AGENTS.md` and `CLAUDE.md`, MCP and keybinding configs, command dirs, and credentials) across all fourteen supported agents. The direction is one-way by design and the name says so: the host is the source of truth for configs, and the sandbox never writes back. Overwrites are role-based — config and rules files push when content differs, credentials (`auth.json` and friends) push only over a missing or empty-stub guest copy so a guest-side token rotation is never clobbered by a stale host login, with `--force` to override — and directory pushes are additive, so construct-managed state inside the same trees is never deleted. Interactive runs print the plan and ask `Apply these N file(s) now?` before writing anything; scripted runs are fail-closed, printing the plan plus a `--yes` hint and writing nothing, so a bare invocation in a script can never mutate the sandbox. Guest-side reads are guarded (`safefs`, size-capped, symlink-refusing) against planted FIFOs and off-bind symlinks, credential files land `0600`, and a `sync.lock` flock serializes concurrent invocations. The pre-existing integration-sync mirror read shared the unguarded guest-read hazard and is fixed in the same pass.
+
+<!-- RELEASE:END 1.19.0 -->
+
 <!-- RELEASE:START 1.18.2 -->
 ## [1.18.2] - 2026-10-23
 
