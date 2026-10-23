@@ -126,7 +126,9 @@ func syncIntegrationFile(src, dst string) {
 		return
 	}
 
-	if existing, err := os.ReadFile(dst); err == nil {
+	// ReadFileRegular, not os.ReadFile: dst sits in the guest-writable bind, where
+	// a guest-planted FIFO would hang this read and a symlink would read off-bind.
+	if existing, err := safefs.ReadFileRegular(dst, maxSyncFileBytes); err == nil {
 		if sha256.Sum256(existing) == sha256.Sum256(srcBytes) {
 			return // identical; no write needed
 		}

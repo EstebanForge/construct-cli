@@ -202,6 +202,28 @@ forward_ssh_agent = true
 construct sys ssh-import  # Import host keys manually
 ```
 
+### Agent Config Push
+
+Your host agent configs (`~/.claude`, `~/.codex`, `~/.pi/agent`, ...) and the sandbox copies are separate trees. `construct sys push` pushes your host configs into the sandbox so you log in once and keep settings, rules, and MCP servers in one place. The name is one-way on purpose: the sandbox never writes back to your host.
+
+```bash
+construct sys push                      # Interactive: shows the plan, then asks to apply
+construct sys push --agents claude,pi   # Push specific agents only
+construct sys push --dry-run            # Preview without writing (also the scripted default)
+construct sys push --yes                # Push without the interactive confirm
+```
+
+Behavior by context: an interactive terminal shows the plan first and asks `Apply these N file(s) now?` before writing anything; a scripted or non-interactive run only prints the plan plus a `--yes` hint, so it can never write uninvited. `--dry-run` and `--yes` behave identically everywhere.
+
+Two roles decide overwrite behavior:
+
+- **Config and rules files:** the host copy always wins when content differs. Running the push means the host is the source of truth; the plan shows every planned change first.
+- **Credentials (`auth.json` and friends):** pushed only when the guest copy is missing or an empty stub, so a guest-side token rotation is never clobbered by a stale host copy. `--force` overrides.
+
+Directory pushes are additive: files that exist only inside the sandbox (such as construct-managed extension state) are never deleted. Sessions, caches, and history never push.
+
+Guest-side reads and writes are guarded by `safefs`, so a tampered sandbox tree cannot turn a sync into host file reads or writes outside the construct home.
+
 ### Environment Variable Passthrough
 
 ```toml

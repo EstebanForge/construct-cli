@@ -55,6 +55,8 @@ Global Flags:
   construct sys shell              # Interactive shell with all agents inside Construct
   construct sys exec -- <command>  # Run a single command inside a running Construct container
   construct sys ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
+  construct sys push               # Push host agent configs into Construct
+                                   # [--agents slug,slug] [--force] [--dry-run] [--yes]
   construct sys update             # Update agents and packages to latest versions inside Construct
   construct sys check-update       # Check if an update is available for The Construct
   construct sys version            # Show version
@@ -106,6 +108,8 @@ Commands:
   shell              # Interactive shell with all agents inside Construct
   exec -- <command>  # Run a single command inside a running Construct container
   ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
+  push               # Push host agent configs into Construct
+                     # [--agents slug,slug] [--force] [--dry-run] [--yes]
   update             # Update agents and packages to latest versions inside Construct
   check-update       # Check if an update is available for The Construct
   version            # Show version

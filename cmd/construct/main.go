@@ -217,6 +217,11 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		agent.List()
 	case "agents-md":
 		sys.ListAgentMemories()
+	case "push":
+		if err := agent.SyncAgentConfigs(args[1:]); err != nil {
+			ui.GumError(fmt.Sprintf("Config push failed: %v", err))
+			os.Exit(1)
+		}
 	case "doctor":
 		doctor.Run(args[1:]...)
 	case "clipboard-debug":
