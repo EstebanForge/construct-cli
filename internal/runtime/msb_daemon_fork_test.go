@@ -1,9 +1,12 @@
 package runtime
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
+
+	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
 func TestMsbRecreateForkableReasons(t *testing.T) {
@@ -30,6 +33,75 @@ func TestMsbRecreateForkableReasons(t *testing.T) {
 		if msbRecreateForkable(reason) {
 			t.Errorf("reason %q must cold-recreate, not fork", reason)
 		}
+	}
+}
+
+// TestCaptureForkSnapshotLadderRungOrder pins the ladder the fork capture
+// walks: full capture with Required flush, full capture with Auto flush,
+// then a disk-only capture. The disk-only rung is the poison escape: a
+// guest-tracked passthrough inode deleted on the host fails every full
+// capture (device-state serialization), while disk capture never touches
+// device state and is all the SnapshotDiskOnly restore consumes.
+func TestCaptureForkSnapshotLadderRungOrder(t *testing.T) {
+	art := &msb.SnapshotArtifact{}
+	attempts := 0
+	var seen []msb.SnapshotCreateOptions
+	create := func(opts msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+		seen = append(seen, opts)
+		attempts++
+		if attempts < 3 {
+			return nil, errors.New("control operation rejected by peer: cannot reopen tracked passthrough inode")
+		}
+		return art, nil
+	}
+
+	snap, err := captureForkSnapshotLadder(create, "snap-a")
+	if err != nil || snap != art {
+		t.Fatalf("snap=%v err=%v, want artifact on the disk-only rung", snap, err)
+	}
+	if len(seen) != 3 {
+		t.Fatalf("%d attempts, want 3", len(seen))
+	}
+	wantFlush := []msb.GuestFlush{msb.GuestFlushRequired, msb.GuestFlushAuto, msb.GuestFlushAuto}
+	for i, opts := range seen {
+		if opts.Name != "snap-a" || opts.FromSandbox != msbDaemonName {
+			t.Errorf("attempt %d: name/sandbox = %q/%q, want snap-a/%s", i, opts.Name, opts.FromSandbox, msbDaemonName)
+		}
+		if want := i < 2; opts.Full != want {
+			t.Errorf("attempt %d: Full = %v, want %v", i, opts.Full, want)
+		}
+		if opts.GuestFlush != wantFlush[i] {
+			t.Errorf("attempt %d: GuestFlush = %q, want %q", i, opts.GuestFlush, wantFlush[i])
+		}
+	}
+}
+
+// TestCaptureForkSnapshotLadderFirstRungWins: a healthy daemon captures on
+// the first rung; no fallback attempt may fire.
+func TestCaptureForkSnapshotLadderFirstRungWins(t *testing.T) {
+	art := &msb.SnapshotArtifact{}
+	attempts := 0
+	snap, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+		attempts++
+		return art, nil
+	}, "snap-b")
+	if err != nil || snap != art {
+		t.Fatalf("snap=%v err=%v, want artifact on the first rung", snap, err)
+	}
+	if attempts != 1 {
+		t.Fatalf("%d attempts, want 1", attempts)
+	}
+}
+
+// TestCaptureForkSnapshotLadderAllRungsFail: exhausted ladder returns the
+// last error so the caller's recycle-and-retry path still sees it.
+func TestCaptureForkSnapshotLadderAllRungsFail(t *testing.T) {
+	wantErr := errors.New("rejected")
+	_, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+		return nil, wantErr
+	}, "snap-c")
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("err = %v, want the last rung error", err)
 	}
 }
 
