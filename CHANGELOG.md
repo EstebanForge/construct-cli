@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.18.2 -->
+## [1.18.2] - 2026-10-23
+
+### Fixed
+
+- **Daemon forks now survive a poisoned virtiofs state table instead of falling to a two-minute cold reinstall.** A recreate's fork path captures a full snapshot of the running daemon, and a full capture serializes virtiofs device state: every passthrough inode the guest ever tracked must reopen. Any file the guest touched that the host deleted mid-session (per-run staging cleanup, workspace churn like git gc or build output) leaves a dangling inode, and the whole capture aborts with `cannot reopen tracked passthrough inode`; both flush rungs fail identically because neither changes device-state capture, and the detached-boot retry cannot clear a host-side table, so the fork fell through to a cold recreate that re-ran every install. The capture ladder gained a final disk-only rung: it never serializes device state, the SDK flushes live disk captures by default, and the fork restores disk-only anyway, so a poisoned table now costs two fast rejections and the installed tools still carry over.
+
+<!-- RELEASE:END 1.18.2 -->
+
 <!-- RELEASE:START 1.17.19 -->
 ## [1.17.19] - 2026-10-01
 
