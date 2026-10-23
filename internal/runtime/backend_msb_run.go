@@ -1309,25 +1309,44 @@ const msbImageEntrypoint = "/usr/local/bin/entrypoint.sh"
 // older captures are pruned after a successful fork.
 const msbForkSnapshotPrefix = "construct-daemon-fork-"
 
-// captureForkSnapshot runs the full-capture flush ladder (Required, then
-// Auto) for the fork's disk snapshot.
+// captureForkSnapshot runs the fork capture ladder (see
+// captureForkSnapshotLadder) against the live SDK.
 func captureForkSnapshot(ctx context.Context, snapName string) (*msb.SnapshotArtifact, error) {
-	snap, err := msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
-		FromSandbox: msbDaemonName,
-		Name:        snapName,
-		Full:        true,
-		GuestFlush:  msb.GuestFlushRequired,
-	})
-	if err == nil {
-		return snap, nil
+	return captureForkSnapshotLadder(func(opts msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+		return msb.Snapshot.Create(ctx, opts)
+	}, snapName)
+}
+
+// captureForkSnapshotLadder captures the fork's disk snapshot, hardest-
+// flushing rung first: full capture with Required flush (no lost tail
+// writes), full capture with Auto, then disk-only. The disk-only rung is
+// the poisoned-device-state escape: a guest-tracked passthrough inode that
+// was deleted on the host (per-run staging cleanup, workspace churn) fails
+// EVERY full capture during device-state serialization with "cannot reopen
+// tracked passthrough inode", while disk capture never serializes device
+// state — and SnapshotDiskOnly restore consumes nothing else. The SDK
+// flushes live disk captures by default, so its disk is at least as
+// consistent as the Auto rung's.
+func captureForkSnapshotLadder(create func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error), snapName string) (*msb.SnapshotArtifact, error) {
+	ladder := []msb.SnapshotCreateOptions{
+		{FromSandbox: msbDaemonName, Name: snapName, Full: true, GuestFlush: msb.GuestFlushRequired},
+		{FromSandbox: msbDaemonName, Name: snapName, Full: true, GuestFlush: msb.GuestFlushAuto},
+		{FromSandbox: msbDaemonName, Name: snapName, GuestFlush: msb.GuestFlushAuto},
 	}
-	ui.InfoF("📸 Full writeback rejected (%v); capturing without it...\n", err)
-	return msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
-		FromSandbox: msbDaemonName,
-		Name:        snapName,
-		Full:        true,
-		GuestFlush:  msb.GuestFlushAuto,
-	})
+	var err error
+	for _, opts := range ladder {
+		snap, cerr := create(opts)
+		if cerr == nil {
+			return snap, nil
+		}
+		err = cerr
+		if opts.Full {
+			ui.InfoF("📸 Full writeback rejected (%v); capturing without it...\n", err)
+		} else {
+			ui.InfoF("📸 Disk-only capture rejected (%v); falling back to a full recreate...\n", err)
+		}
+	}
+	return nil, err
 }
 
 // recycleDaemonForCapture re-spawns the daemon's VMM through a stop +
