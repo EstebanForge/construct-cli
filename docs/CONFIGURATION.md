@@ -220,9 +220,9 @@ Two roles decide overwrite behavior:
 - **Config and rules files:** the host copy always wins when content differs. Running the push means the host is the source of truth; the plan shows every planned change first.
 - **Credentials (`auth.json` and friends):** pushed only when the guest copy is missing or an empty stub, so a guest-side token rotation is never clobbered by a stale host copy. `--force` overrides.
 
-Directory pushes are additive: files that exist only inside the sandbox (such as construct-managed extension state) are never deleted. Sessions, caches, and history never push.
+Files are picked from a curated per-agent table; sessions, caches, and history never push. Directory pushes are additive: files that exist only inside the sandbox (such as construct-managed extension state) are never deleted.
 
-Guest-side reads and writes are guarded by `safefs`, so a tampered sandbox tree cannot turn a sync into host file reads or writes outside the construct home.
+Guest-side reads and writes are guarded by `safefs`, so a tampered sandbox tree cannot turn a push into host file reads or writes outside the construct home.
 
 ### Environment Variable Passthrough
 
