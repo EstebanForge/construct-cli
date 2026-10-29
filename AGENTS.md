@@ -1,6 +1,15 @@
 # AGENTS.md
 
-## Build & Test
+## Build & Test (`just` recipes)
+- List recipes: `just`
+- Build: `just build` (outputs `bin/construct`, unsigned local build)
+- Lint: `just lint` (golangci-lint)
+- Format: `just fmt`
+- Vet: `just vet`
+- Test: `just test` or `just test-unit`
+- Full checks / Local CI: `just check` or `just ci` (`fmt -> vet -> lint -> test -> build`)
+
+Or via direct Makefile targets:
 - Build: `make build` (outputs `bin/construct`, unsigned local build)
 - Sign (optional, macOS): `make sign` or `make build-signed`
 - Lint: `make lint` (golangci-lint)
