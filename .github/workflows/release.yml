@@ -1,9 +1,7 @@
 name: Release
 
+# Manual release only
 on:
-  push:
-    tags:
-      - "*.*.*"
   workflow_dispatch:
     inputs:
       tag:
