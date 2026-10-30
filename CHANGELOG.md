@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.19.1 -->
+## [1.19.1] - 2026-10-30
+
+### Fixed
+
+- **Embedded microsandbox runtime updated to 0.7.11** (SDK 0.7.11, host pair msb + libkrunfw 0.7.11). Picks up the exec fix for terminal sessions hanging after output, detached jobs idling instead of being reaped, snapshot import no longer duplicating catalog entries, completed published TCP connections being released, and anonymous GHCR registry auth in the Go SDK. Version-matched hosts (`msb update`) and embedded launches both pair again.
+
+<!-- RELEASE:END 1.19.1 -->
+
 <!-- RELEASE:START 1.19.0 -->
 ## [1.19.0] - 2026-10-23
 
