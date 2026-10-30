@@ -83,6 +83,55 @@ func TestConfigSyncTableCoversSupportedAgents(t *testing.T) {
 	}
 }
 
+func TestConfigSyncTableAgyAndCopilotEntries(t *testing.T) {
+	var agyRow, copilotRow *syncRow
+	for i := range configSyncTable {
+		if configSyncTable[i].slug == "agy" {
+			agyRow = &configSyncTable[i]
+		}
+		if configSyncTable[i].slug == "copilot" {
+			copilotRow = &configSyncTable[i]
+		}
+	}
+	if agyRow == nil || copilotRow == nil {
+		t.Fatal("expected agy and copilot rows in sync table")
+	}
+
+	agyRels := make(map[string]bool)
+	for _, e := range agyRow.entries {
+		agyRels[e.guestRel] = true
+	}
+	for _, expected := range []string{
+		".antigravity/AGENTS.md",
+		".gemini/GEMINI.md",
+		".gemini/settings.json",
+		".gemini/antigravity-cli/settings.json",
+		".gemini/prompts",
+		".gemini/oauth_creds.json",
+	} {
+		if !agyRels[expected] {
+			t.Errorf("agy missing expected sync target %q", expected)
+		}
+	}
+
+	copilotRels := make(map[string]bool)
+	for _, e := range copilotRow.entries {
+		copilotRels[e.guestRel] = true
+	}
+	for _, expected := range []string{
+		".copilot/AGENTS.md",
+		".copilot/copilot-instructions.md",
+		".copilot/config.json",
+		".copilot/settings.json",
+		".copilot/mcp-config.json",
+		".config/github-copilot/apps.json",
+	} {
+		if !copilotRels[expected] {
+			t.Errorf("copilot missing expected sync target %q", expected)
+		}
+	}
+}
+
 func TestSyncConfigPushesHostToGuestAndRepushesOnChange(t *testing.T) {
 	f := newSyncFixture(t)
 	f.hostFile(".codex/config.toml", "model = o3\n")

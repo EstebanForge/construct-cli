@@ -2,6 +2,25 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 1.20.0 -->
+## [1.20.0] - 2026-10-30
+
+### Added
+
+- **`construct sys pull` command**: Dedicated command to pull the latest `construct-box` image from GHCR in the foreground with real-time download and extraction progress reporting.
+- **`just build-signed` recipe**: Recipe to build, ad-hoc codesign on macOS, and install to `~/.local/bin/construct`.
+
+### Changed
+
+- **`construct sys agents push`**: Renamed `construct sys push` to `construct sys agents push` (and `--push`) to clearly separate agent configuration syncing from container image downloads.
+
+### Fixed
+
+- **Remote digest cache invalidation on pull**: Added `bustRemoteDigestCache()` on image pulls and daemon recreate steps so `construct` immediately recognizes the fresh upstream image digest instead of retaining stale cached entries for up to 6 hours.
+- **Agent config sync detection for Antigravity and Copilot**: Added host-side fallback paths and full configuration recognition for `agy` (`~/.gemini/GEMINI.md`, `~/.gemini/settings.json`, `~/.gemini/antigravity-cli/settings.json`, `~/.gemini/prompts`, and `~/.gemini/oauth_creds.json`) and `copilot` (`~/.copilot/copilot-instructions.md`, `~/.copilot/config.json`, `~/.copilot/settings.json`, `~/.copilot/mcp-config.json`, and `~/.config/github-copilot/apps.json`), preventing false `not installed on host` detections.
+
+<!-- RELEASE:END 1.20.0 -->
+
 <!-- RELEASE:START 1.19.1 -->
 ## [1.19.1] - 2026-10-30
 

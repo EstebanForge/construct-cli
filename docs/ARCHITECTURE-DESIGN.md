@@ -248,7 +248,8 @@ make cross-compile   # all platforms
 - `sys config --restore`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
 - `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
-- `sys push`: One-way push of host agent configs (settings, rules, MCP config, credentials) into the construct home. Interactive runs preview then confirm; scripted runs are fail-closed (`--yes` to apply). See [CONFIGURATION.md](CONFIGURATION.md).
+- `sys agents push`: One-way push of host agent configs (settings, rules, MCP config, credentials) into the construct home. Interactive runs preview then confirm; scripted runs are fail-closed (`--yes` to apply). See [CONFIGURATION.md](CONFIGURATION.md).
+- `sys pull`: Pull latest construct-box image from GHCR.
 - `sys daemon install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).
 - `sys daemon uninstall`: Remove daemon auto-start service.
 - `sys daemon status`: Show daemon runtime + auto-start service status.

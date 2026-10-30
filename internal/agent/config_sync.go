@@ -104,6 +104,11 @@ func pigAgentDir(home string) string {
 var configSyncTable = []syncRow{
 	{slug: "agy", entries: []configSyncEntry{
 		{hostPath: func(h string) string { return homePath(h, ".antigravity", "AGENTS.md") }, guestRel: ".antigravity/AGENTS.md", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".gemini", "GEMINI.md") }, guestRel: ".gemini/GEMINI.md", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".gemini", "settings.json") }, guestRel: ".gemini/settings.json", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".gemini", "antigravity-cli", "settings.json") }, guestRel: ".gemini/antigravity-cli/settings.json", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".gemini", "prompts") }, guestRel: ".gemini/prompts", role: roleConfig, dir: true},
+		{hostPath: func(h string) string { return homePath(h, ".gemini", "oauth_creds.json") }, guestRel: ".gemini/oauth_creds.json", role: roleCredential},
 	}},
 	{slug: "claude", entries: []configSyncEntry{
 		{hostPath: func(h string) string { return homePath(h, ".claude", "settings.json") }, guestRel: ".claude/settings.json", role: roleConfig},
@@ -125,6 +130,11 @@ var configSyncTable = []syncRow{
 	}},
 	{slug: "copilot", entries: []configSyncEntry{
 		{hostPath: func(h string) string { return homePath(h, ".copilot", "AGENTS.md") }, guestRel: ".copilot/AGENTS.md", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".copilot", "copilot-instructions.md") }, guestRel: ".copilot/copilot-instructions.md", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".copilot", "config.json") }, guestRel: ".copilot/config.json", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".copilot", "settings.json") }, guestRel: ".copilot/settings.json", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".copilot", "mcp-config.json") }, guestRel: ".copilot/mcp-config.json", role: roleConfig},
+		{hostPath: func(h string) string { return homePath(h, ".config", "github-copilot", "apps.json") }, guestRel: ".config/github-copilot/apps.json", role: roleCredential},
 	}},
 	{slug: "opencode", entries: []configSyncEntry{
 		{hostPath: func(h string) string { return homePath(h, ".config", "opencode", "opencode.json") }, guestRel: ".config/opencode/opencode.json", role: roleConfig},
@@ -442,8 +452,8 @@ func resolveAction(opts syncOptions, interactive bool) pushAction {
 	}
 }
 
-// SyncAgentConfigs is the `construct sys push` entry point. args are the
-// post-namespace CLI args (--agents slug,slug --force --dry-run --yes).
+// SyncAgentConfigs is the `construct sys agents push` entry point. args are the
+// flags (--agents slug,slug --force --dry-run --yes).
 func SyncAgentConfigs(args []string) error {
 	opts, err := parseSyncArgs(args)
 	if err != nil {
@@ -540,7 +550,7 @@ func SyncAgentConfigs(args []string) error {
 }
 
 func printPushUsage() {
-	fmt.Println("Usage: construct sys push [--agents slug,slug] [--force] [--dry-run] [--yes]")
+	fmt.Println("Usage: construct sys agents push [--agents slug,slug] [--force] [--dry-run] [--yes]")
 	fmt.Println()
 	fmt.Println("One-way push of host agent configs into the Construct sandbox:")
 	fmt.Println("  settings, rules, MCP config: host copy wins on change")

@@ -25,6 +25,8 @@ Global Flags:
 
 [sys] System Commands:
   construct sys agents             # List supported agents
+                                   # [push] Push host agent configs into Construct
+                                   # [--agents slug,slug] [--force] [--dry-run] [--yes]
   construct sys agents-md          # Manage global instruction files (rules) for agents
   construct sys config             # Config operations (opens config.toml by default)
                                    # [--migrate] Re-sync config/templates with the current binary
@@ -55,8 +57,7 @@ Global Flags:
   construct sys shell              # Interactive shell with all agents inside Construct
   construct sys exec -- <command>  # Run a single command inside a running Construct container
   construct sys ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
-  construct sys push               # Push host agent configs into Construct
-                                   # [--agents slug,slug] [--force] [--dry-run] [--yes]
+  construct sys pull               # Pull latest construct-box image from GHCR
   construct sys update             # Update agents and packages to latest versions inside Construct
   construct sys check-update       # Check if an update is available for The Construct
   construct sys version            # Show version

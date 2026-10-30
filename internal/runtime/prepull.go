@@ -74,6 +74,48 @@ func MaybePrepullImage(cfg *config.Config) {
 	ui.InfoF("⏳ Spawned background prepull (log: %s)\n", logPath)
 }
 
+// PullImage runs a foreground pull of the published construct-box image from GHCR.
+// Used by `construct sys pull`.
+func PullImage(cfg *config.Config) error {
+	backend := config.BackendMsb
+	if cfg != nil && cfg.Runtime.Backend != "" {
+		backend = cfg.Runtime.Backend
+	}
+
+	ui.InfoF("→ Pulling latest construct-box image (%s)...\n", PrepullImageRef)
+
+	if backend == config.BackendMsb {
+		pullBin, err := msbembed.Command()
+		if err != nil {
+			return fmt.Errorf("msb command: %w", err)
+		}
+		cmd := exec.Command(pullBin, "image", "pull", "--force", PrepullImageRef)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("pull failed: %w", err)
+		}
+		bustImageInspectMemo()
+		bustRemoteDigestCache()
+		ui.InfoLn("✓ construct-box image updated")
+		return nil
+	}
+
+	preferred := "auto"
+	if backend != config.BackendContainers && backend != config.BackendMsb {
+		preferred = backend
+	}
+	rt := DetectRuntime(preferred)
+	if rt == "none" || rt == "" {
+		return fmt.Errorf("no container runtime found (docker or podman required)")
+	}
+	if !tryPullConstructImage(rt) {
+		return fmt.Errorf("failed to pull image with %s", rt)
+	}
+	ui.InfoLn("✓ construct-box image updated")
+	return nil
+}
+
 // PrepullRun is the body of `construct sys prepull --once`. Runs the GHCR
 // pull and tag, logs progress to the prepull log file, exits 0 on success
 // and 1 on any error. Invoked as a detached process by MaybePrepullImage;

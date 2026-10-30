@@ -154,6 +154,10 @@ type remoteDigestCacheEntry struct {
 // so cachedRemoteDigest is unit-testable.
 var ghcrFetchDigest = ghcrRemoteDigest
 
+func bustRemoteDigestCache() {
+	_ = os.Remove(filepath.Join(config.GetConfigDir(), "msb-remote-digest.json")) //nolint:errcheck // best-effort cache purge
+}
+
 // cachedRemoteDigest serves the registry digest from a file-backed cache
 // inside remoteDigestCacheTTL: the anonymous-token fetch costs ~1s best
 // case and a 15s timeout worst, on every create otherwise. A failed fetch
@@ -209,7 +213,7 @@ var localConstructImageExistsFn = LocalConstructImageExists
 // spawn or the download line. It then reuses a local docker/podman image when
 // present, and otherwise builds only after a user confirmation. The local
 // image lands via container-runtime save + msb load.
-func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
+func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
 	// Deliberate local builds win over GHCR: a localhost/ ref only lands
@@ -268,6 +272,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 		// the post-pull verify re-reads the pre-pull digest and a successful
 		// refresh would read as its old digest.
 		bustImageInspectMemo()
+		bustRemoteDigestCache()
 		if msbImageCachedFn(PrepullImageRef) {
 			// Verify the store digest actually moved: a forced pull that no-ops
 			// or dies mid-stream leaves the old digest cached, and reporting
@@ -287,19 +292,7 @@ func (m *MsbBackend) EnsureImage(cfg *config.Config) (string, error) {
 		return ref, nil
 	}
 
-	// Reuse a local docker/podman image when present; otherwise the local
-	// build only runs after an explicit user confirmation (engine-uniform
-	// acquisition flow, see image_resolve.go).
-	if !localConstructImageExistsFn(cfg) {
-		if err := ConfirmConstructImageBuild(); err != nil {
-			return "", err
-		}
-		BuildImage(cfg)
-	}
-	if err := TransitionLocalConstructImageToMsb(cfg); err != nil {
-		return "", err
-	}
-	return "localhost/construct-box:latest", nil
+	return "", fmt.Errorf("construct-box image not found locally and pull failed; check your network or run 'construct sys pull'")
 }
 
 // TransitionLocalConstructImageToMsb moves a locally built construct-box

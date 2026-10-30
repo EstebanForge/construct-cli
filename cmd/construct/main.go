@@ -214,12 +214,20 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "packages":
 		handlePackagesCommand(args[1:], cfg)
 	case "agents":
+		if len(args) > 1 && (args[1] == "push" || args[1] == "--push") {
+			if err := agent.SyncAgentConfigs(args[2:]); err != nil {
+				ui.GumError(fmt.Sprintf("Agent configs push failed: %v", err))
+				os.Exit(1)
+			}
+			return
+		}
 		agent.List()
 	case "agents-md":
 		sys.ListAgentMemories()
-	case "push":
-		if err := agent.SyncAgentConfigs(args[1:]); err != nil {
-			ui.GumError(fmt.Sprintf("Config push failed: %v", err))
+	case "pull":
+		cfg = ensureConfigLoaded(cfg)
+		if err := runtime.PullImage(cfg); err != nil {
+			ui.GumError(fmt.Sprintf("Pull failed: %v", err))
 			os.Exit(1)
 		}
 	case "doctor":
