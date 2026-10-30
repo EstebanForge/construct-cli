@@ -180,7 +180,8 @@ construct sys reset            # Reset everything
 construct <agent>              # Run an agent (e.g., construct claude, construct agy)
 construct sys shims            # Manage PATH shims (sandboxed + ns-) for agents
 construct sys agents-md        # Manage AGENTS.md rules
-construct sys push             # Push host agent configs into Construct [--agents] [--force] [--dry-run] [--yes]
+construct sys agents push        # Push host agent configs into Construct [--agents] [--force] [--dry-run] [--yes]
+construct sys pull               # Pull latest construct-box image from GHCR
 
 # Development
 construct sys rebuild          # Rebuild containers

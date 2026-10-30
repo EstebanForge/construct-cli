@@ -50,6 +50,9 @@ func EnsureConstructImage(cfg *config.Config) error {
 // LocalConstructImageExists reports whether the local construct image
 // (construct-box:latest) exists in the host docker/podman store.
 func LocalConstructImageExists(cfg *config.Config) bool {
+	if cfg != nil && cfg.Runtime.Backend == config.BackendMsb {
+		return false
+	}
 	return localImageExists(ResolveContainerRuntime(cfg))
 }
 

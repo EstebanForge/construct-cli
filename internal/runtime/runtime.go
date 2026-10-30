@@ -58,6 +58,8 @@ func ResolveContainerRuntime(cfg *config.Config) string {
 		b = strings.TrimSpace(cfg.Runtime.Backend)
 	}
 	switch b {
+	case config.BackendMsb:
+		return "none"
 	case config.BackendPodman, config.BackendDocker:
 		return DetectRuntime(b)
 	default:

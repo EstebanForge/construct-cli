@@ -204,13 +204,13 @@ construct sys ssh-import  # Import host keys manually
 
 ### Agent Config Push
 
-Your host agent configs (`~/.claude`, `~/.codex`, `~/.pi/agent`, ...) and the sandbox copies are separate trees. `construct sys push` pushes your host configs into the sandbox so you log in once and keep settings, rules, and MCP servers in one place. The name is one-way on purpose: the sandbox never writes back to your host.
+Your host agent configs (`~/.claude`, `~/.codex`, `~/.pi/agent`, ...) and the sandbox copies are separate trees. `construct sys agents push` pushes your host configs into the sandbox so you log in once and keep settings, rules, and MCP servers in one place. The name is one-way on purpose: the sandbox never writes back to your host.
 
 ```bash
-construct sys push                      # Interactive: shows the plan, then asks to apply
-construct sys push --agents claude,pi   # Push specific agents only
-construct sys push --dry-run            # Preview without writing (also the scripted default)
-construct sys push --yes                # Push without the interactive confirm
+construct sys agents push                      # Interactive: shows the plan, then asks to apply
+construct sys agents push --agents claude,pi   # Push specific agents only
+construct sys agents push --dry-run            # Preview without writing (also the scripted default)
+construct sys agents push --yes                # Push without the interactive confirm
 ```
 
 Behavior by context: an interactive terminal shows the plan first and asks `Apply these N file(s) now?` before writing anything; a scripted or non-interactive run only prints the plan plus a `--yes` hint, so it can never write uninvited. `--dry-run` and `--yes` behave identically everywhere.

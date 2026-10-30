@@ -5,6 +5,10 @@ default:
 build:
     make build
 
+# Build, sign, and install to ~/.local/bin
+build-signed:
+    make build-signed
+
 # Format Go code
 fmt:
     make fmt
