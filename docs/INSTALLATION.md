@@ -416,7 +416,7 @@ After installation:
 1. **Read the [Configuration Guide](CONFIGURATION.md)** to customize Construct
 2. **Check out [Security Guide](SECURITY.md)** for hardening your setup
 3. **Explore [Providers Guide](PROVIDERS.md)** to use custom Claude endpoints
-4. **See [Examples](../README.md#common-examples)** for common workflows
+4. **See [Examples](QUICK-REFERENCE.md#common-examples)** for common workflows
 
 ## Getting Help
 

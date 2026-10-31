@@ -5,6 +5,7 @@ Complete documentation for The Construct CLI.
 ## Quick Links
 
 - [Installation](INSTALLATION.md) - Get started with Construct
+- [Quick Reference](QUICK-REFERENCE.md) - Everyday commands, examples, PATH shims
 - [Configuration](CONFIGURATION.md) - Configure all settings
 - [Security](SECURITY.md) - Security features and best practices
 - [Host Exec Bridge](HOST-EXEC.md) - Proxy host-only binaries into the sandbox
