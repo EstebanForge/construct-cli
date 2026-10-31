@@ -147,6 +147,16 @@ func UpdateAgents(cfg *config.Config) {
 
 // ResetVolumes deletes persistent volumes to force agent reinstall on next run.
 func ResetVolumes(cfg *config.Config) {
+	if cfg != nil && cfg.Runtime.Backend == config.BackendMsb {
+		fmt.Println("ℹ️  The msb backend has no named volumes: agent homes live on the")
+		fmt.Println("   persistent home bind and the toolchain is baked into the image.")
+		fmt.Println("   To reset the sandbox to a fresh image floor, run:")
+		fmt.Println()
+		fmt.Println("       construct sys daemon recreate")
+		fmt.Println()
+		return
+	}
+
 	containerRuntime := runtime.ResolveContainerRuntime(cfg)
 
 	if ui.GumAvailable() {
@@ -194,12 +204,13 @@ func ResetVolumes(cfg *config.Config) {
 
 	var cmd *exec.Cmd
 	switch containerRuntime {
-	case "docker":
+	case "docker", "container":
 		cmd = exec.Command("docker", "volume", "rm", "-f", "construct-agents", "construct-packages")
 	case "podman":
 		cmd = exec.Command("podman", "volume", "rm", "-f", "construct-agents", "construct-packages")
-	case "container":
-		cmd = exec.Command("docker", "volume", "rm", "-f", "construct-agents", "construct-packages")
+	default:
+		fmt.Fprintf(os.Stderr, "Error: no OCI container runtime available for reset (docker or podman required)\n")
+		os.Exit(1)
 	}
 
 	cmd.Stdout = os.Stdout

@@ -49,7 +49,7 @@ Prevents LLM agents from accessing raw secrets in your project:
 - Isolated workspace (OverlayFS/APFS)
 - Stream-time output masking
 
-### MicroVM Isolation Engine (Experimental)
+### MicroVM Isolation Engine (Default)
 
 **[MicroVM Backend Architecture](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend)** - Hardware-level isolation
 
@@ -179,7 +179,7 @@ All settings explained:
 | [**Configuration**](CONFIGURATION.md) | Complete configuration reference |
 | [**Security**](SECURITY.md) | Security features and best practices |
 | [**Hide Secrets**](HIDE-SECRETS.md) | Secret redaction user guide |
-| [**VM Backend**](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Opt-in microVM isolation architecture and operational design (experimental) |
+| [**VM Backend**](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Default microVM isolation architecture and operational design |
 | [**Providers**](PROVIDERS.md) | Custom Claude API endpoints |
 | [**Agents**](AGENTS.md) | Complete list of supported agents |
 | [**Packages**](PACKAGES.md) | User-defined package management |

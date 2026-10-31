@@ -4,7 +4,7 @@
   <img src="construct-cli-logo.png" alt="The Construct CLI Logo" />
 </p>
 
-**The Construct** is a single-binary CLI that boots a clean and isolated sandboxed container, preloaded with AI agents. It keeps your host free of dependency sprawl, adds optional network isolation, and works with Docker, Podman, or macOS native container runtime.
+**The Construct** is a single-binary CLI that boots a clean and isolated sandbox, preloaded with AI agents. It keeps your host free of dependency sprawl, adds optional network isolation, and isolates agents inside microVMs by default, with Docker, Podman, or the macOS native container runtime as the fallback backend.
 
 But, **most importantly**, it keeps your local machine safe from LLM prompt injection attacks, malware distributed this way, credentials stolen this way, and dangerous derps still being committed by AGENTS that can leave you [without any of your files](https://www.reddit.com/r/ClaudeAI/comments/1pgxckk/claude_cli_deleted_my_entire_home_directory_wiped/).
 
@@ -12,8 +12,8 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 
 - **One command** to use any AGENT inside a secured, isolated sandbox. Agents spawn from the path where you call them, without a path escape.
 - **Zero Config**: no complex setup. The Construct just works out of the box across macOS, Linux, and Windows (WSL).
-- **Auto-detection**: Automatically detects and uses the best available container runtime (macOS native → Podman → Docker)
-- **Experimental MicroVM Engine**: Optional hardware-level isolation via microVMs (`backend = "msb"` using microsandbox), running agents with dedicated guest Linux kernels; use it with the daemon and `[daemon] mount_paths` covering your project roots so the sandbox is reused, not recreated, when you switch projects
+- **MicroVM by default**: Hardware-level isolation via microVMs (microsandbox) with a dedicated guest Linux kernel per sandbox; ships embedded, nothing to install. Falls back to the best available OCI runtime (macOS native → Podman → Docker) on hosts without microVM support
+- **Daemon mode**: reuse one microVM sandbox across projects with `[daemon] mount_paths`; without it, switching project roots recreates the sandbox
 - **Clean Slate**: Ephemeral sandboxes; your config home (agents, caches, tools) and project directory persist across runs
 - **Network Isolation**: Optional `permissive`, `strict`, or `offline` network modes with allow/block lists
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent
@@ -151,7 +151,7 @@ construct sys doctor
 | Topic | Description |
 |-------|-------------|
 | [**Hide Secrets Mode**](docs/HIDE-SECRETS.md) | Prevent agents from seeing raw secrets (experimental) |
-| [**VM Backend**](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Opt-in microVM isolation via microsandbox (experimental) |
+| [**VM Backend**](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Default microVM isolation via microsandbox |
 | [**Providers**](docs/PROVIDERS.md) | Configure custom Claude API endpoints |
 | [**Packages**](docs/PACKAGES.md) | User-defined package management |
 | [**Architecture**](docs/ARCHITECTURE-DESIGN.md) | Technical design and internals |
@@ -197,7 +197,7 @@ construct --help               # Show all commands
 - ✅ Ephemeral containers (clean slate every run)
 - ✅ No path escape (agents stay in project root)
 - ✅ Secret redaction (experimental) - [see docs](docs/HIDE-SECRETS.md)
-- ✅ Optional microVM isolation (experimental, `backend = "msb"`) - [see docs](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend)
+- ✅ MicroVM isolation by default (`backend = "msb"`, microsandbox) - [see docs](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend)
 
 **Build integrity:**
 - ✅ Automated CI/CD builds via GitHub Actions

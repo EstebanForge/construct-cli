@@ -79,9 +79,11 @@ Items required before graduating `backend = "msb"` out of experimental status.
 ## Prerequisites
 
 - [x] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` for `linux/amd64` and `linux/arm64` — DONE 2026-09-25. Mechanism note: publishes are NOT part of the release workflow; they ride the manual `workflow_dispatch` `.github/workflows/image.yml` (dispatch it whenever the Dockerfile or its COPY'd templates change). Users pull via `msb` with no Docker engine; the 1.17.8+ digest-drift check refreshes stale caches automatically.
-- [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "msb"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
-- [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
-- [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
+- [x] ~~**Verify Non-Docker Cold Start**~~ REMOVED (owner, 2026-11-01): not required for GA. Release builds embed the msb SDK; image acquisition is GHCR pull with no Docker dependency. Docker is only needed for the local-build opt-in path.
+- [x] **Dogfooding & Stability**: DONE (owner, 2026-11-01). Daily workloads (Claude, Pi, Codex, Antigravity) across bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions validated.
+- [x] **Documentation Update**: DONE (2026-11-01). Experimental warnings removed in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, `ARCHITECTURE-DESIGN.md`, `SECURITY.md`, and `INDEX.md`; docs now describe msb as the default backend.
+- [x] **Flip default backend to msb**: DONE (2026-11-01). `DefaultConfig` resolves the default by platform capability (Apple Silicon macOS / Linux with KVM → msb, else containers), the config template and help text agree, `sys reset` fails closed with an msb-appropriate message (no nil-cmd panic), and `sys init`/`rebuild` fall back to a GHCR pull when no OCI engine is installed.
+- [x] **2.0 cleanup**: DONE (2026-11-01). Removed legacy engine/backend migration code (`foldLegacyEngine`, `migrateLegacyEngineKey`, `migrateBackendValues`, `Engine` field), dead `DetectBackend` (with its wrong strict-mode rejection), and the daemon spec label→file migration shim.
 
 ---
 

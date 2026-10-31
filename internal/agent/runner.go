@@ -45,7 +45,7 @@ func RunWithArgs(args []string, networkFlag string) {
 			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "validate runtime backend",
 			Err:        err,
-			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+			Suggestion: "Set backend to one of: msb, containers, podman, docker",
 		})
 		os.Exit(1)
 	}
@@ -153,7 +153,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "validate runtime backend",
 			Err:        err,
-			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+			Suggestion: "Set backend to one of: msb, containers, podman, docker",
 		})
 		os.Exit(1)
 	}

@@ -25,7 +25,7 @@ import (
 // ErrMsbUnsupported marks primitives with no msb equivalent yet (Step 6
 // MVP scope; docs/VMsv2.md). Callers surface these as clear errors, not
 // silent fallbacks.
-var ErrMsbUnsupported = errors.New("unsupported in the msb backend (experimental) — use the docker backend for this feature")
+var ErrMsbUnsupported = errors.New("unsupported in the msb backend — this feature needs the OCI container backends (containers, podman, docker)")
 
 // MsbBackend implements Backend over microsandbox microVMs (opt-in,
 // experimental; docs/VMsv2.md). Sandboxes are managed through the msb Go
@@ -695,39 +695,6 @@ func envSliceToMap(env []string) map[string]string {
 // Interface conformance.
 var _ Backend = (*MsbBackend)(nil)
 
-// DetectBackend resolves the configured isolation backend, fail closed:
-// backend = "msb" with microsandbox missing is a hard error with install
-// instructions, never a silent Docker fallback.
-func DetectBackend(cfg *config.Config) (Backend, error) {
-	backend := cfg.Runtime.Backend
-	if backend == "" {
-		backend = config.BackendContainers
-	}
-	switch backend {
-	case config.BackendContainers, config.BackendPodman, config.BackendDocker:
-		preferred := "auto" // never pass the category value as a binary pin
-		if backend != config.BackendContainers {
-			preferred = backend
-		}
-		rt := DetectRuntime(preferred)
-		if rt == "" {
-			return nil, errors.New("no OCI container runtime found (Apple container, podman, or docker). Install Docker Desktop or Podman")
-		}
-		return NewDockerBackend(rt)
-	case config.BackendMsb:
-		if cfg != nil && strings.EqualFold(cfg.Network.Mode, "strict") {
-			return nil, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
-		}
-		m := NewMsbBackend()
-		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
-			return nil, errors.New("runtime backend = \"msb\" but microsandbox is not installed. Install it: curl -fsSL https://install.microsandbox.dev | sh (Apple Silicon macOS or Linux with KVM)")
-		}
-		return m, nil
-	default:
-		return nil, fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", backend)
-	}
-}
-
 // ValidateBackendSelected reports whether the compose-based run path can
 // serve the configured backend. Entry points call this before any container
 // operation: backend = "msb" must fail closed with a clear message on
@@ -737,7 +704,7 @@ func ValidateBackendSelected(cfg *config.Config) error {
 	case "", config.BackendContainers, config.BackendPodman, config.BackendDocker:
 		return nil
 	case config.BackendMsb:
-		return errors.New("the msb backend does not support this operation. Set `backend` to \"containers\", \"podman\", or \"docker\" in [runtime] to use OCI containers")
+		return errors.New("this command drives an OCI container and is not available on the msb backend. Set [runtime] backend to \"containers\", \"podman\", or \"docker\" to use it")
 	}
-	return fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", cfg.Runtime.Backend)
+	return fmt.Errorf("unknown runtime backend %q (want \"msb\", \"containers\", \"podman\", or \"docker\")", cfg.Runtime.Backend)
 }

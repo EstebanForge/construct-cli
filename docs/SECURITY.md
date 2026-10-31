@@ -91,11 +91,11 @@ This emits `security_opt: [seccomp:unconfined]` in the generated override. After
 
 **Tradeoff:** `seccomp:unconfined` removes a kernel-level syscall-restriction layer. It is a deliberate security reduction, scoped to users who run browsers in-container. Default-off preserves isolation for everyone else. An alternative is a Chrome-tailored seccomp JSON profile (whitelist only the needed syscalls) if you need tighter control than full unconfined.
 
-## MicroVM Isolation (Experimental Backend)
+## MicroVM Isolation (Default Backend)
 
 ### Overview
 
-When `backend = "msb"` is enabled in `[runtime]`, Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
+By default (`backend = "msb"` in `[runtime]`, the shipped default on capable hosts), Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
 
 ### Threat Model Difference
 
