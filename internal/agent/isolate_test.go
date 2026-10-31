@@ -25,6 +25,16 @@ func TestWrapIsolatedCommand(t *testing.T) {
 	if wrapped[0] != "sudo" || wrapped[1] != "-E" || wrapped[2] != "-n" || wrapped[3] != "unshare" {
 		t.Fatalf("unexpected wrapper prefix: %v", wrapped[:4])
 	}
+	hasMountProc := false
+	for _, arg := range wrapped {
+		if arg == "--mount-proc" {
+			hasMountProc = true
+			break
+		}
+	}
+	if !hasMountProc {
+		t.Fatalf("expected --mount-proc in wrapped arguments: %v", wrapped)
+	}
 	// Verify last element contains the inner command args
 	last := wrapped[len(wrapped)-1]
 	if last != "echo hi" {

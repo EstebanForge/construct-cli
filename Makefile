@@ -127,21 +127,21 @@ test: ## Run tests (deps + verify + go test)
 	$(GOMOD) verify
 	@echo "Running tests..."
 	@if [ "$$($(GOCMD) env CGO_ENABLED)" = "1" ]; then \
-		$(GOTEST) -v -race ./...; \
+		CONSTRUCT_NO_START_RUNTIME=1 $(GOTEST) -v -race ./...; \
 	else \
 		echo "CGO disabled; running tests without -race"; \
-		$(GOTEST) -v ./...; \
+		CONSTRUCT_NO_START_RUNTIME=1 $(GOTEST) -v ./...; \
 	fi
 	@echo "✓ Tests passed"
 
 test-unit: ## Run Go unit tests
 	@echo "Running unit tests..."
-	$(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
+	CONSTRUCT_NO_START_RUNTIME=1 $(GOTEST) -v -race -coverprofile=coverage.out ./internal/...
 	@echo "✓ Unit tests passed"
 
 test-acceptance: ## Run CLI acceptance scenarios (testscript, real binary)
 	@echo "Running acceptance scenarios..."
-	$(GOTEST) -tags acceptance ./acceptance/...
+	CONSTRUCT_NO_START_RUNTIME=1 $(GOTEST) -tags acceptance ./acceptance/...
 	@echo "✓ Acceptance scenarios passed"
 
 test-live: ## Run live msb VM gates (real sandbox boots; KVM + msb required)

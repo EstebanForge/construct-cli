@@ -586,26 +586,40 @@ func TestMsbNetworkPublicDenyCap(t *testing.T) {
 	}
 	for _, mode := range []string{"permissive", "strict"} {
 		net := msbNetworkPublic([]int{40001})
-		if len(net.Rules) < 4 {
-			t.Fatalf("%s: want allows + dns + tcp cap + udp cap, got %d rules", mode, len(net.Rules))
+		if len(net.Rules) < 5 {
+			t.Fatalf("%s: want allows + dns + tcp cap + udp cap + private allow, got %d rules", mode, len(net.Rules))
 		}
-		tail := net.Rules[len(net.Rules)-2:]
-		if !isDenyHostAny(tail[0], msb.PolicyProtocolTCP) {
-			t.Errorf("%s: second-to-last rule must deny any host TCP, got %+v", mode, tail[0])
-		}
-		if !isDenyHostAny(tail[1], msb.PolicyProtocolUDP) {
-			t.Errorf("%s: last rule must deny any host UDP, got %+v", mode, tail[1])
-		}
-		// DNS must precede the caps so first-match keeps 53 allowed.
+		tcpCapIdx := -1
+		udpCapIdx := -1
+		privateIdx := -1
 		dnsIdx := -1
 		for i, r := range net.Rules {
 			if r.Destination == "host" && r.Port == "53" {
 				dnsIdx = i
-				break
+			}
+			if isDenyHostAny(r, msb.PolicyProtocolTCP) {
+				tcpCapIdx = i
+			}
+			if isDenyHostAny(r, msb.PolicyProtocolUDP) {
+				udpCapIdx = i
+			}
+			if r.Action == msb.PolicyActionAllow && r.Destination == "private" {
+				privateIdx = i
 			}
 		}
-		if dnsIdx < 0 || dnsIdx > len(net.Rules)-3 {
-			t.Errorf("%s: dns rule must precede the deny caps (idx %d)", mode, dnsIdx)
+		if tcpCapIdx < 0 || udpCapIdx < 0 {
+			t.Fatalf("%s: missing host TCP/UDP deny caps", mode)
+		}
+		if privateIdx < 0 {
+			t.Fatalf("%s: missing private LAN allow rule", mode)
+		}
+		// DNS must precede the caps so first-match keeps 53 allowed.
+		if dnsIdx < 0 || dnsIdx >= tcpCapIdx {
+			t.Errorf("%s: dns rule must precede the deny caps (dns: %d, tcpCap: %d)", mode, dnsIdx, tcpCapIdx)
+		}
+		// Deny caps must precede private LAN allow so host gateway IPs cannot bypass deny cap.
+		if tcpCapIdx >= privateIdx || udpCapIdx >= privateIdx {
+			t.Errorf("%s: host deny caps must precede private LAN allow (tcpCap: %d, udpCap: %d, private: %d)", mode, tcpCapIdx, udpCapIdx, privateIdx)
 		}
 	}
 
