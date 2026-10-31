@@ -103,6 +103,10 @@ func DetectRuntime(preferredEngine string) string {
 		}
 	}
 
+	if isTesting() {
+		return ""
+	}
+
 	fmt.Fprintln(os.Stderr, "Error: No container runtime available. Please install Docker, Podman, or use macOS container runtime.")
 	os.Exit(1)
 	return ""
@@ -209,7 +213,21 @@ func checkMacOSVersion() int {
 	return 0
 }
 
+func isTesting() bool {
+	for _, arg := range os.Args {
+		if strings.HasPrefix(arg, "-test.") {
+			return true
+		}
+	}
+	return false
+}
+
 func startRuntime(runtimeName string) bool {
+	// Never spawn external desktop engines/machines during unit testing
+	// or when explicitly suppressed.
+	if isTesting() || os.Getenv("CONSTRUCT_NO_START_RUNTIME") == "1" {
+		return false
+	}
 	switch runtimeName {
 	case "container":
 		if runtime.GOOS == "darwin" && checkMacOSVersion() >= 26 {

@@ -155,7 +155,7 @@ func TestResolveAgentSocket(t *testing.T) {
 
 	t.Run("dead env socket falls back to bridge socket", func(t *testing.T) {
 		dead := filepath.Join(shortTempDir(t), "dead.sock")
-		home := t.TempDir()
+		home := shortTempDir(t)
 		fb := filepath.Join(home, ".ssh", "agent.sock")
 		if err := os.MkdirAll(filepath.Dir(fb), 0o700); err != nil {
 			t.Fatalf("MkdirAll: %v", err)

@@ -75,7 +75,9 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	}()
 
 	args = applyYoloArgs(args, e.cfg)
+	isInteractiveShell := false
 	if len(args) == 0 {
+		isInteractiveShell = true
 		shell := "/bin/bash"
 		if e.cfg != nil && e.cfg.Sandbox.Shell != "" {
 			shell = e.cfg.Sandbox.Shell
@@ -152,9 +154,17 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		workdir = mapped
 	}
 
+	execCmd := args
+	// Human interactive shell (construct sys shell / bare ct) has unrestricted
+	// visibility into all daemon mounts. Agent sessions targeting a workspace
+	// execute inside an isolated mount namespace.
+	if !isInteractiveShell {
+		execCmd = wrapIsolatedCommand(workdir, args)
+	}
+
 	code, err := runtime.NewMsbBackend().ExecInteractive(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
-		Command: args,
+		Command: execCmd,
 		Env:     envVars,
 		Workdir: workdir,
 		User:    execUser,

@@ -351,8 +351,15 @@ func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
 	// unlisted bound port is reachable with per-port rules alone), so the
 	// rules end with a first-match deny cap that keeps the allows a
 	// whitelist; DNS precedes the cap or first-match would block TCP 53.
+	// Private LAN egress is allowed so agents can reach local servers
+	// (e.g. agentmemory on LAN host).
 	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionAllow}
 	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule(),
+		msb.PolicyRule{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: "private",
+		},
 		msb.PolicyRule{
 			Action: msb.PolicyActionDeny, Direction: msb.PolicyDirectionEgress,
 			Destination: "host", Protocol: msb.PolicyProtocolTCP,
@@ -563,8 +570,10 @@ func msbEnvHash(cfg *config.Config) string {
 
 // netRulesHashSalt forces one daemon recreate when the transport rule
 // shape changes; v2 added the public-mode first-match deny cap (msb 0.7.8
-// DefaultEgress allow opens every host port). Bump on future shape changes.
-const netRulesHashSalt = "net-rules=v2"
+// DefaultEgress allow opens every host port); v3 added private LAN egress
+// for local servers and wired NetworkPolicy into snapshot restore. Bump on
+// future shape changes.
+const netRulesHashSalt = "net-rules=v3"
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
 // The entrypoint aligns the guest construct user with CONSTRUCT_HOST_UID:GID,
@@ -764,11 +773,11 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 		reasons = append(reasons, "embedded msb runtime changed (construct upgrade)")
 	}
 	// Create-time env parity ([network], loopback ports, sudo opt-out,
-	// UID/GID alignment): env is create-time only, so a toggle on a running
-	// daemon fails open without this check. Daemons predating the label
-	// recreate exactly once.
+	// host_service_env, UID/GID alignment): env is create-time only, so a
+	// toggle on a running daemon fails open without this check. Daemons
+	// predating the label recreate exactly once.
 	if cfg != nil && sandboxLabels[DaemonEnvHashLabelKey] != msbEnvHash(cfg) {
-		reasons = append(reasons, "[network] mode or sandbox env changed")
+		reasons = append(reasons, "[network] mode or sandbox env changed (e.g. host_service_env, ports, or sudo settings)")
 	}
 	// Image drift: the daemon may outlive image republishes. The label
 	// records the digest the sandbox was created from; a mismatch with the
@@ -1480,8 +1489,9 @@ func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.C
 	// record loses its labels across a restore.
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
 	restoreCfg := msb.RestoreConfig{
-		SnapshotDiskOnly: true,
+		SnapshotDiskOnly: snap.Scope() == msb.SnapshotScopeFull,
 		Volumes:          spec.Mounts,
+		NetworkPolicy:    spec.Network,
 	}
 	if spec.CPUs > 0 {
 		restoreCfg.CPUs = &spec.CPUs
