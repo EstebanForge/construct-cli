@@ -23,12 +23,12 @@ import (
 )
 
 // ErrMsbUnsupported marks primitives with no msb equivalent yet (Step 6
-// MVP scope; docs/VMsv2.md). Callers surface these as clear errors, not
+// MVP scope; docs/ARCHITECTURE-DESIGN.md §4.1). Callers surface these as clear errors, not
 // silent fallbacks.
 var ErrMsbUnsupported = errors.New("unsupported in the msb backend — this feature needs the OCI container backends (containers, podman, docker)")
 
 // MsbBackend implements Backend over microsandbox microVMs (opt-in,
-// experimental; docs/VMsv2.md). Sandboxes are managed through the msb Go
+// experimental; docs/ARCHITECTURE-DESIGN.md §4.1). Sandboxes are managed through the msb Go
 // SDK; image transition reuses the Docker image via save+load.
 type MsbBackend struct{}
 
@@ -124,7 +124,7 @@ func inspectImageCached(ref string) bool {
 		return false
 	}
 	cmd := exec.Command(name, "image", "inspect", ref)
-	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/ARCHITECTURE-DESIGN.md §4.1)
 	return cmd.Run() == nil
 }
 

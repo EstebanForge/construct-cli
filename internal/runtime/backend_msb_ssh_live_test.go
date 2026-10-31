@@ -67,7 +67,7 @@ func msbLiveRequireImage(t *testing.T) {
 }
 
 // TestMsbLiveSSHAgentBridge is the Step 7 SSH agent bridge gate
-// (docs/VMsv2.md §7): the guest socat proxy (UNIX socket ->
+// (docs/ARCHITECTURE-DESIGN.md §4.1 §7): the guest socat proxy (UNIX socket ->
 // host.microsandbox.internal) answers agent protocol requests through the
 // production StartSSHBridge, under deny-by-default offline egress. Lives
 // in runtime_test so it can import internal/agent (which imports

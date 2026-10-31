@@ -1375,7 +1375,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		// Mount host skills source into each supported agent's skills dir
 		// (read-only by default; opt-in RW). Source resolution precedence:
 		// $CONSTRUCT_SKILLS_SOURCE > [sandbox] skills_source > auto-detect.
-		// See internal/runtime/skills_mount.go and docs/VMsv2.md phase 7.
+		// See internal/runtime/skills_mount.go and docs/ARCHITECTURE-DESIGN.md §4.1.
 		if skillsSource, found := GetSkillsSourcePath(cfg); found {
 			opts := SkillsMountOptions(cfg, selinuxSuffix)
 			for _, target := range SkillsMountTargets() {
@@ -1409,7 +1409,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 				formatVolumePath(aptCachePath))
 		}
 		// Mount host skills source into each supported agent's skills dir
-		// (read-only by default; opt-in RW). See phase 7 in VMsv2.md.
+		// (read-only by default; opt-in RW). See docs/ARCHITECTURE-DESIGN.md §4.1.
 		if skillsSource, found := GetSkillsSourcePath(cfg); found {
 			opts := SkillsMountOptions(cfg, "")
 			for _, target := range SkillsMountTargets() {

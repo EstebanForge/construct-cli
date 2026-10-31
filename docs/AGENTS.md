@@ -4,7 +4,7 @@ Complete list of supported AI agents in The Construct CLI.
 
 ## Overview
 
-The Construct CLI supports 13 AI agents that can run inside an isolated sandboxed container. Each agent has its own strengths and use cases.
+The Construct CLI supports 14 AI agents that can run inside an isolated sandbox. Each agent has its own strengths and use cases.
 
 ## Available Agents
 
