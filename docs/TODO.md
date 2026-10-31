@@ -145,7 +145,7 @@ Status: parked. Do not start before the MicroVM Engine GA checklist above ships.
 
 Alternatives review, 2026-08-27. microsandbox (msb) stays the GA engine: it is the only local-first microVM option that satisfies all four construct constraints (macOS arm64 + Linux KVM, embeddable Go SDK, local-first, single shared daemon).
 
-The watch item is smol machines / smolvm ([smolmachines.com](https://smolmachines.com), [github.com/smol-machines/smolvm](https://github.com/smol-machines/smolvm), Apache-2.0, Rust). Feature superset relevant to us: VM fork with copy-on-write memory (would supersede the parked VMsv2 phase 6 snapshot fork), checkpoints/restore, portable stateful `.smolmachine` artifacts, first-class egress allowlist, networking off by default, OCI pulls with no Docker daemon, CUDA-over-vsock GPU remoting.
+The watch item is smol machines / smolvm ([smolmachines.com](https://smolmachines.com), [github.com/smol-machines/smolvm](https://github.com/smol-machines/smolvm), Apache-2.0, Rust). Feature superset relevant to us: VM fork with copy-on-write memory (would supersede the parked snapshot fork (ARCHITECTURE-DESIGN §4.1)), checkpoints/restore, portable stateful `.smolmachine` artifacts, first-class egress allowlist, networking off by default, OCI pulls with no Docker daemon, CUDA-over-vsock GPU remoting.
 
 Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integration paths: shell out to the `smolvm` CLI, thin REST client, or cgo bindings to the Rust crate. Any of these is a new backend implementation, not a rewrite: the `Backend` interface and conformance harness exist for exactly this.
 
@@ -153,12 +153,12 @@ Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integrat
 
 - [ ] Evaluate `smolvm` CLI/REST stability, mount semantics (vs the msb create-time-only mounts constraint), and daemon/lifecycle model on macOS arm64 + Linux KVM.
 - [ ] Prototype a smolvm `Backend` implementation (`internal/runtime/backend.go`) passing the existing conformance suite (`internal/runtime/conformance_test.go`) with no engine-specific forks of the harness.
-- [ ] Measure time-to-ready vs the msb warm/reconnect baselines in `docs/VMsv2.md` section 10 (requires P0.4 dogfood medians to exist first).
+- [ ] Measure time-to-ready vs the msb warm/reconnect baselines in the msb-telemetry medians (requires a week of accumulated telemetry first).
 - [ ] Confirm the egress allowlist + secret handling cover what `msbHostTransportRules` + network modes (permissive/strict/offline) do today, including the host loopback relays.
 
 ## Decision gate
 
-Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave VMsv2 phase 6 parked under its own gate: if the spike passes, smolvm fork replaces phase 6; if not, the phase 6 gate still applies. Re-evaluate after GA ships + one dogfood week.
+Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave the snapshot fork parked under its own gate: if the spike passes, smolvm fork replaces it; if not, its gate still applies. Re-evaluate after GA ships + one dogfood week.
 
 ---
 
@@ -266,7 +266,7 @@ Existing home binds carry agent copies installed under the old model — those w
 2. Fresh-home first run: agents usable without any install phase; `claude --version`, `codex --version`, `agy --version`, `pi --version`, `opencode --version` resolve to `/usr/local/bin`
 3. Override contract live: a `packages.toml` codex entry shadows the baked binary; removing the entry + recreating falls back to baked
 4. Migration sweep verified against a home bind containing stale pre-bake copies
-5. Image size + pull time recorded in `docs/VMsv2.md` section 10
+5. Image size + pull time recorded in the msb-telemetry log
 
 ## Post-publish follow-ups
 

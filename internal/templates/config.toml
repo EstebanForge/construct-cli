@@ -213,7 +213,7 @@ host_loopback_ports = [80, 443]
 #        $XDG_DATA_HOME/construct/skills
 #   4. None found: no mount, no error. The feature is opt-out by silent absence.
 # Set to false to disable entirely and rely on a pre-sync step (legacy behavior).
-# See docs/VMsv2.md (phase 7) and docs/CONFIGURATION.md.
+# See docs/ARCHITECTURE-DESIGN.md §4.1 (phase 7) and docs/CONFIGURATION.md.
 mount_skills = true
 # Skills mount mode (default: true = read-only). The mount uses `:ro` so the
 # agent inside the sandbox cannot modify the host skills source; this is the

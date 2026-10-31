@@ -4,9 +4,9 @@ Status: **PENDING. Not implemented. Design and peer review are done; implementat
 
 Related docs:
 
-- [CREDS-PROXY.md](CREDS-PROXY.md) — older host-side credential proxy design (VMsv2 phase 5). Header-injection model. Design only, never implemented. This doc supersedes its transport model and reuses its keychain storage section.
+- creds-proxy design (older host-side credential proxy, header-injection model, never implemented; design doc removed 2026-11-01, history in git). This doc supersedes its transport model and reuses its keychain storage section.
 - [HIDE-SECRETS-DESIGN.md](HIDE-SECRETS-DESIGN.md) — workspace redaction, implemented. Its deferred V2 items (trusted proxy enforcement, proxy contract checks, run-only session token) are exactly the network layer described here.
-- [VMsv2.md](VMsv2.md) — msb backend. Network mode enforcement interplay.
+- [ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md) §4.1 — msb backend. Network mode enforcement interplay.
 
 Origin: analysis of discobox-ai/discobox (Apache 2.0) sentinel system, 2026-09. Peer review by agy (isolated, high reasoning), verdict ADOPT-WITH-CHANGES. All CRITICAL/HIGH claims verified against source before acceptance.
 
@@ -43,14 +43,14 @@ Corroborating prior art, 2026-10: [Overalls](https://overalls.dev) (MIT, Geoffre
 
 ## 3. Design decision
 
-Adopt the sentinel substitution model, not the CREDS-PROXY header-injection model:
+Adopt the sentinel substitution model, not the creds-proxy header-injection model:
 
-| | CREDS-PROXY (old) | This design |
+| | creds-proxy (old) | This design |
 |---|---|---|
 | Guest sees | Rewritten destination (`construct-proxy.local`), no key, no real host | Real provider host, sentinel value |
 | Proxy role | Terminate TLS, rewrite Host, inject key | MITM CONNECT, scan headers/query, swap sentinel → real |
 | Agent CLI compat | Fragile: every client must honor rewritten base URL | High: request shape unchanged |
-| Key source | Host keychain (new `internal/credentials` package, CREDS-PROXY §7 stays valid) | Same as today (host env/config), relocated behind the proxy |
+| Key source | Host keychain (new `internal/credentials` package, creds-proxy §7 stays valid) | Same as today (host env/config), relocated behind the proxy |
 | Backends | msb only (`host.microsandbox.internal`) | Backend-agnostic (docker bridge IP / `host.docker.internal` / msb alias) |
 
 Why: the sentinel model changes nothing about how agent CLIs form requests. The injection model needs every client to tolerate a rewritten destination and every provider flow to survive base-URL surgery.
@@ -69,7 +69,7 @@ Core invariants (from discobox, keep them all):
 | # | Finding | Verified | Consequence |
 |---|---|---|---|
 | 1 | **CRITICAL, pre-existing**: `internal/templates/Dockerfile` sudoers grants `construct` NOPASSWD `ufw` + `apt*`. Agent runs `sudo ufw disable`; `sudo apt-get` = root via `APT::Update::Pre-Invoke` hooks | Yes, line 27 region | In-container ufw was never an L3 boundary, including today's strict mode. Enforcement must move host-side. Fix ships before sentinel work. Update 2026-09-25: sudoers is now free `NOPASSWD:ALL` by default (`sandbox.passwordless_sudo`, false restores the scoped list), which widens the in-container surface and makes host-side enforcement MORE required, not less |
-| 2 | **CRITICAL**: per-install CA cannot be baked into `construct-box` (image built on GHCR, pulled `:latest`) | Yes, AGENTS.md Image Publish | CA generated per install on host, public cert mounted at runtime, trust stores updated in entrypoint root phase. The same flaw exists in CREDS-PROXY §11 |
+| 2 | **CRITICAL**: per-install CA cannot be baked into `construct-box` (image built on GHCR, pulled `:latest`) | Yes, AGENTS.md Image Publish | CA generated per install on host, public cert mounted at runtime, trust stores updated in entrypoint root phase. The same flaw exists in creds-proxy §11 |
 | 3 | **HIGH**: host proxy must not repeat the unauthenticated `0.0.0.0` bind of `ssh_bridge.go:81` | Yes | Session token in proxy URL, `Proxy-Authorization` validated. Otherwise open LAN relay that swaps real credentials |
 | 4 | **HIGH**: domain fronting | Design-level | Enforce CONNECT host == TLS SNI == HTTP Host/`:authority` before any swap. Drop on mismatch |
 | 5 | **MEDIUM**: DNS tunnel | Yes, network-filter.sh allows 53 out to ANY destination | Restrict 53 to host resolver/bridge gateway |
@@ -92,7 +92,7 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - [ ] S2: CA lifecycle. Generate at `construct init` (0600 key, host-side). Cert mounted into container at boot. Entrypoint root phase installs into system store + NSS DB (`~/.pki/nssdb` for Chromium) + sets `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`. Known gap: rustls-with-webpki-roots binaries reject custom CAs unconditionally (document, do not solve).
 - [ ] S3: Sentinel mint + injection. Table-driven templates per `ProviderKeyVars` entry. Format-mimicking placeholder. Config: `[sandbox] secrets` with per-var host bindings, fallback = today's passthrough for compat. Bindings resolve through `*_BASE_URL` overrides.
 - [ ] S4: Swap layer. Headers + query scan, base64 Basic-auth handling, SNI/Host pinning check, resolve cache, 401 retry chain.
-- [ ] S5: Rollout flag + env removal, per-provider list (reuse CREDS-PROXY §12 phasing shape: opt-in → default on → drop legacy env path).
+- [ ] S5: Rollout flag + env removal, per-provider list (reuse creds-proxy §12 phasing shape: opt-in → default on → drop legacy env path).
 - [ ] S6: Tests. No real key in `/proc/*/environ`, sentinel accepted by real agent CLIs against real providers, fronting attempt dropped, 401 retry, streaming intact.
 
 ## 7. Quirks and gotchas
@@ -112,13 +112,13 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - Control plane, grant TTLs, inbox, agent-request protocol: local human approves at config time.
 - LLM judge: guardrail not boundary. If ever wanted, gate at the proxy where it is enforceable.
 - Body scanning: never. Discobox's reasoning is sound.
-- CREDS-PROXY keychain storage: valid future input, not required for v1 (keys stay where they are today, host-side).
+- creds-proxy keychain storage: valid future input, not required for v1 (keys stay where they are today, host-side).
 
 ## 9. Open questions
 
 - Host-side enforcement mechanism per backend: docker network policy vs host iptables vs rootless-podman equivalent. Rootless podman has no host-iptables path; needs its own answer.
 - macOS backend (Docker Desktop): `host.docker.internal` routing is per-platform; proxy bind address differs (macOS can bind 127.0.0.1, Linux needs the bridge-reachable address + auth from finding #3).
-- msb backend: confirm `msbHostTransportRules` guest-to-host allowance covers the proxy port without touching `bridgePorts` (CREDS-PROXY §10 warning applies).
+- msb backend: confirm `msbHostTransportRules` guest-to-host allowance covers the proxy port without touching `bridgePorts` (creds-proxy §10 warning applies).
 - Chromium NSS DB injection requires the root phase to write into the persistent home; confirm ownership handling under `non_root_strict`.
 
 ## 10. References
@@ -129,7 +129,7 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - `internal/templates/Dockerfile` — sudoers line (finding #1)
 - `internal/agent/ssh_bridge.go` — bridge lifecycle + bind-address precedent
 - `internal/runtime/runtime.go:1321` — SSH TCP bridge host-side pattern
-- `docs/CREDS-PROXY.md` — §7 keychain storage, §10 network-mode enforcement, §12 rollout flags
+- creds-proxy design §7 keychain storage, §10 network-mode enforcement, §12 rollout flags (doc removed, history in git)
 - `docs/HIDE-SECRETS-DESIGN.md` — §6 run-only session token (satisfies proxy-auth requirement), V2 deferred proxy contract
 - discobox-ai/discobox — files listed in section 2
 - agentmemory decision entries (2026-09): analysis + peer review outcome

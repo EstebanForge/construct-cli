@@ -244,7 +244,7 @@ func Run(args ...string) {
 		runtimeName = runtimepkg.ResolveContainerRuntime(cfg)
 	}
 
-	// Backend dispatch (docs/VMsv2.md): under the msb backend the
+	// Backend dispatch (docs/ARCHITECTURE-DESIGN.md §4.1): under the msb backend the
 	// Docker-only checks below are not applicable. runtimeName is blanked
 	// after the Runtime Check so every runtimeName-gated check degrades to
 	// its skipped/not-applicable branch instead of probing a container
@@ -1027,7 +1027,7 @@ func Run(args ...string) {
 }
 
 // msbBackendCheck verifies the microsandbox backend prerequisites
-// (docs/VMsv2.md): binary + version, hardware virtualization,
+// (docs/ARCHITECTURE-DESIGN.md §4.1): binary + version, hardware virtualization,
 // msbBin resolves the msb binary for doctor probes: the extracted embedded
 // pair when this build ships one, else the host CLI. ok=false means neither
 // is usable and the caller's check degrades to its skipped/error branch.
@@ -1093,7 +1093,7 @@ func msbBackendCheck(fix bool) CheckResult {
 
 	msbRun := func(args ...string) bool {
 		cmd := exec.Command(msbBinPath, args...)
-		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
+		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/ARCHITECTURE-DESIGN.md §4.1)
 		return cmd.Run() == nil
 	}
 	// Daemon reachability: `msb list` needs a reachable daemon (auto-started
@@ -2770,7 +2770,7 @@ func downgradeStatus(current, next CheckStatus) CheckStatus {
 }
 
 // checkDaemonLock reports whether the msb daemon flock is free or held
-// (docs/VMsv2.md phase 1). Held means another construct invocation is in
+// (docs/ARCHITECTURE-DESIGN.md §4.1). Held means another construct invocation is in
 // the daemon setup critical section — either racing the user (likely a
 // stale process), or the user kicked off two constructs in parallel.
 // Free by default; Warning when held.
