@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"path"
 	"strings"
 )
 
@@ -33,15 +34,15 @@ func wrapIsolatedCommand(workdir string, args []string) []string {
 	if len(args) == 0 {
 		return args
 	}
-	cleanWorkdir := strings.TrimRight(workdir, "/")
+	cleanWorkdir := path.Clean(strings.TrimRight(workdir, "/"))
 	if cleanWorkdir == "" || cleanWorkdir == "/workspaces" || !strings.HasPrefix(cleanWorkdir, "/workspaces/") {
 		return args
 	}
 
-	wrapper := make([]string, 0, 14+len(args))
+	wrapper := make([]string, 0, 15+len(args))
 	wrapper = append(wrapper,
 		"sudo", "-E", "-n", "unshare",
-		"--mount", "--pid", "--fork", "--propagation", "private",
+		"--mount", "--pid", "--fork", "--mount-proc", "--propagation", "private",
 		"/bin/sh", "-c", sessionIsolateScript,
 		"--", cleanWorkdir,
 	)

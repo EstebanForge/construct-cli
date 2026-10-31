@@ -27,6 +27,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	_ = os.Setenv("CONSTRUCT_NO_START_RUNTIME", "1")
 	var err error
 	binDir, err = os.MkdirTemp("", "construct-acceptance")
 	if err != nil {

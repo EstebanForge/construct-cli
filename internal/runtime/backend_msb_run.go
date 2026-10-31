@@ -351,15 +351,11 @@ func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
 	// unlisted bound port is reachable with per-port rules alone), so the
 	// rules end with a first-match deny cap that keeps the allows a
 	// whitelist; DNS precedes the cap or first-match would block TCP 53.
-	// Private LAN egress is allowed so agents can reach local servers
-	// (e.g. agentmemory on LAN host).
+	// The host deny cap comes BEFORE the private LAN rule so that host
+	// gateway addresses (which fall in RFC 1918) cannot bypass the deny
+	// cap on unlisted host ports.
 	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionAllow}
 	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule(),
-		msb.PolicyRule{
-			Action:      msb.PolicyActionAllow,
-			Direction:   msb.PolicyDirectionEgress,
-			Destination: "private",
-		},
 		msb.PolicyRule{
 			Action: msb.PolicyActionDeny, Direction: msb.PolicyDirectionEgress,
 			Destination: "host", Protocol: msb.PolicyProtocolTCP,
@@ -367,6 +363,11 @@ func msbNetworkPublic(bridgePorts []int) *msb.NetworkConfig {
 		msb.PolicyRule{
 			Action: msb.PolicyActionDeny, Direction: msb.PolicyDirectionEgress,
 			Destination: "host", Protocol: msb.PolicyProtocolUDP,
+		},
+		msb.PolicyRule{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: "private",
 		})
 	return net
 }
@@ -571,9 +572,9 @@ func msbEnvHash(cfg *config.Config) string {
 // netRulesHashSalt forces one daemon recreate when the transport rule
 // shape changes; v2 added the public-mode first-match deny cap (msb 0.7.8
 // DefaultEgress allow opens every host port); v3 added private LAN egress
-// for local servers and wired NetworkPolicy into snapshot restore. Bump on
-// future shape changes.
-const netRulesHashSalt = "net-rules=v3"
+// for local servers and wired NetworkPolicy into snapshot restore; v4 moved
+// the host deny cap before private LAN to prevent host gateway bypass.
+const netRulesHashSalt = "net-rules=v4"
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
 // The entrypoint aligns the guest construct user with CONSTRUCT_HOST_UID:GID,
