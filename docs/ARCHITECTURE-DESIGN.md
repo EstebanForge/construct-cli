@@ -224,7 +224,7 @@ API_TIMEOUT_MS = "3000000"
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
   - Actively checks when `construct sys check-update` is run.
   - If a new version is found, it notifies the user to run the (currently manual) update command.
-- **Reset**: `sys reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone.
+- **Reset**: `sys reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone. OCI backends only; under msb the equivalent full reset is `construct sys daemon recreate`.
 - **Migrate**: `sys config --migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
 
 ---

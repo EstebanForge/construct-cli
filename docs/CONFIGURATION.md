@@ -35,7 +35,7 @@ The main configuration file lives at:
 ```toml
 # Runtime Configuration
 [runtime]
-engine = "auto"              # Container runtime: auto|podman|docker|container
+backend = "msb"              # Isolation backend: msb (default)|containers|podman|docker
 auto_update_check = true     # Check for updates automatically
 update_check_interval = 86400 # Update check interval (seconds)
 update_channel = "stable"     # Release channel: stable|beta
@@ -574,7 +574,8 @@ ANTHROPIC_AUTH_TOKEN = "${CUSTOM_API_KEY}"
 
 ```toml
 [runtime]
-engine = "auto"
+# backend defaults to msb on Apple Silicon macOS / Linux with KVM,
+# containers elsewhere; set it explicitly only to pin or override.
 
 [network]
 mode = "permissive"
@@ -633,7 +634,7 @@ yolo_all = false
 
 ```toml
 [runtime]
-engine = "container"  # macOS native runtime
+backend = "msb"  # microVM isolation (works offline; host transport stays allowed)
 
 [network]
 mode = "offline"  # No network access
