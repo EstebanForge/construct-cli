@@ -2,6 +2,33 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 2.0.0 -->
+## [2.0.0] - 2026-11-01
+
+### Added
+
+- **MicroVM isolation is now the default backend.** Fresh configs resolve `[runtime] backend` by platform capability: `msb` (microsandbox microVMs) on Apple Silicon macOS and Linux with KVM, the OCI engine pool (`containers`) everywhere else. Release builds ship the version-matched msb runtime embedded, so the default path needs no host installation and no Docker.
+- **Docker-less init and rebuild under msb.** When the backend is `msb` and no OCI engine is installed, `construct sys init` and `construct sys rebuild` pull `construct-box` from GHCR instead of requiring a local image build.
+- **New `Isolation Backend` check in `construct sys doctor`**, placed before the runtime check. It validates that the configured backend is a known value and that `msb` is actually possible on the host (Apple Silicon, or Linux with `/dev/kvm`), failing with an actionable suggestion instead of a late SDK error.
+- **Grouped, backend-aware `construct sys help`.** Commands are now organized into Sandbox (works on the active backend), msb daemon, OCI engine, and Host & config sections. Sections that do not apply to the active backend are hidden, so the help output matches what the current backend can actually run.
+
+### Changed
+
+- **Breaking: legacy config migration removed.** The old `engine` key and legacy backend spellings (`auto`, `microvm`, `container`) are no longer rewritten in place on load. Configs still carrying them fall back to the platform default; unknown backend values now fail closed with an error listing the valid values.
+- **Breaking: compose-only commands fail closed under msb with precise messages.** `sys reset`, `sys packages`, and `sys set-password` explain that they drive an OCI container and name the valid backends. `sys reset` under msb points at `construct sys daemon recreate` as the equivalent full reset.
+- The `msb` backend out of experimental: all documentation, help text, and error messages now describe it as the default backend.
+
+### Fixed
+
+- **`construct sys reset` no longer panics under the msb backend.** It previously dereferenced a nil compose command when the runtime resolved to nothing; it now handles msb explicitly and errors honestly on unknown runtimes.
+- **Removed `DetectBackend`**, which was dead code that also carried a stale rejection of msb under strict network mode and outdated installation advice.
+
+### Removed
+
+- Legacy engine/backend migration code (`foldLegacyEngine`, `migrateLegacyEngineKey`, `migrateBackendValues`, the deprecated `Engine` config field) and the daemon spec label-to-file migration shim, roughly 370 net lines. No compatibility shims remain in the 2.0 line.
+
+<!-- RELEASE:END 2.0.0 -->
+
 <!-- RELEASE:START 1.20.0 -->
 ## [1.20.0] - 2026-10-30
 
