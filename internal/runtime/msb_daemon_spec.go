@@ -130,14 +130,11 @@ func saveMsbDaemonSpecFromRunSpec(spec *MsbRunSpec) error {
 
 // msbDaemonDecisionLabels returns the drift inputs for the daemon recreate
 // decision. The construct-owned spec file wins when present (a forked
-// daemon's msb record carries no labels); otherwise the record's own labels
-// are used and migrated into the file so the first fork finds them.
+// daemon's msb record carries no labels); otherwise the record's own
+// labels are used directly.
 func msbDaemonDecisionLabels(sandboxLabels map[string]string) map[string]string {
 	if spec, ok, err := loadMsbDaemonSpec(); err == nil && ok {
 		return spec.toLabels()
-	}
-	if len(sandboxLabels) > 0 {
-		_ = saveMsbDaemonSpec(specFromLabels(sandboxLabels)) //nolint:errcheck // best-effort migration; record labels remain the fallback
 	}
 	return sandboxLabels
 }

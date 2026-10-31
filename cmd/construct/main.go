@@ -117,7 +117,7 @@ func main() {
 	case "sys":
 		if len(args) < 2 {
 			sys.EnsureCtSymlink()
-			ui.PrintSysHelp()
+			ui.PrintSysHelp(cfg.Runtime.Backend)
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
@@ -172,6 +172,19 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		}
 
 		cfg = ensureConfigLoaded(cfg)
+		if cfg.Runtime.Backend == config.BackendMsb {
+			rt := runtime.DetectRuntime("auto")
+			if rt == "" || rt == "none" {
+				// No OCI engine installed: a compose build cannot run. The msb
+				// guest boots from the GHCR-pulled image cache, so init and
+				// rebuild reduce to a pull.
+				if err := runtime.PullImage(cfg); err != nil {
+					ui.GumError(fmt.Sprintf("Image pull failed: %v", err))
+					os.Exit(1)
+				}
+				break
+			}
+		}
 		runtime.BuildImage(cfg)
 		// msb backend: compose build lands in the docker store, but the
 		// guest boots from the msb image cache and EnsureImage prefers a
@@ -208,7 +221,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "version":
 		ui.PrintVersion()
 	case "help":
-		ui.PrintHelp()
+		ui.PrintSysHelp(cfg.Runtime.Backend)
 	case "config":
 		handleConfigCommand(args[1:])
 	case "packages":

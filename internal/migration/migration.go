@@ -877,8 +877,7 @@ func removeMsbImageCache() {
 
 // isMicrovmBackend reports whether the configured isolation backend is the
 // microVM engine, so user-facing notes speak the right noun. Best-effort:
-// config read failures fall back to the container backends (the
-// historical default).
+// config read failures fall back to the OCI container note.
 func isMicrovmBackend() bool {
 	cfg, _, err := config.Load()
 	return err == nil && cfg != nil && cfg.Runtime.Backend == config.BackendMsb

@@ -329,6 +329,37 @@ func Run(args ...string) {
 	}
 	checks = append(checks, ctCheck)
 
+	// 3.9 Isolation Backend Check: the configured value must be a known
+	// backend, and msb must be possible on this host. Catches typos and
+	// configs carried to a host without KVM/Apple Silicon.
+	backendCheck := CheckResult{Name: "Isolation Backend"}
+	if cfg == nil {
+		backendCheck.Status = CheckStatusSkipped
+		backendCheck.Message = "Config unavailable; backend not checked"
+	} else {
+		switch cfg.Runtime.Backend {
+		case config.BackendMsb, config.BackendContainers, config.BackendPodman, config.BackendDocker:
+			backendCheck.Status = CheckStatusOK
+			backendCheck.Message = fmt.Sprintf("backend = %s", cfg.Runtime.Backend)
+		default:
+			backendCheck.Status = CheckStatusError
+			backendCheck.Message = fmt.Sprintf("Unknown backend %q", cfg.Runtime.Backend)
+			backendCheck.Suggestion = "Set [runtime] backend to one of: msb, containers, podman, docker"
+		}
+		if backendCheck.Status == CheckStatusOK && cfg.Runtime.Backend == config.BackendMsb && !config.MsbPlatformSupported() {
+			backendCheck.Status = CheckStatusError
+			backendCheck.Message = "backend = msb is not supported on this host"
+			backendCheck.Details = nil
+			if runtime.GOOS == "linux" {
+				backendCheck.Details = append(backendCheck.Details, "No /dev/kvm (enable KVM or install the kvm group)")
+			} else {
+				backendCheck.Details = append(backendCheck.Details, "msb requires Apple Silicon (Hypervisor.framework) on macOS")
+			}
+			backendCheck.Suggestion = `Set [runtime] backend = "containers" (or podman/docker)`
+		}
+	}
+	checks = append(checks, backendCheck)
+
 	// 4. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
 	if msbBackend {
