@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/agent"
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -180,6 +181,19 @@ func execMsbCommand(cfg *config.Config, cmdArgs []string) int {
 
 	osEnv := buildExecEnv()
 	env.SetEnvVar(&osEnv, "CONSTRUCT_HOST_ALIAS", runtime.MsbHostAlias)
+	if cfg != nil {
+		for _, envDef := range cfg.Sandbox.HostServiceEnv {
+			if envDef == "" {
+				continue
+			}
+			rewritten := strings.ReplaceAll(envDef, "localhost", runtime.MsbHostAlias)
+			rewritten = strings.ReplaceAll(rewritten, "127.0.0.1", runtime.MsbHostAlias)
+			parts := strings.SplitN(rewritten, "=", 2)
+			if len(parts) == 2 {
+				env.SetEnvVar(&osEnv, parts[0], parts[1])
+			}
+		}
+	}
 
 	cwd, err := os.Getwd()
 	if err != nil {

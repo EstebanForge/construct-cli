@@ -1101,6 +1101,26 @@ func collectForwardedEnv(cfg *config.Config, providerEnv []string) []string {
 				}
 			}
 		}
+
+		hostAlias := "host.docker.internal"
+		if cfg.Runtime.Backend == config.BackendMsb {
+			hostAlias = runtime.MsbHostAlias
+		}
+		for _, envDef := range cfg.Sandbox.HostServiceEnv {
+			if envDef == "" {
+				continue
+			}
+			parts := strings.SplitN(envDef, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			if _, exists := seen[parts[0]]; !exists {
+				rewritten := strings.ReplaceAll(envDef, "localhost", hostAlias)
+				rewritten = strings.ReplaceAll(rewritten, "127.0.0.1", hostAlias)
+				merged = append(merged, rewritten)
+				seen[parts[0]] = struct{}{}
+			}
+		}
 	}
 
 	for _, e := range os.Environ() {
