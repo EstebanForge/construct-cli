@@ -192,7 +192,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 
 ```bash
 # Install specific version (env var, no flags)
-curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | VERSION=1.17.9 bash
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | VERSION=2.0.0 bash
 
 # Install to custom directory
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | INSTALL_DIR=~/local/bin bash

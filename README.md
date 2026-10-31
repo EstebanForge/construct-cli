@@ -13,7 +13,7 @@ But, **most importantly**, it keeps your local machine safe from LLM prompt inje
 - **One command** to use any AGENT inside a secured, isolated sandbox. Agents spawn from the path where you call them, without a path escape.
 - **Zero Config**: no complex setup. The Construct just works out of the box across macOS, Linux, and Windows (WSL).
 - **MicroVM by default**: Hardware-level isolation via microVMs (microsandbox) with a dedicated guest Linux kernel per sandbox; ships embedded, nothing to install. Falls back to the best available OCI runtime (macOS native → Podman → Docker) on hosts without microVM support
-- **Daemon mode**: reuse one microVM sandbox across projects with `[daemon] mount_paths`; without it, switching project roots recreates the sandbox
+- **Daemon mode**: reuse one microVM sandbox across projects; directories inside `$HOME` are auto-learned, elsewhere add roots via `[daemon] mount_paths` or `construct sys daemon roots add`
 - **Clean Slate**: Ephemeral sandboxes; your config home (agents, caches, tools) and project directory persist across runs
 - **Network Isolation**: Optional `permissive`, `strict`, or `offline` network modes with allow/block lists
 - **SSH Agent Forwarding**: Automatic detection and secure mounting of your SSH agent
@@ -68,7 +68,7 @@ brew install EstebanForge/tap/construct-cli
 ## Quick Start
 
 ```bash
-# First-time setup (builds containers, installs agents)
+# First-time setup (prepares the sandbox image, installs agents)
 construct sys init
 
 # Run an agent
@@ -173,8 +173,8 @@ construct sys init              # First-time setup
 construct sys doctor           # Health check
 construct sys config           # Edit configuration
 construct sys update           # Update agents
-construct sys exec -- <cmd>    # Run command inside running container
-construct sys reset            # Reset everything
+construct sys exec -- <cmd>    # Run command inside the running sandbox
+construct sys reset            # Reset everything (OCI backends; under msb: sys daemon recreate)
 
 # Agent commands
 construct <agent>              # Run an agent (e.g., construct claude, construct agy)
@@ -184,7 +184,7 @@ construct sys agents push        # Push host agent configs into Construct [--age
 construct sys pull               # Pull latest construct-box image from GHCR
 
 # Development
-construct sys rebuild          # Rebuild containers
+construct sys rebuild          # Rebuild the sandbox image
 construct sys config --migrate # Migrate configuration
 construct --help               # Show all commands
 ```
@@ -192,9 +192,9 @@ construct --help               # Show all commands
 ## Security
 
 **Built-in protections:**
-- ✅ Container isolation (agents cannot escape project directory)
+- ✅ Sandbox isolation (agents cannot escape the project directory)
 - ✅ Network isolation (permissive/strict/offline modes)
-- ✅ Ephemeral containers (clean slate every run)
+- ✅ Ephemeral sandboxes (clean slate every run)
 - ✅ No path escape (agents stay in project root)
 - ✅ Secret redaction (experimental) - [see docs](docs/HIDE-SECRETS.md)
 - ✅ MicroVM isolation by default (`backend = "msb"`, microsandbox) - [see docs](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend)

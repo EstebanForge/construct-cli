@@ -74,7 +74,7 @@ Remove hard-coded install from `packages.go`.
 
 # TODO: MicroVM Engine General Availability (GA) Checklist
 
-Items required before graduating `backend = "msb"` out of experimental status.
+DONE 2026-11-01: `backend = "msb"` shipped as the default in 2.0.0. Section kept as the record of what GA required.
 
 ## Prerequisites
 
