@@ -374,16 +374,21 @@ ls -lh dist/
 
 ```bash
 # Stable release example
-# 1) set Version in internal/constants/constants.go to 1.17.9
-# 2) tag and push
-git tag 1.17.9
-git push origin main --tags
+# 1) set Version in internal/constants/constants.go to 2.1.0
+# 2) push main, tag, push the tag
+git push origin main
+git tag 2.1.0
+git push origin 2.1.0
 
-# Beta release example
-# 1) set Version in internal/constants/constants.go to 1.17.10-beta.1
-# 2) tag and push
-git tag 1.17.10-beta.1
-git push origin main --tags
+# 3) dispatch the manual release workflow (tag input, no v prefix)
+gh workflow run release.yml -f tag=2.1.0
+
+# Beta release example: same flow with a prerelease tag (updates VERSION-BETA)
+# 1) set Version in internal/constants/constants.go to 2.1.1-beta.1
+git push origin main
+git tag 2.1.1-beta.1
+git push origin 2.1.1-beta.1
+gh workflow run release.yml -f tag=2.1.1-beta.1
 ```
 
 - Do not manually edit `VERSION` or `VERSION-BETA`; release workflow updates them.

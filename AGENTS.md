@@ -88,7 +88,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions
 - **NEVER** modify the `VERSION-BETA` file manually - it's managed by GitHub Actions for prereleases
-- The release workflow triggers on TAG PUSH (`git push origin <version>`). A `chore(release)` commit alone ships nothing: no tag push means no GitHub release, no artifacts, no VERSION bump, and stable users stay on the old version
+- The release workflow is MANUAL-ONLY (`.github/workflows/release.yml`, `workflow_dispatch` with a `tag` input). A `chore(release)` commit or a pushed tag alone ships nothing: push main, push the tag (the notes job resolves the previous tag from it), then dispatch `gh workflow run release.yml -f tag=<version>`. The workflow builds the artifacts, cuts the release, bumps VERSION on main, and triggers the homebrew-tap update
 - When asked to bump version: update `internal/constants/constants.go` only
 - When asked to add CHANGELOG entry: add new section with current version from constants.go
 - `VERSION` is updated by release workflow for stable tags (e.g. `1.17.9`)
