@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 2.0.2 -->
+## [2.0.2] - 2026-11-02
+
+### Fixed
+
+- **Self-update now starts the prepull with the newly installed binary.** The detached process no longer tries to execute the deleted `construct.backup` path left by the running executable's rename.
+
+<!-- RELEASE:END 2.0.2 -->
+
 <!-- RELEASE:START 2.0.1 -->
 ## [2.0.1] - 2026-11-02
 
