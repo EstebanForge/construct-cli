@@ -39,7 +39,7 @@ const prepullLogName = "prepull.log"
 // Best-effort: failures log one line and do not propagate. The detached
 // process inherits the host's HOME, PATH, and msb config dir so it can
 // authenticate to GHCR the same way the foreground ct did.
-func MaybePrepullImage(cfg *config.Config) {
+func MaybePrepullImage(cfg *config.Config, exe string) {
 	if cfg == nil || !cfg.Runtime.PrepullImage {
 		return
 	}
@@ -48,12 +48,6 @@ func MaybePrepullImage(cfg *config.Config) {
 	}
 	if imageLoadedForPrepull() {
 		ui.InfoLn("✓ construct-box image already present; skipping prepull")
-		return
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		ui.InfoF("⚠️  Could not resolve executable for prepull: %v\n", err)
 		return
 	}
 

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
@@ -26,7 +27,7 @@ func TestMaybePrepullImageDisabledByFlag(t *testing.T) {
 			PrepullImage: false,
 		},
 	}
-	MaybePrepullImage(cfg)
+	MaybePrepullImage(cfg, "")
 	// No log file means we never spawned. The test runner never has
 	// `msb` on PATH, so a real spawn would have failed and logged.
 	if _, err := os.Stat(prepullLogFilePath()); err == nil {
@@ -47,9 +48,49 @@ func TestMaybePrepullImageSkipsNonMicrovm(t *testing.T) {
 			PrepullImage: true,
 		},
 	}
-	MaybePrepullImage(cfg)
+	MaybePrepullImage(cfg, "")
 	if _, err := os.Stat(prepullLogFilePath()); err == nil {
 		t.Errorf("prepull log was written; expected no-op for non-microvm backend")
+	}
+}
+
+func TestMaybePrepullImageUsesNewBinaryAfterSelfUpdate(t *testing.T) {
+	withPrepullTestHome(t)
+	dir := t.TempDir()
+	installFakeMsb(t, dir, "#!/bin/sh\nexit 0\n")
+	target := filepath.Join(dir, "construct")
+	backup := target + ".backup"
+	marker := filepath.Join(dir, "prepull-called")
+	script := "#!/bin/sh\nprintf '%s' \"$*\" > \"$PREPULL_TEST_MARKER\"\n"
+	if err := os.WriteFile(target, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(target, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PREPULL_TEST_MARKER", marker)
+
+	MaybePrepullImage(&config.Config{Runtime: config.RuntimeConfig{Backend: config.BackendMsb, PrepullImage: true}}, target)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		data, err := os.ReadFile(marker)
+		if err == nil {
+			if got := string(data); got != "sys prepull --once" {
+				t.Fatalf("prepull args = %q, want sys prepull --once", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("new binary was not executed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
