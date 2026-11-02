@@ -383,15 +383,9 @@ func SelfUpdate(cfg ...*config.Config) error {
 	// the user already saw the success line and the prepuller is silent
 	// (writes to ~/.config/construct-cli/logs/prepull.log).
 	//
-	// Ordering: installBinaryWithBackup above already finished its
-	// atomic rename; os.Executable() in the detached child will resolve
-	// to the freshly installed binary. If a future refactor changes the
-	// install order, the prepull would still exec the right binary because
-	// /proc/self/exe points to the running process's inode (which the
-	// rename already updated under us).
 	resolvedCfg := resolveUpdateCfg(cfg...)
 	if resolvedCfg != nil && strings.EqualFold(resolvedCfg.Runtime.Backend, config.BackendMsb) {
-		runtimepkg.MaybePrepullImage(resolvedCfg)
+		runtimepkg.MaybePrepullImage(resolvedCfg, targetPath)
 		// The sandbox applies its setup at build time only. Stop an idle
 		// daemon now so the next ct command rebuilds it against this
 		// release instead of silently reconnecting to stale setup.
