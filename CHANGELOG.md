@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 2.0.3 -->
+## [2.0.3] - 2026-11-02
+
+### Changed
+
+- **Embedded microsandbox runtime updated to 0.7.13** (SDK 0.7.13, host pair msb + libkrunfw). Policy bump: embedded pair now tracks upstream releases in lockstep. Tested neutral for the GHCR long-transfer resets (upstream issue, not client-version-specific); the resumable-retry behavior is unchanged.
+
+<!-- RELEASE:END 2.0.3 -->
+
 <!-- RELEASE:START 2.0.2 -->
 ## [2.0.2] - 2026-11-02
 
