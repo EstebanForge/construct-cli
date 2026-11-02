@@ -2,6 +2,15 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 2.0.1 -->
+## [2.0.1] - 2026-11-02
+
+### Fixed
+
+- **`construct sys pull` now resumes interrupted image downloads.** The msb pull preserves partial layers and retries up to three times instead of deleting download progress after each registry response failure.
+
+<!-- RELEASE:END 2.0.1 -->
+
 <!-- RELEASE:START 2.0.0 -->
 ## [2.0.0] - 2026-11-01
 
