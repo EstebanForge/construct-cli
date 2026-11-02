@@ -89,11 +89,22 @@ func PullImage(cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("msb command: %w", err)
 		}
-		cmd := exec.Command(pullBin, "image", "pull", "--force", PrepullImageRef)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("pull failed: %w", err)
+		const maxAttempts = 3
+		var runErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			cmd := exec.Command(pullBin, "image", "pull", PrepullImageRef)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			runErr = cmd.Run()
+			if runErr == nil {
+				break
+			}
+			if attempt < maxAttempts {
+				ui.InfoF("⚠️  Pull interrupted; resuming (attempt %d/%d)...\n", attempt+1, maxAttempts)
+			}
+		}
+		if runErr != nil {
+			return fmt.Errorf("pull failed after %d attempts: %w", maxAttempts, runErr)
 		}
 		bustImageInspectMemo()
 		bustRemoteDigestCache()
