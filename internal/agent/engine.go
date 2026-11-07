@@ -16,6 +16,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
+	"github.com/EstebanForge/construct-cli/internal/gitprotect"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
 	"github.com/EstebanForge/construct-cli/internal/proxy"
@@ -305,6 +306,12 @@ func (e *RuntimeEngine) Prepare() error {
 		}
 	}
 
+	if gitprotect.HasImmutableFlag() {
+		if err := gitprotect.LockRepository(context.Background(), e.cwd); err != nil {
+			ui.LogDebug("gitprotect lock failed: %v", err)
+		}
+	}
+
 	e.prepared = true
 	return nil
 }
@@ -438,6 +445,11 @@ func (e *RuntimeEngine) Teardown() {
 	}
 	if e.proxyServer != nil {
 		_ = e.proxyServer.Close() //nolint:errcheck // teardown cleanup
+	}
+	if gitprotect.HasImmutableFlag() {
+		if err := gitprotect.UnlockRepository(context.Background(), e.cwd); err != nil {
+			ui.LogDebug("gitprotect unlock failed: %v", err)
+		}
 	}
 	if e.sec != nil {
 		e.sec.Close() //nolint:errcheck

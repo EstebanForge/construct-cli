@@ -129,6 +129,19 @@ if [ "$(id -u)" = "0" ]; then
     # construct phase falls back to the bind when unwritable (rootless).
     mkdir -p /var/lib/construct-cli 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli 2>/dev/null || true
 
+    # Protect repository .git directories against guest modification:
+    # 1. Mount read-only tmpfs over hooks to prevent execution of planted scripts
+    # 2. Bind-mount .git/config read-only to prevent malicious command execution
+    # Active mounts inside .git also prevent directory rename by the guest (EBUSY).
+    for ws_dir in /workspaces/* /projects; do
+        if [ -d "$ws_dir/.git/hooks" ]; then
+            mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$ws_dir/.git/hooks" 2>/dev/null || true
+        fi
+        if [ -f "$ws_dir/.git/config" ]; then
+            mount --bind "$ws_dir/.git/config" "$ws_dir/.git/config" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git/config" 2>/dev/null || true
+        fi
+    done
+
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
     # In remapped-userns mode keep namespace root to avoid host ownership drift.
