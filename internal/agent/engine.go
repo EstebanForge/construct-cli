@@ -24,6 +24,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/security"
 	"github.com/EstebanForge/construct-cli/internal/templates"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -127,6 +128,9 @@ type RuntimeEngine struct {
 	// Per-session egress CONNECT proxy state.
 	proxyServer *proxy.Server
 	proxyURL    string
+
+	// Detected project toolchains
+	toolchains []toolchains.ToolchainID
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -192,7 +196,8 @@ func (e *RuntimeEngine) Prepare() error {
 	e.osEnv = runtime.AppendProjectPathEnv(e.osEnv)
 	e.osEnv = network.InjectEnv(e.osEnv, e.cfg)
 	e.osEnv = runtime.AppendRuntimeIdentityEnv(e.osEnv, e.containerRuntime)
-	applyConstructPath(&e.osEnv)
+	e.toolchains = toolchains.DetectToolchains(e.cwd)
+	applyConstructPath(&e.osEnv, e.toolchains)
 
 	// 4. Login Bridge Detection
 	e.loginForward, e.loginPorts = shouldEnableLoginForward(e.args)
@@ -572,7 +577,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	}
 
 	// Ensure Construct home and path
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
 	// Patch the daemon if needed (ensure clipboard shims and wrappers are present)
@@ -641,7 +646,7 @@ func (e *RuntimeEngine) startDaemonBackground(daemonName string) bool {
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
 	osEnv = network.InjectEnv(osEnv, e.cfg)
 	osEnv = runtime.AppendRuntimeIdentityEnv(osEnv, e.containerRuntime)
-	applyConstructPath(&osEnv)
+	applyConstructPath(&osEnv, e.toolchains)
 
 	daemonRunFlags := []string{"-d", "--rm", "--name", daemonName}
 	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
@@ -782,7 +787,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	}
 
 	// Ensure Construct home and path
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
 	execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
@@ -951,6 +956,9 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 
 	// Always inject HOME and CONSTRUCT_PATH for agents
 	constructPath := env.BuildConstructPath("/home/construct")
+	if len(e.toolchains) > 0 {
+		constructPath = toolchains.BuildToolchainPath(constructPath, e.toolchains)
+	}
 	*runFlags = append(*runFlags, "-e", "HOME=/home/construct")
 	*runFlags = append(*runFlags, "-e", "CONSTRUCT_PATH="+constructPath)
 
@@ -1349,9 +1357,12 @@ func formatPorts(ports []int) string {
 	return strings.Join(parts, ",")
 }
 
-func applyConstructPath(osEnv *[]string) {
+func applyConstructPath(osEnv *[]string, tcs ...[]toolchains.ToolchainID) {
 	// Strict replacement for compatibility
 	constructPath := env.BuildConstructPath("/home/construct")
+	if len(tcs) > 0 && len(tcs[0]) > 0 {
+		constructPath = toolchains.BuildToolchainPath(constructPath, tcs[0])
+	}
 	env.SetEnvVar(osEnv, "PATH", constructPath)
 	env.SetEnvVar(osEnv, "CONSTRUCT_PATH", constructPath)
 

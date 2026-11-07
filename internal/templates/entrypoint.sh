@@ -127,7 +127,7 @@ if [ "$(id -u)" = "0" ]; then
     # filesystem (resets on recreate, so declared packages re-provision).
     # Prepared here as root so the construct-phase can write it; the
     # construct phase falls back to the bind when unwritable (rootless).
-    mkdir -p /var/lib/construct-cli 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli 2>/dev/null || true
+    mkdir -p /var/lib/construct-cli /opt/toolchains 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli /opt/toolchains 2>/dev/null || true
 
     # Protect repository .git directories against guest modification:
     # 1. Mount read-only tmpfs over hooks to prevent execution of planted scripts

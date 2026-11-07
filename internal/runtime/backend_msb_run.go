@@ -26,6 +26,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -265,6 +266,12 @@ func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 		readonly := cfg == nil || cfg.Sandbox.SkillsReadOnly
 		for _, target := range SkillsMountTargets() {
 			mounts = append(mounts, msbAutoMount{Dest: target, Src: p, Readonly: readonly})
+		}
+	}
+	// Host toolchains cache -> /opt/toolchains/<id> (read-only).
+	if cacheDir := toolchains.CacheDir(); cacheDir != "" {
+		for _, tm := range toolchains.AvailableToolchains(cacheDir) {
+			mounts = append(mounts, msbAutoMount{Dest: tm.GuestPath, Src: tm.HostPath, Readonly: true})
 		}
 	}
 	return mounts

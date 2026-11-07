@@ -89,7 +89,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	}
 
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 	env.SetEnvVar(&envVars, "CONSTRUCT_HOST_ALIAS", runtime.MsbHostAlias)
 	// Pin xterm-256color to guarantee terminfo compatibility inside the guest image

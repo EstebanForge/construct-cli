@@ -41,7 +41,7 @@ RUN echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct && \
 # Hash-gate dir (root-fs install gate): pre-created owned by construct so
 # non-root runtimes (non_root_strict, rootless podman) can write the gate
 # without the entrypoint's root phase.
-RUN mkdir -p /var/lib/construct-cli && chown construct:construct /var/lib/construct-cli
+RUN mkdir -p /var/lib/construct-cli /opt/toolchains && chown construct:construct /var/lib/construct-cli /opt/toolchains
 
 # 2. Base environment (brew exited 2026-09-22; see docs/BREW-EXIT.md).
 # Every former brew formula now ships from trixie, a vendor repo, an

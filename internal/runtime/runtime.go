@@ -29,6 +29,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/hostgit"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/templates"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -1049,6 +1050,7 @@ type overrideInputs struct {
 	SkillsTargetCount int    // Number of per-agent skills mount targets (0 disables even when source is present)
 	SkillsReadOnly    bool   // Whether the skills mounts use `:ro` (default true; opt-in RW when false)
 	SudoScoped        bool   // sandbox.passwordless_sudo = false (scoped apt/ufw/chown sudoers instead of free)
+	Toolchains        string // Hash of installed toolchain mounts (empty if none)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -1090,6 +1092,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "skillstargets:%d", inputs.SkillsTargetCount)
 	writeHashString(h, "skillsreadonly:%v", inputs.SkillsReadOnly)
 	writeHashString(h, "sudoscoped:%v", inputs.SudoScoped)
+	writeHashString(h, "toolchains:%s", inputs.Toolchains)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1188,6 +1191,14 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		sshAuthSock = "" // Don't include in hash if forwarding disabled
 	}
 
+	// Discover installed modular toolchains
+	toolchainMounts := toolchains.AvailableToolchains(toolchains.CacheDir())
+	toolchainParts := make([]string, 0, len(toolchainMounts))
+	for _, tm := range toolchainMounts {
+		toolchainParts = append(toolchainParts, string(tm.ID)+":"+tm.HostPath)
+	}
+	toolchainsHash := strings.Join(toolchainParts, ",")
+
 	// Build override inputs struct
 	allowCustomOverride := cfg != nil && cfg.Sandbox.AllowCustomOverride
 	inputs := overrideInputs{
@@ -1215,6 +1226,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		SkillsTargetCount: len(SkillsMountTargets()),
 		SkillsReadOnly:    cfg != nil && cfg.Sandbox.SkillsReadOnly,
 		SudoScoped:        cfg != nil && !cfg.Sandbox.PasswordlessSudo,
+		Toolchains:        toolchainsHash,
 	}
 
 	// Check if override needs regeneration
@@ -1384,6 +1396,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 					formatVolumePath(skillsSource), target, opts)
 			}
 		}
+		// Mount installed modular toolchains read-only into /opt/toolchains
+		for _, tm := range toolchainMounts {
+			fmt.Fprintf(&override, "      - %s:%s:ro%s\n",
+				formatVolumePath(tm.HostPath), tm.GuestPath, selinuxCommaSuffix)
+		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
 		for _, mount := range daemonMounts.Mounts {
@@ -1417,6 +1434,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 				fmt.Fprintf(&override, "      - %s:%s%s\n",
 					formatVolumePath(skillsSource), target, opts)
 			}
+		}
+		// Mount installed modular toolchains read-only into /opt/toolchains
+		for _, tm := range toolchainMounts {
+			fmt.Fprintf(&override, "      - %s:%s:ro\n",
+				formatVolumePath(tm.HostPath), tm.GuestPath)
 		}
 	}
 
