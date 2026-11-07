@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
@@ -17,8 +19,8 @@ const (
 	ConfinementUnenforced ConfinementStatus = "unenforced"
 )
 
-// ProbeProxyConfinement tests from the host whether the proxy is responding.
-// Fails closed if the proxy cannot be contacted within timeout.
+// ProbeProxyConfinement tests from the host whether the proxy is responding and enforcing authentication.
+// Fails closed if the proxy cannot be contacted or fails authentication within timeout.
 func ProbeProxyConfinement(ctx context.Context, proxyURL string) (ConfinementStatus, error) {
 	if proxyURL == "" {
 		return ConfinementUnenforced, fmt.Errorf("proxy URL is empty")
@@ -33,24 +35,62 @@ func ProbeProxyConfinement(ctx context.Context, proxyURL string) (ConfinementSta
 		Timeout: 3 * time.Second,
 	}
 
-	// Probe proxy port directly
-	probeURL := fmt.Sprintf("http://%s/", parsed.Host)
-	req, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
+	probeHost := parsed.Host
+	if h, port, err := net.SplitHostPort(parsed.Host); err == nil {
+		if h == "host.docker.internal" || h == "host.microsandbox.internal" {
+			probeHost = net.JoinHostPort("127.0.0.1", port)
+			if bridgeIP := linuxBridgeIP(); bridgeIP != "" {
+				if conn, err := net.DialTimeout("tcp", probeHost, 200*time.Millisecond); err == nil {
+					_ = conn.Close() //nolint:errcheck
+				} else {
+					probeHost = net.JoinHostPort(bridgeIP, port)
+				}
+			}
+		}
+	} else if parsed.Host == "host.docker.internal" || parsed.Host == "host.microsandbox.internal" {
+		probeHost = "127.0.0.1"
+	}
+
+	// 1. Unauthenticated probe: proxy MUST demand authentication (407 Proxy Authentication Required)
+	probeURL := fmt.Sprintf("http://%s/", probeHost)
+	reqUnauth, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
 	if err != nil {
 		return ConfinementUnenforced, err
 	}
 
-	resp, err := client.Do(req)
+	respUnauth, err := client.Do(reqUnauth)
 	if err != nil {
 		return ConfinementUnenforced, fmt.Errorf("proxy probe failed: %w", err)
 	}
 	defer func() {
-		_ = resp.Body.Close() //nolint:errcheck // probe response cleanup
+		_ = respUnauth.Body.Close() //nolint:errcheck // probe response cleanup
 	}()
 
-	// The proxy requires authentication, so 407 (or 200/403/404 depending on auth) indicates it is answering.
-	if resp.StatusCode == http.StatusProxyAuthRequired || resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusForbidden {
-		return ConfinementOK, nil
+	if respUnauth.StatusCode != http.StatusProxyAuthRequired {
+		return ConfinementUnenforced, fmt.Errorf("expected 407 Proxy Authentication Required on unauthenticated probe, got %d", respUnauth.StatusCode)
+	}
+
+	// 2. Authenticated probe: verify proxy authenticates session token
+	if parsed.User != nil {
+		reqAuth, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
+		if err != nil {
+			return ConfinementUnenforced, err
+		}
+		password, _ := parsed.User.Password()
+		token := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", parsed.User.Username(), password)))
+		reqAuth.Header.Set("Proxy-Authorization", "Basic "+token)
+
+		respAuth, err := client.Do(reqAuth)
+		if err != nil {
+			return ConfinementUnenforced, fmt.Errorf("authenticated proxy probe failed: %w", err)
+		}
+		defer func() {
+			_ = respAuth.Body.Close() //nolint:errcheck // probe response cleanup
+		}()
+
+		if respAuth.StatusCode == http.StatusProxyAuthRequired {
+			return ConfinementUnenforced, fmt.Errorf("proxy rejected valid session token")
+		}
 	}
 
 	return ConfinementOK, nil

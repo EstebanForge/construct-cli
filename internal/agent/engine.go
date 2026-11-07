@@ -346,6 +346,9 @@ func (e *RuntimeEngine) Prepare() error {
 		status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
 		cancel()
 		if pErr != nil || status != ConfinementOK {
+			if normMode == proxy.TierAllowlist {
+				return fmt.Errorf("network confinement probe failed: %w", pErr)
+			}
 			ui.LogDebug("Confinement probe status %s: %v", status, pErr)
 		}
 	}

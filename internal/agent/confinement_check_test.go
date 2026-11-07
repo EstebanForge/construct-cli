@@ -30,7 +30,11 @@ func TestProbeProxyConfinement(t *testing.T) {
 	defer l.Close()
 
 	srv := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("Proxy-Authorization") != "" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 			w.WriteHeader(http.StatusProxyAuthRequired)
 		}),
 	}
@@ -41,5 +45,12 @@ func TestProbeProxyConfinement(t *testing.T) {
 	status, err = ProbeProxyConfinement(ctx, proxyURL)
 	if err != nil || status != ConfinementOK {
 		t.Errorf("expected OK on live proxy, got %v, err=%v", status, err)
+	}
+
+	// 4. Authenticated probe URL
+	authProxyURL := "http://construct:secret-token@" + l.Addr().String()
+	status, err = ProbeProxyConfinement(ctx, authProxyURL)
+	if err != nil || status != ConfinementOK {
+		t.Errorf("expected OK on authenticated live proxy, got %v, err=%v", status, err)
 	}
 }

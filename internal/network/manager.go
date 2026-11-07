@@ -374,9 +374,9 @@ func ShowStatus() {
 	var cmd *exec.Cmd
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi")
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi")
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi")
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi")
 	}
 
 	cmd.Stdout = os.Stdout
@@ -737,9 +737,9 @@ func ExecUFWCommand(containerRuntime, containerName, command, arg string) error 
 
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", command, arg)
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", command, arg)
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", command, arg)
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", command, arg)
 	default:
 		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
@@ -789,7 +789,7 @@ func applyRuleMsb(target, action string, resolvedIPs []string) {
 		}
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", cmd, ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", cmd, ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -821,7 +821,7 @@ func removeRuleMsb(target string) {
 	for _, ip := range ipsToRemove {
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", "remove_rule", ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", "remove_rule", ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -846,7 +846,7 @@ func showStatusMsb() {
 	ui.InfoLn()
 	_, err = m.ExecStream(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
-		Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi"},
+		Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi"},
 		User:    "root",
 	})
 	if err != nil {

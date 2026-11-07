@@ -282,6 +282,10 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 
 	// Bound layer download size (2 GB max) and compute sha256 of raw layer blob.
 	const maxLayerBytes = 2 << 30
+	const maxExtractedBytes = 4 << 30
+	const maxFileBytes = 1 << 30
+
+	var totalExtracted int64
 	bodyReader := io.LimitReader(resp.Body, maxLayerBytes)
 	hasher := sha256.New()
 	layerStream := io.TeeReader(bodyReader, hasher)
@@ -342,11 +346,15 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			if err != nil {
 				return err
 			}
-			if _, err := io.Copy(f, tr); err != nil {
-				f.Close() //nolint:errcheck
+			n, err := io.Copy(f, io.LimitReader(tr, maxFileBytes))
+			f.Close() //nolint:errcheck
+			if err != nil {
 				return err
 			}
-			f.Close() //nolint:errcheck
+			totalExtracted += n
+			if totalExtracted > maxExtractedBytes {
+				return fmt.Errorf("toolchain archive exceeded max extraction limit (%d bytes)", maxExtractedBytes)
+			}
 		case tar.TypeSymlink:
 			linkTarget := header.Linkname
 			if filepath.IsAbs(linkTarget) {

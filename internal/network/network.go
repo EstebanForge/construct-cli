@@ -2,6 +2,7 @@ package network
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
@@ -13,10 +14,10 @@ func InjectEnv(env []string, cfg *config.Config) []string {
 
 // ValidateMode checks if the provided network mode is valid
 func ValidateMode(mode string) error {
-	switch mode {
-	case "permissive", "strict", "offline":
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "permissive", "strict", "offline", "open", "allowlist", "internet", "none":
 		return nil
 	default:
-		return fmt.Errorf("valid modes are: permissive, strict, offline")
+		return fmt.Errorf("valid modes are: allowlist (strict), open (permissive), internet, none (offline)")
 	}
 }

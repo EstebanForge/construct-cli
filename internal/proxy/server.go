@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bufio"
-	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
@@ -22,16 +21,17 @@ import (
 
 // Server is the host-side egress HTTP/CONNECT proxy.
 type Server struct {
-	policy       *Policy
-	sessionToken string
-	ca           *CA
-	upstreamCAs  *x509.CertPool
-	secrets      *SecretRegistry
-	listener     net.Listener
-	httpServer   *http.Server
-	logDir       string
-	mu           sync.Mutex
-	closed       bool
+	policy        *Policy
+	sessionToken  string
+	ca            *CA
+	upstreamCAs   *x509.CertPool
+	secrets       *SecretRegistry
+	listener      net.Listener
+	httpServer    *http.Server
+	httpTransport *http.Transport
+	logDir        string
+	mu            sync.Mutex
+	closed        bool
 }
 
 // Config configures the proxy server.
@@ -80,6 +80,13 @@ func NewServer(cfg Config) (*Server, error) {
 		upstreamCAs:  cfg.UpstreamCAs,
 		secrets:      NewSecretRegistry(),
 		logDir:       cfg.LogDir,
+		httpTransport: &http.Transport{
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   10,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
+		},
 	}
 
 	s.httpServer = &http.Server{
@@ -157,6 +164,9 @@ func (s *Server) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.httpTransport != nil {
+		s.httpTransport.CloseIdleConnections()
+	}
 	return s.httpServer.Close()
 }
 
@@ -403,13 +413,11 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	transport := &http.Transport{
-		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
-			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, net.JoinHostPort(targetIP.String(), strconv.Itoa(port)))
-		},
-	}
+	outReq.URL.Scheme = "http"
+	outReq.URL.Host = net.JoinHostPort(targetIP.String(), strconv.Itoa(port))
+	outReq.Host = r.URL.Host
 
-	resp, err := transport.RoundTrip(outReq)
+	resp, err := s.httpTransport.RoundTrip(outReq)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
@@ -427,24 +435,42 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, resp.Body) //nolint:errcheck // client write errors handled by server
 }
 
+type closeWriter interface {
+	CloseWrite() error
+}
+
 func pipe(conn1, conn2 net.Conn) {
 	defer func() {
 		_ = conn1.Close() //nolint:errcheck // pipe teardown
 		_ = conn2.Close() //nolint:errcheck // pipe teardown
 	}()
 
+	cp := func(dst, src net.Conn, wg *sync.WaitGroup) {
+		defer wg.Done()
+		buf := make([]byte, 32*1024)
+		for {
+			_ = src.SetReadDeadline(time.Now().Add(5 * time.Minute)) //nolint:errcheck // best-effort idle deadline
+			n, rErr := src.Read(buf)
+			if n > 0 {
+				_ = dst.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck // best-effort write deadline
+				if _, wErr := dst.Write(buf[:n]); wErr != nil {
+					break
+				}
+			}
+			if rErr != nil {
+				break
+			}
+		}
+		if cw, ok := dst.(closeWriter); ok {
+			_ = cw.CloseWrite() //nolint:errcheck // best-effort half-close
+		}
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(conn1, conn2) //nolint:errcheck // tunnel pipe
-	}()
-
-	go func() {
-		defer wg.Done()
-		_, _ = io.Copy(conn2, conn1) //nolint:errcheck // tunnel pipe
-	}()
+	go cp(conn1, conn2, &wg)
+	go cp(conn2, conn1, &wg)
 
 	wg.Wait()
 }

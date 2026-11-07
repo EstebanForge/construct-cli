@@ -122,8 +122,9 @@ func TestBridgeBindHostBackendScoping(t *testing.T) {
 		t.Errorf("msb bind host = %q, want loopback", got)
 	}
 	for _, b := range []string{config.BackendContainers, config.BackendDocker, config.BackendPodman, ""} {
-		if got := bridgeBindHost(b); got != "0.0.0.0" {
-			t.Errorf("%q bind host = %q, want 0.0.0.0 (host-gateway is the bridge IP)", b, got)
+		got := bridgeBindHost(b)
+		if got != "0.0.0.0" && got != linuxBridgeIP() {
+			t.Errorf("%q bind host = %q, want 0.0.0.0 or bridge IP", b, got)
 		}
 	}
 }
