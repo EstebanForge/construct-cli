@@ -320,6 +320,7 @@ func (e *RuntimeEngine) Prepare() error {
 		LoopbackPorts: e.cfg.Sandbox.HostLoopbackPorts,
 		HostGateway:   bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
 		CADir:         caDir,
+		LogDir:        filepath.Join(e.configPath, "logs"),
 	}
 	if pSrv, err := proxy.NewServer(pCfg); err == nil {
 		if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err == nil {

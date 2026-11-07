@@ -84,6 +84,54 @@ func TestPolicyAllowlistAndPresets(t *testing.T) {
 	}
 }
 
+func TestPolicyExplain(t *testing.T) {
+	ctx := context.Background()
+	p := NewPolicy(TierAllowlist, []string{"my-api.example.com", "*.custom.org"}, []int{8080}, "host.docker.internal")
+
+	// Config allowlist
+	d1 := p.Explain(ctx, "my-api.example.com:443")
+	if !d1.Allowed && !strings.Contains(d1.Reason, "dns") {
+		t.Errorf("expected allowed config host, got %+v", d1)
+	}
+	if d1.Source != "config" {
+		t.Errorf("expected source 'config', got %q", d1.Source)
+	}
+
+	// Wildcard allowlist
+	d2 := p.Explain(ctx, "sub.custom.org:443")
+	if d2.Source != "config (*.custom.org)" {
+		t.Errorf("expected wildcard source, got %q", d2.Source)
+	}
+
+	// Preset
+	d3 := p.Explain(ctx, "registry.npmjs.org:443")
+	if d3.Source != "preset:npm" {
+		t.Errorf("expected preset:npm source, got %q", d3.Source)
+	}
+
+	// Loopback relay
+	d4 := p.Explain(ctx, "host.docker.internal:8080")
+	if !d4.Allowed || d4.Source != "loopback_relay" {
+		t.Errorf("expected loopback_relay decision, got %+v", d4)
+	}
+
+	// Blocked host
+	d5 := p.Explain(ctx, "evil.com:443")
+	if d5.Allowed {
+		t.Errorf("expected evil.com to be blocked")
+	}
+	if !strings.Contains(d5.Reason, "not in allowlist") {
+		t.Errorf("expected allowlist reason, got %q", d5.Reason)
+	}
+
+	// Tier none
+	pNone := NewPolicy(TierNone, nil, nil, "")
+	dNone := pNone.Explain(ctx, "registry.npmjs.org:443")
+	if dNone.Allowed || !strings.Contains(dNone.Reason, "tier 'none'") {
+		t.Errorf("expected TierNone rejection, got %+v", dNone)
+	}
+}
+
 func TestProxyServerConnectFlow(t *testing.T) {
 	// Start a dummy backend echo TCP server
 	backendListener, err := net.Listen("tcp", "127.0.0.1:0")

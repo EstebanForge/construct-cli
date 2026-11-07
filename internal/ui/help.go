@@ -150,17 +150,21 @@ func PrintNetworkHelp() {
 	help := `Network Management Commands
 
 Usage:
-  construct network <command> [args...]
+  construct network <command> [args...] (alias: construct net)
 
 Commands:
   allow <domain|ip>   # Add domain or IP to allowlist
   block <domain|ip>   # Add domain or IP to blocklist
   remove <domain|ip>  # Remove network rule
   list                # Show all configured rules
-  status              # Show active UFW status in the sandbox
+  status              # Show active network status in the sandbox
   clear               # Clear all network rules
+  explain <host>      # Explain whether a host is allowed or blocked and why
+  log [--tail N] [-f] # View egress proxy access logs and security events
 
 Examples:
+  construct net explain api.anthropic.com
+  construct net log --tail 20
   construct network allow api.anthropic.com
   construct network block *.malicious.com
   construct network remove 1.2.3.4

@@ -12,6 +12,8 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +28,7 @@ type Server struct {
 	secrets      *SecretRegistry
 	listener     net.Listener
 	httpServer   *http.Server
+	logDir       string
 	mu           sync.Mutex
 	closed       bool
 }
@@ -38,6 +41,7 @@ type Config struct {
 	HostGateway   string
 	SessionToken  string
 	CADir         string
+	LogDir        string
 }
 
 // NewServer initializes a proxy instance.
@@ -57,11 +61,16 @@ func NewServer(cfg Config) (*Server, error) {
 		caInstance = c
 	}
 
+	if cfg.LogDir != "" {
+		_ = os.MkdirAll(cfg.LogDir, 0755) //nolint:errcheck // best-effort log directory creation
+	}
+
 	s := &Server{
 		policy:       p,
 		sessionToken: token,
 		ca:           caInstance,
 		secrets:      NewSecretRegistry(),
+		logDir:       cfg.LogDir,
 	}
 
 	s.httpServer = &http.Server{
@@ -161,6 +170,7 @@ func (s *Server) authenticate(r *http.Request) bool {
 
 func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 	if !s.authenticate(r) {
+		s.logf("AUTH_FAIL", r.RemoteAddr, "invalid session token")
 		w.Header().Set("Proxy-Authenticate", `Basic realm="construct-proxy"`)
 		http.Error(w, "Proxy authentication required", http.StatusProxyAuthRequired)
 		return
@@ -177,10 +187,12 @@ func (s *Server) handleProxy(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 	targetIP, port, err := s.policy.CheckDestination(r.Context(), r.Host)
 	if err != nil {
+		s.logf("BLOCK", r.Host, err.Error())
 		w.Header().Set("X-Construct-Reason", err.Error())
 		http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
 		return
 	}
+	s.logf("ALLOW", r.Host, fmt.Sprintf("ip=%s port=%d", targetIP.String(), port))
 
 	targetAddr := net.JoinHostPort(targetIP.String(), strconv.Itoa(port))
 	destConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
@@ -287,19 +299,22 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 			reqHost = h
 		}
 		if reqHost != "" && !strings.EqualFold(reqHost, targetHost) {
+			reason := fmt.Sprintf("domain fronting: Host %q != CONNECT %q", reqHost, targetHost)
+			s.logf("FRONTING_DROP", targetHost, reason)
 			resp := &http.Response{
 				StatusCode: http.StatusForbidden,
 				ProtoMajor: 1,
 				ProtoMinor: 1,
 				Header:     make(http.Header),
 			}
-			resp.Header.Set("X-Construct-Reason", fmt.Sprintf("domain fronting: Host %q != CONNECT %q", reqHost, targetHost))
+			resp.Header.Set("X-Construct-Reason", reason)
 			_ = resp.Write(tlsClient) //nolint:errcheck // client response
 			return
 		}
 
 		// Perform outbound secret swap on request headers.
 		if err := s.secrets.SwapHeaders(req.Header, targetHost); err != nil {
+			s.logf("LEAK_DROP", targetHost, err.Error())
 			resp := &http.Response{
 				StatusCode: http.StatusForbidden,
 				ProtoMajor: 1,
@@ -331,10 +346,12 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	targetIP, port, err := s.policy.CheckDestination(r.Context(), r.URL.Host)
 	if err != nil {
+		s.logf("BLOCK", r.URL.Host, err.Error())
 		w.Header().Set("X-Construct-Reason", err.Error())
 		http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
 		return
 	}
+	s.logf("ALLOW", r.URL.Host, fmt.Sprintf("ip=%s port=%d", targetIP.String(), port))
 
 	outReq, err := http.NewRequestWithContext(r.Context(), r.Method, r.URL.String(), r.Body)
 	if err != nil {
@@ -407,4 +424,22 @@ func generateRandomToken(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func (s *Server) logf(action, dest, reason string) {
+	if s.logDir == "" {
+		return
+	}
+	f, err := os.OpenFile(filepath.Join(s.logDir, "proxy.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close() //nolint:errcheck
+
+	line := fmt.Sprintf("%s action=%s dest=%s", time.Now().UTC().Format(time.RFC3339), action, dest)
+	if reason != "" {
+		line += fmt.Sprintf(" reason=%q", reason)
+	}
+	line += "\n"
+	_, _ = f.WriteString(line) //nolint:errcheck // best-effort audit write
 }

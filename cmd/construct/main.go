@@ -126,7 +126,7 @@ func main() {
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
-	case "network":
+	case "network", "net":
 		if len(args) < 2 {
 			ui.PrintNetworkHelp()
 			os.Exit(1)
@@ -497,6 +497,14 @@ func handleNetworkCommand(args []string) {
 		network.ShowStatus()
 	case "clear":
 		network.ClearRules()
+	case "explain":
+		if len(args) < 2 {
+			ui.GumError("Usage: construct network explain <host[:port]>")
+			os.Exit(1)
+		}
+		network.Explain(args[1])
+	case "log", "logs":
+		network.ShowLog(args[1:])
 	default:
 		ui.GumError(fmt.Sprintf("Unknown network command: %s", command))
 		ui.PrintNetworkHelp()
@@ -594,12 +602,12 @@ func shouldRunMigration(args []string) bool {
 		default:
 			return false
 		}
-	case "network":
+	case "network", "net":
 		if len(args) < 2 {
 			return false
 		}
 		switch args[1] {
-		case "allow", "block", "remove", "list", "status", "clear":
+		case "allow", "block", "remove", "list", "status", "clear", "explain", "log", "logs":
 			return true
 		default:
 			return false

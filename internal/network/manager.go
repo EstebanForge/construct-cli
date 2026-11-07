@@ -2,14 +2,18 @@
 package network
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -787,5 +791,136 @@ func showStatusMsb() {
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to get status: %v", err))
 		os.Exit(1)
+	}
+}
+
+// Explain diagnoses whether an egress destination is allowed or blocked by the proxy policy.
+func Explain(target string) {
+	if target == "" {
+		ui.GumError("Usage: construct network explain <host[:port]>")
+		return
+	}
+
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		return
+	}
+
+	p := proxy.NewPolicy(cfg.Network.Mode, cfg.Network.AllowedDomains, cfg.Sandbox.HostLoopbackPorts, "")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision := p.Explain(ctx, target)
+
+	fmt.Println()
+	fmt.Printf("Destination: %s:%d\n", decision.TargetHost, decision.TargetPort)
+	fmt.Printf("Active Tier: %s\n", decision.Tier)
+
+	if decision.Allowed {
+		fmt.Printf("Decision:    \033[32mALLOWED\033[0m\n")
+		if decision.Source != "" {
+			fmt.Printf("Rule Source: %s\n", decision.Source)
+		}
+		if len(decision.ResolvedIPs) > 0 {
+			var ipStrs []string
+			for _, ip := range decision.ResolvedIPs {
+				ipStrs = append(ipStrs, ip.String())
+			}
+			fmt.Printf("Resolved IP: %s\n", strings.Join(ipStrs, ", "))
+		}
+	} else {
+		fmt.Printf("Decision:    \033[31mBLOCKED\033[0m\n")
+		fmt.Printf("Reason:      %s\n", decision.Reason)
+		fmt.Println()
+		if decision.Tier == proxy.TierAllowlist {
+			fmt.Println("To allow this host, run:")
+			fmt.Printf("  construct network allow %s\n", decision.TargetHost)
+		}
+	}
+	fmt.Println()
+}
+
+// ShowLog displays egress proxy access logs and security events.
+func ShowLog(args []string) {
+	logPath := filepath.Join(config.GetLogsDir(), "proxy.log")
+
+	tailCount := 50
+	follow := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--follow", "-f":
+			follow = true
+		case "--tail", "-n":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+					tailCount = n
+					i++
+				}
+			}
+		}
+	}
+
+	file, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ui.InfoLn("No proxy access logs found. Logs are recorded during active agent sessions.")
+			return
+		}
+		ui.GumError(fmt.Sprintf("Failed to open proxy log: %v", err))
+		return
+	}
+	defer file.Close() //nolint:errcheck
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		ui.GumError(fmt.Sprintf("Error reading proxy log: %v", err))
+		return
+	}
+
+	if len(lines) == 0 {
+		ui.InfoLn("Proxy log is empty.")
+		if !follow {
+			return
+		}
+	}
+
+	start := 0
+	if len(lines) > tailCount {
+		start = len(lines) - tailCount
+	}
+
+	for _, line := range lines[start:] {
+		printFormattedLogLine(line)
+	}
+
+	if !follow {
+		return
+	}
+
+	for {
+		time.Sleep(250 * time.Millisecond)
+		for scanner.Scan() {
+			printFormattedLogLine(scanner.Text())
+		}
+	}
+}
+
+func printFormattedLogLine(line string) {
+	switch {
+	case strings.Contains(line, "action=ALLOW"):
+		fmt.Printf("\033[32m%s\033[0m\n", line)
+	case strings.Contains(line, "action=BLOCK"):
+		fmt.Printf("\033[31m%s\033[0m\n", line)
+	case strings.Contains(line, "action=LEAK_DROP") || strings.Contains(line, "action=FRONTING_DROP"):
+		fmt.Printf("\033[33m%s\033[0m\n", line)
+	default:
+		fmt.Println(line)
 	}
 }

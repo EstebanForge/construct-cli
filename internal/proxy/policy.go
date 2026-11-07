@@ -3,6 +3,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"strings"
@@ -17,6 +18,17 @@ const (
 	TierAllowlist = "allowlist"
 	TierNone      = "none"
 )
+
+// PolicyDecision represents the evaluated access decision for an egress target.
+type PolicyDecision struct {
+	TargetHost  string
+	TargetPort  int
+	Tier        string
+	Allowed     bool
+	Source      string
+	ResolvedIPs []net.IP
+	Reason      string
+}
 
 var blockedCIDRs []*net.IPNet
 
@@ -83,6 +95,7 @@ type Policy struct {
 	mu            sync.RWMutex
 	tier          string
 	allowlist     map[string]bool
+	allowSources  map[string]string
 	loopbackPorts map[int]bool
 	hostGateway   string
 	pinnedHosts   map[string]bool
@@ -95,16 +108,22 @@ func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGate
 		tier = TierAllowlist
 	}
 	allow := make(map[string]bool)
+	sources := make(map[string]string)
 	for _, h := range allowedHosts {
 		h = strings.ToLower(strings.TrimSpace(h))
 		if h != "" {
 			allow[h] = true
+			sources[h] = "config"
 		}
 	}
 	// Automatically attach ecosystem presets in allowlist mode.
-	for _, hosts := range EcosystemPresets {
+	for presetName, hosts := range EcosystemPresets {
 		for _, h := range hosts {
-			allow[strings.ToLower(h)] = true
+			lower := strings.ToLower(h)
+			allow[lower] = true
+			if sources[lower] == "" {
+				sources[lower] = "preset:" + presetName
+			}
 		}
 	}
 
@@ -116,6 +135,7 @@ func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGate
 	return &Policy{
 		tier:          tier,
 		allowlist:     allow,
+		allowSources:  sources,
 		loopbackPorts: ports,
 		hostGateway:   strings.ToLower(hostGateway),
 		pinnedHosts:   make(map[string]bool),
@@ -156,9 +176,8 @@ func IsPrivateIP(ip net.IP) bool {
 	return false
 }
 
-// CheckDestination resolves host and validates against policy rules.
-// Returns validated target IP and port, or an error if blocked.
-func (p *Policy) CheckDestination(ctx context.Context, hostPort string) (net.IP, int, error) {
+// Explain evaluates an egress target against active policy tiers and returns the detailed decision.
+func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 	host, portStr, err := net.SplitHostPort(hostPort)
 	if err != nil {
 		host = hostPort
@@ -166,76 +185,124 @@ func (p *Policy) CheckDestination(ctx context.Context, hostPort string) (net.IP,
 	}
 	port, err := net.LookupPort("tcp", portStr)
 	if err != nil {
-		return nil, 0, fmt.Errorf("invalid port %q: %w", portStr, err)
+		return PolicyDecision{
+			TargetHost: host,
+			Allowed:    false,
+			Reason:     fmt.Sprintf("invalid port %q: %v", portStr, err),
+		}
 	}
 
 	lowerHost := strings.ToLower(host)
-
-	// Check host loopback forwarding exception
-	if p.isLoopbackRelay(lowerHost, port) {
-		return net.ParseIP("127.0.0.1"), port, nil
-	}
-
 	p.mu.RLock()
 	tier := p.tier
 	p.mu.RUnlock()
 
+	decision := PolicyDecision{
+		TargetHost: lowerHost,
+		TargetPort: port,
+		Tier:       tier,
+	}
+
+	if p.isLoopbackRelay(lowerHost, port) {
+		decision.Allowed = true
+		decision.Source = "loopback_relay"
+		decision.ResolvedIPs = []net.IP{net.ParseIP("127.0.0.1")}
+		return decision
+	}
+
 	if tier == TierNone {
-		return nil, 0, fmt.Errorf("egress blocked by tier %q", tier)
+		decision.Allowed = false
+		decision.Reason = "egress blocked by tier 'none'"
+		return decision
 	}
 
-	// Verify host is permitted under current tier
 	if tier == TierAllowlist {
-		if !p.isHostAllowed(lowerHost) {
-			return nil, 0, fmt.Errorf("host %q not in allowlist", lowerHost)
+		allowed, src := p.matchHost(lowerHost)
+		if !allowed {
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("host %q not in allowlist", lowerHost)
+			return decision
 		}
+		decision.Source = src
+	} else {
+		decision.Source = "tier:" + tier
 	}
 
-	// In open tier, skip DNS blocklist checks
 	if tier == TierOpen {
 		ips, err := p.resolver.LookupIP(ctx, "ip", host)
 		if err != nil || len(ips) == 0 {
-			return nil, 0, fmt.Errorf("dns lookup failed for %q: %w", host, err)
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("dns lookup failed for %q: %v", host, err)
+			return decision
 		}
-		return ips[0], port, nil
+		decision.Allowed = true
+		decision.ResolvedIPs = ips
+		return decision
 	}
 
-	// Proxy-side DNS resolution with strict IP verification
 	resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	ips, err := p.resolver.LookupIP(resolveCtx, "ip", host)
 	if err != nil || len(ips) == 0 {
-		return nil, 0, fmt.Errorf("dns resolution failed for %q: %w", host, err)
+		decision.Allowed = false
+		decision.Reason = fmt.Sprintf("dns resolution failed for %q: %v", host, err)
+		return decision
 	}
 
 	for _, ip := range ips {
 		if IsPrivateIP(ip) {
-			return nil, 0, fmt.Errorf("host %q resolved to prohibited address %s", host, ip.String())
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("host %q resolved to prohibited address %s", host, ip.String())
+			return decision
 		}
 	}
 
-	return ips[0], port, nil
+	decision.Allowed = true
+	decision.ResolvedIPs = ips
+	return decision
 }
 
-func (p *Policy) isHostAllowed(host string) bool {
+// CheckDestination resolves host and validates against policy rules.
+// Returns validated target IP and port, or an error if blocked.
+func (p *Policy) CheckDestination(ctx context.Context, hostPort string) (net.IP, int, error) {
+	decision := p.Explain(ctx, hostPort)
+	if !decision.Allowed {
+		return nil, 0, errors.New(decision.Reason)
+	}
+	if len(decision.ResolvedIPs) == 0 {
+		return net.ParseIP("127.0.0.1"), decision.TargetPort, nil
+	}
+	return decision.ResolvedIPs[0], decision.TargetPort, nil
+}
+
+func (p *Policy) matchHost(host string) (bool, string) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	if p.allowlist[host] {
-		return true
+		src := p.allowSources[host]
+		if src == "" {
+			src = "allowlist"
+		}
+		return true, src
 	}
 
 	// Wildcard subdomain matching (*.example.com)
-	for allowed := range p.allowlist {
+	for allowed, src := range p.allowSources {
 		if strings.HasPrefix(allowed, "*.") {
 			suffix := allowed[1:]
 			if strings.HasSuffix(host, suffix) {
-				return true
+				return true, fmt.Sprintf("%s (%s)", src, allowed)
 			}
 		}
 	}
-	return false
+	return false, ""
+}
+
+func (p *Policy) isHostAllowed(host string) bool {
+	allowed, _ := p.matchHost(host)
+	return allowed
 }
 
 func (p *Policy) isLoopbackRelay(host string, port int) bool {
