@@ -18,6 +18,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/security"
@@ -121,6 +122,10 @@ type RuntimeEngine struct {
 	herdrProxyContainer string // container running our socat (for Teardown)
 	herdrProxyUser      string // exec user for Teardown cleanup
 	bridgeHost          string // guest-visible hostname for host bridge servers
+
+	// Per-session egress CONNECT proxy state.
+	proxyServer *proxy.Server
+	proxyURL    string
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -277,6 +282,29 @@ func (e *RuntimeEngine) Prepare() error {
 		}
 	}
 
+	// 7. Egress Sentinel Proxy
+	proxyBind := bridgeBindHost(e.cfg.Runtime.Backend)
+	pCfg := proxy.Config{
+		Tier:          e.cfg.Network.Mode,
+		AllowedHosts:  e.cfg.Network.AllowedDomains,
+		LoopbackPorts: e.cfg.Sandbox.HostLoopbackPorts,
+		HostGateway:   bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
+	}
+	if pSrv, err := proxy.NewServer(pCfg); err == nil {
+		if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err == nil {
+			e.proxyServer = pSrv
+			pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
+			e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
+
+			probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
+			cancel()
+			if pErr != nil || status != ConfinementOK {
+				ui.LogDebug("Confinement probe status %s: %v", status, pErr)
+			}
+		}
+	}
+
 	e.prepared = true
 	return nil
 }
@@ -407,6 +435,9 @@ func (e *RuntimeEngine) Teardown() {
 	}
 	if e.execServer != nil {
 		e.execServer.Stop()
+	}
+	if e.proxyServer != nil {
+		_ = e.proxyServer.Close() //nolint:errcheck // teardown cleanup
 	}
 	if e.sec != nil {
 		e.sec.Close() //nolint:errcheck
@@ -677,6 +708,17 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_BINARIES", strings.Join(e.cfg.Sandbox.HostBinaries, ","))
 	}
 
+	if e.proxyURL != "" {
+		env.SetEnvVar(&envVars, "HTTP_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "HTTPS_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "ALL_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "http_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "https_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+	}
+
 	// SSH bridge: restart socat proxy inside the container and inject proxy env.
 	// The socat from the original entrypoint may be pointing to a stale port
 	// (from a previous session's bridge). We must restart it with the current port.
@@ -840,6 +882,19 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 
 	if e.sshBridge != nil {
 		*runFlags = append(*runFlags, "-e", fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port))
+	}
+
+	if e.proxyURL != "" {
+		*runFlags = append(*runFlags,
+			"-e", "HTTP_PROXY="+e.proxyURL,
+			"-e", "HTTPS_PROXY="+e.proxyURL,
+			"-e", "ALL_PROXY="+e.proxyURL,
+			"-e", "http_proxy="+e.proxyURL,
+			"-e", "https_proxy="+e.proxyURL,
+			"-e", "all_proxy="+e.proxyURL,
+			"-e", "NO_PROXY=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
+			"-e", "no_proxy=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
+		)
 	}
 
 	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {

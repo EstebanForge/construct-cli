@@ -619,6 +619,7 @@ func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
 	wantPorts := map[string]bool{
 		fmt.Sprintf("%d-%d", MsbBridgePortBase, MsbBridgePortBase+MsbBridgePortSpan-1):                false,
 		fmt.Sprintf("%d-%d", MsbHerdrBridgePortBase, MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan-1): false,
+		fmt.Sprintf("%d-%d", MsbProxyPortBase, MsbProxyPortBase+MsbProxyPortSpan-1):                   false,
 	}
 	for _, mode := range []string{"offline", "permissive"} {
 		net := msbNetworkConfig(mode, nil)

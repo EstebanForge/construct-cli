@@ -308,13 +308,20 @@ const (
 	MsbHerdrBridgePortSpan = 10000
 )
 
+// MsbProxyPortBase/Span is the host egress proxy band; must not overlap
+// the SSH and herdr bands above.
+const (
+	MsbProxyPortBase = 58700
+	MsbProxyPortSpan = 5000
+)
+
 // msbHostTransportRules emits the guest->host transport rules (§3.1).
 // bridgePorts are the known bridge listener ports; when empty the full
 // deterministic bridge band is named instead, so any bridge started later
 // inside the band stays reachable (per-port rules are create-time only).
 func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
 	if len(bridgePorts) == 0 {
-		// Both deterministic bridge bands (SSH + herdr), as ranges: the gap
+		// Deterministic bridge bands (SSH + herdr + proxy), as ranges: the gap
 		// between them stays unforwarded so guest traffic cannot probe
 		// unrelated host loopback services.
 		band := func(base, span int) msb.PolicyRule {
@@ -329,6 +336,7 @@ func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
 		return []msb.PolicyRule{
 			band(MsbBridgePortBase, MsbBridgePortSpan),
 			band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
+			band(MsbProxyPortBase, MsbProxyPortSpan),
 		}
 	}
 	rules := make([]msb.PolicyRule, 0, len(bridgePorts))
@@ -573,8 +581,9 @@ func msbEnvHash(cfg *config.Config) string {
 // shape changes; v2 added the public-mode first-match deny cap (msb 0.7.8
 // DefaultEgress allow opens every host port); v3 added private LAN egress
 // for local servers and wired NetworkPolicy into snapshot restore; v4 moved
-// the host deny cap before private LAN to prevent host gateway bypass.
-const netRulesHashSalt = "net-rules=v4"
+// the host deny cap before private LAN to prevent host gateway bypass; v5 added
+// the proxy port band for egress confinement.
+const netRulesHashSalt = "net-rules=v5"
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
 // The entrypoint aligns the guest construct user with CONSTRUCT_HOST_UID:GID,

@@ -95,6 +95,17 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	// Pin xterm-256color to guarantee terminfo compatibility inside the guest image
 	env.SetEnvVar(&envVars, "TERM", "xterm-256color")
 
+	if e.proxyURL != "" {
+		env.SetEnvVar(&envVars, "HTTP_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "HTTPS_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "ALL_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "http_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "https_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+	}
+
 	stdTTY := term.IsTerminal(int(os.Stdin.Fd()))
 	if stdTTY {
 		if w, h, err := term.GetSize(int(os.Stdin.Fd())); err == nil && w > 0 && h > 0 {
