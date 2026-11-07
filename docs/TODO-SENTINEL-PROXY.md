@@ -1,11 +1,12 @@
 # Sentinel Credential Proxy — PENDING WORK
 
-Status: **PENDING. Not implemented. Design and peer review are done; implementation has not started.** Do not start coding before completing the prerequisites in section 5. This doc is the plan of record.
+Status: **PENDING. Not implemented. Design and peer review are done; implementation has not started.** Do not start coding before completing the prerequisites in section 5. This doc is the plan of record for the v3.0 network layer (decision 2026-11: breaking changes allowed, old paths deleted same-release as their replacements, section 10).
 
 Related docs:
 
 - creds-proxy design (older host-side credential proxy, header-injection model, never implemented; design doc removed 2026-11-01, history in git). This doc supersedes its transport model and reuses its keychain storage section.
 - [HIDE-SECRETS-DESIGN.md](HIDE-SECRETS-DESIGN.md) — workspace redaction, implemented. Its deferred V2 items (trusted proxy enforcement, proxy contract checks, run-only session token) are exactly the network layer described here.
+- [LESSONS-TO-V3.md](LESSONS-TO-V3.md) — devvm analysis; source of the v3.0 removals and the refinements folded in below.
 - [ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md) §4.1 — msb backend. Network mode enforcement interplay.
 
 Origin: analysis of discobox-ai/discobox (Apache 2.0) sentinel system, 2026-09. Peer review by agy (isolated, high reasoning), verdict ADOPT-WITH-CHANGES. All CRITICAL/HIGH claims verified against source before acceptance.
@@ -23,7 +24,7 @@ Existing mitigations cover adjacent paths, not this one:
 | Network strict mode | ufw in-container (`internal/templates/network-filter.sh`) | L3 IP/CIDR only. Domains resolved once via `dig` at boot, pinned as IPs. CDN rotation silently breaks it. No content visibility |
 | SSH agent | TCP bridge to host agent (`internal/agent/ssh_bridge.go`, `internal/runtime/runtime.go:1321`) | All-or-nothing signing authority for every host key the agent knows |
 
-Two live weaknesses: real keys inside the container, and boot-time IP pinning for domain filtering. No HTTP proxy layer exists anywhere in the codebase (`HTTP_PROXY` grep: zero matches in `internal/`).
+Two live weaknesses: real keys inside the container, and boot-time IP pinning for domain filtering. No HTTP proxy layer exists anywhere in the codebase (`HTTP_PROXY` grep: zero matches in `internal/`). v3.0 direction (2026-11): both weaknesses are removed outright, not mitigated; see section 10.
 
 ## 2. Prior art: discobox sentinel system
 
@@ -40,6 +41,8 @@ Discobox keeps real credentials out of agent boxes entirely. Boxes receive byte-
 Full research trail in agentmemory (decision entries 2026-09, librarian run `01a0c63b`).
 
 Corroborating prior art, 2026-10: [Overalls](https://overalls.dev) (MIT, Geoffrey Huntley) enforces the same invariant at fleet scale — its Ziggy component brokers provider calls through `llm.internal`, keeps provider credentials outside the guest entirely, and meters usage per account at the proxy, while Galileo serves named integrations at `.integration.internal` so a machine uses a secret without being able to read it. Independent convergence on keys-at-the-edge; no change to this design's mechanism, and Ziggy's metering role feeds the usage-accounting TODO in [TODO.md](TODO.md).
+
+Corroborating prior art, 2026-11: [devvm](https://github.com/devvmhq/devvm) (cloned to `/tmp/devvm`, analysis in LESSONS-TO-V3.md) ships the same invariant with a stdlib-only per-VM proxy on four tiers (`open / internet / allowlist / none`, default allowlist). Secrets live on the host; the guest gets placeholders (`prefix + per-VM salt`), swapped through a MITM with a per-VM CA and a ~1024-leaf LRU cert cache. This design already covers its SNI==CONNECT check (finding #4) and its placeholder-is-not-proxy-credential separation (finding #3). What it adds here: proxy-side DNS resolution with private/CGNAT/loopback refusal (folded into S1), the leaf-cache detail (S2), the tiers model that replaces `NETWORK_MODE` (section 10), and a post-start confinement self-check recorded in sandbox state (S1, S6). devvm also captures agent OAuth logins at the proxy and keeps refresh tokens host-side; that stays a non-goal here for v1 (finding #6 already excludes OAuth bodies), recorded as the natural v2 extension.
 
 ## 3. Design decision
 
@@ -63,6 +66,8 @@ Core invariants (from discobox, keep them all):
 4. Swap only when destination host matches the secret's binding. No match = sentinel passes = upstream 401.
 5. One host-scope matcher function, subdomains yes, parents no.
 6. Resolve cache keyed (var, host), capped by session lifetime; 401 retry chain fresh-then-previous.
+7. The proxy resolves every hostname itself (never trusts guest DNS answers) and refuses loopback, private, and CGNAT destinations unless a rule names the address explicitly. Kills DNS rebinding and the dig-at-boot staleness in one move (devvm refinement).
+8. A sentinel string is never a proxy credential. Proxy auth is the per-session token (finding #3); the two never share bytes (devvm salt/key separation).
 
 ## 4. Peer review findings (verified, blocking-level)
 
@@ -81,19 +86,19 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 
 ## 5. Prerequisites (do these FIRST, they stand alone)
 
-- [ ] P1: Host-side network enforcement for strict mode (docker network / host iptables on the bridge, outside container namespace). In-container ufw demoted to defense-in-depth.
+- [ ] P1: Host-side network enforcement (docker network / host iptables on the bridge, outside container namespace). In-container ufw demoted to defense-in-depth, then deleted in v3.0 (section 10). v3.0 enforcement is tiers on the proxy; P1 is the stepping stone.
 - [ ] P2: ~~Remove `/usr/sbin/ufw` from image sudoers.~~ Superseded 2026-09-25: sudoers is `NOPASSWD:ALL` by default, so scoping ufw out of the allowlist no longer restricts anything; the enforcement point is host-side (P1). The scoped-allowlist opt-out (`sandbox.passwordless_sudo = false`) still carries the old list minus nothing; revisit only if the knob gains per-binary scoping.
 - [ ] P3: Restrict outbound 53 to host resolver in all modes.
 - [ ] P4: Authenticate existing host bridges or at minimum document the LAN exposure (ssh_bridge, herdr, clipboard, host-exec, loopback relays — `internal/agent/engine.go:217,603,609`).
 
 ## 6. Implementation plan (slices)
 
-- [ ] S1: Host-side egress CONNECT proxy. Per-session lifecycle (same pattern as the SSH TCP bridge, `runtime.go:1321`). Session-token auth. Domain allowlist enforced at CONNECT (replaces dig-at-boot pinning). Strict mode: ufw default-deny + allow only proxy egress + proxy does L7. Acceptance: SSE streaming provider session works end-to-end; `HTTP_PROXY`-ignoring binary is blocked by L3.
-- [ ] S2: CA lifecycle. Generate at `construct init` (0600 key, host-side). Cert mounted into container at boot. Entrypoint root phase installs into system store + NSS DB (`~/.pki/nssdb` for Chromium) + sets `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`. Known gap: rustls-with-webpki-roots binaries reject custom CAs unconditionally (document, do not solve).
-- [ ] S3: Sentinel mint + injection. Table-driven templates per `ProviderKeyVars` entry. Format-mimicking placeholder. Config: `[sandbox] secrets` with per-var host bindings, fallback = today's passthrough for compat. Bindings resolve through `*_BASE_URL` overrides.
+- [ ] S1: Host-side egress CONNECT proxy. Per-session lifecycle (same pattern as the SSH TCP bridge, `runtime.go:1321`). Session-token auth. Policy rules enforced at CONNECT on tiers `open / internet / allowlist / none` (default allowlist; replaces `NETWORK_MODE` and dig-at-boot pinning): proxy-side DNS resolution, private/CGNAT/loopback refusal unless a rule names the address (invariant 7). Strict mode: ufw default-deny + allow only proxy egress + proxy does L7, until ufw dies in v3.0. Post-start self-check: direct egress from the guest must fail, proxy must answer, result recorded in sandbox state as `ok` / `unenforced`. Acceptance: SSE streaming provider session works end-to-end; `HTTP_PROXY`-ignoring binary is blocked by L3; self-check catches a disabled filter and records `unenforced`.
+- [ ] S2: CA lifecycle. Generate at `construct init` (0600 key, host-side). Cert mounted into container at boot. Entrypoint root phase installs into system store + NSS DB (`~/.pki/nssdb` for Chromium) + sets `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `GIT_SSL_CAINFO`. Leaf certs cached LRU (~1024, devvm figure) so interception cost stays flat across hosts. Known gap: rustls-with-webpki-roots binaries reject custom CAs unconditionally (document, do not solve).
+- [ ] S3: Sentinel mint + injection. Table-driven templates per `ProviderKeyVars` entry. Format-mimicking placeholder. Config: `[sandbox] secrets` with per-var host bindings. NO compat fallback (v3.0): bound vars get sentinels; secret vars with no binding are dropped from injection with a warning naming them. Real values never enter guest env, for any var. Bindings resolve through `*_BASE_URL` overrides.
 - [ ] S4: Swap layer. Headers + query scan, base64 Basic-auth handling, SNI/Host pinning check, resolve cache, 401 retry chain.
-- [ ] S5: Rollout flag + env removal, per-provider list (reuse creds-proxy §12 phasing shape: opt-in → default on → drop legacy env path).
-- [ ] S6: Tests. No real key in `/proc/*/environ`, sentinel accepted by real agent CLIs against real providers, fronting attempt dropped, 401 retry, streaming intact.
+- [ ] S5: v3.0 cutover, not phased rollout: proxy ships default-on and the legacy env path dies in the same release. The opt-in flag exists only on 2.x dev builds to run the proxy before the cutover; deleted at v3.0.
+- [ ] S6: Tests. No real key in `/proc/*/environ`, sentinel accepted by real agent CLIs against real providers, fronting attempt dropped, 401 retry, streaming intact, self-check flips to `unenforced` when the confinement process is killed and back to `ok` on restart.
 
 ## 7. Quirks and gotchas
 
@@ -121,7 +126,25 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - msb backend: confirm `msbHostTransportRules` guest-to-host allowance covers the proxy port without touching `bridgePorts` (creds-proxy §10 warning applies).
 - Chromium NSS DB injection requires the root phase to write into the persistent home; confirm ownership handling under `non_root_strict`.
 
-## 10. References
+## 10. v3.0 removals (decided 2026-11, do not soften)
+
+Full rationale in LESSONS-TO-V3.md. Rule: a removal lands only in the same release as its replacement, and this table plus the slices above are v3.0's definition of done.
+
+| Dies in v3.0 | Replaced by | Contract that breaks |
+|---|---|---|
+| ufw network filtering: `internal/templates/network-filter.sh`, `NETWORK_MODE=strict`, `NETWORK_ALLOWED_IPS`, `NETWORK_BLOCKED_IPS`, `NETWORK_ALLOWED_DOMAINS`, `NETWORK_BLOCKED_DOMAINS` | Egress proxy with per-request host matching and a policy rules file, on tiers `open / internet / allowlist / none` (default allowlist) | `[network]` config schema; `NETWORK_MODE` values; `network-filter.sh` leaves the image |
+| dig-at-boot domain pinning | Proxy-side DNS resolution with private/CGNAT/loopback refusal (invariant 7) | Gone with the ufw path |
+| Provider keys as real values in guest env (`CollectProviderEnv`, `CollectPassthroughEnv` secret vars; S3's passthrough compat fallback) | Sentinel placeholders; the proxy swaps real values for bound hosts only | Guest env values: sandbox code reading provider key vars sees placeholders, never real values |
+| HIDE-SECRETS experiment gate (`CONSTRUCT_EXPERIMENT_HIDE_SECRETS`) | File redaction graduates out of experimental; this proxy becomes the boundary for secrets; stream masking stays as defense in depth | `[security] hide_secrets` re-scoped; feature gate var gone |
+
+Notes:
+
+- No migration layer and no legacy `NETWORK_MODE=ufw` value. Config that still names the old keys is refused with a message pointing at the tiers doc.
+- `EnvMasker` / `StreamMasker` stay (second layer, not boundary).
+- SSH agent TCP bridge is demoted, not deleted: per-sandbox opt-in with a warning about its all-or-nothing signing authority, until a scoped alternative exists.
+- Image bake migration bumps one version so existing homes sweep the deleted `network-filter.sh` artifacts once.
+
+## 11. References
 
 - `internal/env/env.go` — `ProviderKeyVars`, `CollectProviderEnv`, `CollectPassthroughEnv`
 - `internal/security/env.go` — `EnvMasker`, `StreamMasker` (output hygiene, stays as second layer)
@@ -132,4 +155,5 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - creds-proxy design §7 keychain storage, §10 network-mode enforcement, §12 rollout flags (doc removed, history in git)
 - `docs/HIDE-SECRETS-DESIGN.md` — §6 run-only session token (satisfies proxy-auth requirement), V2 deferred proxy contract
 - discobox-ai/discobox — files listed in section 2
+- devvmhq/devvm — analysis + refinements in LESSONS-TO-V3.md; corroborates findings #3 and #4
 - agentmemory decision entries (2026-09): analysis + peer review outcome

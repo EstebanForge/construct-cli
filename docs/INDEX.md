@@ -14,6 +14,7 @@ Complete documentation for The Construct CLI.
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [Brew Exit Analysis](BREW-EXIT.md) - package-by-package Homebrew-to-Debian migration analysis
 - [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - PENDING: sentinel substitution + egress proxy, design and peer review done
+- [Lessons from devvm](LESSONS-TO-V3.md) - What to adopt from devvmhq/devvm: proxy refinements, v3.0 removals, new scope
 - [TODO](TODO.md) - GA checklist and parked follow-ups
 - [README](../README.md) - Project overview and quick start
 
