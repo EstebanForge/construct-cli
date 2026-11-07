@@ -235,6 +235,13 @@ func syncFileEntry(src, dst string, role syncRole, force, dryRun bool) syncResul
 		return syncResult{skipped: 1, err: err}
 	}
 
+	if role == roleCredential {
+		sanitized, err := sanitizeCredentialData(data)
+		if err == nil {
+			data = sanitized
+		}
+	}
+
 	existing, err := safefs.ReadFileRegular(dst, maxSyncFileBytes)
 	hasExisting := err == nil
 	if err != nil && !os.IsNotExist(err) {

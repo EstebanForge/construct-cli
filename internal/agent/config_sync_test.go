@@ -213,13 +213,14 @@ func TestSyncCredentialStubIsMissingRealGuestKept(t *testing.T) {
 	}
 
 	// Real guest credential: kept without --force, pushed with --force.
-	f.hostFile(".codex/auth.json", `{"tokens":{"access":"stale-host"}}`)
+	// Host file has "new-token" and guest has sanitized "cnstr_sentinel_access".
+	f.hostFile(".codex/auth.json", `{"tokens":{"access":"new-token","account":"acc-123"}}`)
 	res = syncOneEntry(f.hostHome, f.guestHome, entry, false, false)
 	if res.pushed != 0 || res.skipped != 1 || res.err != nil {
 		t.Fatalf("real guest credential must be kept: %+v", res)
 	}
 	got, _ := f.readGuest(".codex/auth.json")
-	if !strings.Contains(string(got), "real") {
+	if !strings.Contains(string(got), "cnstr_sentinel_access") {
 		t.Fatalf("guest credential was clobbered: %q", got)
 	}
 	res = syncOneEntry(f.hostHome, f.guestHome, entry, true, false)
@@ -227,8 +228,11 @@ func TestSyncCredentialStubIsMissingRealGuestKept(t *testing.T) {
 		t.Fatalf("--force must overwrite credential: %+v", res)
 	}
 	got, _ = f.readGuest(".codex/auth.json")
-	if !strings.Contains(string(got), "stale-host") {
-		t.Fatalf("--force did not push host credential: %q", got)
+	if !strings.Contains(string(got), "acc-123") {
+		t.Fatalf("--force did not push updated host credential metadata: %q", got)
+	}
+	if strings.Contains(string(got), "new-token") {
+		t.Fatalf("real token leaked into guest file: %q", got)
 	}
 }
 
