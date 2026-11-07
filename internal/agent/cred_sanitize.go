@@ -3,21 +3,34 @@ package agent
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
 // Known JSON credential keys that contain bearer tokens, secrets, or refresh tokens.
 var sensitiveCredentialKeys = []string{
 	"access_token",
+	"accessToken",
 	"access",
 	"refresh_token",
+	"refreshToken",
 	"refresh",
 	"token",
 	"key",
 	"api_key",
+	"apiKey",
 	"apikey",
 	"secret",
 	"id_token",
+	"idToken",
+	"claudeAiOauth",
+	"claude_ai_oauth",
+	"oauth_token",
+	"oauthToken",
+	"session_token",
+	"sessionToken",
+	"client_secret",
+	"clientSecret",
 	"OPENAI_API_KEY",
 	"ANTHROPIC_API_KEY",
 	"GEMINI_API_KEY",
@@ -33,8 +46,7 @@ func sanitizeCredentialData(data []byte) ([]byte, error) {
 
 	var root any
 	if err := json.Unmarshal(data, &root); err != nil {
-		// Non-JSON or malformed: return as-is
-		return data, nil
+		return nil, fmt.Errorf("malformed credential json: %w", err)
 	}
 
 	sanitized := sanitizeNode(root)

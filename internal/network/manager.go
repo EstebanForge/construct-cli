@@ -869,6 +869,8 @@ func Explain(target string) {
 	}
 
 	p := proxy.NewPolicy(cfg.Network.Mode, cfg.Network.AllowedDomains, cfg.Sandbox.HostLoopbackPorts, "", cfg.Network.AllowedTCP)
+	p.SetBlocklists(cfg.Network.BlockedDomains, cfg.Network.BlockedIPs)
+	p.SetAllowedIPs(cfg.Network.AllowedIPs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

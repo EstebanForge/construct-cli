@@ -40,6 +40,19 @@ func (r *SecretRegistry) Register(varName, realValue, boundHost string) string {
 	defer r.mu.Unlock()
 
 	boundHost = strings.ToLower(strings.TrimSpace(boundHost))
+
+	// If realValue is already a minted sentinel, do not double-sentinelize.
+	if _, ok := r.bySentinel[realValue]; ok {
+		return realValue
+	}
+
+	// If already registered for this variable and value, return existing sentinel.
+	for _, b := range r.bindings {
+		if b.VarName == varName && b.RealValue == realValue && b.BoundHost == boundHost {
+			return b.Sentinel
+		}
+	}
+
 	sentinel := mintPlaceholder(varName)
 
 	b := SecretBinding{
@@ -56,6 +69,14 @@ func (r *SecretRegistry) Register(varName, realValue, boundHost string) string {
 	}
 
 	return sentinel
+}
+
+// IsSentinel reports whether val is a registered sentinel placeholder.
+func (r *SecretRegistry) IsSentinel(val string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, ok := r.bySentinel[val]
+	return ok
 }
 
 // LookupReal returns the real secret for a sentinel if targetHost matches the secret's bound host.

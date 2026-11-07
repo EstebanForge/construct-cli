@@ -237,9 +237,10 @@ func syncFileEntry(src, dst string, role syncRole, force, dryRun bool) syncResul
 
 	if role == roleCredential {
 		sanitized, err := sanitizeCredentialData(data)
-		if err == nil {
-			data = sanitized
+		if err != nil {
+			return syncResult{skipped: 1, err: fmt.Errorf("credential sanitization failed: %w", err)}
 		}
+		data = sanitized
 	}
 
 	existing, err := safefs.ReadFileRegular(dst, maxSyncFileBytes)

@@ -51,3 +51,29 @@ func TestSanitizeCredentialData(t *testing.T) {
 		t.Errorf("expected sentinel placeholder in sanitized JSON")
 	}
 }
+
+func TestSanitizeCredentialDataCamelCaseAndFailClosed(t *testing.T) {
+	camelJSON := `{
+  "claudeAiOauth": {
+    "accessToken": "sk-ant-oat01-live-access-token",
+    "refreshToken": "sk-ant-ort01-live-refresh-token"
+  },
+  "apiKey": "sk-proj-test-12345"
+}`
+	sanitized, err := sanitizeCredentialData([]byte(camelJSON))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialData failed: %v", err)
+	}
+	s := string(sanitized)
+	for _, leaked := range []string{"live-access-token", "live-refresh-token", "sk-proj-test-12345"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("leaked secret: %s", leaked)
+		}
+	}
+
+	// Malformed JSON must fail closed (return error)
+	_, err = sanitizeCredentialData([]byte("not valid json {"))
+	if err == nil {
+		t.Fatal("expected error on malformed json, got nil")
+	}
+}

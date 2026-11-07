@@ -761,6 +761,17 @@ func TestSentinelizeEnvReplacesBoundProviderKeys(t *testing.T) {
 	if envValue(sentinelized, "CUSTOM_VAR") != "keep-unaltered" {
 		t.Errorf("expected CUSTOM_VAR to remain untouched, got %q", envValue(sentinelized, "CUSTOM_VAR"))
 	}
+
+	// Double sentinelization must be idempotent (H2)
+	doubleSentinelized := sentinelizeEnv(pServer, sentinelized)
+	if envValue(doubleSentinelized, "ANTHROPIC_API_KEY") != anthropicVal {
+		t.Errorf("double sentinelization mutated sentinel: expected %q, got %q",
+			anthropicVal, envValue(doubleSentinelized, "ANTHROPIC_API_KEY"))
+	}
+	if envValue(doubleSentinelized, "OPENAI_API_KEY") != openaiVal {
+		t.Errorf("double sentinelization mutated sentinel: expected %q, got %q",
+			openaiVal, envValue(doubleSentinelized, "OPENAI_API_KEY"))
+	}
 }
 
 func TestBuildRunFlagsIncludesGenericPassthroughEnv(t *testing.T) {

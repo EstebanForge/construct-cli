@@ -315,31 +315,39 @@ func (e *RuntimeEngine) Prepare() error {
 	proxyBind := bridgeBindHost(e.cfg.Runtime.Backend)
 	caDir := filepath.Join(e.configPath, "ca")
 	pCfg := proxy.Config{
-		Tier:          e.cfg.Network.Mode,
-		AllowedHosts:  e.cfg.Network.AllowedDomains,
-		AllowedTCP:    e.cfg.Network.AllowedTCP,
-		LoopbackPorts: e.cfg.Sandbox.HostLoopbackPorts,
-		HostGateway:   bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
-		CADir:         caDir,
-		LogDir:        filepath.Join(e.configPath, "logs"),
+		Tier:           e.cfg.Network.Mode,
+		AllowedHosts:   e.cfg.Network.AllowedDomains,
+		AllowedIPs:     e.cfg.Network.AllowedIPs,
+		BlockedDomains: e.cfg.Network.BlockedDomains,
+		BlockedIPs:     e.cfg.Network.BlockedIPs,
+		AllowedTCP:     e.cfg.Network.AllowedTCP,
+		LoopbackPorts:  e.cfg.Sandbox.HostLoopbackPorts,
+		HostGateway:    bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
+		CADir:          caDir,
+		LogDir:         filepath.Join(e.configPath, "logs"),
 	}
-	if pSrv, err := proxy.NewServer(pCfg); err == nil {
-		if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err == nil {
-			e.proxyServer = pSrv
-			pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
-			e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
 
-			probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
-			cancel()
-			if pErr != nil || status != ConfinementOK {
-				ui.LogDebug("Confinement probe status %s: %v", status, pErr)
-			}
+	normMode := proxy.NormalizeTier(e.cfg.Network.Mode)
+	pSrv, err := proxy.NewServer(pCfg)
+	if err != nil {
+		if normMode != proxy.TierNone {
+			return fmt.Errorf("failed to initialize egress proxy: %w", err)
 		}
-	}
+	} else if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err != nil {
+		if normMode != proxy.TierNone {
+			return fmt.Errorf("failed to start egress proxy on %s: %w", proxyBind, err)
+		}
+	} else {
+		e.proxyServer = pSrv
+		pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
+		e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
 
-	if e.proxyServer != nil {
-		e.providerEnv = sentinelizeEnv(e.proxyServer, e.providerEnv)
+		probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
+		cancel()
+		if pErr != nil || status != ConfinementOK {
+			ui.LogDebug("Confinement probe status %s: %v", status, pErr)
+		}
 	}
 
 	if gitprotect.HasImmutableFlag() {
@@ -1156,6 +1164,10 @@ func sentinelizeEnv(pServer *proxy.Server, envs []string) []string {
 			continue
 		}
 		key, val := parts[0], parts[1]
+		if pServer.IsSentinel(val) || strings.HasPrefix(val, "cnstr_") {
+			out = append(out, kv)
+			continue
+		}
 		cleanKey := strings.TrimPrefix(key, "CNSTR_")
 		boundHost := proxy.DefaultHostBindings(cleanKey)
 		if boundHost != "" && val != "" {

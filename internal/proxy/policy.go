@@ -93,22 +93,42 @@ var EcosystemPresets = map[string][]string{
 
 // Policy evaluates egress requests against network tiers and rules.
 type Policy struct {
-	mu            sync.RWMutex
-	tier          string
-	allowlist     map[string]bool
-	allowSources  map[string]string
-	allowedTCP    map[string]bool
-	loopbackPorts map[int]bool
-	hostGateway   string
-	pinnedHosts   map[string]bool
-	resolver      *net.Resolver
+	mu             sync.RWMutex
+	tier           string
+	allowlist      map[string]bool
+	allowSources   map[string]string
+	allowedIPs     []net.IP
+	blockedDomains map[string]bool
+	blockedIPs     []net.IP
+	allowedTCP     map[string]bool
+	loopbackPorts  map[int]bool
+	hostGateway    string
+	pinnedHosts    map[string]bool
+	resolver       *net.Resolver
+}
+
+// NormalizeTier maps legacy mode aliases onto standard network tiers.
+func NormalizeTier(tier string) string {
+	t := strings.ToLower(strings.TrimSpace(tier))
+	switch t {
+	case "permissive", "open":
+		return TierOpen
+	case "strict", "allowlist":
+		return TierAllowlist
+	case "offline", "none":
+		return TierNone
+	case "internet":
+		return TierInternet
+	case "":
+		return TierAllowlist
+	default:
+		return t
+	}
 }
 
 // NewPolicy constructs an egress policy engine.
 func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGateway string, allowedTCP ...[]string) *Policy {
-	if tier == "" {
-		tier = TierAllowlist
-	}
+	tier = NormalizeTier(tier)
 	allow := make(map[string]bool)
 	sources := make(map[string]string)
 	for _, h := range allowedHosts {
@@ -145,17 +165,97 @@ func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGate
 	}
 
 	return &Policy{
-		tier:          tier,
-		allowlist:     allow,
-		allowSources:  sources,
-		allowedTCP:    tcpMap,
-		loopbackPorts: ports,
-		hostGateway:   strings.ToLower(hostGateway),
-		pinnedHosts:   make(map[string]bool),
+		tier:           tier,
+		allowlist:      allow,
+		allowSources:   sources,
+		allowedIPs:     nil,
+		blockedDomains: make(map[string]bool),
+		blockedIPs:     nil,
+		allowedTCP:     tcpMap,
+		loopbackPorts:  ports,
+		hostGateway:    strings.ToLower(hostGateway),
+		pinnedHosts:    make(map[string]bool),
 		resolver: &net.Resolver{
 			PreferGo: true,
 		},
 	}
+}
+
+// SetBlocklists sets the blocked domains and IPs for the policy.
+func (p *Policy) SetBlocklists(domains, ips []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.blockedDomains = make(map[string]bool, len(domains))
+	for _, d := range domains {
+		d = strings.ToLower(strings.TrimSpace(d))
+		if d != "" {
+			p.blockedDomains[d] = true
+		}
+	}
+
+	p.blockedIPs = make([]net.IP, 0, len(ips))
+	for _, ipStr := range ips {
+		ipStr = strings.TrimSpace(ipStr)
+		if parsed := net.ParseIP(ipStr); parsed != nil {
+			p.blockedIPs = append(p.blockedIPs, parsed)
+		}
+	}
+}
+
+// SetAllowedIPs sets the explicit allowed IPs for the policy.
+func (p *Policy) SetAllowedIPs(ips []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.allowedIPs = make([]net.IP, 0, len(ips))
+	for _, ipStr := range ips {
+		ipStr = strings.TrimSpace(ipStr)
+		if parsed := net.ParseIP(ipStr); parsed != nil {
+			p.allowedIPs = append(p.allowedIPs, parsed)
+		}
+	}
+}
+
+func (p *Policy) isDomainBlocked(host string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	if p.blockedDomains[host] {
+		return true
+	}
+	for blocked := range p.blockedDomains {
+		if strings.HasPrefix(blocked, "*.") {
+			if strings.HasSuffix(host, blocked[1:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (p *Policy) isIPExplicitlyBlocked(ip net.IP) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	for _, b := range p.blockedIPs {
+		if b.Equal(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Policy) isIPExplicitlyAllowed(ip net.IP) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	for _, a := range p.allowedIPs {
+		if a.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // AddPinnedHost registers a host as TLS cert-pinned (skips MITM, clean tunnel).
@@ -256,6 +356,14 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 		Tier:       tier,
 	}
 
+	// 1. Tier 'none' blocks all egress immediately (including loopback relay).
+	if tier == TierNone {
+		decision.Allowed = false
+		decision.Reason = "egress blocked by tier 'none'"
+		return decision
+	}
+
+	// 2. Loopback relays for host dev site routing.
 	if p.isLoopbackRelay(lowerHost, port) {
 		decision.Allowed = true
 		decision.Source = "loopback_relay"
@@ -263,12 +371,23 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 		return decision
 	}
 
-	if tier == TierNone {
+	// 3. Blocklist check: blocked domains.
+	if p.isDomainBlocked(lowerHost) {
 		decision.Allowed = false
-		decision.Reason = "egress blocked by tier 'none'"
+		decision.Reason = fmt.Sprintf("host %q is blocked by network policy", lowerHost)
 		return decision
 	}
 
+	// 4. Blocklist check: blocked IPs.
+	if parsedIP := net.ParseIP(host); parsedIP != nil {
+		if p.isIPExplicitlyBlocked(parsedIP) {
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("ip %s is blocked by network policy", host)
+			return decision
+		}
+	}
+
+	// 5. Allowed TCP rules.
 	if p.isTCPAllowed(lowerHost, port) {
 		decision.Source = "allowed_tcp"
 		if parsed := net.ParseIP(host); parsed != nil {
@@ -284,32 +403,50 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 			decision.Reason = fmt.Sprintf("dns resolution failed for %q: %v", host, err)
 			return decision
 		}
+		for _, ip := range ips {
+			if p.isIPExplicitlyBlocked(ip) {
+				decision.Allowed = false
+				decision.Reason = fmt.Sprintf("host %q resolved to blocked ip %s", host, ip.String())
+				return decision
+			}
+		}
 		decision.Allowed = true
 		decision.ResolvedIPs = ips
 		return decision
 	}
 
+	// 6. Tier allowlist evaluation.
 	if tier == TierAllowlist {
 		allowed, src := p.matchHost(lowerHost)
 		if !allowed {
-			decision.Allowed = false
-			decision.Reason = fmt.Sprintf("host %q not in allowlist", lowerHost)
-			return decision
+			parsedIP := net.ParseIP(host)
+			if parsedIP != nil && p.isIPExplicitlyAllowed(parsedIP) {
+				src = "allowed_ips"
+			} else {
+				decision.Allowed = false
+				decision.Reason = fmt.Sprintf("host %q not in allowlist", lowerHost)
+				return decision
+			}
 		}
 		decision.Source = src
 	} else {
 		decision.Source = "tier:" + tier
 	}
 
-	if tier == TierOpen {
-		ips, err := p.resolver.LookupIP(ctx, "ip", host)
-		if err != nil || len(ips) == 0 {
+	// 7. IP resolution and private IP check (applies to ALL public tiers: open, internet, allowlist).
+	if parsed := net.ParseIP(host); parsed != nil {
+		if p.isIPExplicitlyBlocked(parsed) {
 			decision.Allowed = false
-			decision.Reason = fmt.Sprintf("dns lookup failed for %q: %v", host, err)
+			decision.Reason = fmt.Sprintf("ip %s is blocked by network policy", host)
+			return decision
+		}
+		if !p.isIPExplicitlyAllowed(parsed) && IsPrivateIP(parsed) {
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("host %q is a prohibited address %s", host, parsed.String())
 			return decision
 		}
 		decision.Allowed = true
-		decision.ResolvedIPs = ips
+		decision.ResolvedIPs = []net.IP{parsed}
 		return decision
 	}
 
@@ -324,7 +461,12 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 	}
 
 	for _, ip := range ips {
-		if IsPrivateIP(ip) {
+		if p.isIPExplicitlyBlocked(ip) {
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("host %q resolved to blocked ip %s", host, ip.String())
+			return decision
+		}
+		if !p.isIPExplicitlyAllowed(ip) && IsPrivateIP(ip) {
 			decision.Allowed = false
 			decision.Reason = fmt.Sprintf("host %q resolved to prohibited address %s", host, ip.String())
 			return decision

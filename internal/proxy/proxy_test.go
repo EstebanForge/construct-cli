@@ -130,6 +130,45 @@ func TestPolicyExplain(t *testing.T) {
 	if dNone.Allowed || !strings.Contains(dNone.Reason, "tier 'none'") {
 		t.Errorf("expected TierNone rejection, got %+v", dNone)
 	}
+
+	// Tier none must reject even loopback relay
+	pNoneLoop := NewPolicy("offline", nil, []int{8080}, "localhost")
+	dNoneLoop := pNoneLoop.Explain(ctx, "localhost:8080")
+	if dNoneLoop.Allowed {
+		t.Errorf("expected TierNone to reject loopback relay, got %+v", dNoneLoop)
+	}
+
+	// Tier normalization (H4)
+	pOpen := NewPolicy("permissive", nil, nil, "")
+	if pOpen.tier != TierOpen {
+		t.Errorf("expected permissive normalized to open, got %q", pOpen.tier)
+	}
+
+	// Tier open must block private IPs and cloud metadata (H5)
+	dMeta := pOpen.Explain(ctx, "169.254.169.254:80")
+	if dMeta.Allowed {
+		t.Errorf("expected 169.254.169.254 to be blocked in TierOpen")
+	}
+	dPriv := pOpen.Explain(ctx, "127.0.0.1:9999")
+	if dPriv.Allowed {
+		t.Errorf("expected 127.0.0.1 to be blocked in TierOpen")
+	}
+
+	// Blocklists (H6)
+	pBlock := NewPolicy(TierOpen, nil, nil, "")
+	pBlock.SetBlocklists([]string{"malicious.org", "*.evil.com"}, []string{"198.51.100.1"})
+	dBlockedDomain := pBlock.Explain(ctx, "malicious.org:443")
+	if dBlockedDomain.Allowed || !strings.Contains(dBlockedDomain.Reason, "blocked") {
+		t.Errorf("expected malicious.org to be blocked, got %+v", dBlockedDomain)
+	}
+	dBlockedWild := pBlock.Explain(ctx, "sub.evil.com:443")
+	if dBlockedWild.Allowed || !strings.Contains(dBlockedWild.Reason, "blocked") {
+		t.Errorf("expected sub.evil.com to be blocked, got %+v", dBlockedWild)
+	}
+	dBlockedIP := pBlock.Explain(ctx, "198.51.100.1:443")
+	if dBlockedIP.Allowed || !strings.Contains(dBlockedIP.Reason, "blocked") {
+		t.Errorf("expected 198.51.100.1 to be blocked, got %+v", dBlockedIP)
+	}
 }
 
 func TestProxyServerConnectFlow(t *testing.T) {
@@ -285,6 +324,19 @@ func TestProxyHTTPClientWithProxy(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "backend-ok" {
 		t.Errorf("expected 'backend-ok', got %q", string(body))
+	}
+
+	// Plaintext HTTP request with sentinel must be dropped with 403 (H7)
+	reqSentinel, _ := http.NewRequest("GET", fmt.Sprintf("http://localhost:%d/test", backendPort), nil)
+	reqSentinel.Header.Set("Proxy-Authorization", "Bearer bearer-token-123")
+	reqSentinel.Header.Set("Authorization", "Bearer cnstr_sentinel_auth_key")
+	respSentinel, err := client.Do(reqSentinel)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	defer respSentinel.Body.Close()
+	if respSentinel.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for plaintext HTTP sentinel transmission, got %d", respSentinel.StatusCode)
 	}
 }
 

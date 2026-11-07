@@ -134,11 +134,16 @@ if [ "$(id -u)" = "0" ]; then
     # 2. Bind-mount .git/config read-only to prevent malicious command execution
     # Active mounts inside .git also prevent directory rename by the guest (EBUSY).
     for ws_dir in /workspaces/* /projects; do
-        if [ -d "$ws_dir/.git/hooks" ]; then
-            mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$ws_dir/.git/hooks" 2>/dev/null || true
-        fi
-        if [ -f "$ws_dir/.git/config" ]; then
-            mount --bind "$ws_dir/.git/config" "$ws_dir/.git/config" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git/config" 2>/dev/null || true
+        [ -e "$ws_dir" ] || continue
+        if [ -f "$ws_dir/.git" ]; then
+            mount --bind "$ws_dir/.git" "$ws_dir/.git" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git" 2>/dev/null || true
+        elif [ -d "$ws_dir/.git" ]; then
+            if [ -d "$ws_dir/.git/hooks" ]; then
+                mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$ws_dir/.git/hooks" 2>/dev/null || true
+            fi
+            if [ -f "$ws_dir/.git/config" ]; then
+                mount --bind "$ws_dir/.git/config" "$ws_dir/.git/config" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git/config" 2>/dev/null || true
+            fi
         fi
     done
 

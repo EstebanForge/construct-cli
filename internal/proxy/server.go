@@ -36,15 +36,18 @@ type Server struct {
 
 // Config configures the proxy server.
 type Config struct {
-	Tier          string
-	AllowedHosts  []string
-	AllowedTCP    []string
-	LoopbackPorts []int
-	HostGateway   string
-	SessionToken  string
-	CADir         string
-	LogDir        string
-	UpstreamCAs   *x509.CertPool
+	Tier           string
+	AllowedHosts   []string
+	AllowedIPs     []string
+	BlockedDomains []string
+	BlockedIPs     []string
+	AllowedTCP     []string
+	LoopbackPorts  []int
+	HostGateway    string
+	SessionToken   string
+	CADir          string
+	LogDir         string
+	UpstreamCAs    *x509.CertPool
 }
 
 // NewServer initializes a proxy instance.
@@ -54,6 +57,8 @@ func NewServer(cfg Config) (*Server, error) {
 		token = generateRandomToken(24)
 	}
 	p := NewPolicy(cfg.Tier, cfg.AllowedHosts, cfg.LoopbackPorts, cfg.HostGateway, cfg.AllowedTCP)
+	p.SetBlocklists(cfg.BlockedDomains, cfg.BlockedIPs)
+	p.SetAllowedIPs(cfg.AllowedIPs)
 
 	var caInstance *CA
 	if cfg.CADir != "" {
@@ -98,6 +103,14 @@ func (s *Server) CA() *CA {
 // Secrets returns the secret registry.
 func (s *Server) Secrets() *SecretRegistry {
 	return s.secrets
+}
+
+// IsSentinel reports whether val is a registered sentinel placeholder.
+func (s *Server) IsSentinel(val string) bool {
+	if s == nil || s.secrets == nil {
+		return false
+	}
+	return s.secrets.IsSentinel(val)
 }
 
 // Start binds and starts the proxy server on addr (e.g. "127.0.0.1:0").
@@ -370,10 +383,24 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.secrets.SwapHeaders(outReq.Header, r.URL.Host); err != nil {
-		w.Header().Set("X-Construct-Reason", err.Error())
-		http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
-		return
+	// Prohibit transmitting secrets or sentinels over unencrypted plaintext HTTP.
+	for k, vv := range outReq.Header {
+		for _, v := range vv {
+			if s.secrets.ContainsRealSecret([]byte(v)) {
+				reason := fmt.Sprintf("outbound leak detected in header %q: contains real secret over unencrypted http", k)
+				s.logf("LEAK_DROP", r.URL.Host, reason)
+				w.Header().Set("X-Construct-Reason", reason)
+				http.Error(w, fmt.Sprintf("Forbidden: %s", reason), http.StatusForbidden)
+				return
+			}
+			if strings.Contains(v, "cnstr_") {
+				reason := "secret transmission forbidden over unencrypted plaintext HTTP"
+				s.logf("LEAK_DROP", r.URL.Host, reason)
+				w.Header().Set("X-Construct-Reason", reason)
+				http.Error(w, fmt.Sprintf("Forbidden: %s", reason), http.StatusForbidden)
+				return
+			}
+		}
 	}
 
 	transport := &http.Transport{
