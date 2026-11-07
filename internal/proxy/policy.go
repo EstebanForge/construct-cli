@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -96,6 +97,7 @@ type Policy struct {
 	tier          string
 	allowlist     map[string]bool
 	allowSources  map[string]string
+	allowedTCP    map[string]bool
 	loopbackPorts map[int]bool
 	hostGateway   string
 	pinnedHosts   map[string]bool
@@ -103,7 +105,7 @@ type Policy struct {
 }
 
 // NewPolicy constructs an egress policy engine.
-func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGateway string) *Policy {
+func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGateway string, allowedTCP ...[]string) *Policy {
 	if tier == "" {
 		tier = TierAllowlist
 	}
@@ -127,6 +129,16 @@ func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGate
 		}
 	}
 
+	tcpMap := make(map[string]bool)
+	if len(allowedTCP) > 0 {
+		for _, t := range allowedTCP[0] {
+			t = strings.ToLower(strings.TrimSpace(t))
+			if t != "" {
+				tcpMap[t] = true
+			}
+		}
+	}
+
 	ports := make(map[int]bool)
 	for _, p := range loopbackPorts {
 		ports[p] = true
@@ -136,6 +148,7 @@ func NewPolicy(tier string, allowedHosts []string, loopbackPorts []int, hostGate
 		tier:          tier,
 		allowlist:     allow,
 		allowSources:  sources,
+		allowedTCP:    tcpMap,
 		loopbackPorts: ports,
 		hostGateway:   strings.ToLower(hostGateway),
 		pinnedHosts:   make(map[string]bool),
@@ -157,6 +170,46 @@ func (p *Policy) IsPinned(host string) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.pinnedHosts[strings.ToLower(strings.TrimSpace(host))]
+}
+
+// IsTCPAllowed reports whether host:port matches an explicit allowed_tcp rule.
+func (p *Policy) IsTCPAllowed(host string, port int) bool {
+	return p.isTCPAllowed(host, port)
+}
+
+func (p *Policy) isTCPAllowed(host string, port int) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	lowerHost := strings.ToLower(strings.TrimSpace(host))
+	key := fmt.Sprintf("%s:%d", lowerHost, port)
+	if p.allowedTCP[key] {
+		return true
+	}
+
+	for entry := range p.allowedTCP {
+		h, pStr, err := net.SplitHostPort(entry)
+		if err != nil {
+			continue
+		}
+		if pNum, err := strconv.Atoi(pStr); err == nil && pNum == port {
+			if strings.HasPrefix(h, "*.") && strings.HasSuffix(lowerHost, h[1:]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// IsRawTCP reports whether the destination bypasses TLS MITM and pipes raw TCP stream.
+func (p *Policy) IsRawTCP(host string, port int) bool {
+	if p.isTCPAllowed(host, port) {
+		return true
+	}
+	if p.isHostAllowed(host) || p.isLoopbackRelay(host, port) {
+		return false
+	}
+	return port != 443 && port != 8443
 }
 
 // IsPrivateIP checks if an IP belongs to private/internal/banned ranges.
@@ -213,6 +266,26 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 	if tier == TierNone {
 		decision.Allowed = false
 		decision.Reason = "egress blocked by tier 'none'"
+		return decision
+	}
+
+	if p.isTCPAllowed(lowerHost, port) {
+		decision.Source = "allowed_tcp"
+		if parsed := net.ParseIP(host); parsed != nil {
+			decision.Allowed = true
+			decision.ResolvedIPs = []net.IP{parsed}
+			return decision
+		}
+		resolveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		ips, err := p.resolver.LookupIP(resolveCtx, "ip", host)
+		if err != nil || len(ips) == 0 {
+			decision.Allowed = false
+			decision.Reason = fmt.Sprintf("dns resolution failed for %q: %v", host, err)
+			return decision
+		}
+		decision.Allowed = true
+		decision.ResolvedIPs = ips
 		return decision
 	}
 

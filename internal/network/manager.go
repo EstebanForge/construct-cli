@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -112,6 +113,12 @@ func RemoveRule(target string) {
 	}
 	for _, ip := range cfg.Network.AllowedIPs {
 		if ip == target {
+			found = true
+			break
+		}
+	}
+	for _, tcp := range cfg.Network.AllowedTCP {
+		if tcp == target {
 			found = true
 			break
 		}
@@ -236,6 +243,24 @@ func ListRules() {
 		ui.InfoLn()
 	}
 
+	// Allowed TCP Services
+	if len(cfg.Network.AllowedTCP) > 0 {
+		cmd = ui.GetGumCommand("style", "--foreground", "39", "--bold", "Allowed TCP Services:")
+		cmd.Stdout = os.Stdout
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed TCP header: %v\n", err)
+		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			cmd = ui.GetGumCommand("style", "--foreground", "242",
+				fmt.Sprintf("  • %s", tcp))
+			cmd.Stdout = os.Stdout
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed TCP service: %v\n", err)
+			}
+		}
+		ui.InfoLn()
+	}
+
 	// Blocked rules (red)
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
 		cmd = ui.GetGumCommand("style", "--foreground", "196", "--bold", "Blocked:")
@@ -264,6 +289,7 @@ func ListRules() {
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
+		len(cfg.Network.AllowedTCP) == 0 &&
 		len(cfg.Network.BlockedDomains) == 0 && len(cfg.Network.BlockedIPs) == 0 {
 		ui.GumInfo("No network rules configured")
 	}
@@ -290,6 +316,14 @@ func ListRulesBasic(cfg *config.Config) {
 		ui.InfoLn()
 	}
 
+	if len(cfg.Network.AllowedTCP) > 0 {
+		ui.InfoLn("Allowed TCP Services:")
+		for _, tcp := range cfg.Network.AllowedTCP {
+			ui.InfoF("  • %s\n", tcp)
+		}
+		ui.InfoLn()
+	}
+
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
 		ui.InfoLn("Blocked:")
 		for _, domain := range cfg.Network.BlockedDomains {
@@ -302,6 +336,7 @@ func ListRulesBasic(cfg *config.Config) {
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
+		len(cfg.Network.AllowedTCP) == 0 &&
 		len(cfg.Network.BlockedDomains) == 0 && len(cfg.Network.BlockedIPs) == 0 {
 		ui.InfoLn("No network rules configured")
 	}
@@ -401,7 +436,16 @@ func ValidateTarget(target string) (string, error) {
 		return "domain", nil
 	}
 
-	return "", fmt.Errorf("invalid target: must be IP, CIDR, or domain")
+	// Check if it's a valid host:port TCP service
+	if host, portStr, err := net.SplitHostPort(target); err == nil {
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
+			if IsValidDomain(host) || IsValidIP(host) {
+				return "tcp", nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("invalid target: must be IP, CIDR, domain, or host:port TCP service")
 }
 
 // IsValidIP checks if a string is a valid IPv4 address
@@ -514,6 +558,11 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 				return fmt.Errorf("'%s' is already in allowed IPs", target)
 			}
 		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			if tcp == target {
+				return fmt.Errorf("'%s' is already in allowed TCP services", target)
+			}
+		}
 
 		// Check if in blocklist (conflict)
 		for _, domain := range cfg.Network.BlockedDomains {
@@ -551,6 +600,11 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 				return fmt.Errorf("'%s' is in allowed IPs. Remove it first or use 'remove' command", target)
 			}
 		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			if tcp == target {
+				return fmt.Errorf("'%s' is in allowed TCP services. Remove it first or use 'remove' command", target)
+			}
+		}
 	}
 
 	return nil
@@ -560,12 +614,18 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 func AddRuleToConfig(cfg *config.Config, target, action, ruleType string) error {
 	switch action {
 	case "allow":
-		if ruleType == "domain" {
+		switch ruleType {
+		case "domain":
 			cfg.Network.AllowedDomains = AppendUnique(cfg.Network.AllowedDomains, target)
-		} else {
+		case "tcp":
+			cfg.Network.AllowedTCP = AppendUnique(cfg.Network.AllowedTCP, target)
+		default:
 			cfg.Network.AllowedIPs = AppendUnique(cfg.Network.AllowedIPs, target)
 		}
 	case "block":
+		if ruleType == "tcp" {
+			return fmt.Errorf("blocking specific TCP ports is not supported; block the host or domain instead")
+		}
 		if ruleType == "domain" {
 			cfg.Network.BlockedDomains = AppendUnique(cfg.Network.BlockedDomains, target)
 		} else {
@@ -583,6 +643,7 @@ func RemoveRuleFromConfig(cfg *config.Config, target string) error {
 	// Remove from all possible locations
 	cfg.Network.AllowedDomains = RemoveString(cfg.Network.AllowedDomains, target)
 	cfg.Network.AllowedIPs = RemoveString(cfg.Network.AllowedIPs, target)
+	cfg.Network.AllowedTCP = RemoveString(cfg.Network.AllowedTCP, target)
 	cfg.Network.BlockedDomains = RemoveString(cfg.Network.BlockedDomains, target)
 	cfg.Network.BlockedIPs = RemoveString(cfg.Network.BlockedIPs, target)
 
@@ -807,7 +868,7 @@ func Explain(target string) {
 		return
 	}
 
-	p := proxy.NewPolicy(cfg.Network.Mode, cfg.Network.AllowedDomains, cfg.Sandbox.HostLoopbackPorts, "")
+	p := proxy.NewPolicy(cfg.Network.Mode, cfg.Network.AllowedDomains, cfg.Sandbox.HostLoopbackPorts, "", cfg.Network.AllowedTCP)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

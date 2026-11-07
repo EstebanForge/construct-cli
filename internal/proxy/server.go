@@ -37,6 +37,7 @@ type Server struct {
 type Config struct {
 	Tier          string
 	AllowedHosts  []string
+	AllowedTCP    []string
 	LoopbackPorts []int
 	HostGateway   string
 	SessionToken  string
@@ -50,7 +51,7 @@ func NewServer(cfg Config) (*Server, error) {
 	if token == "" {
 		token = generateRandomToken(24)
 	}
-	p := NewPolicy(cfg.Tier, cfg.AllowedHosts, cfg.LoopbackPorts, cfg.HostGateway)
+	p := NewPolicy(cfg.Tier, cfg.AllowedHosts, cfg.LoopbackPorts, cfg.HostGateway, cfg.AllowedTCP)
 
 	var caInstance *CA
 	if cfg.CADir != "" {
@@ -192,7 +193,17 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
 		return
 	}
-	s.logf("ALLOW", r.Host, fmt.Sprintf("ip=%s port=%d", targetIP.String(), port))
+	hostOnly, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		hostOnly = r.Host
+	}
+
+	isRaw := s.policy.IsRawTCP(hostOnly, port)
+	if isRaw {
+		s.logf("ALLOW_TCP", r.Host, fmt.Sprintf("ip=%s port=%d", targetIP.String(), port))
+	} else {
+		s.logf("ALLOW", r.Host, fmt.Sprintf("ip=%s port=%d", targetIP.String(), port))
+	}
 
 	targetAddr := net.JoinHostPort(targetIP.String(), strconv.Itoa(port))
 	destConn, err := net.DialTimeout("tcp", targetAddr, 10*time.Second)
@@ -222,13 +233,8 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hostOnly, _, err := net.SplitHostPort(r.Host)
-	if err != nil {
-		hostOnly = r.Host
-	}
-
-	// Bypass MITM if host is pinned or CA is not configured.
-	if s.ca == nil || s.policy.IsPinned(hostOnly) {
+	// Bypass MITM if host is pinned, destination is raw TCP, or CA is not configured.
+	if s.ca == nil || s.policy.IsPinned(hostOnly) || isRaw {
 		go pipe(clientConn, destConn)
 		return
 	}

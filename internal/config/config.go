@@ -102,6 +102,7 @@ type NetworkConfig struct {
 	AllowedIPs     []string `toml:"allowed_ips"`
 	BlockedDomains []string `toml:"blocked_domains"`
 	BlockedIPs     []string `toml:"blocked_ips"`
+	AllowedTCP     []string `toml:"allowed_tcp"` // Explicit host:port destinations for raw non-HTTP TCP tunneling (databases, queues)
 }
 
 // EnvVars renders the guest network environment (NETWORK_MODE plus the
@@ -262,6 +263,7 @@ func DefaultConfig() Config {
 				"192.168.100.100/32",
 				"203.0.113.0/24",
 			},
+			AllowedTCP: []string{},
 		},
 		Maintenance: MaintenanceConfig{
 			CleanupEnabled:         true,
@@ -606,7 +608,11 @@ func tomlIntKV(trimmed string) (key string, value int, ok bool) {
 
 // Save writes the config back to config.toml
 func (c *Config) Save() error {
-	configPath := filepath.Join(GetConfigDir(), "config.toml")
+	configDir := GetConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
 
 	data, err := toml.Marshal(c)
 	if err != nil {

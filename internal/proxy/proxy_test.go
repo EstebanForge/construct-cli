@@ -456,3 +456,117 @@ func TestProxyDomainFrontingDropped(t *testing.T) {
 		t.Fatalf("expected TLS handshake to fail due to domain fronting SNI mismatch")
 	}
 }
+
+func TestPolicyAllowedTCP(t *testing.T) {
+	ctx := context.Background()
+	p := NewPolicy(TierAllowlist, []string{"my-api.example.com"}, nil, "", []string{
+		"postgres.internal:5432",
+		"*.rds.amazonaws.com:5432",
+		"127.0.0.1:6379",
+	})
+
+	if !p.IsTCPAllowed("postgres.internal", 5432) {
+		t.Errorf("expected postgres.internal:5432 to be allowed")
+	}
+	if p.IsTCPAllowed("postgres.internal", 5433) {
+		t.Errorf("expected postgres.internal:5433 to be denied")
+	}
+	if !p.IsTCPAllowed("mydb.rds.amazonaws.com", 5432) {
+		t.Errorf("expected wildcard rds match to be allowed")
+	}
+	if p.IsTCPAllowed("other.example.com", 5432) {
+		t.Errorf("expected other.example.com:5432 to be denied")
+	}
+
+	if !p.IsRawTCP("postgres.internal", 5432) {
+		t.Errorf("expected postgres.internal:5432 to be raw TCP")
+	}
+	if p.IsRawTCP("my-api.example.com", 443) {
+		t.Errorf("expected 443 on allowlisted host to not be raw TCP")
+	}
+	if p.IsRawTCP("my-api.example.com", 8080) {
+		t.Errorf("expected allowlisted web host to not be raw TCP")
+	}
+	if !p.IsRawTCP("other-service.net", 8080) {
+		t.Errorf("expected unlisted host on port != 443 to be raw TCP")
+	}
+
+	d := p.Explain(ctx, "127.0.0.1:6379")
+	if !d.Allowed {
+		t.Errorf("expected 127.0.0.1:6379 to be allowed, got %+v", d)
+	}
+	if d.Source != "allowed_tcp" {
+		t.Errorf("expected source 'allowed_tcp', got %q", d.Source)
+	}
+
+	dBlocked := p.Explain(ctx, "unallowed.internal:5432")
+	if dBlocked.Allowed {
+		t.Errorf("expected unallowed.internal:5432 to be blocked")
+	}
+}
+
+func TestProxyServerRawTCPTunnel(t *testing.T) {
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backendListener.Close()
+	backendPort := backendListener.Addr().(*net.TCPAddr).Port
+
+	go func() {
+		for {
+			conn, err := backendListener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				_, _ = io.Copy(c, c)
+			}(conn)
+		}
+	}()
+
+	logDir := t.TempDir()
+	proxyServer, err := NewServer(Config{
+		Tier:         TierAllowlist,
+		AllowedTCP:   []string{fmt.Sprintf("127.0.0.1:%d", backendPort)},
+		SessionToken: "tcp-test-token",
+		LogDir:       logDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proxyServer.Start("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	defer proxyServer.Close()
+
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyServer.Port())
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("construct:tcp-test-token"))
+	target := fmt.Sprintf("127.0.0.1:%d", backendPort)
+	_, _ = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n", target, target, authHeader)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 Connection Established, got %v", resp)
+	}
+
+	msg := "PING RAW TCP STREAM\n"
+	if _, err := conn.Write([]byte(msg)); err != nil {
+		t.Fatal(err)
+	}
+
+	reply, err := reader.ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply != msg {
+		t.Fatalf("expected echo %q, got %q", msg, reply)
+	}
+}

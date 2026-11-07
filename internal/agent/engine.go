@@ -317,6 +317,7 @@ func (e *RuntimeEngine) Prepare() error {
 	pCfg := proxy.Config{
 		Tier:          e.cfg.Network.Mode,
 		AllowedHosts:  e.cfg.Network.AllowedDomains,
+		AllowedTCP:    e.cfg.Network.AllowedTCP,
 		LoopbackPorts: e.cfg.Sandbox.HostLoopbackPorts,
 		HostGateway:   bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
 		CADir:         caDir,
