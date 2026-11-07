@@ -38,8 +38,13 @@ func main() {
 	}
 
 	var networkFlag string
+	var cloneFlag bool
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--clone", "--ct-clone":
+			cloneFlag = true
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "--ct-verbose", "-ct-v":
 			ui.SetLogLevel(ui.LogLevelInfo)
 			args = append(args[:i], args[i+1:]...)
@@ -135,17 +140,17 @@ func main() {
 		}
 		providerName := args[1]
 		agentArgs := append([]string{"claude"}, args[2:]...)
-		agent.RunWithProvider(agentArgs, networkFlag, providerName)
+		agent.RunWithProvider(agentArgs, networkFlag, providerName, cloneFlag)
 	case "claude":
 		if len(args) > 1 && cfg != nil {
 			if _, exists := cfg.Claude.Providers[args[1]]; exists {
 				providerName := args[1]
 				agentArgs := append([]string{"claude"}, args[2:]...)
-				agent.RunWithProvider(agentArgs, networkFlag, providerName)
+				agent.RunWithProvider(agentArgs, networkFlag, providerName, cloneFlag)
 				return
 			}
 		}
-		agent.RunWithArgs(args, networkFlag)
+		agent.RunWithArgs(args, networkFlag, cloneFlag)
 	default:
 		// Check if it's a supported agent
 		if !agent.IsSupported(command) {
@@ -154,7 +159,7 @@ func main() {
 			os.Exit(1)
 		}
 		// Everything else is an agent invocation
-		agent.RunWithArgs(args, networkFlag)
+		agent.RunWithArgs(args, networkFlag, cloneFlag)
 	}
 }
 

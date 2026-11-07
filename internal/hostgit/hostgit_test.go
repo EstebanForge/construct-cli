@@ -60,7 +60,7 @@ func TestHardenedCommandEnv(t *testing.T) {
 	required := map[string]string{
 		"GIT_TERMINAL_PROMPT": "0",
 		"GIT_NO_LAZY_FETCH":   "1",
-		"GIT_ALLOW_PROTOCOL":  "ssh",
+		"GIT_ALLOW_PROTOCOL":  "file:ssh",
 		"GIT_SSH_COMMAND":     "false",
 		"GIT_SSH_VARIANT":     "ssh",
 	}

@@ -22,6 +22,7 @@ Global Flags:
   -ct-v, --ct-verbose    # Show detailed output (info level)
   -ct-d, --ct-debug      # Show debug output (debug level)
   -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline)
+  --clone, --ct-clone    # Execute in an ephemeral zero-trust git clone
 
 [sys] System Commands:
   construct sys agents             # List supported agents

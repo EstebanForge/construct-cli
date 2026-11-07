@@ -16,6 +16,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
+	"github.com/EstebanForge/construct-cli/internal/gitclone"
 	"github.com/EstebanForge/construct-cli/internal/gitprotect"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
@@ -131,6 +132,10 @@ type RuntimeEngine struct {
 
 	// Detected project toolchains
 	toolchains []toolchains.ToolchainID
+
+	// Ephemeral clone mode
+	cloneMode    bool
+	cloneSession *gitclone.Session
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -144,12 +149,27 @@ func NewRuntimeEngine(cfg *config.Config, args []string, containerRuntime, confi
 	}
 }
 
+// SetCloneMode configures whether the engine runs in an ephemeral git clone.
+func (e *RuntimeEngine) SetCloneMode(enabled bool) {
+	e.cloneMode = enabled
+}
+
 // Prepare handles environment setup, security initialization, and platform bridges.
 func (e *RuntimeEngine) Prepare() error {
 	// 1. Security Initialization
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	if e.cloneMode {
+		sess, err := gitclone.CreateSession(context.Background(), cwd)
+		if err != nil {
+			return fmt.Errorf("failed to create ephemeral clone session: %w", err)
+		}
+		e.cloneSession = sess
+		cwd = sess.CloneDir
+		ui.InfoF("🛡️  Ephemeral clone active: %s -> %s\n", sess.HostRepoDir, sess.CloneDir)
 	}
 
 	sec, err := security.InitializeSessionForRun(e.cfg, e.configPath, cwd)
@@ -467,6 +487,17 @@ func (e *RuntimeEngine) Teardown() {
 	}
 	if e.sec != nil {
 		e.sec.Close() //nolint:errcheck
+	}
+	if e.cloneSession != nil {
+		bundlePath, hasChanges, err := e.cloneSession.Teardown(context.Background())
+		if err != nil {
+			ui.LogWarning("Failed to generate clone bundle: %v", err)
+		} else if hasChanges {
+			ui.InfoF("✓ Ephemeral clone changes exported to bundle: %s\n", bundlePath)
+		} else {
+			ui.InfoLn("✓ Ephemeral clone closed (no changes detected)")
+		}
+		e.cloneSession = nil
 	}
 }
 

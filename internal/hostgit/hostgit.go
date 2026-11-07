@@ -27,6 +27,7 @@ func hardenedConfig() [][2]string {
 		[2]string{"core.alternateRefsCommand", "true"},
 		[2]string{"protocol.allow", "never"},
 		[2]string{"protocol.ssh.allow", "always"},
+		[2]string{"protocol.file.allow", "always"},
 		[2]string{"maintenance.auto", "false"},
 		[2]string{"gc.auto", "0"},
 	)
@@ -55,7 +56,7 @@ func buildCommand(ctx context.Context, kv [][2]string, args []string) *exec.Cmd 
 	env := append(sanitizeEnv(os.Environ()),
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_NO_LAZY_FETCH=1",
-		"GIT_ALLOW_PROTOCOL=ssh",
+		"GIT_ALLOW_PROTOCOL=file:ssh",
 		"GIT_SSH_COMMAND=false",
 		"GIT_SSH_VARIANT=ssh",
 		"GIT_CONFIG_COUNT="+strconv.Itoa(len(kv)),

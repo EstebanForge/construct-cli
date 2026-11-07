@@ -24,7 +24,8 @@ import (
 var getImageEntrypointHashFn = getImageEntrypointHash
 
 // RunWithArgs executes an agent inside the container with optional network override.
-func RunWithArgs(args []string, networkFlag string) {
+func RunWithArgs(args []string, networkFlag string, cloneMode ...bool) {
+	isClone := len(cloneMode) > 0 && cloneMode[0]
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.LogError(err)
@@ -36,7 +37,7 @@ func RunWithArgs(args []string, networkFlag string) {
 	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
 	if cfg.Runtime.Backend == config.BackendMsb {
-		os.Exit(runMsbWithArgs(args, cfg, nil))
+		os.Exit(runMsbWithArgs(args, cfg, nil, isClone))
 	}
 
 	// Fail closed on unsupported isolation backends before any container op
@@ -77,7 +78,7 @@ func RunWithArgs(args []string, networkFlag string) {
 	}
 
 	// Continue with container execution (no provider env vars)
-	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
+	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, nil, isClone)
 
 	if isGooseConfigure(args) {
 		if err := markGooseConfigured(configPath); err != nil {
@@ -104,7 +105,8 @@ func applyNetworkFlag(cfg *config.Config, networkFlag string) {
 }
 
 // RunWithProvider executes Claude with a configured provider alias.
-func RunWithProvider(args []string, networkFlag, providerName string) {
+func RunWithProvider(args []string, networkFlag, providerName string, cloneMode ...bool) {
+	isClone := len(cloneMode) > 0 && cloneMode[0]
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.LogError(err)
@@ -144,7 +146,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
 	if cfg.Runtime.Backend == config.BackendMsb {
-		os.Exit(runMsbWithArgs(args, cfg, providerEnv))
+		os.Exit(runMsbWithArgs(args, cfg, providerEnv, isClone))
 	}
 
 	// Fail closed on unsupported isolation backends before any container op
@@ -179,7 +181,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	}
 
 	// Continue with container execution, passing provider env vars
-	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv)
+	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv, isClone)
 	os.Exit(exitCode)
 }
 
@@ -401,7 +403,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 // runMsbWithArgs runs the agent through the msb backend: backend-agnostic
 // prepare (templates, install script) then the engine, which dispatches to
 // the persistent daemon sandbox. Goose gating matches the Docker path.
-func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int {
+func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string, cloneMode ...bool) int {
 	configPath := config.GetConfigDir()
 	if err := runtime.PrepareBackendAgnostic(cfg, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to prepare runtime: %v\n", err)
@@ -412,7 +414,7 @@ func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int
 		ui.InfoLn("Run: ct goose configure")
 		return 1
 	}
-	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv)
+	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv, cloneMode...)
 	if isGooseConfigure(args) {
 		if err := markGooseConfigured(configPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save Goose configure state: %v\n", err)
@@ -421,8 +423,11 @@ func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int
 	return exitCode
 }
 
-func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) int {
+func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string, cloneMode ...bool) int {
 	engine := NewRuntimeEngine(cfg, args, containerRuntime, configPath, providerEnv)
+	if len(cloneMode) > 0 && cloneMode[0] {
+		engine.SetCloneMode(true)
+	}
 	defer engine.Teardown()
 
 	if err := engine.Prepare(); err != nil {
