@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -207,7 +210,122 @@ func (s *Server) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	go pipe(clientConn, destConn)
+	hostOnly, _, err := net.SplitHostPort(r.Host)
+	if err != nil {
+		hostOnly = r.Host
+	}
+
+	// Bypass MITM if host is pinned or CA is not configured.
+	if s.ca == nil || s.policy.IsPinned(hostOnly) {
+		go pipe(clientConn, destConn)
+		return
+	}
+
+	go s.interceptTLS(clientConn, destConn, hostOnly)
+}
+
+func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) {
+	defer func() {
+		_ = clientConn.Close() //nolint:errcheck // teardown
+		_ = destConn.Close()   //nolint:errcheck // teardown
+	}()
+
+	leafCert, err := s.ca.SignHostCert(targetHost)
+	if err != nil {
+		return
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*leafCert},
+		GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
+			// Domain fronting guard: TLS SNI must match CONNECT host.
+			if hello.ServerName != "" && !strings.EqualFold(hello.ServerName, targetHost) {
+				return nil, fmt.Errorf("domain fronting detected: SNI %q != CONNECT %q", hello.ServerName, targetHost)
+			}
+			return nil, nil
+		},
+	}
+
+	tlsClient := tls.Server(clientConn, tlsConfig)
+	if err := tlsClient.Handshake(); err != nil {
+		return
+	}
+	defer func() {
+		_ = tlsClient.Close() //nolint:errcheck // teardown
+	}()
+
+	tlsDest := tls.Client(destConn, &tls.Config{
+		ServerName: targetHost,
+		RootCAs: func() *x509.CertPool {
+			if s.ca != nil {
+				cp := x509.NewCertPool()
+				cp.AppendCertsFromPEM(s.ca.CertPEM())
+				return cp
+			}
+			return nil
+		}(),
+	})
+	if err := tlsDest.Handshake(); err != nil {
+		return
+	}
+	defer func() {
+		_ = tlsDest.Close() //nolint:errcheck // teardown
+	}()
+
+	clientReader := bufio.NewReader(tlsClient)
+	destReader := bufio.NewReader(tlsDest)
+
+	for {
+		req, err := http.ReadRequest(clientReader)
+		if err != nil {
+			return
+		}
+
+		// Enforce domain fronting guard on HTTP Host header.
+		reqHost := req.Host
+		if h, _, err := net.SplitHostPort(reqHost); err == nil {
+			reqHost = h
+		}
+		if reqHost != "" && !strings.EqualFold(reqHost, targetHost) {
+			resp := &http.Response{
+				StatusCode: http.StatusForbidden,
+				ProtoMajor: 1,
+				ProtoMinor: 1,
+				Header:     make(http.Header),
+			}
+			resp.Header.Set("X-Construct-Reason", fmt.Sprintf("domain fronting: Host %q != CONNECT %q", reqHost, targetHost))
+			_ = resp.Write(tlsClient) //nolint:errcheck // client response
+			return
+		}
+
+		// Perform outbound secret swap on request headers.
+		if err := s.secrets.SwapHeaders(req.Header, targetHost); err != nil {
+			resp := &http.Response{
+				StatusCode: http.StatusForbidden,
+				ProtoMajor: 1,
+				ProtoMinor: 1,
+				Header:     make(http.Header),
+			}
+			resp.Header.Set("X-Construct-Reason", err.Error())
+			_ = resp.Write(tlsClient) //nolint:errcheck // client response
+			return
+		}
+
+		if err := req.Write(tlsDest); err != nil {
+			return
+		}
+
+		resp, err := http.ReadResponse(destReader, req)
+		if err != nil {
+			return
+		}
+
+		if err := resp.Write(tlsClient); err != nil {
+			_ = resp.Body.Close() //nolint:errcheck // body drain
+			return
+		}
+		_ = resp.Body.Close() //nolint:errcheck // body drain
+	}
 }
 
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {

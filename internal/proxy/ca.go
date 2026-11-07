@@ -76,7 +76,6 @@ func generateCA(certPath, keyPath string) (*CA, error) {
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
 		BasicConstraintsValid: true,
 		IsCA:                  true,
-		MaxPathLenZero:        true,
 	}
 
 	derBytes, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)

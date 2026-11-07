@@ -3,12 +3,15 @@ package proxy
 import (
 	"bufio"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -234,5 +237,174 @@ func TestProxyHTTPClientWithProxy(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	if string(body) != "backend-ok" {
 		t.Errorf("expected 'backend-ok', got %q", string(body))
+	}
+}
+
+func TestProxyCONNECTInterceptionAndSecretSwap(t *testing.T) {
+	caDir := t.TempDir()
+	ca, err := EnsureCA(caDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(ca.CertPEM())
+
+	backendCert, err := ca.SignHostCert("api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedAuthHeader string
+	httpsBackend := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			receivedAuthHeader = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("https-backend-ok"))
+		}),
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{*backendCert},
+			ClientCAs:    certPool,
+		},
+	}
+
+	backendL, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backendL.Close()
+	tlsBackendL := tls.NewListener(backendL, httpsBackend.TLSConfig)
+	go func() { _ = httpsBackend.Serve(tlsBackendL) }()
+
+	backendPort := backendL.Addr().(*net.TCPAddr).Port
+
+	// Start proxy with CA and loopback port
+	proxyServer, err := NewServer(Config{
+		Tier:          TierAllowlist,
+		AllowedHosts:  []string{"api.example.com"},
+		LoopbackPorts: []int{backendPort},
+		HostGateway:   "api.example.com",
+		SessionToken:  "test-mitm-token",
+		CADir:         caDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proxyServer.Start("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	defer proxyServer.Close()
+
+	sentinel := proxyServer.RegisterSecret("ANTHROPIC_API_KEY", "real-secret-key-12345", "api.example.com")
+
+	proxyURL, _ := url.Parse(fmt.Sprintf("http://construct:test-mitm-token@127.0.0.1:%d", proxyServer.Port()))
+	client := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+			TLSClientConfig: &tls.Config{
+				RootCAs: certPool,
+			},
+			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+				// Re-route api.example.com to our local listener port while keeping the host header
+				if strings.HasPrefix(addr, "api.example.com:") {
+					return (&net.Dialer{}).DialContext(ctx, network, fmt.Sprintf("127.0.0.1:%d", backendPort))
+				}
+				return (&net.Dialer{}).DialContext(ctx, network, addr)
+			},
+		},
+	}
+
+	req, _ := http.NewRequest("GET", fmt.Sprintf("https://api.example.com:%d/v1/messages", backendPort), nil)
+	req.Header.Set("Authorization", "Bearer "+sentinel)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("CONNECT MITM request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	if receivedAuthHeader != "Bearer real-secret-key-12345" {
+		t.Errorf("expected upstream to receive swapped real secret, got %q", receivedAuthHeader)
+	}
+}
+
+func TestProxyDomainFrontingDropped(t *testing.T) {
+	caDir := t.TempDir()
+	ca, err := EnsureCA(caDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(ca.CertPEM())
+
+	backendCert, err := ca.SignHostCert("api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	httpsBackend := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}),
+		TLSConfig: &tls.Config{
+			Certificates: []tls.Certificate{*backendCert},
+		},
+	}
+
+	backendL, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backendL.Close()
+	tlsBackendL := tls.NewListener(backendL, httpsBackend.TLSConfig)
+	go func() { _ = httpsBackend.Serve(tlsBackendL) }()
+
+	backendPort := backendL.Addr().(*net.TCPAddr).Port
+
+	proxyServer, err := NewServer(Config{
+		Tier:          TierAllowlist,
+		AllowedHosts:  []string{"api.example.com"},
+		LoopbackPorts: []int{backendPort},
+		HostGateway:   "api.example.com",
+		SessionToken:  "fronting-token",
+		CADir:         caDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := proxyServer.Start("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	defer proxyServer.Close()
+
+	// 1. TLS SNI fronting attempt: CONNECT specifies api.example.com, but ClientHello SNI is evil.com
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyServer.Port())
+	conn, err := net.Dial("tcp", proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+
+	authHeader := "Basic " + base64.StdEncoding.EncodeToString([]byte("construct:fronting-token"))
+	_, _ = fmt.Fprintf(conn, "CONNECT api.example.com:%d HTTP/1.1\r\nHost: api.example.com:%d\r\nProxy-Authorization: %s\r\n\r\n", backendPort, backendPort, authHeader)
+	reader := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(reader, nil)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 Connection Established, got %v", resp)
+	}
+
+	// Try TLS handshake with mismatching SNI evil.com
+	tlsClient := tls.Client(conn, &tls.Config{
+		ServerName: "evil.com",
+		RootCAs:    certPool,
+	})
+	err = tlsClient.Handshake()
+	if err == nil {
+		t.Fatalf("expected TLS handshake to fail due to domain fronting SNI mismatch")
 	}
 }
