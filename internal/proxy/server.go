@@ -25,6 +25,7 @@ type Server struct {
 	policy       *Policy
 	sessionToken string
 	ca           *CA
+	upstreamCAs  *x509.CertPool
 	secrets      *SecretRegistry
 	listener     net.Listener
 	httpServer   *http.Server
@@ -43,6 +44,7 @@ type Config struct {
 	SessionToken  string
 	CADir         string
 	LogDir        string
+	UpstreamCAs   *x509.CertPool
 }
 
 // NewServer initializes a proxy instance.
@@ -70,6 +72,7 @@ func NewServer(cfg Config) (*Server, error) {
 		policy:       p,
 		sessionToken: token,
 		ca:           caInstance,
+		upstreamCAs:  cfg.UpstreamCAs,
 		secrets:      NewSecretRegistry(),
 		logDir:       cfg.LogDir,
 	}
@@ -274,14 +277,7 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 
 	tlsDest := tls.Client(destConn, &tls.Config{
 		ServerName: targetHost,
-		RootCAs: func() *x509.CertPool {
-			if s.ca != nil {
-				cp := x509.NewCertPool()
-				cp.AppendCertsFromPEM(s.ca.CertPEM())
-				return cp
-			}
-			return nil
-		}(),
+		RootCAs:    s.upstreamCAs,
 	})
 	if err := tlsDest.Handshake(); err != nil {
 		return

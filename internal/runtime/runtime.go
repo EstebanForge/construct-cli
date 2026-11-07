@@ -1043,6 +1043,7 @@ type overrideInputs struct {
 	DaemonMulti       bool   // Multi-path daemon mounts enabled
 	DaemonMounts      string // Hash of normalized mount paths
 	GitIgnorePath     string // Host global gitignore path (empty if not found)
+	CACertPath        string // Host proxy CA certificate path (empty if not found)
 	QmdModelsPath     string // Host qmd model cache path (empty if not found)
 	AptCachePath      string // Host apt download cache path (empty if unavailable)
 	LoopbackPorts     string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
@@ -1085,6 +1086,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
+	writeHashString(h, "cacertpath:%s", inputs.CACertPath)
 	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
 	writeHashString(h, "aptcachepath:%s", inputs.AptCachePath)
 	writeHashString(h, "loopbackports:%s", inputs.LoopbackPorts)
@@ -1219,6 +1221,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		DaemonMulti:       cfg != nil && cfg.Daemon.MultiPathsEnabled,
 		DaemonMounts:      daemonMounts.Hash,
 		GitIgnorePath:     func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
+		CACertPath:        func() string { p, _ := getCACertPath(); return p }(),
 		QmdModelsPath:     func() string { p, _ := getQmdModelsPath(); return p }(),
 		AptCachePath:      func() string { p, _ := getAptCachePath(); return p }(),
 		LoopbackPorts:     loopbackPortsString(cfg),
@@ -1372,6 +1375,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxCommaSuffix)
 		}
+		// Mount Construct root CA (read-only) if provisioned on host
+		if caCertPath, found := getCACertPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/construct-cli/ca/construct-ca.crt:ro%s\n",
+				formatVolumePath(caCertPath), selinuxCommaSuffix)
+		}
 		// Mount host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models:ro%s\n",
@@ -1415,6 +1423,11 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		if gitIgnorePath, found := getGlobalGitIgnorePath(); found {
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
 				formatVolumePath(gitIgnorePath))
+		}
+		// Mount Construct root CA (read-only) if provisioned on host
+		if caCertPath, found := getCACertPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/construct-cli/ca/construct-ca.crt:ro\n",
+				formatVolumePath(caCertPath))
 		}
 		// Reuse host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
@@ -1509,10 +1522,10 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	// Network isolation mode
 	switch networkMode {
-	case "offline":
+	case "offline", "none":
 		override.WriteString("    network_mode: none\n")
 		ui.InfoLn("✓ Network isolation: offline (no network access)")
-	case "strict":
+	case "strict", "allowlist":
 		override.WriteString("    networks:\n")
 		override.WriteString("      - construct-net\n")
 		caps = append(caps, "NET_ADMIN")
@@ -2323,6 +2336,23 @@ func getGlobalGitIgnorePath() (string, bool) {
 		return macosLegacyPath, true
 	}
 
+	return "", false
+}
+
+// getCACertPath returns the path to the Construct CA certificate if it exists on host.
+func getCACertPath() (string, bool) {
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		fallback, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		homeDir = fallback
+	}
+	p := filepath.Join(homeDir, ".config", "construct-cli", "ca", "construct-ca.crt")
+	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+		return p, true
+	}
 	return "", false
 }
 

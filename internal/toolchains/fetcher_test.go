@@ -28,17 +28,21 @@ func createTestLayerTarGz(t *testing.T) ([]byte, string) {
 	files := []struct {
 		Name     string
 		Body     string
+		Linkname string
 		Mode     int64
 		Typeflag byte
 	}{
 		{Name: "opt/toolchains/testtc/bin/mycmd", Body: "#!/bin/sh\necho hello\n", Mode: 0755, Typeflag: tar.TypeReg},
 		{Name: "opt/toolchains/testtc/lib/testlib.txt", Body: "library contents\n", Mode: 0644, Typeflag: tar.TypeReg},
 		{Name: "opt/toolchains/testtc/escape/../../bad.txt", Body: "evil\n", Mode: 0644, Typeflag: tar.TypeReg},
+		{Name: "opt/toolchains/testtc/bin/symcmd", Linkname: "mycmd", Mode: 0755, Typeflag: tar.TypeSymlink},
+		{Name: "opt/toolchains/testtc/bin/badlink", Linkname: "../../../../../etc/passwd", Mode: 0755, Typeflag: tar.TypeSymlink},
 	}
 
 	for _, file := range files {
 		hdr := &tar.Header{
 			Name:     file.Name,
+			Linkname: file.Linkname,
 			Mode:     file.Mode,
 			Size:     int64(len(file.Body)),
 			Typeflag: file.Typeflag,
@@ -190,6 +194,16 @@ func TestFetchToolchain(t *testing.T) {
 		t.Errorf("tar slip file escaped sandbox: %s exists", badPath)
 	}
 
+	badLinkPath := filepath.Join(tmpCache, "construct", "toolchains", "testtc", "bin", "badlink")
+	if _, err := os.Lstat(badLinkPath); err == nil {
+		t.Errorf("escaping symlink was extracted: %s exists", badLinkPath)
+	}
+
+	symCmdPath := filepath.Join(tmpCache, "construct", "toolchains", "testtc", "bin", "symcmd")
+	if _, err := os.Lstat(symCmdPath); err != nil {
+		t.Errorf("valid intra-toolchain symlink missing: %v", err)
+	}
+
 	// Re-fetch with Force=false should skip downloading layer blob
 	if err := FetchToolchain(ctx, testID, opts); err != nil {
 		t.Fatalf("second FetchToolchain failed: %v", err)
@@ -223,5 +237,93 @@ func TestEnsureToolchains(t *testing.T) {
 	err := EnsureToolchains(ctx, []ToolchainID{ToolchainGo, ToolchainRust})
 	if err != nil {
 		t.Errorf("EnsureToolchains should fail-open with warning, got err: %v", err)
+	}
+}
+
+func TestFetchToolchainDigestMismatch(t *testing.T) {
+	tmpCache := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", tmpCache)
+
+	layerBytes, _ := createTestLayerTarGz(t)
+	corruptDigest := "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+
+	manifestObj := ociManifest{
+		SchemaVersion: 2,
+		MediaType:     "application/vnd.oci.image.manifest.v1+json",
+	}
+	manifestObj.Layers = append(manifestObj.Layers, struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+		Size      int64  `json:"size"`
+	}{
+		MediaType: "application/vnd.oci.image.layer.v1.tar+gzip",
+		Digest:    corruptDigest,
+		Size:      int64(len(layerBytes)),
+	})
+
+	manifestBytes, err := json.Marshal(manifestObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	indexObj := ociIndex{SchemaVersion: 2}
+	indexObj.Manifests = append(indexObj.Manifests, struct {
+		MediaType string `json:"mediaType"`
+		Digest    string `json:"digest"`
+		Platform  struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		} `json:"platform"`
+	}{
+		MediaType: "application/vnd.oci.image.manifest.v1+json",
+		Digest:    fmt.Sprintf("sha256:%x", sha256.Sum256(manifestBytes)),
+		Platform: struct {
+			Architecture string `json:"architecture"`
+			OS           string `json:"os"`
+		}{
+			Architecture: runtime.GOARCH,
+			OS:           "linux",
+		},
+	})
+	indexBytes, err := json.Marshal(indexObj)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := r.URL.Path
+		if strings.HasSuffix(p, "/manifests/latest") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.index.v1+json")
+			_, _ = w.Write(indexBytes)
+			return
+		}
+		if strings.Contains(p, "/manifests/sha256:") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.manifest.v1+json")
+			_, _ = w.Write(manifestBytes)
+			return
+		}
+		if strings.Contains(p, "/blobs/") {
+			w.Header().Set("Content-Type", "application/vnd.oci.image.layer.v1.tar+gzip")
+			_, _ = w.Write(layerBytes)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	u, _ := url.Parse(server.URL)
+	opts := FetchOptions{
+		RegistryHost: u.Host,
+		RepoPrefix:   "test/",
+		Tag:          "latest",
+		HTTPClient:   server.Client(),
+	}
+
+	err = FetchToolchain(context.Background(), ToolchainID("corrupt"), opts)
+	if err == nil {
+		t.Fatal("expected error on layer digest mismatch, got nil")
+	}
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Fatalf("expected digest mismatch error, got: %v", err)
 	}
 }

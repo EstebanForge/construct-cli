@@ -326,7 +326,7 @@ func TestProxyCONNECTInterceptionAndSecretSwap(t *testing.T) {
 
 	backendPort := backendL.Addr().(*net.TCPAddr).Port
 
-	// Start proxy with CA and loopback port
+	// Start proxy with CA, UpstreamCAs, and loopback port
 	proxyServer, err := NewServer(Config{
 		Tier:          TierAllowlist,
 		AllowedHosts:  []string{"api.example.com"},
@@ -334,6 +334,7 @@ func TestProxyCONNECTInterceptionAndSecretSwap(t *testing.T) {
 		HostGateway:   "api.example.com",
 		SessionToken:  "test-mitm-token",
 		CADir:         caDir,
+		UpstreamCAs:   certPool,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -421,6 +422,7 @@ func TestProxyDomainFrontingDropped(t *testing.T) {
 		HostGateway:   "api.example.com",
 		SessionToken:  "fronting-token",
 		CADir:         caDir,
+		UpstreamCAs:   certPool,
 	})
 	if err != nil {
 		t.Fatal(err)

@@ -284,16 +284,26 @@ type msbAutoMount struct {
 }
 
 // msbNetworkConfig maps construct network modes onto msb network profiles
-// (docs/ARCHITECTURE-DESIGN.md §4.1): permissive = public, strict = public + in-guest filter
-// (msb policy layer OFF until stacking verified, §9), offline = no net.
-// Every sandbox carries the guest->host transport rules (§3.1).
+// (docs/ARCHITECTURE-DESIGN.md §4.1): permissive/open/internet = public egress,
+// strict/allowlist = deny public egress (guest may only contact host transport/proxy + DNS),
+// offline/none = deny all egress.
 func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
 	switch mode {
-	case "offline":
+	case "offline", "none":
 		return msbNetworkOffline(bridgePorts)
-	default: // permissive, strict
+	case "strict", "allowlist":
+		return msbNetworkAllowlist(bridgePorts)
+	default: // permissive, open, internet
 		return msbNetworkPublic(bridgePorts)
 	}
+}
+
+func msbNetworkAllowlist(bridgePorts []int) *msb.NetworkConfig {
+	// Egress directly to the internet is denied at the VMM boundary.
+	// Only host transport (SSH, herdr, proxy) and gateway DNS resolution are permitted.
+	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionDeny}
+	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule())
+	return net
 }
 
 // MsbBridgePortBase/Span define the deterministic bridge port band handed
@@ -1267,27 +1277,40 @@ func writeMsbInstallScript() error {
 }
 
 // msbSeedAutoFiles copies file-sized conditional auto-mounts (global
-// gitignore) into the guest after boot. msb cannot bind-mount single files
+// gitignore, Construct root CA) into the guest after boot. msb cannot bind-mount single files
 // unless the target already exists in the image (ENOENT kills the sandbox,
 // v0.6.10), so the file is copied instead. The copy is a seed, not a live
 // bind: host edits need a sandbox restart to propagate.
 func msbSeedAutoFiles(ctx context.Context, sb *msb.Sandbox) error {
-	p, ok := getGlobalGitIgnorePath()
-	if !ok {
-		return nil
-	}
 	fs := sb.FS()
-	for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/git"} {
-		if err := fs.Mkdir(ctx, dir); err != nil {
-			// Already-existing dirs are fine; anything else is fatal.
-			if _, statErr := fs.Stat(ctx, dir); statErr != nil {
-				return fmt.Errorf("msb seed %s: %w", dir, err)
+
+	if p, ok := getGlobalGitIgnorePath(); ok {
+		for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/git"} {
+			if err := fs.Mkdir(ctx, dir); err != nil {
+				// Already-existing dirs are fine; anything else is fatal.
+				if _, statErr := fs.Stat(ctx, dir); statErr != nil {
+					return fmt.Errorf("msb seed %s: %w", dir, err)
+				}
 			}
 		}
+		if err := fs.CopyFromHost(ctx, p, "/home/construct/.config/git/ignore"); err != nil {
+			return fmt.Errorf("msb seed gitignore: %w", err)
+		}
 	}
-	if err := fs.CopyFromHost(ctx, p, "/home/construct/.config/git/ignore"); err != nil {
-		return fmt.Errorf("msb seed gitignore: %w", err)
+
+	if caPath, ok := getCACertPath(); ok {
+		for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/construct-cli", "/home/construct/.config/construct-cli/ca"} {
+			if err := fs.Mkdir(ctx, dir); err != nil {
+				if _, statErr := fs.Stat(ctx, dir); statErr != nil {
+					return fmt.Errorf("msb seed %s: %w", dir, err)
+				}
+			}
+		}
+		if err := fs.CopyFromHost(ctx, caPath, "/home/construct/.config/construct-cli/ca/construct-ca.crt"); err != nil {
+			return fmt.Errorf("msb seed construct-ca.crt: %w", err)
+		}
 	}
+
 	return nil
 }
 

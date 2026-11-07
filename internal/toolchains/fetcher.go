@@ -280,10 +280,18 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 		return fmt.Errorf("download blob returned %d", resp.StatusCode)
 	}
 
-	var r io.Reader = resp.Body
+	// Bound layer download size (2 GB max) and compute sha256 of raw layer blob.
+	const maxLayerBytes = 2 << 30
+	bodyReader := io.LimitReader(resp.Body, maxLayerBytes)
+	hasher := sha256.New()
+	layerStream := io.TeeReader(bodyReader, hasher)
 
-	gz, err := gzip.NewReader(resp.Body)
+	r := layerStream
+	var gz *gzip.Reader
+
+	gzReader, err := gzip.NewReader(layerStream)
 	if err == nil {
+		gz = gzReader
 		defer gz.Close() //nolint:errcheck
 		r = gz
 	}
@@ -326,7 +334,11 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
 			}
-			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, header.FileInfo().Mode())
+			// Unlink existing node to prevent following planted symlinks.
+			if _, statErr := os.Lstat(destPath); statErr == nil {
+				_ = os.Remove(destPath) //nolint:errcheck
+			}
+			f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, header.FileInfo().Mode())
 			if err != nil {
 				return err
 			}
@@ -336,14 +348,38 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			}
 			f.Close() //nolint:errcheck
 		case tar.TypeSymlink:
+			linkTarget := header.Linkname
+			if filepath.IsAbs(linkTarget) {
+				continue // Refuse absolute symlinks
+			}
+			resolvedTarget := filepath.Clean(filepath.Join(filepath.Dir(destPath), linkTarget))
+			relTarget, err := filepath.Rel(stageDir, resolvedTarget)
+			if err != nil || strings.HasPrefix(relTarget, "..") {
+				continue // Refuse escaping symlinks
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
 			}
 			_ = os.Remove(destPath) //nolint:errcheck // best-effort cleanup before symlink
-			if err := os.Symlink(header.Linkname, destPath); err != nil {
+			if err := os.Symlink(linkTarget, destPath); err != nil {
 				return err
 			}
 		}
+	}
+
+	// Drain remaining compressed bytes to finish layer sha256 calculation.
+	if gz != nil {
+		if _, err := io.Copy(io.Discard, gz); err != nil {
+			return fmt.Errorf("failed to drain compressed layer: %w", err)
+		}
+	}
+	if _, err := io.Copy(io.Discard, layerStream); err != nil {
+		return fmt.Errorf("failed to drain layer stream: %w", err)
+	}
+
+	actualDigest := "sha256:" + hex.EncodeToString(hasher.Sum(nil))
+	if digest != "" && !strings.EqualFold(actualDigest, digest) {
+		return fmt.Errorf("toolchain layer digest mismatch: expected %s, got %s", digest, actualDigest)
 	}
 
 	return nil

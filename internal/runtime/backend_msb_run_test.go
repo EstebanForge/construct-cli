@@ -621,8 +621,18 @@ func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
 		fmt.Sprintf("%d-%d", MsbHerdrBridgePortBase, MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan-1): false,
 		fmt.Sprintf("%d-%d", MsbProxyPortBase, MsbProxyPortBase+MsbProxyPortSpan-1):                   false,
 	}
-	for _, mode := range []string{"offline", "permissive"} {
+	for _, mode := range []string{"offline", "none", "permissive", "open", "internet", "strict", "allowlist"} {
 		net := msbNetworkConfig(mode, nil)
+		switch mode {
+		case "offline", "none", "strict", "allowlist":
+			if net.DefaultEgress != msb.PolicyActionDeny {
+				t.Errorf("%s: expected DefaultEgress deny, got %v", mode, net.DefaultEgress)
+			}
+		default:
+			if net.DefaultEgress != msb.PolicyActionAllow {
+				t.Errorf("%s: expected DefaultEgress allow, got %v", mode, net.DefaultEgress)
+			}
+		}
 		for port := range wantPorts {
 			wantPorts[port] = false
 		}
