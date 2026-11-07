@@ -242,6 +242,8 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		agent.List()
 	case "agents-md":
 		sys.ListAgentMemories()
+	case "toolchains", "toolchain":
+		sys.HandleToolchainsCommand(args[1:])
 	case "pull":
 		cfg = ensureConfigLoaded(cfg)
 		if err := runtime.PullImage(cfg); err != nil {
@@ -586,7 +588,7 @@ func shouldRunMigration(args []string) bool {
 		}
 		switch args[1] {
 		case "init", "rebuild", "update", "reset", "shell", "exec", "version", "help",
-			"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
+			"config", "packages", "agents", "agents-md", "toolchains", "toolchain", "doctor", "clipboard-debug", "ct-fix", "self-update",
 			"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
 			return args[1] != "self-update" && args[1] != "rebuild"
 		default:

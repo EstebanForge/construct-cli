@@ -1,0 +1,114 @@
+name: Publish Toolchains
+
+# Builds and publishes minimal OCI toolchain artifacts to GitHub Container Registry.
+# Pushes ghcr.io/estebanforge/construct-toolchain-<id>:latest (and optional SemVer version).
+on:
+  workflow_dispatch:
+    inputs:
+      toolchain:
+        description: "Toolchain to build and publish"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - node
+          - rust
+          - go
+          - python
+          - ruby
+          - php
+      version:
+        description: "Optional version tag (e.g. 1.0.0). Empty = latest only"
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - "toolchains/**"
+      - ".github/workflows/toolchains.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-toolchains
+  cancel-in-progress: false
+
+jobs:
+  matrix:
+    name: Resolve Toolchains Matrix
+    runs-on: ubuntu-latest
+    outputs:
+      toolchains: ${{ steps.set-matrix.outputs.toolchains }}
+    steps:
+      - id: set-matrix
+        run: |
+          CHOICE="${{ inputs.toolchain }}"
+          if [ -z "${CHOICE}" ] || [ "${CHOICE}" = "all" ]; then
+            echo 'toolchains=["node", "rust", "go", "python", "ruby", "php"]' >> "${GITHUB_OUTPUT}"
+          else
+            echo "toolchains=[\"${CHOICE}\"]" >> "${GITHUB_OUTPUT}"
+          fi
+
+  publish:
+    name: Publish Toolchain (${{ matrix.toolchain }})
+    needs: matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: ${{ fromJSON(needs.matrix.outputs.toolchains) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Resolve image tags
+        id: tags
+        env:
+          VERSION: ${{ inputs.version }}
+          TOOLCHAIN: ${{ matrix.toolchain }}
+        run: |
+          TAGS="ghcr.io/estebanforge/construct-toolchain-${TOOLCHAIN}:latest"
+          if [ -n "${VERSION}" ]; then
+            if [[ "${VERSION}" == v* ]]; then
+              echo "Error: version must not use 'v' prefix (got: ${VERSION})"
+              exit 1
+            fi
+            if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+              echo "Error: version must be SemVer-like (got: ${VERSION})"
+              exit 1
+            fi
+            TAGS="${TAGS}"$'\n'"ghcr.io/estebanforge/construct-toolchain-${TOOLCHAIN}:${VERSION}"
+          fi
+          {
+            echo "tags<<EOF"
+            echo "${TAGS}"
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push toolchain image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./toolchains/${{ matrix.toolchain }}
+          file: ./toolchains/${{ matrix.toolchain }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha,scope=tc-${{ matrix.toolchain }}
+          cache-to: type=gha,mode=max,scope=tc-${{ matrix.toolchain }}
