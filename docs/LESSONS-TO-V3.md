@@ -20,8 +20,8 @@ Related documents:
    - msb microVM: VMM policy sets `DefaultEgress: PolicyActionDeny`. Only egress to the host proxy port (TCP) and bridge ports (SSH, clipboard) is permitted. UDP, ICMP, and direct TCP are blocked.
    - Policy scoping: Network policy is per VM. Daemon carries `construct.daemon.network_hash` label to trigger recreate on policy change.
    - Egress tiers: Default tier is `allowlist` (not open public). Construct ships built-in ecosystem presets (npm, PyPI, crates.io, Go proxy, apt, GitHub release assets).
-   - Non-HTTP TCP: Opt-in `[net.tcp]` host:port rules via CONNECT tunnel or SOCKS5 for databases (`psql`, `redis`).
-   - Diagnostic feedback: Proxy returns HTTP 403 with reason headers on blocked egress. `construct net explain <host>` and `construct net log` provide debugging visibility.
+   - Non-HTTP TCP: Opt-in `[network] allowed_tcp` host:port rules via CONNECT tunnel for databases (`psql`, `redis`).
+   - Diagnostic feedback: Proxy returns HTTP 403 with reason headers on blocked egress. `construct network explain <host[:port]>` and `construct network log` provide debugging visibility.
 
 3. **Sentinel Credential Proxy**:
    - Runs on the host, bound per session with authentication.

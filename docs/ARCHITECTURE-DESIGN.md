@@ -4,7 +4,7 @@
 ---
 
 ## 1. Executive Summary
-Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, network/clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds or pulls the image, and installs user-tier tools via a `packages.toml`-driven script into the bind-mounted construct home (the core toolchain ships baked in the image). Its runtime engine defaults to microVM isolation via the embedded `msb` backend (Apple Silicon macOS or Linux with KVM) and is configurable, with an OCI engine pool (auto-detecting `container`, `podman`, or `docker`) as the fallback for hosts without microVM support, and migrations keep templates/config aligned across versions. Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists, plus a clipboard bridge for text/image paste, login callback forwarding, SSH agent forwarding (Linux socket mount, macOS TCP bridge) with optional key import, global AGENTS.md management, host alias management (sandboxed + ns-), and yolo-mode flags per agent. It also ships a headless Agent Browser CLI.
+Construct CLI is a single-binary tool that launches an isolated, ephemeral sandbox preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds or pulls the image, and installs user-tier tools via a `packages.toml`-driven script into the bind-mounted construct home (the core toolchain ships baked in the image). Its runtime engine defaults to microVM isolation via the embedded `msb` backend (Apple Silicon macOS or Linux with KVM) and is configurable, with an OCI engine pool (auto-detecting `container`, `podman`, or `docker`) as the fallback for hosts without microVM support, and migrations keep templates/config aligned across versions. Security features include a host-side authenticated Sentinel Credential Proxy (substituting real API keys with shape-mimicking sentinels on outbound HTTPS CONNECT requests, enforcing domain fronting guards, preventing DNS rebinding, and tunneling raw non-HTTP TCP databases), policy tiers (`allowlist`, `open`, `internet`, `none`) with ecosystem presets, modular on-demand OCI toolchains (Go, Rust, Python, Node, PHP, Ruby, Zig, Dart, Kotlin, Java, Swift), host git repository protection with OS immutable flags, disposable clone execution (`--clone`) with patch bundle export, and workspace secret redaction (`hide_secrets`). It also includes a clipboard bridge for text/image paste, login callback forwarding, SSH agent forwarding (Linux socket mount, macOS TCP bridge) with optional key import, global AGENTS.md management, host alias management (sandboxed + ns-), and yolo-mode flags per agent. It also ships a headless Agent Browser CLI.
 
 ---
 
@@ -12,8 +12,10 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Zero-trace host**: Containers run with `--rm`; only named volumes persist installs/state.
 - **Flexible runtime support**: User-configurable isolation backend with auto-detection and auto-start capabilities.
 - **Fast subsequent runs**: User-tier installs persist in the bind-mounted construct home and baked tooling ships inside the image; optional daemon mode enables instant agent startup via a persistent sandbox.
-- **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
+- **Host-enforced network control**: Egress Sentinel Proxy on tiers `allowlist/open/internet/none` with ecosystem presets, dynamic CA leaf signing, sentinel key swapping, domain fronting guards, and raw TCP database tunnels (`allowed_tcp`). In-guest UFW has been removed.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, `[security]`, including first-class env passthrough controls in `[sandbox]`.
+- **Host Git & Workspace Hardening**: Host `.git` protected with OS immutable attributes (`chattr +i` / `chflags uchg`), `.git` masked in guest mounts, and disposable execution via `--clone` with automatic git bundle patch export.
+- **Modular Toolchains**: On-demand multi-arch OCI toolchain fetching and caching (`~/.cache/construct/toolchains`) for polyglot language runtimes without image bloat.
 - **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home bind.
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives user-tier tool installs (mise, npm, bun, pipx, cargo, gems), post-install hooks, and topgrade config generation.
@@ -26,13 +28,13 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
-- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the six baked agents `claude`, `codex`, `agy`, `pi`, `pig`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that (kotlin, scala, groovy, gradle) install on demand via the `[mise]` user tier in `packages.toml`; anything else arrives through `[mise]`/`[npm]`/`[bun]`/`[pipx]` user entries and shadows baked equivalents by PATH.
+- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the six baked agents `claude`, `codex`, `agy`, `pi`, `pig`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that install dynamically via modular OCI toolchains or the `[mise]` user tier in `packages.toml`.
 
 ---
 
 ## 3. Architecture
 - **Entrypoint**: `cmd/construct/main.go`
-  - Embeds templates (Dockerfile, docker-compose.yml, entrypoint.sh, update-all.sh, network-filter.sh, config.toml, packages.toml, and clipboard shims).
+  - Embeds templates (Dockerfile, docker-compose.yml, entrypoint.sh, update-all.sh, config.toml, packages.toml, and clipboard shims).
   - Handles namespaces: `sys`, `network`, `daemon`, `cc`, and agent passthrough.
   - Migration check before config load; log cleanup; passive update check.
   - Runtime detection/startup, build, update, reset, doctor, and agent execution.
@@ -43,8 +45,8 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Templates**: `internal/templates/`
   - Dockerfile uses `debian:trixie-slim` with the apt tier, three vendor repos (`gh`, `nodejs 24`; dart removed 2026-09-22), the go.dev tarball, rustup, and the pinned mise github: tier; every baked tool is execute-verified in-build on both amd64 and arm64.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
-  - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, and starts login forwarders when enabled.
-  - network-filter script for strict mode; update-all for maintenance.
+  - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, mounts dynamic CA certificates, and starts login forwarders when enabled.
+  - update-all for maintenance.
   - clipper, clipboard-x11-sync.sh, and osascript shim for clipboard bridging.
   - packages.toml template used to generate the install script (apt/mise/bun/cargo/npm/pi/pip/gems + post-install hooks; the former `[brew]` tier is gone — see docs/BREW-EXIT.md).
 - **PATH Construction**

@@ -99,6 +99,8 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - [x] S4: CONNECT MITM inspection & swap layer (`internal/proxy/server.go`). Domain fronting guard (CONNECT == TLS SNI == HTTP Host) and request header sentinel swapping.
 - [x] S5: v3.0 cutover: Egress proxy enabled by default; legacy in-guest UFW removed; `network-filter.sh` deleted from image build and templates.
 - [x] S6: Unit and integration tests covering proxy authentication, destination filtering, CONNECT interception, secret swapping, domain fronting, and confinement checks.
+- [x] S7: Network policy explain diagnostic (`construct network explain <host[:port]>`) and real-time audit logging (`construct network log`).
+- [x] S8: Non-HTTP TCP egress tunnels (opt-in `[network] allowed_tcp` host:port rules for databases/queues, bypassing TLS MITM via raw TCP piping and `ALLOW_TCP` logging).
 
 ## 7. Quirks and gotchas
 

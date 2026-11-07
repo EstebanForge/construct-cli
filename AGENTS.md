@@ -83,7 +83,24 @@ The microsandbox SDK's FFI bridge is an untagged cgo file, so plain `GOOS`/`GOAR
 
 ## Image Publish (decoupled from releases)
 
-The `construct-box` GHCR image is NOT built by the release workflow. The CLI always pulls `construct-box:latest` (no version coupling), so image publishes are a separate manual workflow: `.github/workflows/image.yml` (`workflow_dispatch`, optional `version` input pins `ghcr.io/estebanforge/construct-box:<version>` alongside `:latest`). Dispatch it when the image definition changes: `internal/templates/Dockerfile` plus the files it COPYs (`entrypoint.sh`, `update-all.sh`, `network-filter.sh`, `clipper`, `clipboard-x11-sync.sh`, `osascript`, `construct-host-exec`). Multi-arch (amd64 + arm64 via QEMU) with GitHub Actions cache; dispatches are serialized by a concurrency group.
+The `construct-box` GHCR image is NOT built by the release workflow. The CLI always pulls `construct-box:latest` (no version coupling), so image publishes are a separate manual workflow: `.github/workflows/image.yml` (`workflow_dispatch`, optional `version` input pins `ghcr.io/estebanforge/construct-box:<version>` alongside `:latest`). Dispatch it when the image definition changes: `internal/templates/Dockerfile` plus the files it COPYs (`entrypoint.sh`, `update-all.sh`, `clipper`, `clipboard-x11-sync.sh`, `osascript`, `construct-host-exec`). Multi-arch (amd64 + arm64 via QEMU) with GitHub Actions cache; dispatches are serialized by a concurrency group.
+
+## Egress Sentinel Proxy & Network Policy
+- Host-side authenticated CONNECT proxy (`internal/proxy`): runs per session on the host with session-token auth (`Proxy-Authorization: Basic`). Real provider keys never cross into the guest; guest gets shape-mimicking sentinels swapped by the proxy on outbound HTTPS CONNECT requests (`swapHeaders`). Outbound requests with unswapped real keys are aborted (`LEAK_DROP`).
+- Domain fronting guard: CONNECT target host == TLS SNI == HTTP Host header. Mismatches abort immediately (`FRONTING_DROP`).
+- Invariant 7 (DNS rebinding guard): The proxy resolves every hostname itself and refuses loopback, private, and CGNAT destinations unless a rule names the target explicitly.
+- Network policy tiers: `allowlist` (default, with built-in ecosystem presets for npm, pypi, crates, go, github, apt), `open`, `internet`, and `none`. Diagnostics: `construct network explain <host[:port]>` and `construct network log`.
+- Non-HTTP TCP egress: `[network] allowed_tcp = []` permits specific `host:port` pairs (databases, caches, queues). Destinations matching `IsRawTCP` bypass TLS MITM and pipe raw TCP bytes (`ALLOW_TCP`).
+
+## Modular Toolchains & Caching
+- Dynamic detection: `internal/toolchains` inspects project markers (e.g. `go.mod`, `Cargo.toml`, `package.json`, `requirements.txt`, etc.) and determines required language runtimes.
+- On-demand OCI fetcher: toolchains are fetched from GHCR (`ghcr.io/estebanforge/construct-toolchains/<name>:latest`) as multi-arch tar archives and unpacked into `~/.cache/construct/toolchains/<name>/<arch>`.
+- In-guest execution: cached toolchain directories are mounted at `/opt/toolchains/<name>` and prefixed onto the guest `PATH`.
+
+## Host Git Protection & Ephemeral Clones
+- Host repository hardening (`internal/gitprotect`): host `.git` directories are protected with OS immutable attributes (`chattr +i` on Linux, `chflags uchg` on macOS) before agent launch and restored upon exit.
+- Guest `.git` masking: guest workspace mounts mask `.git` using read-only stubs to prevent rogue agent modifications to history or hooks.
+- Ephemeral clone execution (`internal/gitclone`): `--clone` flag creates an isolated, disposable git clone/worktree in a temporary directory. Changes are automatically bundled into a verifiable git bundle (`construct-patch-<id>.bundle`) in the caller workspace upon exit.
 
 ## Version Bumping
 - **NEVER** modify the `VERSION` file - it's managed by GitHub Actions

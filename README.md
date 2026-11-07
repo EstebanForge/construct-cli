@@ -12,7 +12,10 @@
 - **Zero Config**: works out of the box on macOS, Linux, and Windows (WSL)
 - **MicroVM by default**: hardware-level isolation via microsandbox; falls back to the best available OCI runtime on hosts without microVM support
 - **Daemon mode**: reuse one sandbox across projects; `$HOME` directories are auto-learned, elsewhere add roots via `[daemon] mount_paths` or `construct sys daemon roots add`
-- **Network Isolation**: `permissive`, `strict` (allowlist), or `offline` network modes
+- **Sentinel Credential Proxy**: host-side authenticated egress proxy keeping real API keys on the host while minting shape-mimicking sentinels, inspecting HTTPS CONNECT requests with dynamic leaf CA certificates, enforcing domain fronting guards, dropping outbound leaks, and supporting opt-in raw TCP database tunnels (`[network] allowed_tcp`)
+- **Network Policy Tiers**: `allowlist` (with built-in ecosystem presets for npm, PyPI, crates, Go, GitHub, apt), `open`, `internet`, or `none`, with diagnostic inspection (`construct network explain`) and real-time audit logging (`construct network log`)
+- **Modular Toolchains**: auto-detects project languages from markers and lazily fetches lightweight multi-arch OCI toolchains (Go, Rust, Python, Node, PHP, Ruby, Zig, Dart, Kotlin, Java, Swift) cached at `~/.cache/construct/toolchains`
+- **Host Git & Workspace Protection**: locks host `.git` repositories using OS immutable attributes (`chattr +i` / `chflags uchg`), masks `.git` in guest mounts, and supports disposable execution via `--clone` with automatic git bundle patch export
 - **SSH agent forwarding and a full clipboard bridge**: text and image pasting for Claude, Copilot, Antigravity, Qwen, and Pi
 - **Host loopback browsing**: headless browser agents reach host dev sites on `localhost`/`*.localhost`
 - **User-defined packages**: apt, mise, bun, npm, pip, cargo, or gems
@@ -76,8 +79,10 @@ More examples and the full command list: [Quick Reference](docs/QUICK-REFERENCE.
 
 | Topic | Description |
 |-------|-------------|
-| [**Hide Secrets Mode**](docs/HIDE-SECRETS.md) | Prevent agents from seeing raw secrets (experimental) |
+| [**Sentinel Proxy & Network**](docs/TODO-SENTINEL-PROXY.md) | Host-side egress proxy, sentinel key substitution, network policy tiers |
+| [**Hide Secrets Mode**](docs/HIDE-SECRETS.md) | Prevent agents from seeing raw secrets in files or env |
 | [**VM Backend**](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Default microVM isolation via microsandbox |
+| [**Modular Toolchains**](docs/ARCHITECTURE-DESIGN.md) | On-demand multi-arch OCI toolchain fetching and caching |
 | [**Providers**](docs/PROVIDERS.md) | Configure custom Claude API endpoints |
 | [**Packages**](docs/PACKAGES.md) | User-defined package management |
 | [**Architecture**](docs/ARCHITECTURE-DESIGN.md) | Technical design and internals |
@@ -96,9 +101,13 @@ Full index: [docs/INDEX.md](docs/INDEX.md)
 ## Security
 
 - ✅ MicroVM isolation by default (`backend = "msb"`, microsandbox) with OCI fallback
-- ✅ Network isolation (permissive/strict/offline modes)
-- ✅ Ephemeral sandboxes; no path escape outside the project root
-- ✅ Secret redaction (experimental) — [docs](docs/HIDE-SECRETS.md)
+- ✅ Host-side egress CONNECT proxy with session-token authentication and MITM sentinel swapping (real keys never enter the sandbox)
+- ✅ Network policy tiers (`allowlist`, `open`, `internet`, `none`) with ecosystem presets and raw non-HTTP TCP tunneling
+- ✅ Domain fronting guards and strict DNS rebinding / private IP refusal
+- ✅ Host git repository protection with immutable flags and read-only `.git` guest masking
+- ✅ Disposable execution mode via `--clone` with automatic git bundle patch generation
+- ✅ Ephemeral sandboxes with zero path escape outside allowed mounts
+- ✅ Workspace secret redaction and output stream masking
 - ✅ Reproducible CI builds with SHA256 checksums
 
 **[Complete Security Guide →](docs/SECURITY.md)**

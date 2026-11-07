@@ -13,7 +13,7 @@ Complete documentation for The Construct CLI.
 - [Using Construct with Agent Harnesses](HARNESSES.md) - Setup guide: shims, daemon mounts, PATH, troubleshooting
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [Brew Exit Analysis](BREW-EXIT.md) - package-by-package Homebrew-to-Debian migration analysis
-- [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - PENDING: sentinel substitution + egress proxy, design and peer review done
+- [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - Host-side egress CONNECT proxy with dynamic CA leaf signing, sentinel key substitution, and raw TCP database tunnels
 - [Lessons from v1-v2](LESSONS-TO-V3.md) - What to adopt from v1 and v2: proxy refinements, v3.0 removals, new scope
 - [TODO](TODO.md) - GA checklist and parked follow-ups
 - [README](../README.md) - Project overview and quick start
@@ -27,18 +27,50 @@ Complete documentation for The Construct CLI.
 
 2. **[Configure Construct](CONFIGURATION.md)**
    - Runtime settings
-   - Network modes
+   - Network policy tiers
    - Security options
    - Provider configuration
 
 3. **[Learn Security Features](SECURITY.md)**
-   - Container isolation
-   - Secret redaction (experimental)
+   - MicroVM container isolation
+   - Sentinel credential proxying
+   - Host git repository protection
+   - Secret redaction (hide_secrets)
    - Security best practices
 
 ## Core Features
 
-### Secret Redaction (Experimental)
+### Sentinel Credential Proxy & Network Policy
+
+**[Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md)** - Egress security & credential isolation
+
+Keep real API keys out of the sandbox while allowing agents to execute:
+- Shape-mimicking sentinel placeholders for provider keys
+- Outbound leak scanner dropping unswapped secret bytes
+- Domain fronting guards (CONNECT == TLS SNI == HTTP Host)
+- Strict DNS rebinding and private IP refusal
+- Policy tiers (`allowlist`, `open`, `internet`, `none`) with ecosystem presets
+- Opt-in raw TCP tunnels (`allowed_tcp`) for databases and caches
+
+### Host Git Protection & Disposable Clones
+
+**[Security Guide](SECURITY.md)** - Workspace protection
+
+Protect project repositories from agent corruption:
+- OS immutable attributes (`chattr +i` / `chflags uchg`) on host `.git`
+- Read-only `.git` masking inside guest mounts
+- Disposable execution mode via `--clone` with automatic patch bundle generation
+
+### Modular Toolchains
+
+**[Architecture Design](ARCHITECTURE-DESIGN.md)** - Polyglot language runtimes
+
+On-demand multi-arch OCI toolchains fetched and cached without base image bloat:
+- Auto-detection from project markers (`go.mod`, `Cargo.toml`, etc.)
+- Multi-arch OCI distribution (Go, Rust, Python, Node, PHP, Ruby, Zig, Dart, Kotlin, Java, Swift)
+- Auto-caching at `~/.cache/construct/toolchains`
+
+### Secret Redaction
 
 **[Hide Secrets Mode](HIDE-SECRETS.md)** - Complete guide
 

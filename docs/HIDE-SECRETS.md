@@ -1,6 +1,6 @@
 # Hide Secrets Mode
 
-**Experimental feature** that prevents LLM agents from seeing raw secrets in your project files and environment variables.
+Prevents LLM agents from seeing raw secrets in your project files and environment variables. Graduated to production in Construct v3.0 (no environment variable feature gate required).
 
 ## What It Does
 
@@ -22,22 +22,15 @@ This protects against:
 
 ## Quick Start
 
-### 1. Enable the Feature Gate (Required)
-
-Set the environment variable:
-```bash
-export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
-```
-
-### 2. Configure in `config.toml`
+### 1. Configure in `config.toml`
 
 ```toml
 [security]
-hide_secrets = true
-hide_secrets_mask_style = "hash"
+hide_secrets = "mask"            # Options: mask, redact, off
+hide_secrets_mask_style = "hash" # Options: hash, fixed
 ```
 
-### 3. Run Construct Normally
+### 2. Run Construct Normally
 
 ```bash
 construct claude "Help me debug my API code"
@@ -51,8 +44,8 @@ The agent will now see redacted secrets instead of real values.
 
 ```toml
 [security]
-# Master switch (requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1)
-hide_secrets = false
+# Mode: "mask" (default), "redact", or "off"
+hide_secrets = "mask"
 
 # Mask style: "hash" (default) or "fixed"
 hide_secrets_mask_style = "hash"
@@ -214,10 +207,7 @@ Sessions are automatically cleaned up:
 ### Debugging with Secrets
 
 ```bash
-# 1. Enable hide-secrets mode
-export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
-
-# 2. Run agent
+# Run agent with hide-secrets configured
 construct claude "Debug my database connection code"
 
 # Agent sees:
@@ -233,7 +223,7 @@ construct claude "Debug my database connection code"
 
 ```toml
 [security]
-hide_secrets = true
+hide_secrets = "mask"
 # Allow AWS CLI to access credentials
 hide_secrets_allow_paths = ["~/.aws/credentials"]
 ```
@@ -248,7 +238,7 @@ construct claude "Use AWS CLI to list S3 buckets"
 
 ```toml
 [security]
-hide_secrets = true
+hide_secrets = "mask"
 hide_secrets_deny_paths = [
     "config/prod/*.yaml",
     "config/staging/*.yaml"
@@ -259,15 +249,9 @@ hide_secrets_deny_paths = [
 
 ### Feature Not Working
 
-**Check**: Is the environment gate set?
+**Check**: Is `hide_secrets = "mask"` or `"redact"` in config?
 ```bash
-echo $CONSTRUCT_EXPERIMENT_HIDE_SECRETS
-# Should output: 1
-```
-
-**Check**: Is `hide_secrets = true` in config?
-```bash
-construct sys doctor | grep hide_secrets
+construct sys config
 ```
 
 ### Tools Failing in Hide-Secrets Mode
@@ -308,7 +292,6 @@ hide_secrets_passthrough_vars = ["PUBLIC_API_URL", "APP_NAME"]
 - Keep `.git` hidden (`hide_git_dir = true`)
 - Use hash mask style for easier debugging
 - Review allowlist entries carefully
-- Keep CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1 env-only (don't add to shell profiles)
 
 ### ❌ DON'T
 

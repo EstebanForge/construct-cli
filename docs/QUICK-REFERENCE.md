@@ -20,10 +20,23 @@ claude "Debug my API code"  # Now available as short command
 
 ```bash
 # Strict network isolation (allowlist only)
-construct claude -ct-n strict "Review my code"
+construct claude -ct-n allowlist "Review my code"
+
+# Ephemeral clone execution (disposable worktree + bundle export)
+construct claude --clone "Refactor database migrations"
 
 # Offline run (no network)
-construct agy --ct-network offline "Explain this code"
+construct agy --ct-network none "Explain this code"
+
+# Network diagnostics and policy explanation
+construct network explain api.anthropic.com:443
+construct network explain postgres.internal:5432
+construct network log --tail 20 -f
+
+# Allow or block targets
+construct network allow postgres.internal:5432
+construct network allow api.custom.com
+construct network list
 
 # Update all agents
 construct sys update

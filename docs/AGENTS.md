@@ -219,14 +219,17 @@ construct claude "Help me with this code"
 construct agy "Explain this function"
 ```
 
-### With Network Modes
+### With Network Modes & Clone Execution
 
 ```bash
-# Strict network isolation
-construct claude -ct-n strict "Review my code"
+# Allowlist network tier (ecosystem presets + configured allowlist)
+construct claude -ct-n allowlist "Review my code"
 
-# Offline mode
-construct agy --ct-network offline "Explain this code"
+# Ephemeral clone execution (disposable worktree with patch bundle export)
+construct claude --clone "Refactor this module"
+
+# Offline mode (zero network egress)
+construct agy --ct-network none "Explain this code"
 ```
 
 ### With Configuration

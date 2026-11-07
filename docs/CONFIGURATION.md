@@ -47,28 +47,29 @@ forward_ssh_agent = true     # Forward SSH agent socket
 propagate_git_identity = true # Propagate git host identity
 non_root_strict = false      # Enforce non-root user in container
 exec_as_host_user = true     # Run commands as host user (when possible)
-passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/ufw/chown only)
+passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/chown only)
 workspace_max_entries = 500000 # File count before the large-workspace warning (0 = use default). One Yes is remembered per folder in roots.json
 env_passthrough = ["GITHUB_TOKEN"] # Env vars to always pass through
 shell = "/bin/bash"          # Default shell in container
 
 # Network Configuration
 [network]
-mode = "permissive"          # Network mode: permissive|strict|offline
-allowed_domains = []         # Domain allowlist (strict mode)
-allowed_ips = []             # IP allowlist (strict mode)
+mode = "allowlist"           # Policy tier: allowlist|open|internet|none (legacy aliases: permissive|strict|offline)
+allowed_domains = []         # Domain allowlist (wildcards supported)
+allowed_ips = []             # IP allowlist (CIDRs supported)
 blocked_domains = []         # Domain blocklist
 blocked_ips = []             # IP blocklist
+allowed_tcp = []             # Raw TCP service tunnels (host:port, e.g. ["postgres.internal:5432"])
 
 # Security Configuration
 [security]
-hide_secrets = false         # Enable secret redaction (experimental)
+hide_secrets = "mask"        # Workspace secret redaction: mask|redact|off
 hide_secrets_mask_style = "hash" # Mask style: hash|fixed
 hide_secrets_deny_paths = [] # Force-scan these files
 hide_secrets_allow_paths = [] # Never redact these files (dangerous!)
 hide_secrets_passthrough_vars = [] # Never mask these env vars
 hide_secrets_report = true   # Show scan report
-hide_git_dir = true          # Hide .git directory
+hide_git_dir = true          # Hide and mask .git directory
 
 # Agent Configuration
 [agents]
@@ -318,35 +319,38 @@ For each listed port, `entrypoint.sh` starts a blind TCP relay on the container'
 
 ## Network Settings
 
-### Network Modes
+### Policy Tiers
 
 ```toml
 [network]
-mode = "permissive"  # Options: permissive, strict, offline
+mode = "allowlist"  # Options: allowlist, open, internet, none (aliases: permissive -> open, strict -> allowlist, offline -> none)
 ```
 
-**Modes:**
+**Tiers:**
 
-**Permissive (default):**
-- All network traffic allowed
-- Domain/IP blocklists still enforced
-- Good for general development
+**Allowlist (default):**
+- Only allowlisted domains, IPs, and built-in ecosystem presets are permitted
+- Ecosystem presets attached automatically: npm, PyPI, crates.io, Go proxy, apt, and GitHub release assets
+- Requests undergo TLS MITM inspection and sentinel credential swapping
+- Best balance of productivity and isolation
 
-**Strict:**
-- Only allowlisted traffic allowed
-- Must configure `allowed_domains` and/or `allowed_ips`
-- Best security for sensitive work
+**Open (permissive alias):**
+- Outbound access to all destinations
+- MITM inspection and sentinel substitution remain active for provider API endpoints
+- Blocklists still enforced
 
-**Offline:**
-- No network access
-- Agent cannot make external API calls
-- Maximum security for air-gapped environments
+**Internet:**
+- General public Internet egress permitted; private IP, CGNAT, and link-local ranges blocked
 
-### Allowlists (Strict Mode)
+**None (offline alias):**
+- Zero outbound network access
+- Maximum security for air-gapped operations
+
+### Allowlists
 
 ```toml
 [network]
-mode = "strict"
+mode = "allowlist"
 allowed_domains = [
     "*.anthropic.com",
     "*.openai.com",
@@ -364,6 +368,21 @@ allowed_ips = [
 - CIDR notation for IPs: `192.168.1.0/24`
 - Exact matches: `api.example.com`
 
+### Raw TCP Tunnels (`allowed_tcp`)
+
+For non-HTTP services like PostgreSQL, MySQL, Redis, and message queues:
+
+```toml
+[network]
+allowed_tcp = [
+    "postgres.internal:5432",
+    "*.rds.amazonaws.com:5432",
+    "10.0.0.5:6379"
+]
+```
+
+These destinations bypass TLS MITM inspection and pipe raw TCP byte streams directly through the host CONNECT proxy.
+
 ### Blocklists
 
 ```toml
@@ -380,16 +399,30 @@ blocked_ips = [
 
 **Priority:** Blocklists take precedence over allowlists.
 
+### Network Diagnostics
+
+Inspect why a target is allowed or blocked:
+
+```bash
+construct network explain api.anthropic.com:443
+construct network explain postgres.internal:5432
+```
+
+View live proxy access audit logs:
+
+```bash
+construct network log
+construct network log --tail 50 -f
+```
+
 ## Security Settings
 
-### Secret Redaction (Experimental)
-
-⚠️ **Requires environment gate:** `CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1`
+### Secret Redaction (`hide_secrets`)
 
 ```toml
 [security]
-hide_secrets = true
-hide_secrets_mask_style = "hash"
+hide_secrets = "mask"            # Options: mask, redact, off
+hide_secrets_mask_style = "hash" # Options: hash, fixed
 hide_secrets_deny_paths = ["**/secrets.yml"]
 hide_secrets_allow_paths = ["~/.aws/credentials"]
 hide_secrets_passthrough_vars = ["PUBLIC_API_URL"]
@@ -397,7 +430,23 @@ hide_secrets_report = true
 hide_git_dir = true
 ```
 
-**See:** [Hide Secrets Guide](HIDE-SECRETS.md) for complete documentation.
+- **mask**: Redacts secrets from disk files before mounting into the sandbox and masks matching tokens in stream output
+- **redact**: Replaces secret values with zeroed tokens
+- **off**: Disables workspace redaction
+
+### Host Git Repository Protection
+
+Construct locks the host `.git` repository before spawning agents using OS-level immutable flags (`chattr +i` on Linux, `chflags uchg` on macOS). Guest mounts mask `.git` as read-only.
+
+### Disposable Clone Execution (`--clone`)
+
+Run an agent in a disposable ephemeral clone:
+
+```bash
+construct claude --clone "Refactor database migrations"
+```
+
+When the agent exits, changes are verified and exported to a git bundle (`construct-patch-<id>.bundle`) in the project directory, leaving the original workspace untouched.
 
 ## Agent Settings
 
@@ -549,7 +598,6 @@ packages = [
 
 **Runtime overrides:**
 ```bash
-CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1  # Enable hide-secrets mode
 CONSTRUCT_CONFIG_DIR=/custom/path      # Custom config directory
 CONSTRUCT_DATA_DIR=/custom/data        # Custom data directory
 ```
@@ -614,7 +662,7 @@ exec_as_host_user = true
 passwordless_sudo = true
 
 [network]
-mode = "strict"
+mode = "allowlist"
 allowed_domains = [
     "*.anthropic.com",
     "*.openai.com",
@@ -623,7 +671,7 @@ allowed_domains = [
 blocked_ips = ["0.0.0.0/8"] # Block local network
 
 [security]
-hide_secrets = true  # Requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
+hide_secrets = "mask"
 hide_git_dir = true
 
 [agents]
