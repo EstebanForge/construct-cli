@@ -29,6 +29,46 @@ func TestDetectToolchains(t *testing.T) {
 	if detected[0] != ToolchainNode || detected[1] != ToolchainGo {
 		t.Errorf("unexpected toolchains order: %v", detected)
 	}
+
+	// Dart project
+	dartDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dartDir, "pubspec.yaml"), []byte("name: test\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	dartDetected := DetectToolchains(dartDir)
+	if len(dartDetected) != 1 || dartDetected[0] != ToolchainDart {
+		t.Errorf("expected [dart], got %v", dartDetected)
+	}
+
+	// Swift project
+	swiftDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(swiftDir, "Package.swift"), []byte("// swift-tools-version: 6.0\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	swiftDetected := DetectToolchains(swiftDir)
+	if len(swiftDetected) != 1 || swiftDetected[0] != ToolchainSwift {
+		t.Errorf("expected [swift], got %v", swiftDetected)
+	}
+
+	// Kotlin + Java project
+	ktDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(ktDir, "build.gradle.kts"), []byte("plugins {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ktDetected := DetectToolchains(ktDir)
+	if len(ktDetected) != 2 || ktDetected[0] != ToolchainJava || ktDetected[1] != ToolchainKotlin {
+		t.Errorf("expected [java kotlin], got %v", ktDetected)
+	}
+
+	// Java Maven project
+	javaDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(javaDir, "pom.xml"), []byte("<project></project>\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	javaDetected := DetectToolchains(javaDir)
+	if len(javaDetected) != 1 || javaDetected[0] != ToolchainJava {
+		t.Errorf("expected [java], got %v", javaDetected)
+	}
 }
 
 func TestResolveMounts(t *testing.T) {

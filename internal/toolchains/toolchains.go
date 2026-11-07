@@ -19,6 +19,10 @@ const (
 	ToolchainPython ToolchainID = "python"
 	ToolchainRuby   ToolchainID = "ruby"
 	ToolchainPHP    ToolchainID = "php"
+	ToolchainJava   ToolchainID = "java"
+	ToolchainKotlin ToolchainID = "kotlin"
+	ToolchainDart   ToolchainID = "dart"
+	ToolchainSwift  ToolchainID = "swift"
 )
 
 // Marker describes a filesystem file or directory indicator for a toolchain.
@@ -35,6 +39,10 @@ var DefaultMarkers = []Marker{
 	{Toolchain: ToolchainPython, Files: []string{"pyproject.toml", "requirements.txt", "Pipfile", "poetry.lock", "setup.py"}},
 	{Toolchain: ToolchainRuby, Files: []string{"Gemfile", "Gemfile.lock"}},
 	{Toolchain: ToolchainPHP, Files: []string{"composer.json", "composer.lock"}},
+	{Toolchain: ToolchainJava, Files: []string{"pom.xml", "build.gradle", "settings.gradle", "build.gradle.kts", "settings.gradle.kts"}},
+	{Toolchain: ToolchainKotlin, Files: []string{"build.gradle.kts", "settings.gradle.kts"}},
+	{Toolchain: ToolchainDart, Files: []string{"pubspec.yaml", "pubspec.lock"}},
+	{Toolchain: ToolchainSwift, Files: []string{"Package.swift", "Package.resolved"}},
 }
 
 // DetectToolchains scans the given root directory and returns the list of detected toolchains.
@@ -54,7 +62,10 @@ func DetectToolchains(root string) []ToolchainID {
 		}
 	}
 
-	order := []ToolchainID{ToolchainNode, ToolchainRust, ToolchainGo, ToolchainPython, ToolchainRuby, ToolchainPHP}
+	order := []ToolchainID{
+		ToolchainNode, ToolchainRust, ToolchainGo, ToolchainPython, ToolchainRuby, ToolchainPHP,
+		ToolchainJava, ToolchainKotlin, ToolchainDart, ToolchainSwift,
+	}
 	out := make([]ToolchainID, 0, len(detected))
 	for _, id := range order {
 		if detected[id] {
