@@ -86,7 +86,6 @@ var ImageTierTemplates = map[string]string{
 	"Dockerfile":            Dockerfile,
 	"entrypoint.sh":         Entrypoint,
 	"update-all.sh":         UpdateAll,
-	"network-filter.sh":     NetworkFilter,
 	"clipper":               Clipper,
 	"clipboard-x11-sync.sh": ClipboardX11Sync,
 	"osascript":             Osascript,

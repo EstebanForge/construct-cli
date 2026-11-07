@@ -680,7 +680,6 @@ func Init() error {
 		{filepath.Join(containerDir, "entrypoint-hash.sh"), []byte(templates.EntrypointHash), 0755},
 		{filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755},
 		{filepath.Join(containerDir, "agent-patch.sh"), []byte(templates.AgentPatch), 0755},
-		{filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755},
 		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
 		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
 		{filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755},

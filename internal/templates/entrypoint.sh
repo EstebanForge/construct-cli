@@ -119,7 +119,7 @@ if [ "$(id -u)" = "0" ]; then
     if [ "${CONSTRUCT_PASSWORDLESS_SUDO:-1}" = "1" ]; then
         echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct 2>/dev/null || true
     else
-        echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" > /etc/sudoers.d/construct 2>/dev/null || true
+        echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /bin/chown, /usr/bin/chown" > /etc/sudoers.d/construct 2>/dev/null || true
     fi
     chmod 0440 /etc/sudoers.d/construct 2>/dev/null || true
 
@@ -637,11 +637,6 @@ setup_shell_environment
 # no clipboard env, so the guard below only fires on the Docker path.
 if [ -n "$CONSTRUCT_CLIPBOARD_URL" ]; then
     /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
-fi
-
-# Configure network filtering (if in strict mode)
-if [ -f "/usr/local/bin/network-filter.sh" ]; then
-    /usr/local/bin/network-filter.sh || true
 fi
 
 # Forward localhost login callbacks to the container when requested.

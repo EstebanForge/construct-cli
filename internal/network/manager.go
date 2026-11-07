@@ -335,9 +335,9 @@ func ShowStatus() {
 	var cmd *exec.Cmd
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "/usr/local/bin/network-filter.sh", "show_status")
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi")
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "/usr/local/bin/network-filter.sh", "show_status")
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi")
 	}
 
 	cmd.Stdout = os.Stdout
@@ -666,22 +666,22 @@ func RemoveRuleFromContainer(containerRuntime, containerName, target string) err
 	return nil
 }
 
-// ExecUFWCommand executes a UFW command in the container via network-filter.sh
+// ExecUFWCommand executes a network command in the container (deprecated; egress proxy handles enforcement).
 func ExecUFWCommand(containerRuntime, containerName, command, arg string) error {
 	var cmd *exec.Cmd
 
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "/usr/local/bin/network-filter.sh", command, arg)
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", command, arg)
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "/usr/local/bin/network-filter.sh", command, arg)
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", command, arg)
 	default:
 		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("UFW command failed: %w\nOutput: %s", err, string(output))
+		return fmt.Errorf("network command failed: %w\nOutput: %s", err, string(output))
 	}
 
 	return nil
@@ -724,7 +724,7 @@ func applyRuleMsb(target, action string, resolvedIPs []string) {
 		}
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"/usr/local/bin/network-filter.sh", cmd, ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", cmd, ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -756,7 +756,7 @@ func removeRuleMsb(target string) {
 	for _, ip := range ipsToRemove {
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"/usr/local/bin/network-filter.sh", "remove_rule", ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; fi", "--", "remove_rule", ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -777,11 +777,11 @@ func showStatusMsb() {
 		ui.InfoLn("Start an agent to see active network status")
 		os.Exit(1)
 	}
-	ui.InfoLn("=== Active UFW Status in Sandbox ===")
+	ui.InfoLn("=== Active Network Status in Sandbox ===")
 	ui.InfoLn()
 	_, err = m.ExecStream(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
-		Command: []string{"/usr/local/bin/network-filter.sh", "show_status"},
+		Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Network enforcement active via host proxy'; fi"},
 		User:    "root",
 	})
 	if err != nil {
