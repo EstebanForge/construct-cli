@@ -19,6 +19,8 @@ import (
 type Server struct {
 	policy       *Policy
 	sessionToken string
+	ca           *CA
+	secrets      *SecretRegistry
 	listener     net.Listener
 	httpServer   *http.Server
 	mu           sync.Mutex
@@ -32,6 +34,7 @@ type Config struct {
 	LoopbackPorts []int
 	HostGateway   string
 	SessionToken  string
+	CADir         string
 }
 
 // NewServer initializes a proxy instance.
@@ -42,9 +45,20 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 	p := NewPolicy(cfg.Tier, cfg.AllowedHosts, cfg.LoopbackPorts, cfg.HostGateway)
 
+	var caInstance *CA
+	if cfg.CADir != "" {
+		c, err := EnsureCA(cfg.CADir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize CA: %w", err)
+		}
+		caInstance = c
+	}
+
 	s := &Server{
 		policy:       p,
 		sessionToken: token,
+		ca:           caInstance,
+		secrets:      NewSecretRegistry(),
 	}
 
 	s.httpServer = &http.Server{
@@ -53,6 +67,21 @@ func NewServer(cfg Config) (*Server, error) {
 	}
 
 	return s, nil
+}
+
+// RegisterSecret registers a provider secret and returns its sentinel placeholder.
+func (s *Server) RegisterSecret(varName, realValue, boundHost string) string {
+	return s.secrets.Register(varName, realValue, boundHost)
+}
+
+// CA returns the proxy CA instance.
+func (s *Server) CA() *CA {
+	return s.ca
+}
+
+// Secrets returns the secret registry.
+func (s *Server) Secrets() *SecretRegistry {
+	return s.secrets
 }
 
 // Start binds and starts the proxy server on addr (e.g. "127.0.0.1:0").
@@ -202,6 +231,12 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		for _, v := range vv {
 			outReq.Header.Add(k, v)
 		}
+	}
+
+	if err := s.secrets.SwapHeaders(outReq.Header, r.URL.Host); err != nil {
+		w.Header().Set("X-Construct-Reason", err.Error())
+		http.Error(w, fmt.Sprintf("Forbidden: %v", err), http.StatusForbidden)
+		return
 	}
 
 	transport := &http.Transport{

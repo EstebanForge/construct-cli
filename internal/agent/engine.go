@@ -285,11 +285,13 @@ func (e *RuntimeEngine) Prepare() error {
 
 	// 7. Egress Sentinel Proxy
 	proxyBind := bridgeBindHost(e.cfg.Runtime.Backend)
+	caDir := filepath.Join(e.configPath, "ca")
 	pCfg := proxy.Config{
 		Tier:          e.cfg.Network.Mode,
 		AllowedHosts:  e.cfg.Network.AllowedDomains,
 		LoopbackPorts: e.cfg.Sandbox.HostLoopbackPorts,
 		HostGateway:   bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
+		CADir:         caDir,
 	}
 	if pSrv, err := proxy.NewServer(pCfg); err == nil {
 		if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err == nil {
@@ -304,6 +306,10 @@ func (e *RuntimeEngine) Prepare() error {
 				ui.LogDebug("Confinement probe status %s: %v", status, pErr)
 			}
 		}
+	}
+
+	if e.proxyServer != nil {
+		e.providerEnv = sentinelizeEnv(e.proxyServer, e.providerEnv)
 	}
 
 	if gitprotect.HasImmutableFlag() {
@@ -729,6 +735,11 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
 		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
 		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "GIT_SSL_CAINFO", "/etc/ssl/certs/ca-certificates.crt")
 	}
 
 	// SSH bridge: restart socat proxy inside the container and inject proxy env.
@@ -906,6 +917,11 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 			"-e", "all_proxy="+e.proxyURL,
 			"-e", "NO_PROXY=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
 			"-e", "no_proxy=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
+			"-e", "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt",
 		)
 	}
 
@@ -1079,6 +1095,30 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 	}
 
 	return envVars
+}
+
+func sentinelizeEnv(pServer *proxy.Server, envs []string) []string {
+	if pServer == nil {
+		return envs
+	}
+	out := make([]string, 0, len(envs))
+	for _, kv := range envs {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			out = append(out, kv)
+			continue
+		}
+		key, val := parts[0], parts[1]
+		cleanKey := strings.TrimPrefix(key, "CNSTR_")
+		boundHost := proxy.DefaultHostBindings(cleanKey)
+		if boundHost != "" && val != "" {
+			sentinel := pServer.RegisterSecret(key, val, boundHost)
+			out = append(out, key+"="+sentinel)
+		} else {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func (e *RuntimeEngine) runAgentPatchInDaemon(daemonName, execUser string) error {

@@ -104,6 +104,11 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
 		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
 		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "GIT_SSL_CAINFO", "/etc/ssl/certs/ca-certificates.crt")
 	}
 
 	stdTTY := term.IsTerminal(int(os.Stdin.Fd()))

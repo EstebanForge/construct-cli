@@ -142,6 +142,12 @@ if [ "$(id -u)" = "0" ]; then
         fi
     done
 
+    # Trust Construct root CA if provisioned by the host
+    if [ -f "/home/construct/.config/construct-cli/ca/construct-ca.crt" ]; then
+        cp -f "/home/construct/.config/construct-cli/ca/construct-ca.crt" /usr/local/share/ca-certificates/construct-ca.crt 2>/dev/null || true
+        update-ca-certificates >/dev/null 2>&1 || true
+    fi
+
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
     # In remapped-userns mode keep namespace root to avoid host ownership drift.
