@@ -217,6 +217,9 @@ func (e *RuntimeEngine) Prepare() error {
 	e.osEnv = network.InjectEnv(e.osEnv, e.cfg)
 	e.osEnv = runtime.AppendRuntimeIdentityEnv(e.osEnv, e.containerRuntime)
 	e.toolchains = toolchains.DetectToolchains(e.cwd)
+	if e.cfg != nil && e.cfg.Toolchains.AutoFetch && len(e.toolchains) > 0 {
+		_ = toolchains.EnsureToolchains(context.Background(), e.toolchains) //nolint:errcheck // best-effort toolchain pre-fetch
+	}
 	applyConstructPath(&e.osEnv, e.toolchains)
 
 	// 4. Login Bridge Detection

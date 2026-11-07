@@ -25,6 +25,12 @@ const (
 	ToolchainSwift  ToolchainID = "swift"
 )
 
+// AllToolchains enumerates all known supported modular toolchains.
+var AllToolchains = []ToolchainID{
+	ToolchainNode, ToolchainRust, ToolchainGo, ToolchainPython, ToolchainRuby, ToolchainPHP,
+	ToolchainJava, ToolchainKotlin, ToolchainDart, ToolchainSwift,
+}
+
 // Marker describes a filesystem file or directory indicator for a toolchain.
 type Marker struct {
 	Toolchain ToolchainID
@@ -62,12 +68,8 @@ func DetectToolchains(root string) []ToolchainID {
 		}
 	}
 
-	order := []ToolchainID{
-		ToolchainNode, ToolchainRust, ToolchainGo, ToolchainPython, ToolchainRuby, ToolchainPHP,
-		ToolchainJava, ToolchainKotlin, ToolchainDart, ToolchainSwift,
-	}
 	out := make([]ToolchainID, 0, len(detected))
-	for _, id := range order {
+	for _, id := range AllToolchains {
 		if detected[id] {
 			out = append(out, id)
 		}

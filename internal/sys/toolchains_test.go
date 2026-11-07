@@ -9,4 +9,6 @@ func TestHandleToolchainsCommand(t *testing.T) {
 	// Should not panic on list or default
 	HandleToolchainsCommand([]string{"list"})
 	HandleToolchainsCommand(nil)
+	HandleToolchainsCommand([]string{"help"})
+	HandleToolchainsCommand([]string{"fetch"})
 }

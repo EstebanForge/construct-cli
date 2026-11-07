@@ -33,7 +33,7 @@ Global Flags:
                                    # [--migrate] Re-sync config/templates with the current binary
                                    # [--restore] Restore config.toml from backup
   construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status)
-  construct sys toolchains         # Inspect modular toolchains (detected markers and cached mounts)
+  construct sys toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
   construct sys packages           # Package operations (opens packages.toml by default)
                                    # [--install] Apply changes from packages.toml to the sandbox
                                    # [--reinstall] Recreate package volume and reinstall packages

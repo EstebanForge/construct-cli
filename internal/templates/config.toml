@@ -402,3 +402,9 @@ hide_git_dir = true
 # ANTHROPIC_BASE_URL = "https://api.xiaomimimo.com/anthropic"
 # ANTHROPIC_AUTH_TOKEN = "${CNSTR_MIMO_API_KEY}"
 # API_TIMEOUT_MS = "3000000"
+
+# Modular Toolchains (v3.0)
+[toolchains]
+# Automatically fetch detected project toolchains (e.g. node, rust, go, python, dart, swift)
+# from GHCR when missing from host cache ~/.cache/construct/toolchains. (default: true)
+auto_fetch = true

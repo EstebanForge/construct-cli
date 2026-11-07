@@ -30,6 +30,7 @@ type Config struct {
 	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
 	Security    SecurityConfig    `toml:"security"`
+	Toolchains  ToolchainsConfig  `toml:"toolchains"`
 }
 
 // Canonical [runtime] backend values. msb names the engine project;
@@ -165,6 +166,11 @@ type SecurityConfig struct {
 	HideGitDir                 bool     `toml:"hide_git_dir"`                  // Hide .git directory in merged view (default true)
 }
 
+// ToolchainsConfig holds modular toolchain settings.
+type ToolchainsConfig struct {
+	AutoFetch bool `toml:"auto_fetch"` // Auto-fetch detected project toolchains when missing from cache (default: true)
+}
+
 // MsbPlatformSupported reports whether this host can run the msb microVM
 // backend: Apple Silicon macOS or Linux with /dev/kvm.
 func MsbPlatformSupported() bool {
@@ -283,6 +289,9 @@ func DefaultConfig() Config {
 			HideSecretsPassthroughVars: []string{},
 			HideSecretsReport:          true,
 			HideGitDir:                 true,
+		},
+		Toolchains: ToolchainsConfig{
+			AutoFetch: true,
 		},
 	}
 }

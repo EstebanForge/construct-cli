@@ -1,6 +1,7 @@
 package sys
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -14,6 +15,9 @@ func HandleToolchainsCommand(args []string) {
 		switch args[0] {
 		case "list":
 			ListToolchains()
+			return
+		case "fetch", "install", "pull":
+			FetchToolchains(args[1:])
 			return
 		case "--help", "-h", "help":
 			printToolchainsHelp()
@@ -29,12 +33,13 @@ func HandleToolchainsCommand(args []string) {
 }
 
 func printToolchainsHelp() {
-	fmt.Println("Usage: construct sys toolchains [list]")
+	fmt.Println("Usage: construct sys toolchains [list|fetch] [args...]")
 	fmt.Println()
 	fmt.Println("Manage and inspect modular read-only toolchains.")
 	fmt.Println()
 	fmt.Println("Commands:")
-	fmt.Println("  list    List detected project toolchains and installed cache (default)")
+	fmt.Println("  list                List detected project toolchains and installed cache (default)")
+	fmt.Println("  fetch [all|<id>...] Fetch and cache toolchains from GHCR (flags: --force)")
 }
 
 // ListToolchains lists detected and cached toolchains.
@@ -74,4 +79,50 @@ func ListToolchains() {
 	fmt.Println()
 
 	ui.InfoLn("Modular toolchains mount read-only into /opt/toolchains/<id> and prepend to PATH.")
+}
+
+// FetchToolchains fetches one or more toolchains from GHCR into host cache.
+func FetchToolchains(args []string) {
+	ctx := context.Background()
+	force := false
+	var targets []toolchains.ToolchainID
+
+	for _, arg := range args {
+		switch arg {
+		case "--force", "-f":
+			force = true
+		case "all":
+			targets = append(targets, toolchains.AllToolchains...)
+		default:
+			targets = append(targets, toolchains.ToolchainID(arg))
+		}
+	}
+
+	if len(targets) == 0 {
+		cwd, err := os.Getwd()
+		if err != nil {
+			cwd = "."
+		}
+		targets = toolchains.DetectToolchains(cwd)
+		if len(targets) == 0 {
+			ui.InfoLn("No toolchains detected in current project. Specify a toolchain ID or 'all':")
+			ui.InfoLn("  construct sys toolchains fetch <id...>")
+			ui.InfoLn("  construct sys toolchains fetch all")
+			return
+		}
+	}
+
+	opts := toolchains.FetchOptions{Force: force}
+	for _, tc := range targets {
+		if !force && toolchains.IsToolchainCached(tc) {
+			ui.InfoF("✓ Toolchain %s already cached (use --force to re-download)\n", tc)
+			continue
+		}
+		ui.InfoF("📦 Downloading toolchain: %s...\n", tc)
+		if err := toolchains.FetchToolchain(ctx, tc, opts); err != nil {
+			ui.InfoF("Error downloading toolchain %s: %v\n", tc, err)
+		} else {
+			ui.InfoF("✓ Toolchain %s installed\n", tc)
+		}
+	}
 }
