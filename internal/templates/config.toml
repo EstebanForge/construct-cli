@@ -324,12 +324,12 @@ cleanup_interval_seconds = 86400
 # Delete logs older than this many days (default: 15)
 log_retention_days = 15
 
-# Secret Redaction Mode (Experimental, Opt-In)
+# Secret Redaction Mode
 [security]
-# WARNING: This is an experimental feature. Requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1 env var to function.
 # When enabled, prevents LLM agents from seeing raw secrets in mounted project files and environment variables.
-# Default: false (disabled)
-hide_secrets = false
+# Files containing detected secrets are shadowed with clean redacts in-container.
+# Default: true
+hide_secrets = true
 
 # Mask style for redacted secrets: "hash" (default) or "fixed"
 # - "hash": Shows unique placeholder per secret (CONSTRUCT_REDACTED_<H8>) - better for debugging

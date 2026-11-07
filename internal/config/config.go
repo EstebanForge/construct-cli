@@ -156,7 +156,7 @@ type ClaudeConfig struct {
 
 // SecurityConfig holds secret redaction and security settings.
 type SecurityConfig struct {
-	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets mode (opt-in, requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1)
+	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets workspace redaction mode (default: true)
 	HideSecretsMaskStyle       string   `toml:"hide_secrets_mask_style"`       // Mask style: "hash" (default) or "fixed"
 	HideSecretsDenyPaths       []string `toml:"hide_secrets_deny_paths"`       // Globs always scanned regardless of heuristics
 	HideSecretsAllowPaths      []string `toml:"hide_secrets_allow_paths"`      // Files to NEVER redact (use sparingly! breaks security model)
