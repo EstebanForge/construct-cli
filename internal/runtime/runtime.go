@@ -26,6 +26,7 @@ import (
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/hostgit"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -1359,10 +1360,10 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxCommaSuffix)
 		}
-		// Mount host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		// Mount host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
-			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models%s\n",
-				formatVolumePath(qmdModelsPath), selinuxSuffix)
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models:ro%s\n",
+				formatVolumePath(qmdModelsPath), selinuxCommaSuffix)
 		}
 		// Persistent apt download cache: recreated containers re-provision
 		// packages.toml on first boot; the cached .debs turn that from a
@@ -1398,9 +1399,9 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
 				formatVolumePath(gitIgnorePath))
 		}
-		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		// Reuse host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
-			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models\n",
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models:ro\n",
 				formatVolumePath(qmdModelsPath))
 		}
 		// Persistent apt download cache (see the linux block above).
@@ -2232,8 +2233,7 @@ func StopContainer(containerRuntime, containerName string) error {
 
 // getGitConfig retrieves a git configuration value from the host
 func getGitConfig(key string) string {
-	cmd := exec.Command("git", "config", key)
-	output, err := cmd.Output()
+	output, err := hostgit.Output(context.Background(), "config", key)
 	if err != nil {
 		return ""
 	}

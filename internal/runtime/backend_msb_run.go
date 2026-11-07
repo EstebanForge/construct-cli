@@ -250,7 +250,7 @@ func msbHostConstructHome() string {
 func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 	var mounts []msbAutoMount
 	if p, ok := getQmdModelsPath(); ok {
-		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: false})
+		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: true})
 	}
 	// Persistent apt download cache (created on demand): recreated daemons
 	// re-provision packages.toml on first boot; cached .debs turn that from
