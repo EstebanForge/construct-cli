@@ -65,8 +65,8 @@ func TestGenerateInstallScriptBakeMigration(t *testing.T) {
 	// Default config sweeps all five baked tools' stale bind copies.
 	script := (&PackagesConfig{}).GenerateInstallScript()
 
-	if !strings.Contains(script, ".construct_bake_migration_v1") {
-		t.Error("Script should be gated by the v1 bake-migration marker")
+	if !strings.Contains(script, ".construct_bake_migration_v2") {
+		t.Error("Script should be gated by the v2 bake-migration marker")
 	}
 	for _, want := range []string{
 		`remove_baked_copy "$HOME/.local/bin/claude"`,

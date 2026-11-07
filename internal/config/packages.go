@@ -126,7 +126,7 @@ func (c *PackagesConfig) SavePackages() error {
 // bakeMigrationVersion identifies the baked-tool set this CLI ships. Bump
 // when the image's baked set grows so existing homes sweep once more (the
 // marker filename embeds it).
-const bakeMigrationVersion = 1
+const bakeMigrationVersion = 2
 
 // bakedCopy describes one baked agent's stale pre-bake bind copies.
 type bakedCopy struct {
