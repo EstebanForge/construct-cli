@@ -330,6 +330,9 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	baseArgs := e.args
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
+	if e.proxyServer != nil {
+		mergedProviderEnv = sentinelizeEnv(e.proxyServer, mergedProviderEnv)
+	}
 
 	// 0. msb backend dispatch (docs/ARCHITECTURE-DESIGN.md §4.1): persistent sandbox
 	// daemon path replaces the compose/daemon-container paths entirely.
