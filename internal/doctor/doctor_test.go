@@ -1681,7 +1681,7 @@ func msbStubDir(t *testing.T, imageInspect int) string {
 // the --fix suggestion is reserved for a genuinely missing local image.
 func TestCheckBakedImageFreshnessPlainRunLocalPresence(t *testing.T) {
 	msbStubDir(t, 0)
-	check := checkBakedImageFreshness(true, false)
+	check := checkBakedImageFreshness(true, false, false)
 	if check.Status != CheckStatusSkipped {
 		t.Errorf("status = %v, want skipped (informational)", check.Status)
 	}
@@ -1693,7 +1693,7 @@ func TestCheckBakedImageFreshnessPlainRunLocalPresence(t *testing.T) {
 	}
 
 	msbStubDir(t, 1)
-	check = checkBakedImageFreshness(true, false)
+	check = checkBakedImageFreshness(true, false, false)
 	if check.Status != CheckStatusSkipped {
 		t.Errorf("status = %v, want skipped (informational)", check.Status)
 	}

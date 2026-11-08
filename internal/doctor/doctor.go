@@ -812,7 +812,7 @@ func Run(args ...string) {
 
 	// 11d. Baked Image Freshness (msb only): freshness vs GHCR is not
 	// cheaply detectable; --fix runs a bounded best-effort msb pull.
-	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested))
+	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested, jsonRequested))
 
 	// 11e. Host CLI/SDK Skew (msb only): the host msb binary must match
 	// the SDK pin exactly (schema migrations are one-way).
@@ -1372,7 +1372,7 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 // (msb only). Plain runs verify local presence (cheap, no nag: --fix
 // already pulls on demand and self-updates prepull); --fix additionally runs
 // a bounded best-effort msb pull (exit-0 no-op when already current).
-func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
+func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 	check := CheckResult{Name: "Baked Image Freshness"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
@@ -1400,6 +1400,10 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 		return check
 	}
 
+	if !jsonRequested {
+		fmt.Fprintf(os.Stderr, "  → Pulling image %s (~3 GB; may take 1-3 minutes depending on network speed)...\n", imageRef)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	// --force: a plain pull no-ops on any cached ref (msb never re-resolves
@@ -1409,6 +1413,9 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	cmd := exec.CommandContext(ctx, msbBinPath, "pull", "--force", runtimepkg.PrepullImageRef)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs
 	out, err := cmd.CombinedOutput()
+	if !jsonRequested && err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Image pull complete\n")
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		check.Status = CheckStatusWarning
 		check.Message = "Image pull timed out after 10m (run again later)"
