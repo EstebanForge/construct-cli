@@ -157,6 +157,68 @@ func TestAdaptArgsRelativeAndTildePaths(t *testing.T) {
 	}
 }
 
+func TestAdaptArgsSessionCopyBackTildeAndRelativePaths(t *testing.T) {
+	// 1. Relative session path must resolve to absolute on copy-back
+	s := newTestStager(t, "pi")
+	relFile := writeStageFile(t, s.callerCwd, "rel-session.json", `{"token":"initial"}`)
+	args := []string{"pi", "--session", "rel-session.json"}
+	_ = s.adaptArgs(args)
+
+	if len(s.copyBacks) != 1 {
+		t.Fatalf("expected 1 copy-back, got %d", len(s.copyBacks))
+	}
+	if s.copyBacks[0].host != relFile {
+		t.Errorf("copy-back host path was not resolved to absolute: got %q, want %q", s.copyBacks[0].host, relFile)
+	}
+
+	// Staged file modified by sandbox: syncBack must update original relative host file
+	stagedRel := s.copyBacks[0].staged
+	if err := os.WriteFile(stagedRel, []byte(`{"token":"updated-via-rel"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.syncBack()
+	updatedRel, err := os.ReadFile(relFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updatedRel), "updated-via-rel") {
+		t.Errorf("relative session host file was not updated by syncBack: %s", string(updatedRel))
+	}
+
+	// 2. Tilde session path must resolve home directory on copy-back
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	s2 := newTestStager(t, "pi")
+	s2.allowedRoots = []string{home}
+	tildeFile := writeStageFile(t, home, ".construct-test-tilde-session.json", `{"token":"tilde-initial"}`)
+	defer func() { _ = os.Remove(tildeFile) }()
+
+	args2 := []string{"pi", "--session", "~/.construct-test-tilde-session.json"}
+	_ = s2.adaptArgs(args2)
+
+	if len(s2.copyBacks) != 1 {
+		t.Fatalf("expected 1 copy-back for tilde path, got %d", len(s2.copyBacks))
+	}
+	if s2.copyBacks[0].host != tildeFile {
+		t.Errorf("tilde copy-back host path not expanded: got %q, want %q", s2.copyBacks[0].host, tildeFile)
+	}
+
+	stagedTilde := s2.copyBacks[0].staged
+	if err := os.WriteFile(stagedTilde, []byte(`{"token":"updated-via-tilde"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s2.syncBack()
+	updatedTilde, err := os.ReadFile(tildeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(updatedTilde), "updated-via-tilde") {
+		t.Errorf("tilde session host file was not updated by syncBack: %s", string(updatedTilde))
+	}
+}
+
 func TestAdaptArgsPigStagesSessionFromPigHome(t *testing.T) {
 	// Regression: pig must resolve its own config root into the staging
 	// allowlist, exactly as pi does, or orchestrator session paths under

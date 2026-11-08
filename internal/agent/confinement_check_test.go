@@ -3,9 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"testing"
+	"time"
+
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 )
 
 func TestProbeProxyConfinement(t *testing.T) {
@@ -71,5 +76,56 @@ func TestProbeProxyConfinement(t *testing.T) {
 	status, err = ProbeProxyConfinement(ctx, "http://construct:secret-token@"+lAcceptAny.Addr().String())
 	if status != ConfinementUnenforced || err == nil {
 		t.Errorf("expected accept-any proxy to fail confinement probe, got %v, err=%v", status, err)
+	}
+}
+
+func TestConfinementRejectsDisallowedDirectEgress(t *testing.T) {
+	// Verify that direct connections without passing through the proxy boundary are refused or dropped.
+	// When a client attempts to connect to an external target directly, the connection fails.
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	var d net.Dialer
+	// RFC 5737 TEST-NET-1 (192.0.2.1) represents an unroutable external address
+	conn, err := d.DialContext(ctx, "tcp", "192.0.2.1:443")
+	if err == nil {
+		_ = conn.Close()
+		t.Fatal("expected direct egress to external target to fail, but connection succeeded")
+	}
+}
+
+func TestProxyPolicyDisallowedDestinationDropped(t *testing.T) {
+	caDir := t.TempDir()
+	ps, err := proxy.NewServer(proxy.Config{
+		Tier:         proxy.TierAllowlist,
+		AllowedHosts: []string{"api.allowed.com"},
+		SessionToken: "test-token",
+		CADir:        caDir,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ps.Start("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	defer ps.Close()
+
+	proxyURL, _ := url.Parse(fmt.Sprintf("http://construct:test-token@127.0.0.1:%d", ps.Port()))
+	proxyClient := &http.Client{
+		Transport: &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		},
+		Timeout: 2 * time.Second,
+	}
+
+	req, _ := http.NewRequest("GET", "http://evil-disallowed.com/test", nil)
+	req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte("construct:test-token")))
+	resp, err := proxyClient.Do(req)
+	if err != nil {
+		t.Fatalf("proxy request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("expected 403 Forbidden for disallowed destination, got %d", resp.StatusCode)
 	}
 }

@@ -136,18 +136,19 @@ func (ca *CA) SignHostCert(host string) (*tls.Certificate, error) {
 	host = strings.ToLower(strings.TrimSpace(host))
 	now := time.Now()
 
-	ca.mu.RLock()
-	if cached, ok := ca.leafCache[host]; ok && cached.expiresAt.After(now) {
-		ca.mu.RUnlock()
-		return cached.cert, nil
-	}
-	ca.mu.RUnlock()
-
 	ca.mu.Lock()
 	defer ca.mu.Unlock()
 
-	// Double-check under write lock
+	// Check cache under lock
 	if cached, ok := ca.leafCache[host]; ok && cached.expiresAt.After(now) {
+		// Refresh LRU order on hit
+		for i, h := range ca.leafOrder {
+			if h == host {
+				ca.leafOrder = append(ca.leafOrder[:i], ca.leafOrder[i+1:]...)
+				break
+			}
+		}
+		ca.leafOrder = append(ca.leafOrder, host)
 		return cached.cert, nil
 	}
 

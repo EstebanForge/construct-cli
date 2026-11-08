@@ -142,6 +142,12 @@ func TestSanitizePluralTokensAndLLMCounters(t *testing.T) {
 		"prompt_tokens": 150,
 		"completion_tokens": 300,
 		"total_tokens": 450,
+		"input_tokens": 120,
+		"output_tokens": 240,
+		"cache_read_input_tokens": 80,
+		"cache_creation_input_tokens": 40,
+		"inputTokens": 125,
+		"outputTokens": 245,
 		"accessTokens": "secret-access-tokens",
 		"access_tokens": "secret-access-tokens-snake",
 		"api_tokens": "secret-api-tokens",
@@ -165,6 +171,24 @@ func TestSanitizePluralTokensAndLLMCounters(t *testing.T) {
 	}
 	if !strings.Contains(s, `"total_tokens": 450`) {
 		t.Errorf("expected total_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"input_tokens": 120`) {
+		t.Errorf("expected input_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"output_tokens": 240`) {
+		t.Errorf("expected output_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"cache_read_input_tokens": 80`) {
+		t.Errorf("expected cache_read_input_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"cache_creation_input_tokens": 40`) {
+		t.Errorf("expected cache_creation_input_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"inputTokens": 125`) {
+		t.Errorf("expected inputTokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"outputTokens": 245`) {
+		t.Errorf("expected outputTokens preserved, got: %s", s)
 	}
 
 	// Plural tokens must be sanitized

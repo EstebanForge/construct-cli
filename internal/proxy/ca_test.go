@@ -66,3 +66,46 @@ func TestEnsureCAAndSignLeaf(t *testing.T) {
 		t.Errorf("expected non-nil private key on leaf certificate")
 	}
 }
+
+func TestCALRUEviction(t *testing.T) {
+	caDir := t.TempDir()
+	ca, err := EnsureCA(caDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca.maxCache = 2
+
+	_, err = ca.SignHostCert("host1.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ca.SignHostCert("host2.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Hit host1 so host1 moves to most recently used; host2 becomes oldest
+	_, err = ca.SignHostCert("host1.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Add host3, which should evict host2 (not host1)
+	_, err = ca.SignHostCert("host3.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ca.mu.RLock()
+	defer ca.mu.RUnlock()
+
+	if _, ok := ca.leafCache["host2.example.com"]; ok {
+		t.Errorf("expected host2.example.com to be evicted by LRU")
+	}
+	if _, ok := ca.leafCache["host1.example.com"]; !ok {
+		t.Errorf("expected host1.example.com to remain in cache")
+	}
+	if _, ok := ca.leafCache["host3.example.com"]; !ok {
+		t.Errorf("expected host3.example.com to be in cache")
+	}
+}

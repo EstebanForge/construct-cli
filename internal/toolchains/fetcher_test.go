@@ -392,3 +392,40 @@ func TestSymlinkChainEscapeRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestCumulativeExtractionCap(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	content := bytes.Repeat([]byte("A"), 1024)
+	h := tar.Header{
+		Name:     "tool.txt",
+		Mode:     0644,
+		Size:     int64(len(content)),
+		Typeflag: tar.TypeReg,
+	}
+	if err := tw.WriteHeader(&h); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tw.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	stage := t.TempDir()
+	// Pre-seed totalExtracted right at the boundary so this 1024-byte layer pushes it over
+	total := int64(maxExtractedBytes - 500)
+	err := downloadAndExtractLayer(context.Background(), srv.Client(), srv.Listener.Addr().String(), "r/x", "", "", stage, "", &total)
+	if err == nil {
+		t.Fatal("expected cumulative extraction cap error, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeded max extraction limit") {
+		t.Fatalf("expected size cap error message, got: %v", err)
+	}
+}

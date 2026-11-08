@@ -20,13 +20,21 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
+// Maximum allowable extracted bytes across layers / toolchain downloads (4 GB).
+const (
+	maxLayerBytes     = 2 << 30
+	maxExtractedBytes = 4 << 30
+	maxFileBytes      = 1 << 30
+)
+
 // FetchOptions configures modular toolchain downloading.
 type FetchOptions struct {
-	RegistryHost string // default "ghcr.io"
-	RepoPrefix   string // default "estebanforge/construct-toolchain-"
-	Tag          string // default "latest"
-	Force        bool   // re-download even if already cached and up to date
-	HTTPClient   *http.Client
+	RegistryHost   string // default "ghcr.io"
+	RepoPrefix     string // default "estebanforge/construct-toolchain-"
+	Tag            string // default "latest"
+	Force          bool   // re-download even if already cached and up to date
+	HTTPClient     *http.Client
+	TotalExtracted *int64 // cumulative extracted byte counter across layers and toolchains
 }
 
 // IsToolchainCached reports whether the toolchain directory exists and is non-empty.
@@ -142,9 +150,13 @@ func FetchToolchain(ctx context.Context, id ToolchainID, opts FetchOptions) erro
 
 	prefixToStrip := fmt.Sprintf("opt/toolchains/%s", id)
 
-	var totalExtracted int64
+	totalExtracted := opts.TotalExtracted
+	if totalExtracted == nil {
+		var localTotal int64
+		totalExtracted = &localTotal
+	}
 	for _, layer := range manifest.Layers {
-		if err := downloadAndExtractLayer(ctx, client, host, repo, layer.Digest, token, stageDir, prefixToStrip, &totalExtracted); err != nil {
+		if err := downloadAndExtractLayer(ctx, client, host, repo, layer.Digest, token, stageDir, prefixToStrip, totalExtracted); err != nil {
 			return fmt.Errorf("extract layer %s: %w", layer.Digest, err)
 		}
 	}
@@ -309,11 +321,7 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 		return fmt.Errorf("download blob returned %d", resp.StatusCode)
 	}
 
-	// Bound layer download size (2 GB max) and compute sha256 of raw layer blob.
-	const maxLayerBytes = 2 << 30
-	const maxExtractedBytes = 4 << 30
-	const maxFileBytes = 1 << 30
-
+	// Bound layer download size and compute sha256 of raw layer blob.
 	if totalExtracted == nil {
 		var zero int64
 		totalExtracted = &zero
@@ -480,12 +488,14 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 	return nil
 }
 
-// EnsureToolchains checks detected toolchains and fetches missing ones.
+// EnsureToolchains checks detected toolchains and fetches missing ones,
+// enforcing a cumulative extraction cap across all downloaded toolchains.
 func EnsureToolchains(ctx context.Context, ids []ToolchainID) error {
+	var cumulativeExtracted int64
 	for _, id := range ids {
 		if !IsToolchainCached(id) {
 			ui.InfoF("📦 Downloading toolchain: %s...\n", id)
-			if err := FetchToolchain(ctx, id, FetchOptions{}); err != nil {
+			if err := FetchToolchain(ctx, id, FetchOptions{TotalExtracted: &cumulativeExtracted}); err != nil {
 				ui.InfoF("Warning: could not fetch toolchain %s: %v (falling back to image tools)\n", id, err)
 			} else {
 				ui.InfoF("✓ Toolchain %s ready\n", id)

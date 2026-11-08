@@ -233,6 +233,9 @@ func isSensitiveKey(key string) bool {
 		strings.HasPrefix(lower, "total_") ||
 		strings.HasPrefix(lower, "prompt_") ||
 		strings.HasPrefix(lower, "completion_") ||
+		strings.HasPrefix(lower, "input_") ||
+		strings.HasPrefix(lower, "output_") ||
+		strings.HasPrefix(lower, "cache_") ||
 		strings.HasSuffix(lower, "_mode") ||
 		strings.HasSuffix(lower, "_type") ||
 		strings.HasSuffix(lower, "_id") ||
@@ -243,7 +246,15 @@ func isSensitiveKey(key string) bool {
 		strings.HasSuffix(lower, "_limit") ||
 		strings.HasSuffix(lower, "_size") ||
 		strings.HasSuffix(lower, "_length") ||
-		lower == "max_tokens" {
+		lower == "max_tokens" ||
+		lower == "maxtokens" ||
+		lower == "inputtokens" ||
+		lower == "outputtokens" ||
+		lower == "prompttokens" ||
+		lower == "completiontokens" ||
+		lower == "totaltokens" ||
+		strings.HasPrefix(lower, "cacheread") ||
+		strings.HasPrefix(lower, "cachecreation") {
 		return false
 	}
 	for _, sens := range sensitiveCredentialKeys {

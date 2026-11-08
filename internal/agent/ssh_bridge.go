@@ -91,8 +91,8 @@ func sshBridgePortForSeed(seed string) int {
 // stops exposing every port LAN-wide; docker's Linux host-gateway is the
 // bridge IP (e.g. docker0 172.17.0.1). When the bridge IP can be detected,
 // we bind to it directly to avoid listening on all host interfaces (0.0.0.0);
-// otherwise we fall back to 0.0.0.0. macOS Docker Desktop routes loopback
-// into containers on every backend.
+// otherwise we fail closed to 127.0.0.1 (never exposing unauthenticated listeners on 0.0.0.0).
+// macOS Docker Desktop routes loopback into containers on every backend.
 func bridgeBindHost(backend string) string {
 	if runtime.GOOS == "darwin" || backend == config.BackendMsb {
 		return "127.0.0.1"

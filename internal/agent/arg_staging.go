@@ -151,7 +151,7 @@ func (s *argStager) adaptArgs(args []string) []string {
 			out = append(out, args[i])
 			continue
 		}
-		newValue, copyBack, staged, failed, repls := s.stageValue(name, value)
+		newValue, copyBack, staged, failed, repls, hostResolved := s.stageValue(name, value)
 		if failed {
 			// Fail-closed: drop the flag and value so no raw unsanitized host path reaches the agent
 			if !glued {
@@ -172,7 +172,7 @@ func (s *argStager) adaptArgs(args []string) []string {
 		if copyBack {
 			s.copyBacks = append(s.copyBacks, stagedCopyBack{
 				staged:       filepath.Join(s.runDir, filepath.Base(newValue)),
-				host:         value,
+				host:         hostResolved,
 				replacements: repls,
 			})
 		}
@@ -217,9 +217,10 @@ func firstArgSlug(args []string) string {
 // copyBack is true only for --session (host store must learn about sandbox
 // progress). staged is false when the value was left unchanged. failed is true
 // when staging encountered an error (copy or sanitize failure) and the flag must be dropped.
-func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool, failed bool, replacements map[string]any) {
+// hostResolved returns the absolute symlink-resolved host path for accurate copy-back.
+func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool, failed bool, replacements map[string]any, hostResolved string) {
 	if value == "" {
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	hostPath := expandHome(value)
 	if !filepath.IsAbs(hostPath) {
@@ -227,26 +228,26 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 	}
 	resolved, err := filepath.EvalSymlinks(hostPath)
 	if err != nil {
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.Mode().IsRegular() {
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	if info.Size() > maxStageFileBytes {
 		ui.InfoF("⚠ staging %s skipped: %s exceeds %d bytes\n", flag, resolved, maxStageFileBytes)
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	if !underAnyRoot(resolved, s.allowedRoots) {
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	if s.stagedCount >= maxStageFiles {
 		ui.InfoF("⚠ staging %s skipped: file limit reached\n", flag)
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	if err := s.ensureRunDir(); err != nil {
 		ui.InfoF("⚠ staging %s skipped: %v\n", flag, err)
-		return value, false, false, false, nil
+		return value, false, false, false, nil, ""
 	}
 	s.stagedCount++
 	namer := s.newStagedName
@@ -258,7 +259,7 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 	if err := s.copyFn(resolved, dst); err != nil {
 		s.stagedCount--
 		ui.InfoF("⚠ staging %s failed: %v\n", flag, err)
-		return "", false, false, true, nil
+		return "", false, false, true, nil, ""
 	}
 
 	// Sanitize credential JSON and session files. Real keys never enter the guest.
@@ -269,26 +270,26 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: read error: %v\n", flag, rErr)
-			return "", false, false, true, nil
+			return "", false, false, true, nil, ""
 		}
 		sanitized, repls, sErr := sanitizeCredentialDataWithReplacements(data)
 		if sErr != nil {
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: credential sanitize error: %v\n", flag, sErr)
-			return "", false, false, true, nil
+			return "", false, false, true, nil, ""
 		}
 		if wErr := os.WriteFile(dst, sanitized, 0o600); wErr != nil {
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: write error: %v\n", flag, wErr)
-			return "", false, false, true, nil
+			return "", false, false, true, nil, ""
 		}
 		replacements = repls
 	}
 
 	container := stagingContainerDir + "/" + s.runID + "/" + stagedName
-	return container, flag == "--session", true, false, replacements
+	return container, flag == "--session", true, false, replacements, resolved
 }
 
 // ensureRunDir lazily creates the per-run staging directory (0700).

@@ -105,3 +105,43 @@ func TestStreamResponsesNotTruncatedAt30Seconds(t *testing.T) {
 		t.Fatalf("expected 'chunk1-chunk2', got %q", string(body))
 	}
 }
+
+func TestChunkTimeoutWriterAndIdleReaderDirect(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	// 1. chunkTimeoutWriter resets deadline on each write
+	cw := &chunkTimeoutWriter{
+		w:       serverConn,
+		conn:    serverConn,
+		timeout: 1 * time.Second,
+	}
+
+	go func() {
+		buf := make([]byte, 5)
+		_, _ = io.ReadFull(clientConn, buf)
+	}()
+
+	n, err := cw.Write([]byte("hello"))
+	if err != nil || n != 5 {
+		t.Fatalf("cw.Write failed: n=%d, err=%v", n, err)
+	}
+
+	// 2. idleTimeoutReader resets deadline on each read
+	ir := &idleTimeoutReader{
+		r:       clientConn,
+		conn:    clientConn,
+		timeout: 1 * time.Second,
+	}
+
+	go func() {
+		_, _ = serverConn.Write([]byte("world"))
+	}()
+
+	readBuf := make([]byte, 5)
+	rn, err := ir.Read(readBuf)
+	if err != nil || rn != 5 || string(readBuf) != "world" {
+		t.Fatalf("ir.Read failed: rn=%d, err=%v, buf=%q", rn, err, string(readBuf))
+	}
+}

@@ -165,23 +165,45 @@ if [ "$(id -u)" = "0" ]; then
             iptables -A OUTPUT -o lo -j ACCEPT
             iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
-            # DNS resolution strictly to nameservers configured in /etc/resolv.conf
-            for ns in $(awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null); do
-                iptables -A OUTPUT -d "$ns" -p udp --dport 53 -j ACCEPT
-                iptables -A OUTPUT -d "$ns" -p tcp --dport 53 -j ACCEPT
-            done
-
-            # Allow host bridge gateway
             default_gw=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
+
+            # DNS resolution strictly to default gateway
             if [ -n "$default_gw" ]; then
-                iptables -A OUTPUT -d "$default_gw" -j ACCEPT
+                iptables -A OUTPUT -d "$default_gw" -p udp --dport 53 -j ACCEPT
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport 53 -j ACCEPT
             fi
 
-            # Reject all remaining direct IPv4 outbound traffic
+            # Allow host egress proxy on default gateway
+            proxy_port=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -n 's|.*:\([0-9]\+\).*|\1|p')
+            if [ -n "$default_gw" ] && [ -n "$proxy_port" ]; then
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$proxy_port" -j ACCEPT
+            elif [ -n "$default_gw" ]; then
+                # Range for microsandbox dynamic port binding
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport 58700:63700 -j ACCEPT
+            fi
+
+            # Allow SSH bridge port to host gateway if configured
+            if [ -n "$default_gw" ] && [ -n "${CONSTRUCT_SSH_BRIDGE_PORT:-}" ]; then
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$CONSTRUCT_SSH_BRIDGE_PORT" -j ACCEPT
+            fi
+
+            # Allow configured host loopback relay ports to host gateway
+            if [ -n "$default_gw" ] && [ -n "${CONSTRUCT_LOOPBACK_PORTS:-}" ]; then
+                IFS=',' read -ra _lb_ports <<< "$CONSTRUCT_LOOPBACK_PORTS"
+                for _p in "${_lb_ports[@]}"; do
+                    case "$_p" in
+                        ''|*[!0-9]*) continue ;;
+                        *) iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$_p" -j ACCEPT ;;
+                    esac
+                done
+            fi
+
+            # Reject all remaining direct outbound traffic (fail-closed)
             iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
             iptables -A OUTPUT -j REJECT
         else
-            echo "Warning: iptables capability missing; in-container egress filter unenforced." >&2
+            echo "Error: iptables capability missing; cannot enforce network boundary." >&2
+            exit 1
         fi
 
         # IPv6 egress block
