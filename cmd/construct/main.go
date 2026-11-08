@@ -313,8 +313,13 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		}
 		fmt.Fprintf(os.Stderr, "Usage: construct sys ssh import\n")
 		os.Exit(1)
-	case "login-bridge":
-		sys.LoginBridge(args[1:])
+	case "auth":
+		if len(args) > 1 && args[1] == "bridge" {
+			sys.LoginBridge(args[2:])
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Usage: construct sys auth bridge [--ports 1455,8085]\n")
+		os.Exit(1)
 	case "set-password":
 		cfg = ensureConfigLoaded(cfg)
 		sys.SetPassword(cfg)
@@ -579,7 +584,7 @@ func shouldRunMigration(args []string) bool {
 		switch args[1] {
 		case "image", "update", "shell", "exec", "version", "help",
 			"config", "packages", "agents", "toolchains", "toolchain", "doctor",
-			"self-update", "ssh", "shims", "login-bridge", "set-password", "daemon":
+			"self-update", "ssh", "shims", "auth", "set-password", "daemon":
 			if args[1] == "image" && len(args) > 2 && args[2] == "rebuild" {
 				return false
 			}

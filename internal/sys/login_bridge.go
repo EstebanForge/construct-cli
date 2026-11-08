@@ -20,12 +20,12 @@ const loginBridgeFlagFile = ".login_bridge"
 
 // LoginBridge enables localhost login callback forwarding until interrupted.
 func LoginBridge(args []string) {
-	fs := flag.NewFlagSet("login-bridge", flag.ContinueOnError)
+	fs := flag.NewFlagSet("auth bridge", flag.ContinueOnError)
 	fs.SetOutput(os.Stdout)
 	ports := fs.String("ports", defaultLoginBridgePorts, "Comma-separated callback ports for login flows")
 
 	if err := fs.Parse(args); err != nil {
-		fmt.Println("Usage: construct sys login-bridge [--ports 1455,8085]")
+		fmt.Println("Usage: construct sys auth bridge [--ports 1455,8085]")
 		return
 	}
 

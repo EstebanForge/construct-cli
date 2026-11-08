@@ -262,7 +262,7 @@ make cross-compile   # all platforms
 - `sys agents rules`: Manage global instruction files (rules) per agent.
 - `sys config --migrate`: Refresh templates/config to match the running binary.
 - `sys exec -- <command>`: Run a single command inside a running Construct container (non-interactive, no TTY). Designed for LLM agents that need to execute commands inside the container without attaching to a shell.
-- `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
+- `sys auth bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
 - `sys config --restore`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
 - `sys ssh import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.

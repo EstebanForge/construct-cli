@@ -41,8 +41,8 @@ Global Flags:
                                    # [uninstall] Remove installed shims
                                    # [fix] Repair ct shorthand symlink
                                    # [list] Show shim state (default)
+  construct sys auth bridge        # Start localhost OAuth callback bridge ([--ports])
   construct sys ssh import         # Import SSH keys from host into Construct (no SSH Agent)
-  construct sys login-bridge       # Start localhost login callback bridge for headless agents
   construct sys config             # Config operations (opens config.toml by default)
                                    # [--migrate] Re-sync config/templates with current binary
                                    # [--restore] Restore config.toml from backup
@@ -98,7 +98,6 @@ Sandbox & Tools:
   packages           # Manage packages.toml and package lifecycle
                      # [--install] Apply changes from packages.toml to the sandbox
                      # [--reinstall] Recreate package volume and reinstall packages
-  login-bridge       # Start localhost login callback bridge for headless agents
 `
 	if msbActive {
 		help += `
@@ -130,6 +129,7 @@ Host & Integrations:
                      # [uninstall] Remove installed shims
                      # [fix] Repair ct shorthand symlink
                      # [list] Show shim state (default)
+  auth bridge        # Start localhost OAuth callback bridge ([--ports 1455,8085])
   ssh import         # Import SSH keys from host into Construct (no SSH Agent)
   config             # Config operations (opens config.toml by default)
                      # [--migrate] Re-sync config/templates with current binary
