@@ -60,19 +60,15 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 # 3. Bake the dev baseline - apt tier (replaces the brew chunks).
-# All versions verified live in trixie on 2026-09-22 (docs/BREW-EXIT.md has
-# the full per-formula mapping). Single layer: apt layers are small and the
-# msb 10 GiB per-layer limit is nowhere near.
+# Language toolchains (Go, Rust, Java, PHP, etc.) are modular OCI artifacts
+# mounted on-demand via internal/toolchains.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     sd fzf eza fd-find bat ripgrep jq htop netcat-openbsd sshpass lftp \
     btop imagemagick git-lfs git-delta procs python3-setuptools awscli \
     cmake pkgconf direnv gum \
-    lua5.4 ruby-full ruby-dev gnucobol3 nasm yasm \
-    postgresql-client-17 default-mysql-client redis-server redis-tools \
-    sqlite3 podman podman-compose micropython ocaml swi-prolog r-base \
-    shellcheck yamllint composer neovim ffmpeg ninja-build hugo pipx \
-    php8.4-cli php8.4-mbstring php8.4-xml php8.4-curl php8.4-intl \
-    php8.4-pcov openjdk-25-jdk && \
+    lua5.4 ruby-full ruby-dev nasm yasm \
+    sqlite3 podman podman-compose \
+    shellcheck yamllint neovim ffmpeg ninja-build hugo pipx && \
     ln -sf /usr/bin/fdfind /usr/local/bin/fd && \
     ln -sf /usr/bin/batcat /usr/local/bin/bat && \
     rm -rf /var/lib/apt/lists/*
@@ -91,30 +87,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o 
     apt-get install -y --no-install-recommends gh nodejs && \
     rm -f /tmp/nodesource_setup.sh && rm -rf /var/lib/apt/lists/*
 
-# 5. Go from the official go.dev tarball (current; trixie's golang is 1.24).
-ARG GO_VERSION=1.27.1
-RUN curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" -o /tmp/go.tgz && \
-    tar -C /usr/local -xzf /tmp/go.tgz && rm /tmp/go.tgz && \
-    /usr/local/go/bin/go version
-
-# 5b. Rust via the official rustup, pinned stable; minimal profile (no
-# docs) plus rustfmt and clippy. The real toolchain binaries are
-# symlinked into /usr/local/bin (same pattern as the mise tier) so no
-# RUSTUP_HOME/CARGO_HOME env leaks into runtime — a user rustup keeps
-# working under $HOME/.rustup and its ~/.cargo/bin shadows the baked
-# tier by PATH. Globs make the layer arch-agnostic (x86_64/aarch64).
-ARG RUST_VERSION=1.98.1
-RUN curl -fsSL https://sh.rustup.rs -o /tmp/rustup.sh && \
-    RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo \
-      sh /tmp/rustup.sh -y --profile minimal --default-toolchain "${RUST_VERSION}" -c rustfmt -c clippy --no-modify-path && \
-    rm -f /tmp/rustup.sh && \
-    ln -sf /usr/local/rustup/toolchains/*/bin/* /usr/local/bin/ && \
-    for t in rustc cargo rustfmt cargo-clippy; do \
-      command -v "$t" >/dev/null 2>&1 || { echo "FATAL: rust tool missing: $t" >&2; exit 1; }; \
-    done && \
-    rustc --version | grep -q "${RUST_VERSION}" || { echo "FATAL: rustc version mismatch: $(rustc --version)" >&2; exit 1; }
-
-# 6. mise: the manager binary, then the baked GitHub-release tool tier.
+# 5. mise: the manager binary, then the baked GitHub-release tool tier.
 # The system config pins exact versions; mise verifies GitHub Artifact
 # Attestations by default where a release publishes them. Installs land in
 # /usr/local/share/mise (root fs, recreated per sandbox; root-owned is
@@ -143,36 +116,24 @@ RUN --mount=type=secret,id=github_token \
       "$t" --version >/dev/null 2>&1 || { echo "FATAL: baked tool not executable: $t" >&2; exit 1; }; \
     done
 
-# 7. npm tier (NodeSource node; upstream prefix /usr/local)
+# 6. npm tier (NodeSource node; upstream prefix /usr/local)
 RUN npm install -g --prefix /usr/local \
     typescript prettier @ast-grep/cli yarn pnpm gulp-cli tailwindcss \
     vite webpack acpx @colbymchenry/codegraph
 
-# 8. PHP tooling: composer ships in the apt tier (uses php8.4-cli); wp-cli
-# and php-cs-fixer via their official phars, pinned to tagged releases and
-# verified against the sha256 recorded at pin time (wp-cli also publishes
-# .sha256 per release; the embedded constant must match it). Baked pins
-# never gate users: a newer phar in ~/.local/bin shadows these by PATH.
-# One php (8.4) is the baseline; multi-version users go mise (documented
-# in PACKAGES.md).
-ARG WP_CLI_VERSION=2.12.0
-ARG PHP_CS_FIXER_VERSION=3.95.27
-RUN curl -fsSL "https://github.com/wp-cli/wp-cli/releases/download/v${WP_CLI_VERSION}/wp-cli-${WP_CLI_VERSION}.phar" -o /usr/local/bin/wp && \
-    echo "ce34ddd838f7351d6759068d09793f26755463b4a4610a5a5c0a97b68220d85c  /usr/local/bin/wp" | sha256sum -c - && \
-    chmod +x /usr/local/bin/wp && \
-    curl -fsSL "https://github.com/PHP-CS-Fixer/PHP-CS-Fixer/releases/download/v${PHP_CS_FIXER_VERSION}/php-cs-fixer.phar" -o /usr/local/bin/php-cs-fixer && \
-    echo "47231757eefdd08778e2bd047d98a63dfaad881006c8c1d1bc870d63be7f6a9b  /usr/local/bin/php-cs-fixer" | sha256sum -c - && \
-    chmod +x /usr/local/bin/php-cs-fixer && \
-    php -v | head -1 && wp --version --allow-root && php-cs-fixer --version
-
-# 9. Vendor-script installs: uv (astral) and golangci-lint (official
-# install script), plus the golangci-lint LSP via go install.
+# 7. Vendor-script installs: uv (astral), golangci-lint (official script),
+# and golangci-lint-langserver (official release binary).
 RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin INSTALLER_NO_MODIFY_PATH=1 sh && \
     curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b /usr/local/bin v2.13.2 && \
-    GOBIN=/usr/local/bin /usr/local/go/bin/go install github.com/nametake/golangci-lint-langserver@v0.0.12 && \
+    case "$(dpkg --print-architecture)" in \
+      amd64) GLL_ARCH="Linux_x86_64" ;; \
+      arm64) GLL_ARCH="Linux_arm64" ;; \
+    esac && \
+    curl -fsSL "https://github.com/nametake/golangci-lint-langserver/releases/download/v0.0.12/golangci-lint-langserver_${GLL_ARCH}.tar.gz" -o /tmp/gll.tgz && \
+    tar -C /usr/local/bin -xzf /tmp/gll.tgz golangci-lint-langserver && rm -f /tmp/gll.tgz && \
     uv --version && golangci-lint --version | head -1
 
-# 10. Bake remaining dev tooling to SYSTEM paths (root-owned).
+# 8. Bake remaining dev tooling to SYSTEM paths (root-owned).
 # Ruby gems -> apt ruby's site dir (jekyll version-pinned; users shadow
 # via gem install into the home bind); Python tools via pipx -> /usr/local/bin
 # (litellm version-pinned with the proxy extra — the CLI needs its deps;
