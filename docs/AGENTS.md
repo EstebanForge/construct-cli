@@ -306,7 +306,7 @@ clipboard_image_patch = true # Enable image paste support
 Global agent rules managed via:
 
 ```bash
-construct sys agents-md
+construct sys agents rules
 ```
 
 This opens your global AGENTS.md file for editing.

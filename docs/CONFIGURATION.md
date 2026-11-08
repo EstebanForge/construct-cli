@@ -196,7 +196,7 @@ forward_ssh_agent = true
 
 **Fallback:**
 ```bash
-construct sys ssh-import  # Import host keys manually
+construct sys ssh import  # Import host keys manually
 ```
 
 ### Agent Config Push

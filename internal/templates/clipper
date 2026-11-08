@@ -96,7 +96,7 @@ fetch_image() {
         # 404/no-image is the routine fallback path; only transport failures
         # (DNS, refused, timeout) are worth surfacing to the agent.
         if [ "$curl_exit" -ne 22 ]; then
-            echo "construct clipboard: bridge unreachable (curl exit ${curl_exit}): $(head -c 160 "$curl_err" | tr '\n' ' ')(run: construct sys clipboard-debug)" >&2
+            echo "construct clipboard: bridge unreachable (curl exit ${curl_exit}): $(head -c 160 "$curl_err" | tr '\n' ' ')(run: construct sys doctor --clipboard)" >&2
         fi
         rm -f "$curl_err"
         return 1

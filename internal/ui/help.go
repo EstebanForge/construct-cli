@@ -25,44 +25,34 @@ Global Flags:
   --clone, --ct-clone    # Execute in an ephemeral zero-trust git clone
 
 [sys] System Commands:
-  construct sys agents             # List supported agents
-                                   # [push] Push host agent configs into Construct
-                                   # [--agents slug,slug] [--force] [--dry-run] [--yes]
-  construct sys agents-md          # Manage global instruction files (rules) for agents
-  construct sys config             # Config operations (opens config.toml by default)
-                                   # [--migrate] Re-sync config/templates with the current binary
-                                   # [--restore] Restore config.toml from backup
-  construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status)
-  construct sys toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
-  construct sys packages           # Package operations (opens packages.toml by default)
-                                   # [--install] Apply changes from packages.toml to the sandbox
-                                   # [--reinstall] Recreate package volume and reinstall packages
-                                   # [--update] Alias for 'construct sys update'
-  construct sys doctor             # System health operations (includes packages drift checks)
-                                   # [--fix] Append missing defaults to config.toml (backup first)
-  construct sys clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
-  construct sys ct-fix             # Repair the ct shorthand command symlink
-  construct sys help               # Show this help (alias for --help)
-  construct sys init               # Initialize environment and install agents inside Construct
-  construct sys shims              # PATH shims: real executables routing agents
-                                   # [<slug>] routes through the sandbox (exec construct <slug>)
-                                   # [ns-<slug>] runs the real host binary (non-sandboxed)
-                                   # [--install] Write shims (default ~/.local/bin)
-                                   # [--uninstall] Remove installed shims
-                                   # [--remove-aliases] Only remove legacy shell alias block
-                                   # [--list] Show shim state
-  construct sys login-bridge       # Start localhost login callback bridge for headless agents
-  construct sys rebuild            # Migrate and sync config/templates, then rebuild the sandbox image
-  construct sys reset              # Delete agent binaries and cache (preserves personal config)
-  construct sys self-update        # Update construct itself to the latest version
-  construct sys set-password       # Change the password for the construct user in the sandbox
   construct sys shell              # Interactive shell with all agents inside Construct
   construct sys exec -- <command>  # Run a single command inside the running Construct sandbox
-  construct sys ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
-  construct sys pull               # Pull latest construct-box image from GHCR
   construct sys update             # Update agents and packages to latest versions inside Construct
-  construct sys check-update       # Check if an update is available for The Construct
+  construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|roots)
+  construct sys toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
+  construct sys packages           # Package operations (opens packages.toml, apply/reinstall)
+  construct sys image <command>    # Image lifecycle (pull, rebuild, reset, init)
+  construct sys agents [command]   # Supported agent operations
+                                   # [list] List supported agents (default)
+                                   # [push] Push host agent configs into Construct
+                                   # [rules] Manage global instruction files (AGENTS.md)
+  construct sys shims [action]     # PATH shims routing agents and shorthand ct link
+                                   # [install] Write shims (default ~/.local/bin)
+                                   # [uninstall] Remove installed shims
+                                   # [fix] Repair ct shorthand symlink
+                                   # [list] Show shim state (default)
+  construct sys ssh import         # Import SSH keys from host into Construct (no SSH Agent)
+  construct sys login-bridge       # Start localhost login callback bridge for headless agents
+  construct sys config             # Config operations (opens config.toml by default)
+                                   # [--migrate] Re-sync config/templates with current binary
+                                   # [--restore] Restore config.toml from backup
+  construct sys doctor             # System health diagnostics
+                                   # [--fix] Auto-repair missing defaults and symlinks
+                                   # [--clipboard] View clipboard bridge diagnostics
+  construct sys self-update        # Update construct itself to the latest version
+                                   # [--check] Check if an update is available
   construct sys version            # Show version
+  construct sys help               # Show sys help
 
 [network] Network Commands (alias: net):
   construct network explain <host> # Explain whether a host is allowed or blocked and why
@@ -91,7 +81,7 @@ For more information, visit: https://github.com/EstebanForge/construct-cli
 	}
 }
 
-// PrintSysHelp prints help for sys commands, grouped by backend reality.
+// PrintSysHelp prints help for sys commands, grouped by functional domains.
 // Sections that do not apply to the active backend are hidden; an empty or
 // unknown backend shows every section.
 func PrintSysHelp(backend string) {
@@ -100,57 +90,55 @@ func PrintSysHelp(backend string) {
 
 	help := `Usage: construct sys <command> [options]
 
-Sandbox (works on the active backend):
-  update             # Update agents and packages to latest versions inside Construct
-  doctor             # System health operations
-                     # [--fix] Append missing defaults to config.toml (backup first)
+Sandbox & Tools:
   shell              # Interactive shell with all agents inside Construct
   exec -- <command>  # Run a single command inside the running Construct sandbox
+  update             # Update agents and packages to latest versions inside Construct
   toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
+  packages           # Manage packages.toml and package lifecycle
+                     # [--install] Apply changes from packages.toml to the sandbox
+                     # [--reinstall] Recreate package volume and reinstall packages
   login-bridge       # Start localhost login callback bridge for headless agents
-  clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
 `
 	if msbActive {
 		help += `
 msb daemon (backend = msb):
-  daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|install|uninstall|roots)
-  prepull            # Stage the microVM image in the background
-`
-	}
-	if ociActive {
-		help += `
-OCI engine (backend = containers|podman|docker):
-  init               # Initialize environment and install agents inside Construct
-  rebuild            # Migrate and sync config/templates, then rebuild the sandbox image
-  pull               # Pull latest construct-box image from GHCR
-  reset              # Delete agent binaries and cache (preserves personal config)
-  packages           # Manage packages.toml and package lifecycle
-                     # [--install] Apply changes from packages.toml to the sandbox
-                     # [--reinstall] Recreate package volume and reinstall packages
-  set-password       # Change the password for the construct user in the sandbox
+  daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|roots)
 `
 	}
 	help += `
-Host & config:
-  agents             # List supported agents
-  agents-md          # Manage global instruction files (rules) for agents
+Image management:
+  image <command>    # Manage container/microVM sandbox image
+                     # [pull] Pull latest construct-box image from GHCR
+                     # [rebuild] Re-sync templates and rebuild the sandbox image
+                     # [reset] Delete agent binaries and cache (preserves personal config)
+`
+	if ociActive {
+		help += `                     # [init] Initialize environment and install agents
+`
+	}
+	help += `
+Agents & Rules:
+  agents [command]   # Manage supported AI agents
+                     # [list] List supported agents (default)
+                     # [push] Push host agent configs into Construct
+                     # [rules] Manage global instruction files (AGENTS.md) for agents
+
+Host & Integrations:
+  shims [action]     # PATH shims routing agents and shorthand ct link
+                     # [install] Write shims (default ~/.local/bin)
+                     # [uninstall] Remove installed shims
+                     # [fix] Repair ct shorthand symlink
+                     # [list] Show shim state (default)
+  ssh import         # Import SSH keys from host into Construct (no SSH Agent)
   config             # Config operations (opens config.toml by default)
                      # [--migrate] Re-sync config/templates with current binary
                      # [--restore] Restore config.toml from backup
-  aliases            # Host alias operations
-                     # [--install] Install agent aliases/functions (includes ns-)
-                     # [--update] Reinstall/update host aliases
-                     # [--uninstall] Remove Construct alias block from shell
-  shims              # PATH shims: real executables routing agents
-                     # [--install] Write shims (default ~/.local/bin)
-                     # [--uninstall] Remove installed shims
-                     # [--list] Show shim state
-  ssh-import         # Import SSH keys from host into Construct (no SSH Agent)
-  ct-fix             # Repair the ct shorthand command symlink
+  doctor             # System health diagnostics
+                     # [--fix] Auto-repair missing defaults and symlinks
+                     # [--clipboard] View clipboard bridge diagnostics
   self-update        # Update construct itself to the latest version
-  check-update       # Check if an update is available for The Construct
-  push               # Push host agent configs into Construct
-                     # [--agents slug,slug] [--force] [--dry-run] [--yes]
+                     # [--check] Check if an update is available
   version            # Show version
   help               # Show this help
 `

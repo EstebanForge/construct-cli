@@ -6,13 +6,13 @@ Everyday commands, examples, and PATH shims. Moved out of the README to keep it 
 
 ```bash
 # First-time setup (prepares the sandbox image, installs agents)
-construct sys init
+construct sys image init
 
 # Run an agent
 construct claude "Help me refactor this function"
 
 # Use PATH shims (after installation)
-construct sys shims --install
+construct sys shims install
 claude "Debug my API code"  # Now available as short command
 ```
 
@@ -60,24 +60,24 @@ construct sys doctor
 
 ```bash
 # System commands
-construct sys init              # First-time setup
-construct sys doctor           # Health check
-construct sys config           # Edit configuration
-construct sys update           # Update agents
-construct sys exec -- <cmd>    # Run command inside the running sandbox
-construct sys reset            # Reset everything (OCI backends; under msb: sys daemon recreate)
+construct sys image init        # First-time setup
+construct sys doctor            # Health check
+construct sys config            # Edit configuration
+construct sys update            # Update agents
+construct sys exec -- <cmd>     # Run command inside the running sandbox
+construct sys image reset       # Reset everything (OCI backends; under msb: sys daemon recreate)
 
 # Agent commands
-construct <agent>              # Run an agent (e.g., construct claude, construct agy)
-construct sys shims            # Manage PATH shims (sandboxed + ns-) for agents
-construct sys agents-md        # Manage AGENTS.md rules
-construct sys agents push        # Push host agent configs into Construct [--agents] [--force] [--dry-run] [--yes]
-construct sys pull               # Pull latest construct-box image from GHCR
+construct <agent>               # Run an agent (e.g., construct claude, construct agy)
+construct sys shims             # Manage PATH shims (sandboxed + ns-) for agents
+construct sys agents rules      # Manage AGENTS.md rules
+construct sys agents push       # Push host agent configs into Construct [--agents] [--force] [--dry-run] [--yes]
+construct sys image pull        # Pull latest construct-box image from GHCR
 
 # Development
-construct sys rebuild          # Rebuild the sandbox image
-construct sys config --migrate # Migrate configuration
-construct --help               # Show all commands
+construct sys image rebuild     # Rebuild the sandbox image
+construct sys config --migrate  # Migrate configuration
+construct --help                # Show all commands
 ```
 
 ## PATH shims: agents in harnesses and non-shell callers
@@ -92,11 +92,12 @@ the real host binary directly (non-sandboxed), and installing removes the
 legacy managed alias block from your shell config:
 
 ```bash
-construct sys shims --install        # writes real executables (default ~/.local/bin)
-pi --version                          # sandboxed via Construct
-ns-pi --version                       # real host binary, no sandbox
-construct sys shims --list           # show state
-construct sys shims --uninstall      # remove (only touches files it wrote)
+construct sys shims install          # writes real executables (default ~/.local/bin)
+pi --version                         # sandboxed via Construct
+ns-pi --version                      # real host binary, no sandbox
+construct sys shims list             # show state
+construct sys shims fix              # repair ct shorthand symlink
+construct sys shims uninstall        # remove (only touches files it wrote)
 construct sys shims --remove-aliases # only clean up legacy shell aliases
 ```
 

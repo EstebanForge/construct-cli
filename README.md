@@ -40,13 +40,13 @@ brew install EstebanForge/tap/construct-cli
 
 ```bash
 # First-time setup (prepares the sandbox image, installs agents)
-construct sys init
+construct sys image init
 
 # Run an agent
 construct claude "Help me refactor this function"
 
 # PATH shims: bare `claude` runs sandboxed from any caller
-construct sys shims --install
+construct sys shims install
 ```
 
 More examples and the full command list: [Quick Reference](docs/QUICK-REFERENCE.md). Running agents from orchestrators and IDEs: [Harnesses](docs/HARNESSES.md).

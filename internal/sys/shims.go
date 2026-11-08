@@ -349,13 +349,29 @@ func HandleShimsCommand(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--install":
+		case "install", "--install":
 			install = true
-		case "--uninstall":
+		case "uninstall", "--uninstall":
 			uninstall = true
-		case "--remove-aliases":
+		case "remove-aliases", "--remove-aliases":
 			removeAliases = true
-		case "--list":
+		case "fix", "--fix":
+			changed, msg, err := FixCtSymlink()
+			if err != nil {
+				ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
+				os.Exit(1)
+			}
+			if ui.GumAvailable() {
+				if changed {
+					ui.GumSuccess(msg)
+				} else {
+					ui.GumInfo(msg)
+				}
+			} else {
+				fmt.Println(msg)
+			}
+			return
+		case "list", "--list":
 			// default action; explicit flag accepted
 		case "--force":
 			force = true
@@ -374,7 +390,7 @@ func HandleShimsCommand(args []string) {
 			}
 			only = append(only, args[i])
 		default:
-			fmt.Fprintf(os.Stderr, "Unknown shims flag: %s\n", args[i])
+			fmt.Fprintf(os.Stderr, "Unknown shims option: %s\n", args[i])
 			printShimsUsage()
 			os.Exit(1)
 		}
@@ -423,20 +439,23 @@ func HandleShimsCommand(args []string) {
 }
 
 func printShimsUsage() {
-	usage := `Usage: construct sys shims --install|--uninstall|--list [options]
+	usage := `Usage: construct sys shims [install|uninstall|fix|list] [options]
 
 Installs real executable shims for supported agents so that tools which
 spawn agent binaries directly (no shell: orchestrators, IDE extensions,
 CI) run them inside the Construct sandbox.
 
+Actions:
+  install            Write shims (default dir: ~/.local/bin)
+  uninstall          Remove previously installed shims
+  fix                Repair the ct shorthand command symlink
+  list               Show shim state (default action)
+
 Options:
-  --install          Write shims (default dir: ~/.local/bin)
-  --uninstall        Remove previously installed shims
-  --remove-aliases   Only remove the legacy managed shell alias block
-  --list             Show shim state (default action)
   --dir <path>       Target directory for shims
   --agent <slug>     Limit to one agent (repeatable)
   --force            Overwrite existing files that are not our shims
+  --remove-aliases   Only remove the legacy managed shell alias block
 
 Per agent two shims are written: '<slug>' routes through the Construct
 sandbox (exec construct <slug>, stdin/stdout pass through unchanged so RPC

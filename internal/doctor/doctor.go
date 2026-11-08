@@ -319,7 +319,7 @@ func Run(args ...string) {
 		ctCheck.Status = CheckStatusWarning
 		ctCheck.Message = "Failed to fix ct symlink"
 		ctCheck.Details = append(ctCheck.Details, err.Error())
-		ctCheck.Suggestion = "Run 'construct sys ct-fix' manually"
+		ctCheck.Suggestion = "Run 'construct sys shims fix' manually"
 	} else {
 		ctCheck.Status = CheckStatusOK
 		ctCheck.Message = msg

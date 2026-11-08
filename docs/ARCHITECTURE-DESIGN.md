@@ -16,7 +16,7 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral sandb
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, `[security]`, including first-class env passthrough controls in `[sandbox]`.
 - **Host Git & Workspace Hardening**: Host `.git` protected with OS immutable attributes (`chattr +i` / `chflags uchg`), `.git` masked in guest mounts, and disposable execution via `--clone` with automatic git bundle patch export.
 - **Modular Toolchains**: On-demand multi-arch OCI toolchain fetching and caching (`~/.cache/construct/toolchains`) for polyglot language runtimes without image bloat.
-- **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home bind.
+- **SSH access**: Forward SSH agent when available (configurable); `sys ssh import` can copy host keys into the persistent home bind.
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives user-tier tool installs (mise, npm, bun, pipx, cargo, gems), post-install hooks, and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
@@ -222,11 +222,11 @@ API_TIMEOUT_MS = "3000000"
   - pi: dedicated step updates extensions and model catalogs unconditionally, and pi itself when the binary is writable (images since 1.17.17 chown the baked agent tier to the construct user, so agents self-update in place).
   - The baked agent tier is construct-owned and updates in-guest; updates live in the container layer and revert when the daemon is recreated (construct prints this warning after each update; `construct sys update` re-applies them). Dev packages additionally move with image updates.
   - npm: per-package reinstall at `@latest` (after sweeping stale dot-prefixed temp dirs from interrupted npm runs) — `npm update -g` never crosses semver boundaries.
-- **Update Check** (`sys check-update` / automatic):
+- **Update Check** (`sys self-update --check` / automatic):
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
-  - Actively checks when `construct sys check-update` is run.
-  - If a new version is found, it notifies the user to run the (currently manual) update command.
-- **Reset**: `sys reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone. OCI backends only; under msb the equivalent full reset is `construct sys daemon recreate`.
+  - Actively checks when `construct sys self-update --check` is run.
+  - If a new version is found, it notifies the user to run the update command.
+- **Reset**: `sys image reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone. OCI backends only; under msb the equivalent full reset is `construct sys daemon recreate`.
 - **Migrate**: `sys config --migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
 
 ---
@@ -249,25 +249,27 @@ make cross-compile   # all platforms
 ## 8. UX Notes
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
-- `shims --install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
-- `shims --uninstall`: Remove previously installed shims (only touches files it wrote).
-- `shims --remove-aliases`: Standalone cleanup of the legacy managed shell alias block. `sys aliases --uninstall` still works as a deprecation route; any other legacy aliases flag prints replacement guidance.
+- `shims install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
+- `shims uninstall`: Remove previously installed shims (only touches files it wrote).
+- `shims fix`: Repair the `ct` shorthand symlink.
+- `shims list`: Show state of all agent shims.
 - Run-path status output (daemon banners, proxy notices, image-build progress, migration chatter) goes to stderr via `ui.Info/InfoLn/InfoF`; stdout is reserved for the agent's own output so RPC modes stream clean JSONL. The interactive attach prompt and explicit CLI output (`construct agents`, help) stay on stdout.
 - Harness host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to `/home/construct/.construct-staging/...` in `engine.Prepare`, covering daemon exec, compose run, and msb alike ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
-- `sys check-update`: Manual command to check for new versions.
-- `sys self-update`: Update the Construct binary itself.
-- `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues.
+- `sys self-update`: Update the Construct binary itself (`--check` to check for updates).
+- `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues (`--clipboard` for clipboard diagnostics).
 - `sys packages`: Open `packages.toml` for customization.
 - `sys packages --install`: Regenerate/install user packages into the running container.
-- `sys agents-md`: Manage global instruction files (rules) per agent.
+- `sys agents rules`: Manage global instruction files (rules) per agent.
 - `sys config --migrate`: Refresh templates/config to match the running binary.
 - `sys exec -- <command>`: Run a single command inside a running Construct container (non-interactive, no TTY). Designed for LLM agents that need to execute commands inside the container without attaching to a shell.
 - `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
 - `sys config --restore`: Restore config from backup.
 - `sys set-password`: Change the container user password (default is `construct`).
-- `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
+- `sys ssh import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
 - `sys agents push`: One-way push of host agent configs (settings, rules, MCP config, credentials) into the construct home. Interactive runs preview then confirm; scripted runs are fail-closed (`--yes` to apply). See [CONFIGURATION.md](CONFIGURATION.md).
-- `sys pull`: Pull latest construct-box image from GHCR.
+- `sys image pull`: Pull latest construct-box image from GHCR.
+- `sys image rebuild`: Re-sync templates and rebuild the sandbox image.
+- `sys image reset`: Delete agent binaries and cache (OCI volumes).
 - `sys daemon install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).
 - `sys daemon uninstall`: Remove daemon auto-start service.
 - `sys daemon status`: Show daemon runtime + auto-start service status.
