@@ -2,6 +2,19 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 2.1.0 -->
+## [2.1.0] - 2026-11-08
+
+### Fixed
+
+- **`construct doctor fix` only pulls the remote image when a change is detected.** The check compares local and remote manifest digests, skipping multi-gigabyte re-downloads when the local image is already current, when a local build is present, or when the registry is unreachable.
+
+### Changed
+
+- **Embedded microsandbox runtime updated to 0.7.14** (SDK 0.7.14, host pair msb + libkrunfw). Policy bump: embedded pair tracks upstream releases in lockstep.
+
+<!-- RELEASE:END 2.1.0 -->
+
 <!-- RELEASE:START 2.0.3 -->
 ## [2.0.3] - 2026-11-02
 
