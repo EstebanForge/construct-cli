@@ -179,3 +179,76 @@ func TestSanitizePluralTokensAndLLMCounters(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizeAndRestoreCredentialRoundTrip(t *testing.T) {
+	// 1. Same-key collision avoidance and distinct sentinels
+	rawJSON := `{
+		"accessToken": "secret-token-one",
+		"nested": {
+			"accessToken": "secret-token-two"
+		},
+		"escapedToken": "secret_\"with\"_\\quotes\\",
+		"numericToken": 424242,
+		"boolSecret": true
+	}`
+
+	sanitized, replacements, err := sanitizeCredentialDataWithReplacements([]byte(rawJSON))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialDataWithReplacements failed: %v", err)
+	}
+
+	sanitizedStr := string(sanitized)
+	if strings.Contains(sanitizedStr, "secret-token-one") || strings.Contains(sanitizedStr, "secret-token-two") {
+		t.Fatalf("secrets leaked into sanitized output: %s", sanitizedStr)
+	}
+	if strings.Contains(sanitizedStr, "secret_\"with\"_\\quotes\\") {
+		t.Fatalf("escaped secret leaked into sanitized output")
+	}
+
+	// Verify sentinels are unique per occurrence
+	if len(replacements) < 5 {
+		t.Fatalf("expected at least 5 replacements, got %d", len(replacements))
+	}
+
+	// Restore and verify exact round-trip fidelity
+	restored, err := restoreCredentialData(sanitized, replacements)
+	if err != nil {
+		t.Fatalf("restoreCredentialData failed: %v", err)
+	}
+
+	restoredStr := string(restored)
+	if !strings.Contains(restoredStr, "secret-token-one") {
+		t.Errorf("expected secret-token-one restored: %s", restoredStr)
+	}
+	if !strings.Contains(restoredStr, "secret-token-two") {
+		t.Errorf("expected secret-token-two restored: %s", restoredStr)
+	}
+	if !strings.Contains(restoredStr, `secret_\"with\"_\\quotes\\`) {
+		t.Errorf("expected escaped quotes and backslashes restored: %s", restoredStr)
+	}
+	if !strings.Contains(restoredStr, `"numericToken": 424242`) {
+		t.Errorf("expected numeric value preserved without quotes: %s", restoredStr)
+	}
+	if !strings.Contains(restoredStr, `"boolSecret": true`) {
+		t.Errorf("expected boolean value preserved without quotes: %s", restoredStr)
+	}
+
+	// 2. Multi-line JSONL round-trip
+	jsonlData := "{\"type\":\"init\",\"accessToken\":\"token-line-1\"}\n{\"type\":\"msg\",\"refreshToken\":\"token-line-2\"}\n"
+	sanitizedJSONL, replacementsJSONL, err := sanitizeCredentialDataWithReplacements([]byte(jsonlData))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialDataWithReplacements jsonl failed: %v", err)
+	}
+	if strings.Contains(string(sanitizedJSONL), "token-line-1") || strings.Contains(string(sanitizedJSONL), "token-line-2") {
+		t.Fatalf("jsonl secrets leaked into sanitized output: %s", string(sanitizedJSONL))
+	}
+
+	restoredJSONL, err := restoreCredentialData(sanitizedJSONL, replacementsJSONL)
+	if err != nil {
+		t.Fatalf("restoreCredentialData jsonl failed: %v", err)
+	}
+	restoredJSONLStr := string(restoredJSONL)
+	if !strings.Contains(restoredJSONLStr, "token-line-1") || !strings.Contains(restoredJSONLStr, "token-line-2") {
+		t.Errorf("jsonl tokens not properly restored: %s", restoredJSONLStr)
+	}
+}

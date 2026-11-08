@@ -55,7 +55,7 @@ var agentPathFlags = map[string]map[string]bool{
 type stagedCopyBack struct {
 	staged       string
 	host         string
-	replacements map[string]string
+	replacements map[string]any
 }
 
 // argStager rewrites host path arguments into container-visible staged
@@ -217,7 +217,7 @@ func firstArgSlug(args []string) string {
 // copyBack is true only for --session (host store must learn about sandbox
 // progress). staged is false when the value was left unchanged. failed is true
 // when staging encountered an error (copy or sanitize failure) and the flag must be dropped.
-func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool, failed bool, replacements map[string]string) {
+func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool, failed bool, replacements map[string]any) {
 	if value == "" {
 		return value, false, false, false, nil
 	}
@@ -366,9 +366,12 @@ func (s *argStager) syncBack() {
 		}
 
 		// Restore original host values for round-tripped sentinels
-		for sentinel, realVal := range cb.replacements {
-			data = bytes.ReplaceAll(data, []byte(sentinel), []byte(realVal))
+		restored, err := restoreCredentialData(data, cb.replacements)
+		if err != nil {
+			ui.InfoF("⚠ staging copy-back restore failed %s -> %s: %v\n", cb.staged, cb.host, err)
+			continue
 		}
+		data = restored
 
 		// Refuse copy-back if any unresolved sentinel placeholders remain
 		if bytes.Contains(data, []byte("cnstr_sentinel")) {
