@@ -196,7 +196,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// daemon exec, compose run, and msb all see the staged files. Warnings
 	// only; an unstaged path behaves exactly as before this feature.
 	if st := newArgStager(firstArgSlug(e.args), e.configPath, e.cwd); st != nil {
-		st.adaptArgs(e.args)
+		e.args = st.adaptArgs(e.args)
 		e.argStager = st
 	}
 

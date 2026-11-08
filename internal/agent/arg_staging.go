@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -52,8 +53,9 @@ var agentPathFlags = map[string]map[string]bool{
 // stagedCopyBack pairs a staged container-side file with its original host
 // path, for sync-back after the run.
 type stagedCopyBack struct {
-	staged string
-	host   string
+	staged       string
+	host         string
+	replacements map[string]string
 }
 
 // argStager rewrites host path arguments into container-visible staged
@@ -131,36 +133,51 @@ func hostAgentConfigRoot(slug string) string {
 // adaptArgs rewrites flagged host path values in place. Values that are not
 // existing host files, or that live outside the allowed roots, are kept
 // unchanged (the agent will surface its own error, exactly as before this
-// feature existed). All failures are warnings, never run blockers.
-func (s *argStager) adaptArgs(args []string) {
+// feature existed). If staging fails (e.g. copy error or sanitize error),
+// the flag is dropped entirely so no raw unsanitized host path reaches the agent.
+func (s *argStager) adaptArgs(args []string) []string {
 	flags := agentPathFlags[strings.ToLower(firstArgSlug(args))]
 	if flags == nil {
-		return
+		return args
 	}
+	var out []string
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--" {
+			out = append(out, args[i:]...)
 			break // everything after -- belongs to the agent verbatim
 		}
 		name, value, glued := splitFlagArg(args, i, flags)
 		if name == "" {
+			out = append(out, args[i])
 			continue
 		}
-		newValue, copyBack, staged := s.stageValue(name, value)
+		newValue, copyBack, staged, failed, repls := s.stageValue(name, value)
+		if failed {
+			// Fail-closed: drop the flag and value so no raw unsanitized host path reaches the agent
+			if !glued {
+				i++ // consume the separate value argument slot as well
+			}
+			continue
+		}
 		if !staged {
+			out = append(out, args[i])
 			continue
 		}
 		if glued {
-			args[i] = name + "=" + newValue
+			out = append(out, name+"="+newValue)
 		} else {
-			args[i+1] = newValue
+			out = append(out, name, newValue)
+			i++ // consumed args[i+1]
 		}
 		if copyBack {
 			s.copyBacks = append(s.copyBacks, stagedCopyBack{
-				staged: filepath.Join(s.runDir, filepath.Base(newValue)),
-				host:   value,
+				staged:       filepath.Join(s.runDir, filepath.Base(newValue)),
+				host:         value,
+				replacements: repls,
 			})
 		}
 	}
+	return out
 }
 
 // splitFlagArg extracts a candidate (flag, value, glued) at position i when
@@ -196,12 +213,13 @@ func firstArgSlug(args []string) string {
 }
 
 // stageValue copies the host file referenced by a flagged value into the
-// per-run staging dir and returns the container-side replacement path.
+// per-run staging dir, sanitizes credentials, and returns the container-side replacement path.
 // copyBack is true only for --session (host store must learn about sandbox
-// progress). staged is false when the value was left unchanged.
-func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool) {
+// progress). staged is false when the value was left unchanged. failed is true
+// when staging encountered an error (copy or sanitize failure) and the flag must be dropped.
+func (s *argStager) stageValue(flag, value string) (replacement string, copyBack bool, staged bool, failed bool, replacements map[string]string) {
 	if value == "" {
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	hostPath := expandHome(value)
 	if !filepath.IsAbs(hostPath) {
@@ -209,26 +227,26 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 	}
 	resolved, err := filepath.EvalSymlinks(hostPath)
 	if err != nil {
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	info, err := os.Stat(resolved)
 	if err != nil || !info.Mode().IsRegular() {
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	if info.Size() > maxStageFileBytes {
 		ui.InfoF("⚠ staging %s skipped: %s exceeds %d bytes\n", flag, resolved, maxStageFileBytes)
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	if !underAnyRoot(resolved, s.allowedRoots) {
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	if s.stagedCount >= maxStageFiles {
 		ui.InfoF("⚠ staging %s skipped: file limit reached\n", flag)
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	if err := s.ensureRunDir(); err != nil {
 		ui.InfoF("⚠ staging %s skipped: %v\n", flag, err)
-		return value, false, false
+		return value, false, false, false, nil
 	}
 	s.stagedCount++
 	namer := s.newStagedName
@@ -238,35 +256,39 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 	stagedName := namer(filepath.Base(resolved), s.stagedCount)
 	dst := filepath.Join(s.runDir, stagedName)
 	if err := s.copyFn(resolved, dst); err != nil {
+		s.stagedCount--
 		ui.InfoF("⚠ staging %s failed: %v\n", flag, err)
-		return value, false, false
+		return "", false, false, true, nil
 	}
-	// Sanitize credential JSON files (e.g. --mcp-config). Never sanitize --session files
-	// as they contain conversation history and copy back to the host at teardown.
-	if flag != "--session" && strings.HasSuffix(strings.ToLower(dst), ".json") {
+
+	// Sanitize credential JSON and session files. Real keys never enter the guest.
+	lower := strings.ToLower(dst)
+	if strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".jsonl") {
 		data, rErr := os.ReadFile(dst)
 		if rErr != nil {
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: read error: %v\n", flag, rErr)
-			return value, false, false
+			return "", false, false, true, nil
 		}
-		sanitized, sErr := sanitizeCredentialData(data)
+		sanitized, repls, sErr := sanitizeCredentialDataWithReplacements(data)
 		if sErr != nil {
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: credential sanitize error: %v\n", flag, sErr)
-			return value, false, false
+			return "", false, false, true, nil
 		}
 		if wErr := os.WriteFile(dst, sanitized, 0o600); wErr != nil {
 			_ = os.Remove(dst) //nolint:errcheck
 			s.stagedCount--
 			ui.InfoF("⚠ staging %s failed: write error: %v\n", flag, wErr)
-			return value, false, false
+			return "", false, false, true, nil
 		}
+		replacements = repls
 	}
+
 	container := stagingContainerDir + "/" + s.runID + "/" + stagedName
-	return container, flag == "--session", true
+	return container, flag == "--session", true, false, replacements
 }
 
 // ensureRunDir lazily creates the per-run staging directory (0700).
@@ -329,16 +351,32 @@ func copyFileBestEffort(src, dst string) error {
 	return safefs.WriteFile(dst, data, 0o644)
 }
 
-// syncBack copies staged files back to their original host paths. Called
-// from Teardown; a vanished staged file stays a debug log, anything else
-// (refused copy, size cap) is real data loss and surfaces visibly.
+// syncBack copies staged files back to their original host paths, restoring
+// original host values for round-tripped sentinels.
 func (s *argStager) syncBack() {
 	for _, cb := range s.copyBacks {
-		if err := copyFileBestEffort(cb.staged, cb.host); err != nil {
+		data, err := safefs.ReadFileRegular(cb.staged, copyBackLimit)
+		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				ui.LogDebug("staging copy-back failed %s -> %s: %v", cb.staged, cb.host, err)
 				continue
 			}
+			ui.InfoF("⚠ staging copy-back failed %s -> %s: %v\n", cb.staged, cb.host, err)
+			continue
+		}
+
+		// Restore original host values for round-tripped sentinels
+		for sentinel, realVal := range cb.replacements {
+			data = bytes.ReplaceAll(data, []byte(sentinel), []byte(realVal))
+		}
+
+		// Refuse copy-back if any unresolved sentinel placeholders remain
+		if bytes.Contains(data, []byte("cnstr_sentinel")) {
+			ui.InfoF("⚠ staging copy-back refused for %s: contains unresolved sentinel placeholder\n", cb.host)
+			continue
+		}
+
+		if err := safefs.WriteFile(cb.host, data, 0o644); err != nil {
 			ui.InfoF("⚠ staging copy-back failed %s -> %s: %v\n", cb.staged, cb.host, err)
 		}
 	}

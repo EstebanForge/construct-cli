@@ -135,3 +135,47 @@ func TestSanitizePrecisionKeybindingsAndAuthTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestSanitizePluralTokensAndLLMCounters(t *testing.T) {
+	raw := `{
+		"max_tokens": 8192,
+		"prompt_tokens": 150,
+		"completion_tokens": 300,
+		"total_tokens": 450,
+		"accessTokens": "secret-access-tokens",
+		"access_tokens": "secret-access-tokens-snake",
+		"api_tokens": "secret-api-tokens",
+		"github_tokens": "secret-github-tokens"
+	}`
+	sanitized, err := sanitizeCredentialData([]byte(raw))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialData failed: %v", err)
+	}
+	s := string(sanitized)
+
+	// Counters must be preserved
+	if !strings.Contains(s, `"max_tokens": 8192`) {
+		t.Errorf("expected max_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"prompt_tokens": 150`) {
+		t.Errorf("expected prompt_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"completion_tokens": 300`) {
+		t.Errorf("expected completion_tokens preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"total_tokens": 450`) {
+		t.Errorf("expected total_tokens preserved, got: %s", s)
+	}
+
+	// Plural tokens must be sanitized
+	for _, leaked := range []string{
+		"secret-access-tokens",
+		"secret-access-tokens-snake",
+		"secret-api-tokens",
+		"secret-github-tokens",
+	} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("plural token key leaked into sanitized output: %q", leaked)
+		}
+	}
+}

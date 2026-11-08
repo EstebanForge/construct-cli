@@ -51,22 +51,29 @@ var sensitiveCredentialKeys = []string{
 // sanitizeCredentialData recursively replaces sensitive token values in JSON credential data
 // with sentinel placeholders. Preserves object structure and non-sensitive metadata.
 func sanitizeCredentialData(data []byte) ([]byte, error) {
+	sanitized, _, err := sanitizeCredentialDataWithReplacements(data)
+	return sanitized, err
+}
+
+func sanitizeCredentialDataWithReplacements(data []byte) ([]byte, map[string]string, error) {
 	if len(data) == 0 {
-		return data, nil
+		return data, nil, nil
 	}
 
 	d := json.NewDecoder(bytes.NewReader(data))
 	d.UseNumber()
 	var root any
 	if err := d.Decode(&root); err != nil {
-		return nil, fmt.Errorf("malformed credential json: %w", err)
+		return nil, nil, fmt.Errorf("malformed credential json: %w", err)
 	}
 
-	sanitized := sanitizeNode(root)
-	return json.MarshalIndent(sanitized, "", "  ")
+	replacements := make(map[string]string)
+	sanitized := sanitizeNodeWithReplacements(root, replacements)
+	out, err := json.MarshalIndent(sanitized, "", "  ")
+	return out, replacements, err
 }
 
-func sanitizeNode(node any) any {
+func sanitizeNodeWithReplacements(node any, replacements map[string]string) any {
 	switch v := node.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(v))
@@ -75,37 +82,44 @@ func sanitizeNode(node any) any {
 				switch vt := val.(type) {
 				case string:
 					if vt != "" {
-						out[k] = mintCredentialSentinel(k, vt)
+						s := mintCredentialSentinel(k, vt)
+						out[k] = s
+						replacements[s] = vt
 						continue
 					}
 				case []any:
 					arr := make([]any, len(vt))
 					for i, elem := range vt {
 						if es, ok := elem.(string); ok && es != "" {
-							arr[i] = mintCredentialSentinel(fmt.Sprintf("%s_%d", k, i), es)
+							s := mintCredentialSentinel(fmt.Sprintf("%s_%d", k, i), es)
+							arr[i] = s
+							replacements[s] = es
 						} else {
-							arr[i] = sanitizeNode(elem)
+							arr[i] = sanitizeNodeWithReplacements(elem, replacements)
 						}
 					}
 					out[k] = arr
 					continue
 				case map[string]any:
-					out[k] = sanitizeNode(vt)
+					out[k] = sanitizeNodeWithReplacements(vt, replacements)
 					continue
 				default:
 					if vt != nil {
-						out[k] = mintCredentialSentinel(k, fmt.Sprintf("%v", vt))
+						orig := fmt.Sprintf("%v", vt)
+						s := mintCredentialSentinel(k, orig)
+						out[k] = s
+						replacements[s] = orig
 						continue
 					}
 				}
 			}
-			out[k] = sanitizeNode(val)
+			out[k] = sanitizeNodeWithReplacements(val, replacements)
 		}
 		return out
 	case []any:
 		out := make([]any, len(v))
 		for i, elem := range v {
-			out[i] = sanitizeNode(elem)
+			out[i] = sanitizeNodeWithReplacements(elem, replacements)
 		}
 		return out
 	default:
@@ -127,7 +141,6 @@ func isSensitiveKey(key string) bool {
 		strings.HasSuffix(lower, "_url") ||
 		strings.HasSuffix(lower, "_path") ||
 		strings.HasSuffix(lower, "_file") ||
-		strings.HasSuffix(lower, "_tokens") ||
 		strings.HasSuffix(lower, "_count") ||
 		strings.HasSuffix(lower, "_limit") ||
 		strings.HasSuffix(lower, "_size") ||
@@ -142,7 +155,7 @@ func isSensitiveKey(key string) bool {
 	}
 	clean := strings.ReplaceAll(strings.ReplaceAll(lower, "_", ""), "-", "")
 	return strings.HasSuffix(clean, "token") ||
-		clean == "tokens" ||
+		strings.HasSuffix(clean, "tokens") ||
 		strings.HasSuffix(clean, "secret") ||
 		strings.HasSuffix(clean, "secrets") ||
 		strings.HasSuffix(clean, "password") ||
