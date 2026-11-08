@@ -17,10 +17,20 @@ var sensitiveCredentialKeys = []string{
 	"refreshToken",
 	"refresh",
 	"token",
-	"key",
 	"api_key",
 	"apiKey",
 	"apikey",
+	"access_key",
+	"accessKey",
+	"secret_key",
+	"secretKey",
+	"private_key",
+	"privateKey",
+	"session_key",
+	"sessionKey",
+	"cookie",
+	"cookies",
+	"jwt",
 	"secret",
 	"id_token",
 	"idToken",
@@ -106,12 +116,23 @@ func sanitizeNode(node any) any {
 func isSensitiveKey(key string) bool {
 	lower := strings.ToLower(key)
 	if strings.HasPrefix(lower, "non_") ||
+		strings.HasPrefix(lower, "max_") ||
+		strings.HasPrefix(lower, "num_") ||
+		strings.HasPrefix(lower, "total_") ||
+		strings.HasPrefix(lower, "prompt_") ||
+		strings.HasPrefix(lower, "completion_") ||
 		strings.HasSuffix(lower, "_mode") ||
 		strings.HasSuffix(lower, "_type") ||
 		strings.HasSuffix(lower, "_id") ||
 		strings.HasSuffix(lower, "_url") ||
 		strings.HasSuffix(lower, "_path") ||
-		strings.HasSuffix(lower, "_file") {
+		strings.HasSuffix(lower, "_file") ||
+		strings.HasSuffix(lower, "_tokens") ||
+		strings.HasSuffix(lower, "_count") ||
+		strings.HasSuffix(lower, "_limit") ||
+		strings.HasSuffix(lower, "_size") ||
+		strings.HasSuffix(lower, "_length") ||
+		lower == "max_tokens" {
 		return false
 	}
 	for _, sens := range sensitiveCredentialKeys {
@@ -121,11 +142,15 @@ func isSensitiveKey(key string) bool {
 	}
 	clean := strings.ReplaceAll(strings.ReplaceAll(lower, "_", ""), "-", "")
 	return strings.HasSuffix(clean, "token") ||
-		strings.HasSuffix(clean, "tokens") ||
+		clean == "tokens" ||
 		strings.HasSuffix(clean, "secret") ||
 		strings.HasSuffix(clean, "secrets") ||
 		strings.HasSuffix(clean, "password") ||
 		strings.HasSuffix(clean, "apikey") ||
+		strings.HasSuffix(clean, "sessionkey") ||
+		strings.HasSuffix(clean, "cookie") ||
+		strings.HasSuffix(clean, "cookies") ||
+		clean == "jwt" ||
 		clean == "auth" ||
 		clean == "authorization" ||
 		clean == "credential" ||

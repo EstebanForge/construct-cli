@@ -181,8 +181,6 @@ func DefaultHostBindings(varName string) string {
 		return "huggingface.co"
 	case "ZAI_API_KEY":
 		return "api.z.ai"
-	case "OPENCODE_API_KEY":
-		return "api.opencode.ai"
 	case "KIMI_API_KEY":
 		return "api.moonshot.cn"
 	case "MINIMAX_API_KEY", "MINIMAX_GROUP_ID":

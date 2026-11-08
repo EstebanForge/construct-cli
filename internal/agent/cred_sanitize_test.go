@@ -111,3 +111,27 @@ func TestSanitizeCredentialDataArrayHeadersAndPrecision(t *testing.T) {
 		t.Errorf("large integer precision was lost: %s", s)
 	}
 }
+
+func TestSanitizePrecisionKeybindingsAndAuthTokens(t *testing.T) {
+	raw := `{"max_tokens":4096,"key":"ctrl+x","cookie":"sid=abc","jwt":"eyJ.x.y","sessionKey":"s3cr3t","token":"real-token-value"}`
+	sanitized, err := sanitizeCredentialData([]byte(raw))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialData failed: %v", err)
+	}
+	s := string(sanitized)
+
+	// max_tokens and key (keybinding) must be preserved
+	if !strings.Contains(s, `"max_tokens": 4096`) {
+		t.Errorf("expected max_tokens 4096 to be preserved, got: %s", s)
+	}
+	if !strings.Contains(s, `"key": "ctrl+x"`) {
+		t.Errorf("expected key ctrl+x to be preserved, got: %s", s)
+	}
+
+	// cookie, jwt, sessionKey, token must be sanitized
+	for _, leaked := range []string{"sid=abc", "eyJ.x.y", "s3cr3t", "real-token-value"} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("leaked secret %q in sanitized output: %s", leaked, s)
+		}
+	}
+}

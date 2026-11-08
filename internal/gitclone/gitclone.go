@@ -50,14 +50,17 @@ func CreateSession(ctx context.Context, hostRepoDir string) (*Session, error) {
 	}
 
 	// Extract and apply any uncommitted changes from the host to working tree
-	diffOut, err := hostgit.Output(ctx, "-C", hostRepoDir, "diff", "HEAD")
+	diffOut, err := hostgit.Output(ctx, "-C", hostRepoDir, "diff", "--binary", "HEAD")
 	if err == nil && len(diffOut) > 0 {
-		applyCmd := hostgit.Command(ctx, "-C", cloneDir, "apply")
+		applyCmd := hostgit.Command(ctx, "-C", cloneDir, "apply", "--binary")
 		applyCmd.Stdin = bytes.NewReader(diffOut)
-		_ = applyCmd.Run() //nolint:errcheck // best-effort apply of host dirty tree
+		if out, aErr := applyCmd.CombinedOutput(); aErr != nil {
+			_ = os.RemoveAll(cloneDir) //nolint:errcheck // best-effort cleanup
+			return nil, fmt.Errorf("failed to apply host working tree diff to clone (%s): %w", strings.TrimSpace(string(out)), aErr)
+		}
 	}
 
-	initialDiff, _ := hostgit.Output(ctx, "-C", cloneDir, "diff", "HEAD") //nolint:errcheck // baseline diff check
+	initialDiff, _ := hostgit.Output(ctx, "-C", cloneDir, "diff", "--binary", "HEAD") //nolint:errcheck // baseline diff check
 
 	return &Session{
 		HostRepoDir: hostRepoDir,
@@ -79,8 +82,8 @@ func (s *Session) Teardown(ctx context.Context) (bundlePath string, hasChanges b
 	}
 
 	// Check if working tree has new uncommitted changes compared to initial state
-	currentDiff, _ := hostgit.Output(ctx, "-C", s.CloneDir, "diff", "HEAD")        //nolint:errcheck // teardown diff check
-	untracked, _ := hostgit.Output(ctx, "-C", s.CloneDir, "status", "--porcelain") //nolint:errcheck // teardown status check
+	currentDiff, _ := hostgit.Output(ctx, "-C", s.CloneDir, "diff", "--binary", "HEAD") //nolint:errcheck // teardown diff check
+	untracked, _ := hostgit.Output(ctx, "-C", s.CloneDir, "status", "--porcelain")      //nolint:errcheck // teardown status check
 
 	// If working tree changed from initial host diff or new files appeared, stage and commit them
 	if !bytes.Equal(s.InitialDiff, currentDiff) || len(strings.TrimSpace(string(untracked))) > 0 {

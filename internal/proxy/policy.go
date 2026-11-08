@@ -45,7 +45,9 @@ func init() {
 		"224.0.0.0/4",    // Multicast
 		"240.0.0.0/4",    // Reserved
 		"::/128",         // IPv6 Unspecified
+		"::/96",          // IPv4-compatible IPv6 (deprecated)
 		"::1/128",        // IPv6 Loopback
+		"64:ff9b::/96",   // IPv4/IPv6 translation (NAT64)
 		"fc00::/7",       // IPv6 Unique Local
 		"fe80::/10",      // IPv6 Link-local
 		"ff00::/8",       // IPv6 Multicast

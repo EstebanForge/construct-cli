@@ -353,3 +353,42 @@ func TestEnsureNoSymlinkAncestors(t *testing.T) {
 		t.Fatal("expected symlink directory ancestor traversal to be rejected, got nil")
 	}
 }
+
+func TestSymlinkChainEscapeRejected(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, e := range []tar.Header{
+		{Name: "top/", Typeflag: tar.TypeDir, Mode: 0755},
+		{Name: "top/x", Typeflag: tar.TypeSymlink, Linkname: "../"},
+		{Name: "top/y", Typeflag: tar.TypeSymlink, Linkname: "x/../.."},
+	} {
+		h := e
+		if err := tw.WriteHeader(&h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = tw.Close()
+	_ = gz.Close()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	stage := t.TempDir()
+	total := int64(0)
+	_ = downloadAndExtractLayer(context.Background(), srv.Client(), srv.Listener.Addr().String(), "r/x", "", "", stage, "opt/toolchains/x", &total)
+
+	// top/y should not exist, or must not escape stageDir
+	yPath := filepath.Join(stage, "top", "y")
+	if _, err := os.Lstat(yPath); err == nil {
+		evalPath, rerr := filepath.EvalSymlinks(yPath)
+		if rerr == nil {
+			rel, relErr := filepath.Rel(stage, evalPath)
+			if relErr != nil || strings.HasPrefix(rel, "..") {
+				t.Fatalf("top/y escaped stageDir: real=%q, stage=%q", evalPath, stage)
+			}
+		}
+	}
+}

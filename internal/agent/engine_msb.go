@@ -38,9 +38,6 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	var allowHome bool
 	var maxEntries int
 	if e.cfg != nil {
-		if strings.EqualFold(e.cfg.Network.Mode, "strict") {
-			return 1, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
-		}
 		allowHome = e.cfg.Sandbox.AllowHomeWorkspace
 		maxEntries = e.cfg.Sandbox.WorkspaceMaxEntries
 	}

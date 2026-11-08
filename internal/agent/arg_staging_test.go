@@ -206,3 +206,53 @@ func TestAdaptArgsSkipsOtherAgentsAndSizeCap(t *testing.T) {
 		t.Errorf("oversized file staged: %q", args[2])
 	}
 }
+
+func TestAdaptArgsSessionNeverSanitizedAndConfigFailsClosed(t *testing.T) {
+	// 1. Session file containing token must NOT be sanitized, so host copy-back never corrupts host tokens.
+	s1 := newTestStager(t, "pi")
+	sessContent := `{"messages":[],"token":"host-real-secret-token"}`
+	sess := writeStageFile(t, s1.allowedRoots[1], "session.json", sessContent)
+
+	args1 := []string{"pi", "--session", sess}
+	s1.adaptArgs(args1)
+
+	stagedSess := filepath.Join(s1.runDir, "session.json")
+	data, err := os.ReadFile(stagedSess)
+	if err != nil {
+		t.Fatalf("failed to read staged session: %v", err)
+	}
+	if string(data) != sessContent {
+		t.Errorf("session was modified by sanitizer: got %q, want %q", string(data), sessContent)
+	}
+
+	// 2. Config file (--mcp-config) containing token MUST be sanitized.
+	s2 := newTestStager(t, "pi")
+	mcpContent := `{"env":{"API_KEY":"sk-ant-api03-real-secret"}}`
+	mcp := writeStageFile(t, s2.allowedRoots[0], "mcp.json", mcpContent)
+
+	args2 := []string{"pi", "--mcp-config", mcp}
+	s2.adaptArgs(args2)
+
+	stagedMcp := filepath.Join(s2.runDir, "mcp.json")
+	mcpData, err := os.ReadFile(stagedMcp)
+	if err != nil {
+		t.Fatalf("failed to read staged mcp: %v", err)
+	}
+	if strings.Contains(string(mcpData), "sk-ant-api03-real-secret") {
+		t.Errorf("mcp-config was not sanitized: %s", string(mcpData))
+	}
+
+	// 3. Malformed JSON config must fail closed (staged file deleted, flag not modified).
+	s3 := newTestStager(t, "pi")
+	badJSON := writeStageFile(t, s3.allowedRoots[0], "bad.json", `{"token":"abc",}`)
+	args3 := []string{"pi", "--mcp-config", badJSON}
+	s3.adaptArgs(args3)
+
+	if args3[2] != badJSON {
+		t.Errorf("malformed json was staged: %q", args3[2])
+	}
+	stagedBad := filepath.Join(s3.runDir, "bad.json")
+	if _, err := os.Stat(stagedBad); !os.IsNotExist(err) {
+		t.Errorf("expected staged malformed file to be deleted, got err: %v", err)
+	}
+}

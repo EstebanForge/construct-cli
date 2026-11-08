@@ -241,11 +241,28 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 		ui.InfoF("⚠ staging %s failed: %v\n", flag, err)
 		return value, false, false
 	}
-	if strings.HasSuffix(strings.ToLower(dst), ".json") {
-		if data, rErr := os.ReadFile(dst); rErr == nil {
-			if sanitized, sErr := sanitizeCredentialData(data); sErr == nil {
-				_ = os.WriteFile(dst, sanitized, 0o600) //nolint:errcheck // best-effort credential sanitize
-			}
+	// Sanitize credential JSON files (e.g. --mcp-config). Never sanitize --session files
+	// as they contain conversation history and copy back to the host at teardown.
+	if flag != "--session" && strings.HasSuffix(strings.ToLower(dst), ".json") {
+		data, rErr := os.ReadFile(dst)
+		if rErr != nil {
+			_ = os.Remove(dst) //nolint:errcheck
+			s.stagedCount--
+			ui.InfoF("⚠ staging %s failed: read error: %v\n", flag, rErr)
+			return value, false, false
+		}
+		sanitized, sErr := sanitizeCredentialData(data)
+		if sErr != nil {
+			_ = os.Remove(dst) //nolint:errcheck
+			s.stagedCount--
+			ui.InfoF("⚠ staging %s failed: credential sanitize error: %v\n", flag, sErr)
+			return value, false, false
+		}
+		if wErr := os.WriteFile(dst, sanitized, 0o600); wErr != nil {
+			_ = os.Remove(dst) //nolint:errcheck
+			s.stagedCount--
+			ui.InfoF("⚠ staging %s failed: write error: %v\n", flag, wErr)
+			return value, false, false
 		}
 	}
 	container := stagingContainerDir + "/" + s.runID + "/" + stagedName

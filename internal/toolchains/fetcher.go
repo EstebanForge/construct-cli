@@ -387,10 +387,14 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			if err != nil {
 				return err
 			}
-			n, err := io.Copy(f, io.LimitReader(tr, maxFileBytes))
+			lr := io.LimitReader(tr, maxFileBytes+1)
+			n, err := io.Copy(f, lr)
 			f.Close() //nolint:errcheck
 			if err != nil {
 				return err
+			}
+			if n > maxFileBytes {
+				return fmt.Errorf("toolchain file %s exceeded max file size (%d bytes)", cleanPath, maxFileBytes)
 			}
 			*totalExtracted += n
 			if *totalExtracted > maxExtractedBytes {
@@ -409,12 +413,21 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			if err != nil || strings.HasPrefix(relTarget, "..") {
 				continue // Refuse escaping symlinks
 			}
+			if !resolvesWithinRoot(stageDir, filepath.Dir(destPath), linkTarget) {
+				continue // Refuse symlink-chain escaping targets
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
 			}
 			_ = os.Remove(destPath) //nolint:errcheck // best-effort cleanup before symlink
 			if err := os.Symlink(linkTarget, destPath); err != nil {
 				return err
+			}
+			if evalTarget, err := filepath.EvalSymlinks(destPath); err == nil {
+				if rel, err := filepath.Rel(stageDir, evalTarget); err != nil || strings.HasPrefix(rel, "..") {
+					_ = os.Remove(destPath) //nolint:errcheck
+					continue
+				}
 			}
 		case tar.TypeLink:
 			if err := ensureNoSymlinkAncestors(stageDir, destPath); err != nil {
@@ -434,6 +447,10 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			}
 			if err := ensureNoSymlinkAncestors(stageDir, oldPath); err != nil {
 				return err
+			}
+			oldInfo, err := os.Lstat(oldPath)
+			if err != nil || (oldInfo.Mode()&os.ModeSymlink != 0) {
+				continue // Refuse hardlinking symlinks
 			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
@@ -476,4 +493,40 @@ func EnsureToolchains(ctx context.Context, ids []ToolchainID) error {
 		}
 	}
 	return nil
+}
+
+// resolvesWithinRoot resolves path components following any existing intermediate symlinks
+// and verifies that the resolution remains strictly within root.
+func resolvesWithinRoot(root, baseDir, target string) bool {
+	if filepath.IsAbs(target) {
+		return false
+	}
+	curr := baseDir
+	components := strings.Split(filepath.Clean(target), string(filepath.Separator))
+	for _, comp := range components {
+		if comp == "" || comp == "." {
+			continue
+		}
+		if comp == ".." {
+			if eval, err := filepath.EvalSymlinks(curr); err == nil {
+				curr = eval
+			}
+			curr = filepath.Dir(curr)
+		} else {
+			curr = filepath.Join(curr, comp)
+			if fi, err := os.Lstat(curr); err == nil && (fi.Mode()&os.ModeSymlink != 0) {
+				eval, err := filepath.EvalSymlinks(curr)
+				if err != nil {
+					return false
+				}
+				curr = eval
+			}
+		}
+		rel, err := filepath.Rel(root, curr)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return false
+		}
+	}
+	rel, err := filepath.Rel(root, curr)
+	return err == nil && !strings.HasPrefix(rel, "..")
 }

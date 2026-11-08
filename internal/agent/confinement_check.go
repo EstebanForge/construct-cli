@@ -72,18 +72,20 @@ func ProbeProxyConfinement(ctx context.Context, proxyURL string) (ConfinementSta
 
 	// 2. Negative auth probe: verify proxy rejects incorrect session token with 407
 	reqBadAuth, err := http.NewRequestWithContext(ctx, "GET", probeURL, nil)
-	if err == nil {
-		badToken := base64.StdEncoding.EncodeToString([]byte("construct:bogus_invalid_password_xyz"))
-		reqBadAuth.Header.Set("Proxy-Authorization", "Basic "+badToken)
-		respBadAuth, bErr := client.Do(reqBadAuth)
-		if bErr == nil {
-			defer func() {
-				_ = respBadAuth.Body.Close() //nolint:errcheck // probe response cleanup
-			}()
-			if respBadAuth.StatusCode != http.StatusProxyAuthRequired {
-				return ConfinementUnenforced, fmt.Errorf("proxy accepted invalid session token (expected 407, got %d)", respBadAuth.StatusCode)
-			}
-		}
+	if err != nil {
+		return ConfinementUnenforced, err
+	}
+	badToken := base64.StdEncoding.EncodeToString([]byte("construct:bogus_invalid_password_xyz"))
+	reqBadAuth.Header.Set("Proxy-Authorization", "Basic "+badToken)
+	respBadAuth, bErr := client.Do(reqBadAuth)
+	if bErr != nil {
+		return ConfinementUnenforced, fmt.Errorf("negative proxy auth probe failed: %w", bErr)
+	}
+	defer func() {
+		_ = respBadAuth.Body.Close() //nolint:errcheck // probe response cleanup
+	}()
+	if respBadAuth.StatusCode != http.StatusProxyAuthRequired {
+		return ConfinementUnenforced, fmt.Errorf("proxy accepted invalid session token (expected 407, got %d)", respBadAuth.StatusCode)
 	}
 
 	// 3. Authenticated probe: verify proxy authenticates session token

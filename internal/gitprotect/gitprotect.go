@@ -16,19 +16,19 @@ func HasImmutableFlag() bool {
 	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
-func resolveGitDir(repoDir string) (string, string, error) {
+func resolveGitDirs(repoDir string) (gitDir string, commonDir string, pointerFile string, err error) {
 	dotGit := filepath.Join(repoDir, ".git")
 	info, err := os.Stat(dotGit)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if info.IsDir() {
-		return dotGit, "", nil
+		return dotGit, dotGit, "", nil
 	}
 	// Worktree file pointer (.git file containing "gitdir: <path>")
 	data, err := os.ReadFile(dotGit)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -37,10 +37,39 @@ func resolveGitDir(repoDir string) (string, string, error) {
 			if !filepath.IsAbs(target) {
 				target = filepath.Join(repoDir, target)
 			}
-			return target, dotGit, nil
+			common := target
+			if cData, cErr := os.ReadFile(filepath.Join(target, "commondir")); cErr == nil {
+				cRel := strings.TrimSpace(string(cData))
+				if filepath.IsAbs(cRel) {
+					common = cRel
+				} else {
+					common = filepath.Clean(filepath.Join(target, cRel))
+				}
+			}
+			return target, common, dotGit, nil
 		}
 	}
-	return "", "", fmt.Errorf("invalid .git worktree pointer")
+	return "", "", "", fmt.Errorf("invalid .git worktree pointer")
+}
+
+func lockHooksChmod(hooksPath string) {
+	_ = os.Chmod(hooksPath, 0555)                                                       //nolint:errcheck
+	_ = filepath.Walk(hooksPath, func(path string, info os.FileInfo, err error) error { //nolint:errcheck
+		if err == nil && !info.IsDir() {
+			_ = os.Chmod(path, 0444) //nolint:errcheck
+		}
+		return nil
+	})
+}
+
+func unlockHooksChmod(hooksPath string) {
+	_ = os.Chmod(hooksPath, 0755)                                                       //nolint:errcheck
+	_ = filepath.Walk(hooksPath, func(path string, info os.FileInfo, err error) error { //nolint:errcheck
+		if err == nil && !info.IsDir() {
+			_ = os.Chmod(path, 0755) //nolint:errcheck
+		}
+		return nil
+	})
 }
 
 // LockRepository applies immutable flags to protect critical git paths.
@@ -49,9 +78,14 @@ func LockRepository(ctx context.Context, repoDir string) error {
 		return nil
 	}
 
-	gitDir, pointerFile, err := resolveGitDir(repoDir)
+	gitDir, commonDir, pointerFile, err := resolveGitDirs(repoDir)
 	if err != nil || gitDir == "" {
 		return nil
+	}
+
+	dirsToLock := []string{gitDir}
+	if commonDir != "" && commonDir != gitDir {
+		dirsToLock = append(dirsToLock, commonDir)
 	}
 
 	switch runtime.GOOS {
@@ -59,16 +93,18 @@ func LockRepository(ctx context.Context, repoDir string) error {
 		if pointerFile != "" {
 			_ = exec.CommandContext(ctx, "chflags", "uchg", pointerFile).Run() //nolint:errcheck
 		}
-		configPath := filepath.Join(gitDir, "config")
-		if _, err := os.Stat(configPath); err == nil {
-			if err := exec.CommandContext(ctx, "chflags", "uchg", configPath).Run(); err != nil {
-				return fmt.Errorf("lock git config: %w", err)
+		for _, d := range dirsToLock {
+			configPath := filepath.Join(d, "config")
+			if _, err := os.Stat(configPath); err == nil {
+				if err := exec.CommandContext(ctx, "chflags", "uchg", configPath).Run(); err != nil {
+					return fmt.Errorf("lock git config: %w", err)
+				}
 			}
-		}
-		hooksPath := filepath.Join(gitDir, "hooks")
-		if _, err := os.Stat(hooksPath); err == nil {
-			if err := exec.CommandContext(ctx, "chflags", "-R", "uchg", hooksPath).Run(); err != nil {
-				return fmt.Errorf("lock git hooks: %w", err)
+			hooksPath := filepath.Join(d, "hooks")
+			if _, err := os.Stat(hooksPath); err == nil {
+				if err := exec.CommandContext(ctx, "chflags", "-R", "uchg", hooksPath).Run(); err != nil {
+					return fmt.Errorf("lock git hooks: %w", err)
+				}
 			}
 		}
 	case "linux":
@@ -79,27 +115,29 @@ func LockRepository(ctx context.Context, repoDir string) error {
 				_ = out
 			}
 		}
-		configPath := filepath.Join(gitDir, "config")
-		if _, err := os.Stat(configPath); err == nil {
-			cmd := exec.CommandContext(ctx, "chattr", "+i", configPath)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				// Fallback to unprivileged readonly mode if CAP_LINUX_IMMUTABLE is unavailable
-				_ = os.Chmod(configPath, 0444) //nolint:errcheck
-				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
-					return nil
+		for _, d := range dirsToLock {
+			configPath := filepath.Join(d, "config")
+			if _, err := os.Stat(configPath); err == nil {
+				cmd := exec.CommandContext(ctx, "chattr", "+i", configPath)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					// Fallback to unprivileged readonly mode if CAP_LINUX_IMMUTABLE is unavailable
+					_ = os.Chmod(configPath, 0444) //nolint:errcheck
+					if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
+						continue
+					}
+					return fmt.Errorf("lock git config (chattr +i): %w: %s", err, string(out))
 				}
-				return fmt.Errorf("lock git config (chattr +i): %w: %s", err, string(out))
 			}
-		}
-		hooksPath := filepath.Join(gitDir, "hooks")
-		if _, err := os.Stat(hooksPath); err == nil {
-			cmd := exec.CommandContext(ctx, "chattr", "-R", "+i", hooksPath)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				_ = os.Chmod(hooksPath, 0555) //nolint:errcheck
-				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
-					return nil
+			hooksPath := filepath.Join(d, "hooks")
+			if _, err := os.Stat(hooksPath); err == nil {
+				cmd := exec.CommandContext(ctx, "chattr", "-R", "+i", hooksPath)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					lockHooksChmod(hooksPath)
+					if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
+						continue
+					}
+					return fmt.Errorf("lock git hooks (chattr +i): %w: %s", err, string(out))
 				}
-				return fmt.Errorf("lock git hooks (chattr +i): %w: %s", err, string(out))
 			}
 		}
 	}
@@ -113,9 +151,14 @@ func UnlockRepository(ctx context.Context, repoDir string) error {
 		return nil
 	}
 
-	gitDir, pointerFile, err := resolveGitDir(repoDir)
+	gitDir, commonDir, pointerFile, err := resolveGitDirs(repoDir)
 	if err != nil || gitDir == "" {
 		return nil
+	}
+
+	dirsToUnlock := []string{gitDir}
+	if commonDir != "" && commonDir != gitDir {
+		dirsToUnlock = append(dirsToUnlock, commonDir)
 	}
 
 	switch runtime.GOOS {
@@ -123,16 +166,18 @@ func UnlockRepository(ctx context.Context, repoDir string) error {
 		if pointerFile != "" {
 			_ = exec.CommandContext(ctx, "chflags", "nouchg", pointerFile).Run() //nolint:errcheck
 		}
-		configPath := filepath.Join(gitDir, "config")
-		if _, err := os.Stat(configPath); err == nil {
-			if err := exec.CommandContext(ctx, "chflags", "nouchg", configPath).Run(); err != nil {
-				return fmt.Errorf("unlock git config: %w", err)
+		for _, d := range dirsToUnlock {
+			configPath := filepath.Join(d, "config")
+			if _, err := os.Stat(configPath); err == nil {
+				if err := exec.CommandContext(ctx, "chflags", "nouchg", configPath).Run(); err != nil {
+					return fmt.Errorf("unlock git config: %w", err)
+				}
 			}
-		}
-		hooksPath := filepath.Join(gitDir, "hooks")
-		if _, err := os.Stat(hooksPath); err == nil {
-			if err := exec.CommandContext(ctx, "chflags", "-R", "nouchg", hooksPath).Run(); err != nil {
-				return fmt.Errorf("unlock git hooks: %w", err)
+			hooksPath := filepath.Join(d, "hooks")
+			if _, err := os.Stat(hooksPath); err == nil {
+				if err := exec.CommandContext(ctx, "chflags", "-R", "nouchg", hooksPath).Run(); err != nil {
+					return fmt.Errorf("unlock git hooks: %w", err)
+				}
 			}
 		}
 	case "linux":
@@ -140,29 +185,31 @@ func UnlockRepository(ctx context.Context, repoDir string) error {
 			_ = exec.CommandContext(ctx, "chattr", "-i", pointerFile).Run() //nolint:errcheck
 			_ = os.Chmod(pointerFile, 0644)                                 //nolint:errcheck
 		}
-		configPath := filepath.Join(gitDir, "config")
-		if _, err := os.Stat(configPath); err == nil {
-			cmd := exec.CommandContext(ctx, "chattr", "-i", configPath)
-			if out, err := cmd.CombinedOutput(); err != nil {
+		for _, d := range dirsToUnlock {
+			configPath := filepath.Join(d, "config")
+			if _, err := os.Stat(configPath); err == nil {
+				cmd := exec.CommandContext(ctx, "chattr", "-i", configPath)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					_ = os.Chmod(configPath, 0644) //nolint:errcheck
+					if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
+						continue
+					}
+					return fmt.Errorf("unlock git config (chattr -i): %w: %s", err, string(out))
+				}
 				_ = os.Chmod(configPath, 0644) //nolint:errcheck
-				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
-					return nil
-				}
-				return fmt.Errorf("unlock git config (chattr -i): %w: %s", err, string(out))
 			}
-			_ = os.Chmod(configPath, 0644) //nolint:errcheck
-		}
-		hooksPath := filepath.Join(gitDir, "hooks")
-		if _, err := os.Stat(hooksPath); err == nil {
-			cmd := exec.CommandContext(ctx, "chattr", "-R", "-i", hooksPath)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				_ = os.Chmod(hooksPath, 0755) //nolint:errcheck
-				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
-					return nil
+			hooksPath := filepath.Join(d, "hooks")
+			if _, err := os.Stat(hooksPath); err == nil {
+				cmd := exec.CommandContext(ctx, "chattr", "-R", "-i", hooksPath)
+				if out, err := cmd.CombinedOutput(); err != nil {
+					unlockHooksChmod(hooksPath)
+					if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
+						continue
+					}
+					return fmt.Errorf("unlock git hooks (chattr -i): %w: %s", err, string(out))
 				}
-				return fmt.Errorf("unlock git hooks (chattr -i): %w: %s", err, string(out))
+				unlockHooksChmod(hooksPath)
 			}
-			_ = os.Chmod(hooksPath, 0755) //nolint:errcheck
 		}
 	}
 

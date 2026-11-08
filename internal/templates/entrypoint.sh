@@ -164,17 +164,32 @@ if [ "$(id -u)" = "0" ]; then
             iptables -F OUTPUT 2>/dev/null || true
             iptables -A OUTPUT -o lo -j ACCEPT
             iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-            iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-            iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+            # DNS resolution strictly to nameservers configured in /etc/resolv.conf
+            for ns in $(awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null); do
+                iptables -A OUTPUT -d "$ns" -p udp --dport 53 -j ACCEPT
+                iptables -A OUTPUT -d "$ns" -p tcp --dport 53 -j ACCEPT
+            done
+
+            # Allow host bridge gateway
             default_gw=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
             if [ -n "$default_gw" ]; then
                 iptables -A OUTPUT -d "$default_gw" -j ACCEPT
             fi
-            iptables -A OUTPUT -d 172.16.0.0/12 -j ACCEPT
-            iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT
-            iptables -A OUTPUT -d 192.168.0.0/16 -j ACCEPT
+
+            # Reject all remaining direct IPv4 outbound traffic
             iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
             iptables -A OUTPUT -j REJECT
+        else
+            echo "Warning: iptables capability missing; in-container egress filter unenforced." >&2
+        fi
+
+        # IPv6 egress block
+        if command -v ip6tables >/dev/null 2>&1 && ip6tables -L -n >/dev/null 2>&1; then
+            ip6tables -F OUTPUT 2>/dev/null || true
+            ip6tables -A OUTPUT -o lo -j ACCEPT
+            ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+            ip6tables -A OUTPUT -j REJECT 2>/dev/null || ip6tables -A OUTPUT -j DROP 2>/dev/null || true
         fi
     fi
 

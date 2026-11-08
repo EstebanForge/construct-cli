@@ -129,7 +129,7 @@ func (s *Server) Serve(l net.Listener) error {
 	s.listener = l
 	go func() {
 		if err := s.httpServer.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return
+			s.logf("ERROR", l.Addr().String(), fmt.Sprintf("proxy serve: %v", err))
 		}
 	}()
 	return nil
@@ -370,11 +370,10 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 			return
 		}
 
-		_ = destConn.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck
-		if err := req.Write(tlsDest); err != nil {
+		destWriter := &chunkTimeoutWriter{w: tlsDest, conn: destConn, timeout: 30 * time.Second}
+		if err := req.Write(destWriter); err != nil {
 			return
 		}
-		_ = destConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
 
 		_ = destConn.SetReadDeadline(time.Now().Add(5 * time.Minute)) //nolint:errcheck
 		resp, err := http.ReadResponse(destReader, req)
@@ -382,14 +381,51 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 			return
 		}
 
-		_ = clientConn.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck
-		if err := resp.Write(tlsClient); err != nil {
+		// Wrap response body with idle timeout reader so streaming responses get 5m idle deadline per chunk
+		resp.Body = &idleTimeoutReader{r: resp.Body, conn: destConn, timeout: 5 * time.Minute}
+
+		// Wrap client TLS connection with per-chunk timeout writer so streaming responses are not killed by an absolute write deadline
+		clientWriter := &chunkTimeoutWriter{w: tlsClient, conn: clientConn, timeout: 30 * time.Second}
+		if err := resp.Write(clientWriter); err != nil {
 			_ = resp.Body.Close() //nolint:errcheck // body drain
 			return
 		}
-		_ = clientConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
-		_ = resp.Body.Close()                        //nolint:errcheck // body drain
+		_ = resp.Body.Close() //nolint:errcheck // body drain
 	}
+}
+
+type chunkTimeoutWriter struct {
+	w       io.Writer
+	conn    net.Conn
+	timeout time.Duration
+}
+
+func (ctw *chunkTimeoutWriter) Write(p []byte) (int, error) {
+	if ctw.conn != nil && ctw.timeout > 0 {
+		_ = ctw.conn.SetWriteDeadline(time.Now().Add(ctw.timeout)) //nolint:errcheck
+	}
+	n, err := ctw.w.Write(p)
+	if ctw.conn != nil && ctw.timeout > 0 {
+		_ = ctw.conn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+	}
+	return n, err
+}
+
+type idleTimeoutReader struct {
+	r       io.ReadCloser
+	conn    net.Conn
+	timeout time.Duration
+}
+
+func (itr *idleTimeoutReader) Read(p []byte) (int, error) {
+	if itr.conn != nil && itr.timeout > 0 {
+		_ = itr.conn.SetReadDeadline(time.Now().Add(itr.timeout)) //nolint:errcheck
+	}
+	return itr.r.Read(p)
+}
+
+func (itr *idleTimeoutReader) Close() error {
+	return itr.r.Close()
 }
 
 func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
@@ -473,13 +509,14 @@ func pipe(conn1, conn2 net.Conn) {
 		defer wg.Done()
 		buf := make([]byte, 32*1024)
 		for {
-			_ = src.SetReadDeadline(time.Now().Add(5 * time.Minute)) //nolint:errcheck // best-effort idle deadline
+			_ = src.SetReadDeadline(time.Now().Add(1 * time.Hour)) //nolint:errcheck // 1-hour idle deadline for long-lived raw TCP connections
 			n, rErr := src.Read(buf)
 			if n > 0 {
 				_ = dst.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck // best-effort write deadline
 				if _, wErr := dst.Write(buf[:n]); wErr != nil {
 					break
 				}
+				_ = dst.SetWriteDeadline(time.Time{}) //nolint:errcheck
 			}
 			if rErr != nil {
 				break
