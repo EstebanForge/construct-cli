@@ -230,10 +230,18 @@ func TestIsSensitiveKeyRedactsKeysWithCommonPrefixes(t *testing.T) {
 		"completion_tokens",
 		"total_tokens",
 		"max_tokens",
+		"max_output_tokens",
+		"max_completion_tokens",
+		"max_input_tokens",
+		"reasoning_tokens",
+		"input_token",
+		"output_token",
 		"cache_read_input_tokens",
 		"cache_creation_input_tokens",
 		"inputTokens",
 		"outputTokens",
+		"maxOutputTokens",
+		"maxCompletionTokens",
 	} {
 		if isSensitiveKey(counterKey) {
 			t.Errorf("expected %q to be classified as non-sensitive counter key", counterKey)

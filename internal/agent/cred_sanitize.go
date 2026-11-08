@@ -234,7 +234,9 @@ func isSensitiveKey(key string) bool {
 	case "inputtokens", "outputtokens", "prompttokens", "completiontokens",
 		"totaltokens", "maxtokens", "numtokens", "cachedtokens",
 		"cachereadinputtokens", "cachecreationinputtokens",
-		"cachereadtokens", "cachecreationtokens":
+		"cachereadtokens", "cachecreationtokens",
+		"maxoutputtokens", "maxcompletiontokens", "maxinputtokens", "maxtotaltokens",
+		"reasoningtokens", "inputtoken", "outputtoken":
 		return false
 	}
 
