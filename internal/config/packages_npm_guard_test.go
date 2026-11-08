@@ -19,13 +19,16 @@ func TestGenerateInstallScriptSkipsInstalledNpm(t *testing.T) {
 		{"@openai/codex@latest", "@openai/codex"},
 		{"typescript", "typescript"},
 	} {
-		guard := fmt.Sprintf(`[ -d "$HOME/.npm-global/lib/node_modules/%s" ]`, tc.dir)
+		guard := fmt.Sprintf(`if [ -d "$HOME/.npm-global/lib/node_modules/%s" ]; then`, tc.dir)
 		if !strings.Contains(script, guard) {
 			t.Errorf("missing existence guard for %s: %s", tc.pkg, guard)
 		}
 		if !strings.Contains(script, "npm install -g "+tc.pkg) {
 			t.Errorf("missing install command for %s", tc.pkg)
 		}
+	}
+	if strings.Contains(script, "] ]") {
+		t.Error("script contains invalid double closing brackets '] ]'")
 	}
 	// The version tag must not leak into the checked directory name.
 	if strings.Contains(script, "node_modules/@openai/codex@latest") {

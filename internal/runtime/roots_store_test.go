@@ -1002,3 +1002,63 @@ func TestAcceptLargeExportRefusesHome(t *testing.T) {
 		t.Fatalf("Accepted map = %v, want empty", store.Accepted)
 	}
 }
+
+// TestSecuritySessionsPathHandling verifies that hide-secrets session directories
+// under ~/.config/construct-cli/security/sessions are collapsed to the static
+// sessions root, are not considered sensitive, and do not trigger interactive prompts.
+func TestSecuritySessionsPathHandling(t *testing.T) {
+	withRootsTestHome(t)
+	base := SecuritySessionsBaseDir()
+	if base == "" {
+		t.Fatal("SecuritySessionsBaseDir returned empty")
+	}
+
+	sessionDir := filepath.Join(base, "5c94b8120412d84d76957e0564eb60e0", "merged")
+	if !IsSecuritySessionPath(sessionDir) {
+		t.Fatalf("IsSecuritySessionPath(%q) = false, want true", sessionDir)
+	}
+	if !IsSecuritySessionPath(base) {
+		t.Fatalf("IsSecuritySessionPath(%q) = false, want true", base)
+	}
+	if IsSecuritySessionPath("/some/other/path") {
+		t.Fatal("IsSecuritySessionPath returned true for unrelated path")
+	}
+
+	if isSensitiveHomePath(sessionDir) {
+		t.Fatalf("isSensitiveHomePath(%q) = true, want false (internal session dir must not prompt)", sessionDir)
+	}
+
+	store := RootsStore{Version: rootsStoreVersion}
+	roots := effectiveWorkspaceRoots(sessionDir, store)
+	if len(roots) != 1 || roots[0] != base {
+		t.Fatalf("effectiveWorkspaceRoots(%q) = %v, want [%s]", sessionDir, roots, base)
+	}
+
+	cfg := config.DefaultConfig()
+	origInteractive, origConfirm := learnRootInteractive, learnRootConfirm
+	learnRootInteractive = func() bool { return true }
+	learnRootConfirm = func(string) bool {
+		t.Fatal("requestLearnRoot must not prompt for security sessions")
+		return false
+	}
+	t.Cleanup(func() { learnRootInteractive, learnRootConfirm = origInteractive, origConfirm })
+
+	learned, err := requestLearnRoot(&cfg, sessionDir)
+	if err != nil {
+		t.Fatalf("requestLearnRoot failed: %v", err)
+	}
+	if !learned {
+		t.Fatal("requestLearnRoot should auto-learn the security sessions base dir")
+	}
+
+	reloaded, err := LoadRootsStore()
+	if err != nil {
+		t.Fatalf("LoadRootsStore: %v", err)
+	}
+	if !reloaded.Has(base) {
+		t.Fatalf("roots store missing base dir %s: %v", base, reloaded.Paths())
+	}
+	if reloaded.Has(sessionDir) {
+		t.Fatalf("roots store should NOT contain ephemeral session dir %s", sessionDir)
+	}
+}

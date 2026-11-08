@@ -993,22 +993,30 @@ func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir s
 				// subdir) just refreshes that root's last_used — it rides the
 				// existing mount and must never be learned as a shadow root.
 				touched := ""
+				checkDir := cleaned
+				if IsSecuritySessionPath(cleaned) {
+					checkDir = SecuritySessionsBaseDir()
+				}
 				for _, r := range store.Paths() {
-					if cleaned == r || strings.HasPrefix(cleaned+string(os.PathSeparator), r+string(os.PathSeparator)) {
+					if checkDir == r || strings.HasPrefix(checkDir+string(os.PathSeparator), r+string(os.PathSeparator)) {
 						touched = r
 						break
 					}
 				}
-				if touched != "" && !isUserHome(cleaned) {
+				if touched != "" && !isUserHome(checkDir) {
 					store.TouchRoot(touched, time.Now())
 					_ = SaveRootsStore(store) //nolint:errcheck // best-effort last_used update; continue with in-memory set
 				} else {
-					learned, lerr2 := requestLearnRoot(cfg, projectDir)
+					learnTarget := projectDir
+					if IsSecuritySessionPath(cleaned) {
+						learnTarget = SecuritySessionsBaseDir()
+					}
+					learned, lerr2 := requestLearnRoot(cfg, learnTarget)
 					if lerr2 != nil {
 						return nil, lerr2
 					}
 					if learned {
-						learnedRoot = cleaned
+						learnedRoot = cleanProjectDir(learnTarget)
 					}
 				}
 			}

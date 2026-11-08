@@ -322,6 +322,25 @@ func (s *RootsStore) Unaccept(path string) bool {
 	return true
 }
 
+// SecuritySessionsBaseDir returns the host base directory where security sessions live.
+func SecuritySessionsBaseDir() string {
+	configDir := config.GetConfigDir()
+	if configDir == "" {
+		return ""
+	}
+	return filepath.Clean(filepath.Join(configDir, "security", "sessions"))
+}
+
+// IsSecuritySessionPath reports whether path is inside Construct's internal security sessions directory.
+func IsSecuritySessionPath(path string) bool {
+	base := SecuritySessionsBaseDir()
+	if base == "" || path == "" {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	return cleaned == base || containsPath(base, cleaned)
+}
+
 // effectiveWorkspaceRoots returns the single-path mount set for this run:
 // every learned root that still exists, plus the current project dir — but
 // only when it is NOT already covered by a learned root (a subdir of a
@@ -332,6 +351,9 @@ func (s *RootsStore) Unaccept(path string) bool {
 func effectiveWorkspaceRoots(projectDir string, store RootsStore) []string {
 	roots := store.Paths()
 	cleaned := cleanProjectDir(projectDir)
+	if IsSecuritySessionPath(cleaned) {
+		cleaned = SecuritySessionsBaseDir()
+	}
 	covered := false
 	for _, r := range roots {
 		if containsPath(r, cleaned) {
@@ -400,6 +422,9 @@ func requestLearnRoot(cfg *config.Config, projectDir string) (bool, error) {
 	if resolved == "" {
 		return false, nil
 	} // Defensive backstop: cleanProjectDir already refuses system roots.
+	if IsSecuritySessionPath(resolved) {
+		resolved = SecuritySessionsBaseDir()
+	}
 	if EvaluateWorkspace(resolved, 0).Risk == WorkspaceRiskSystem {
 		ui.InfoF("Refusing to learn system root: %s\n", resolved)
 		return false, nil
@@ -522,6 +547,9 @@ func learnRoot(cfg *config.Config, resolved string) error {
 // the tree (~/projects/.env-tooling) are deliberate project locations
 // and stay auto-learnable.
 func isSensitiveHomePath(resolved string) bool {
+	if IsSecuritySessionPath(resolved) {
+		return false
+	}
 	for _, h := range homeCandidates() {
 		if resolved == h || !containsPath(h, resolved) {
 			continue

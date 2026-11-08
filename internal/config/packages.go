@@ -437,7 +437,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 			if pinned != "" {
 				b.WriteString(" && [ \"$(node -p \"require('" + modDir + "/package.json').version\" 2>/dev/null)\" = \"" + pinned + "\" ]")
 			}
-			b.WriteString(" ]; then\n")
+			b.WriteString("; then\n")
 			b.WriteString("    echo 'npm: " + pkgDir + " already installed; skipping'\n")
 			b.WriteString("else\n")
 			b.WriteString("    npm install -g " + pkg + " || echo \"⚠️ Failed to install " + pkg + "\"\n")
