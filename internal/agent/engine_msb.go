@@ -27,7 +27,7 @@ func signalRunContext() (context.Context, func()) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 }
 
-// execViaMsbDaemon is the msb run path (docs/VMsv2.md): guarantee
+// execViaMsbDaemon is the msb run path (docs/ARCHITECTURE-DESIGN.md §4.1): guarantee
 // the persistent daemon sandbox, install agents on first use, then exec the
 // agent interactively with the same env contract the Docker daemon path
 // builds (buildDaemonExecEnv + MaskEnv + exit-code fidelity).
@@ -38,9 +38,6 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	var allowHome bool
 	var maxEntries int
 	if e.cfg != nil {
-		if strings.EqualFold(e.cfg.Network.Mode, "strict") {
-			return 1, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
-		}
 		allowHome = e.cfg.Sandbox.AllowHomeWorkspace
 		maxEntries = e.cfg.Sandbox.WorkspaceMaxEntries
 	}
@@ -89,11 +86,27 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 	}
 
 	envVars := buildDaemonExecEnv(args, providerEnv, e.cbServer, e.execServer, e.cfg)
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 	env.SetEnvVar(&envVars, "CONSTRUCT_HOST_ALIAS", runtime.MsbHostAlias)
 	// Pin xterm-256color to guarantee terminfo compatibility inside the guest image
 	env.SetEnvVar(&envVars, "TERM", "xterm-256color")
+
+	if e.proxyURL != "" {
+		env.SetEnvVar(&envVars, "HTTP_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "HTTPS_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "ALL_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "http_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "https_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "GIT_SSL_CAINFO", "/etc/ssl/certs/ca-certificates.crt")
+	}
 
 	stdTTY := term.IsTerminal(int(os.Stdin.Fd()))
 	if stdTTY {
@@ -105,7 +118,7 @@ func (e *RuntimeEngine) execViaMsbDaemon(args []string, providerEnv []string) (i
 
 	execUser := runtime.ResolveExecUserMsb(e.cfg)
 
-	// SSH agent proxy (docs/VMsv2.md): same per-session socket + socat model
+	// SSH agent proxy (docs/ARCHITECTURE-DESIGN.md §4.1): same per-session socket + socat model
 	// as the Docker daemon path, but the socat target is the msb host alias
 	// (§3.1) and it runs through the SDK exec instead of docker exec.
 	// In msb, the socket lives in /tmp because virtiofs host mounts reject AF_UNIX bind.

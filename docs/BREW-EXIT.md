@@ -194,7 +194,7 @@ Decision: mise `github:` backend for the ~8 tools with no better channel (yq, to
 3. `update-all.sh`: swap brew/topgrade source assumptions for apt + npm + mise paths.
 4. AGENTS.md "Installed Tools" wording (currently says "via Homebrew").
 5. Docs: PACKAGES.md baseline sections + restore table rewritten to apt recipes; this document updated with execution deltas.
-6. Rebuild, docker save, msb load, full lab-matrix gate, VMsv2 section 10 numbers.
+6. Rebuild, docker save, msb load, full lab-matrix gate, telemetry medians recorded.
 7. Agy review round before commit, per protocol.
 
 ## Risks

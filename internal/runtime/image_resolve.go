@@ -105,11 +105,11 @@ func ConfirmConstructImageBuild() error {
 		return nil
 	}
 	if !stdinIsTerminal() {
-		return fmt.Errorf("construct-box image not found locally and the published image could not be pulled; run `construct sys rebuild` (or `docker pull %s`) from a terminal: refusing to start a ~15-minute build without a confirmed prompt", PrepullImageRef)
+		return fmt.Errorf("construct-box image not found locally and the published image could not be pulled; run `construct sys image rebuild` (or `docker pull %s`) from a terminal: refusing to start a ~15-minute build without a confirmed prompt", PrepullImageRef)
 	}
 	ui.InfoLn("⚠️  Construct image not found locally and the published image is unavailable.")
 	if !confirmPrompt("Build the image locally now? (~15 min on modern hardware)") {
-		return fmt.Errorf("image build declined; run `construct sys rebuild` later, or pull %s manually", PrepullImageRef)
+		return fmt.Errorf("image build declined; run `construct sys image rebuild` later, or pull %s manually", PrepullImageRef)
 	}
 	return nil
 }

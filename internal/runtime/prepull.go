@@ -39,7 +39,7 @@ const prepullLogName = "prepull.log"
 // Best-effort: failures log one line and do not propagate. The detached
 // process inherits the host's HOME, PATH, and msb config dir so it can
 // authenticate to GHCR the same way the foreground ct did.
-func MaybePrepullImage(cfg *config.Config) {
+func MaybePrepullImage(cfg *config.Config, exe string) {
 	if cfg == nil || !cfg.Runtime.PrepullImage {
 		return
 	}
@@ -48,12 +48,6 @@ func MaybePrepullImage(cfg *config.Config) {
 	}
 	if imageLoadedForPrepull() {
 		ui.InfoLn("✓ construct-box image already present; skipping prepull")
-		return
-	}
-
-	exe, err := os.Executable()
-	if err != nil {
-		ui.InfoF("⚠️  Could not resolve executable for prepull: %v\n", err)
 		return
 	}
 
@@ -75,7 +69,7 @@ func MaybePrepullImage(cfg *config.Config) {
 }
 
 // PullImage runs a foreground pull of the published construct-box image from GHCR.
-// Used by `construct sys pull`.
+// Used by `construct sys image pull`.
 func PullImage(cfg *config.Config) error {
 	backend := config.BackendMsb
 	if cfg != nil && cfg.Runtime.Backend != "" {
@@ -89,11 +83,22 @@ func PullImage(cfg *config.Config) error {
 		if err != nil {
 			return fmt.Errorf("msb command: %w", err)
 		}
-		cmd := exec.Command(pullBin, "image", "pull", "--force", PrepullImageRef)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("pull failed: %w", err)
+		const maxAttempts = 3
+		var runErr error
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			cmd := exec.Command(pullBin, "image", "pull", PrepullImageRef)
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			runErr = cmd.Run()
+			if runErr == nil {
+				break
+			}
+			if attempt < maxAttempts {
+				ui.InfoF("⚠️  Pull interrupted; resuming (attempt %d/%d)...\n", attempt+1, maxAttempts)
+			}
+		}
+		if runErr != nil {
+			return fmt.Errorf("pull failed after %d attempts: %w", maxAttempts, runErr)
 		}
 		bustImageInspectMemo()
 		bustRemoteDigestCache()

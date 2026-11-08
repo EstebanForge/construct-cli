@@ -174,7 +174,7 @@ Replaces Copilot's native NAPI-RS clipboard addon (`@teddyzhu/clipboard`) with a
 - All read methods use `curl` to fetch from `CONSTRUCT_CLIPBOARD_URL` with the token header.
 - All write methods (`setClipboardText`, `setClipboardImage`, etc.) are no-op stubs.
 - `ClipboardListener` is a stub (no event watching).
-- Logs to `/tmp/construct-copilot-clipboard.log` (visible in `sys clipboard-debug`).
+- Logs to `/tmp/construct-copilot-clipboard.log` (visible in `sys doctor clipboard`).
 
 **Note:** This patch is still applied and the version string is still checked, but **Copilot no longer uses this bridge for image paste**. Image paste now goes through the PTY wrapper (see below). The JS bridge remains in place as a fallback layer and for text clipboard operations.
 
@@ -386,7 +386,7 @@ The wrapper creates a PTY pair (`pty.openpty()`), spawns the real copilot on the
 
 ## Debugging
 
-Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash script inside the container and shows:
+Run `construct sys doctor clipboard` from the host. It executes a diagnostic bash script inside the container and shows:
 
 1. **Host server log** (last 50 lines of `~/.config/construct-cli/logs/clipboard_server.log`) — confirms the server started and whether any fetch requests arrived.
 2. **Container env** — `CONSTRUCT_CLIPBOARD_URL`, `CONSTRUCT_CLIPBOARD_TOKEN` (truncated), `CONSTRUCT_FILE_PASTE_AGENTS`, `CONSTRUCT_CLIPBOARD_IMAGE_PATCH`, `XDG_SESSION_TYPE`, etc.
@@ -412,16 +412,16 @@ Run `construct sys clipboard-debug` from the host. It executes a diagnostic bash
 
 **Wrapper log shows `ctrl+v detected` but `save_image: fetch failed`:**
 - Token mismatch (server was restarted since wrapper's env vars were set).
-- Bridge server not running (`sys rebuild` to restart everything).
+- Bridge server not running (`sys image rebuild` to restart everything).
 
 **Wrapper log shows `not a tty — exec direct`:**
 - Copilot was started in a non-interactive context. PTY interception requires a real TTY.
 
 **Copilot shows v7/v6 after rebuild:**
-- The home bind persists the old wrapper binary across `sys rebuild`. `sys rebuild` re-runs `agent-patch.sh` which reinstalls the wrapper. If it still shows old version, check the setup log for errors.
+- The home bind persists the old wrapper binary across `sys image rebuild`. `sys image rebuild` re-runs `agent-patch.sh` which reinstalls the wrapper. If it still shows old version, check the setup log for errors.
 
 **`_REAL` shows `__CONSTRUCT_REAL_COPILOT__` (placeholder not replaced):**
-- `npm bin -g` failed and `~/.npm-global/bin/copilot` did not exist at patch time. Copilot was not installed when `agent-patch.sh` ran. `sys rebuild` to force reinstall.
+- `npm bin -g` failed and `~/.npm-global/bin/copilot` did not exist at patch time. Copilot was not installed when `agent-patch.sh` ran. `sys image rebuild` to force reinstall.
 
 ---
 
@@ -440,7 +440,7 @@ If the target path is a symlink (e.g., an npm-global bin launcher pointing into 
 The Homebrew copilot bin script does `import('./index.js')` relative to its own directory. If you copy it to a different directory (even the same one as `copilot-real`), Node resolves `./index.js` relative to the copy's location, not the original package. Use the npm-global symlink as `_REAL` — it's a symlink into the npm package directory so Node imports resolve correctly.
 
 **The home bind survives image rebuild:**
-The wrapper lives under the construct home (`~/.npm-global` or `~/.local/bin`, both inside the `~/.config/construct-cli/home` bind), so a wrapper installed by a previous version persists across `sys rebuild`. `agent-patch.sh` handles this via version-string idempotency guards — if the guard version doesn't match the current file content, it reinstalls.
+The wrapper lives under the construct home (`~/.npm-global` or `~/.local/bin`, both inside the `~/.config/construct-cli/home` bind), so a wrapper installed by a previous version persists across `sys image rebuild`. `agent-patch.sh` handles this via version-string idempotency guards — if the guard version doesn't match the current file content, it reinstalls.
 
 **`~/.config/construct-cli/logs/` vs `/tmp/`:**
 Early wrapper versions logged to `/tmp/construct-copilot-wrapper.log`. Because containers run with `--rm`, `/tmp` is destroyed on exit. Logs must go to the home dir bind-mount (`~/.config/construct-cli/home/` on the host = `/home/construct/` in the container). All persistent logs now use `~/.config/construct-cli/logs/` inside the container.

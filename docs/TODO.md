@@ -74,14 +74,16 @@ Remove hard-coded install from `packages.go`.
 
 # TODO: MicroVM Engine General Availability (GA) Checklist
 
-Items required before graduating `backend = "msb"` out of experimental status.
+DONE 2026-11-01: `backend = "msb"` shipped as the default in 2.0.0. Section kept as the record of what GA required.
 
 ## Prerequisites
 
 - [x] **Publish Multi-Arch Image to GHCR**: Build and publish `ghcr.io/estebanforge/construct-box:latest` for `linux/amd64` and `linux/arm64` — DONE 2026-09-25. Mechanism note: publishes are NOT part of the release workflow; they ride the manual `workflow_dispatch` `.github/workflows/image.yml` (dispatch it whenever the Dockerfile or its COPY'd templates change). Users pull via `msb` with no Docker engine; the 1.17.8+ digest-drift check refreshes stale caches automatically.
-- [ ] **Verify Non-Docker Cold Start**: Validate that fresh machines with `backend = "msb"` and `msb` installed can run `construct sys init` and agent sessions with zero Docker dependencies installed.
-- [ ] **Dogfooding & Stability**: Complete dogfooding across daily workloads (Claude, Pi, Codex, Antigravity) validating bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions.
-- [ ] **Documentation Update**: Remove experimental warnings in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, and `ARCHITECTURE-DESIGN.md`.
+- [x] ~~**Verify Non-Docker Cold Start**~~ REMOVED (owner, 2026-11-01): not required for GA. Release builds embed the msb SDK; image acquisition is GHCR pull with no Docker dependency. Docker is only needed for the local-build opt-in path.
+- [x] **Dogfooding & Stability**: DONE (owner, 2026-11-01). Daily workloads (Claude, Pi, Codex, Antigravity) across bridges (SSH agent, clipboard, host exec, loopback forwarders) and project directory transitions validated.
+- [x] **Documentation Update**: DONE (2026-11-01). Experimental warnings removed in `README.md`, `INSTALLATION.md`, `CONFIGURATION.md`, `ARCHITECTURE-DESIGN.md`, `SECURITY.md`, and `INDEX.md`; docs now describe msb as the default backend.
+- [x] **Flip default backend to msb**: DONE (2026-11-01). `DefaultConfig` resolves the default by platform capability (Apple Silicon macOS / Linux with KVM → msb, else containers), the config template and help text agree, `sys image reset` fails closed with an msb-appropriate message (no nil-cmd panic), and `sys image init`/`rebuild` fall back to a GHCR pull when no OCI engine is installed.
+- [x] **2.0 cleanup**: DONE (2026-11-01). Removed legacy engine/backend migration code (`foldLegacyEngine`, `migrateLegacyEngineKey`, `migrateBackendValues`, `Engine` field), dead `DetectBackend` (with its wrong strict-mode rejection), and the daemon spec label→file migration shim.
 
 ---
 
@@ -143,7 +145,7 @@ Status: parked. Do not start before the MicroVM Engine GA checklist above ships.
 
 Alternatives review, 2026-08-27. microsandbox (msb) stays the GA engine: it is the only local-first microVM option that satisfies all four construct constraints (macOS arm64 + Linux KVM, embeddable Go SDK, local-first, single shared daemon).
 
-The watch item is smol machines / smolvm ([smolmachines.com](https://smolmachines.com), [github.com/smol-machines/smolvm](https://github.com/smol-machines/smolvm), Apache-2.0, Rust). Feature superset relevant to us: VM fork with copy-on-write memory (would supersede the parked VMsv2 phase 6 snapshot fork), checkpoints/restore, portable stateful `.smolmachine` artifacts, first-class egress allowlist, networking off by default, OCI pulls with no Docker daemon, CUDA-over-vsock GPU remoting.
+The watch item is smol machines / smolvm ([smolmachines.com](https://smolmachines.com), [github.com/smol-machines/smolvm](https://github.com/smol-machines/smolvm), Apache-2.0, Rust). Feature superset relevant to us: VM fork with copy-on-write memory (would supersede the parked snapshot fork (ARCHITECTURE-DESIGN §4.1)), checkpoints/restore, portable stateful `.smolmachine` artifacts, first-class egress allowlist, networking off by default, OCI pulls with no Docker daemon, CUDA-over-vsock GPU remoting.
 
 Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integration paths: shell out to the `smolvm` CLI, thin REST client, or cgo bindings to the Rust crate. Any of these is a new backend implementation, not a rewrite: the `Backend` interface and conformance harness exist for exactly this.
 
@@ -151,12 +153,12 @@ Gap: no Go SDK (Rust crate + Node/Python SDK; REST via `smolvm serve`). Integrat
 
 - [ ] Evaluate `smolvm` CLI/REST stability, mount semantics (vs the msb create-time-only mounts constraint), and daemon/lifecycle model on macOS arm64 + Linux KVM.
 - [ ] Prototype a smolvm `Backend` implementation (`internal/runtime/backend.go`) passing the existing conformance suite (`internal/runtime/conformance_test.go`) with no engine-specific forks of the harness.
-- [ ] Measure time-to-ready vs the msb warm/reconnect baselines in `docs/VMsv2.md` section 10 (requires P0.4 dogfood medians to exist first).
+- [ ] Measure time-to-ready vs the msb warm/reconnect baselines in the msb-telemetry medians (requires a week of accumulated telemetry first).
 - [ ] Confirm the egress allowlist + secret handling cover what `msbHostTransportRules` + network modes (permissive/strict/offline) do today, including the host loopback relays.
 
 ## Decision gate
 
-Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave VMsv2 phase 6 parked under its own gate: if the spike passes, smolvm fork replaces phase 6; if not, the phase 6 gate still applies. Re-evaluate after GA ships + one dogfood week.
+Switch (or add as a second microvm backend) only if BOTH hold: msb SDK velocity keeps producing breakage we must absorb (SDK pin lockstep, missing mount APIs, incomplete-rootfs fallback) while smolvm ships stable, AND the conformance prototype passes. Otherwise keep msb and leave the snapshot fork parked under its own gate: if the spike passes, smolvm fork replaces it; if not, its gate still applies. Re-evaluate after GA ships + one dogfood week.
 
 ---
 
@@ -213,7 +215,7 @@ Existing home binds carry agent copies installed under the old model — those w
 - REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines.
   - COMPANION FIX (required, same PR): relocate the installer hash marker out of the home bind. Today `HASH_FILE=/home/construct/.local/.entrypoint_hash` (`entrypoint.sh:423`) lives on the bind, so a recreate with unchanged hash skips the installer entirely — with the volume gone, declared `[brew]`/`[apt]` packages would then be lost on every recreate. Move the marker to the root filesystem (e.g. `/var/lib/construct-cli/.entrypoint_hash`): it then resets per root-disk lifetime, so the installer re-runs exactly once after each recreate. Post-bake that re-run is a near-no-op (existence guards skip everything installed) — seconds, and it re-provisions user-declared packages. Routine stop/start still skips (root persists).
 
-  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`; AUTOMATED by `construct sys doctor --fix` — see the Sys Doctor section — the steps below are the manual fallback):
+  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`; AUTOMATED by `construct sys doctor fix` — see the Sys Doctor section — the steps below are the manual fallback):
 
   ```text
   Docker users: one-time cleanup after upgrading
@@ -264,11 +266,11 @@ Existing home binds carry agent copies installed under the old model — those w
 2. Fresh-home first run: agents usable without any install phase; `claude --version`, `codex --version`, `agy --version`, `pi --version`, `opencode --version` resolve to `/usr/local/bin`
 3. Override contract live: a `packages.toml` codex entry shadows the baked binary; removing the entry + recreating falls back to baked
 4. Migration sweep verified against a home bind containing stale pre-bake copies
-5. Image size + pull time recorded in `docs/VMsv2.md` section 10
+5. Image size + pull time recorded in the msb-telemetry log
 
 ## Post-publish follow-ups
 
-- ~~msb store garbage collection (keep `latest` + active images)~~ DONE: `ScanMsbStoreGC`/`RunMsbStoreGC` (internal/runtime/backend_msb_gc.go) reclaim every cached construct candidate ref except the boot ref, plus construct-owned fork snapshots (dead daemon groups entirely, all but the newest for a live daemon); runs in the idle window and from `construct sys doctor --fix`, whose MSB Store check scans without --fix. User snapshots and foreign images are never touched; snapshot GC fails closed when sandbox liveness is unknown
+- ~~msb store garbage collection (keep `latest` + active images)~~ DONE: `ScanMsbStoreGC`/`RunMsbStoreGC` (internal/runtime/backend_msb_gc.go) reclaim every cached construct candidate ref except the boot ref, plus construct-owned fork snapshots (dead daemon groups entirely, all but the newest for a live daemon); runs in the idle window and from `construct sys doctor fix`, whose MSB Store check scans without fix. User snapshots and foreign images are never touched; snapshot GC fails closed when sandbox liveness is unknown
 - ~~Refresh mechanism for cached images on existing installs~~ DONE 1.17.8/1.17.9: `EnsureImage` compares the cached platform-manifest digest against the registry (linux/<host-arch> resolution) and re-pulls on drift; the `construct.daemon.image_digest` recreate label makes a refreshed image reach the daemon with exactly one recreate
 - ~~Unify `construct sys update` across engines~~ DONE: both backends run the in-guest `update-all.sh` (foreground `sys update` pass and the idle-window pass), covering the optional layer; the baked baseline moves on the image lane
 
@@ -278,15 +280,15 @@ Verdict: adopt-with-changes. 3 blockers, 4 majors, 3 minors, 1 note — all fold
 
 ---
 
-# TODO: Sys Doctor — Automated Migration (`construct sys doctor [--fix]`)
+# TODO: Sys Doctor — Automated Migration (`construct sys doctor [fix]`)
 
-Status: IMPLEMENTED (2026-09-21). Correction to the original design: `construct sys doctor` already existed (health checks + --fix); task 22 EXTENDED it with the migration checks rather than building from scratch. Check 7 (old hash-marker orphan) is SUPERSEDED: task 20 repurposed the bind-side `.entrypoint_hash` as the host mirror, so no orphan exists. Shipped checks: Stale Packages Volume (docker/podman, unreferenced-only rm), Baked Agent Bind Copies (host-side detection via config.StaleBakedCopyPaths, --fix removes host-side), Baked Image Freshness (msb, --fix = bounded 10m msb pull), Host CLI/SDK Skew (msb --version vs constants.MsbSdkPin, report-only). Plus --json (machine-readable, header suppressed) and exit 1 on errors for CI gating. Sequencing rule stands: the volume removal must not ship before the baked image is on GHCR.
+Status: IMPLEMENTED (2026-09-21). Correction to the original design: `construct sys doctor` already existed (health checks + fix); task 22 EXTENDED it with the migration checks rather than building from scratch. Check 7 (old hash-marker orphan) is SUPERSEDED: task 20 repurposed the bind-side `.entrypoint_hash` as the host mirror, so no orphan exists. Shipped checks: Stale Packages Volume (docker/podman, unreferenced-only rm), Baked Agent Bind Copies (host-side detection via config.StaleBakedCopyPaths, fix removes host-side), Baked Image Freshness (msb, fix = bounded 10m msb pull), Host CLI/SDK Skew (msb --version vs constants.MsbSdkPin, report-only). Plus --json (machine-readable, header suppressed) and exit 1 on errors for CI gating. Sequencing rule stands: the volume removal must not ship before the baked image is on GHCR.
 
 ## CLI shape
 
 ```text
 construct sys doctor           # read-only diagnosis: report + exit 0 clean / 1 issues found
-construct sys doctor --fix     # diagnosis + apply the enumerated safe fixes, then re-report
+construct sys doctor fix       # diagnosis + apply the enumerated safe fixes, then re-report
 construct sys doctor --json    # machine-readable report (lab-matrix assertions, CI)
 ```
 
@@ -315,7 +317,7 @@ construct sys doctor --json    # machine-readable report (lab-matrix assertions,
 
 - New `internal/doctor` package; reuses `msbHostVersion` (telemetry helper), the daemon flock, and the generated installer for check 4. Each check = one function returning (status, detail, fix-fn); `--fix` runs the fix-fns of failed checks.
 - `lab-matrix.sh` gains a doctor stage: seed a stale-layout fixture (old volume name + stale bind copies) → `doctor --fix` → assert report clean and volume gone. This becomes part of the Image Layering verification gate.
-- Docs: `docs/CONFIGURATION.md` gains a "Sys Doctor" section (check table + `--fix` semantics); release notes for the layering release lead with `construct sys doctor --fix` as THE upgrade step.
+- Docs: `docs/CONFIGURATION.md` gains a "Sys Doctor" section (check table + fix semantics); release notes for the layering release lead with `construct sys doctor fix` as THE upgrade step.
 
 ---
 
@@ -375,41 +377,3 @@ The generated topgrade config excludes topgrade's built-in per-agent steps (`cla
 
 Found the blocker this section now encodes: running the update inside the flock hangs incoming sessions for the timeout; running it without coordination lets a concurrent recreate destroy the sandbox mid-update, and the original "stop afterwards regardless" step could kill a session that registered mid-pass. Fixes adopted: no-flock execution with a dedicated update guard, `LiveSessionCount()` polling with stand-down, stop re-decided under the flock. Also adopted: single entry point `update-all.sh` (topgrade already inside — no double run).
 
----
-
-# TODO: Inference Usage Accounting (unknown, never zero)
-
-Status: PROPOSED (idea intake 2026-10-16, from an [Overalls](https://overalls.dev) study). Desired behavior, not a decision. No design or peer review yet.
-
-## Background
-
-Construct cannot answer "how many tokens did this project, agent, or session burn?" Local telemetry (`docs/CONFIGURATION.md`, Local Telemetry) covers boot diagnostics only. Provider keys enter the guest as env until the [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) lands, so nothing on the host sees provider traffic. The only usage data available lives in provider dashboards, keyed by API key, not by project or agent.
-
-## Goal (the invariant)
-
-Per-run, per-agent, per-project usage accounting for local reporting, with an honesty rule borrowed from Overalls' Ziggy proxy: usage Construct cannot attribute is recorded as `unknown`, never as zero. Absence of a measurement is a data gap, not a zero bill. Every surface that sums usage must carry the unknown bucket and must never print a total that silently assumes measured equals everything.
-
-## Candidate metering points (open — pick during design)
-
-| Point | Gets | Costs |
-|---|---|---|
-| Sentinel proxy (once built) | Request counts, model, per session/machine, high attribution fidelity | Token counts live in response bodies (SSE usage frames). The sentinel design forbids scanning REQUEST bodies; response-side usage-frame reading needs its own design pass and must not buffer payloads |
-| Provider usage/reporting APIs | Exact token counts per API key | Attribution is per key: keys shared across agents or projects land in unknown; provider coverage and rate limits vary |
-| Guest-side wrappers/hooks | Per-process attribution | Fragile and spoofable by the agent itself; lowest trust |
-
-## Axes
-
-Per sandbox machine (project root), per agent binary, per session/run id, per provider plus model. Construct is single-user and local-first: a per-user axis is out of scope, and telemetry stays local-only by default (no network calls), matching the Local Telemetry contract.
-
-## Success criteria
-
-- A report exists (CLI first, likely `construct sys usage`) with totals per project, agent, and provider, plus an explicit `unknown` bucket.
-- Traffic Construct could not observe (proxy off, permissive-mode direct egress, unsupported providers) lands in `unknown` — never silently dropped, never reported as 0.
-- Cost estimation (if added) is labeled an estimate with a pricing snapshot date; tokens are the primary unit.
-- Telemetry stays local-only, 0600, rotating, same as `msb-telemetry.jsonl`.
-
-## Open questions
-
-- Does this gate on the sentinel proxy's S1 egress proxy, or run standalone on provider reporting APIs first?
-- Response-side usage frames: read-only SSE tail parsing vs the payload-buffering ban — needs a design round with the same rigor as the sentinel peer review.
-- Custom providers and `*_BASE_URL` overrides change what a "provider" is; the data model must carry endpoint identity, not just vendor name.

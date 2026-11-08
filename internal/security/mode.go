@@ -3,7 +3,6 @@ package security
 
 import (
 	"fmt"
-	"os"
 )
 
 const (
@@ -35,24 +34,8 @@ func (s *EnablementStatus) IsEnabled() bool {
 	return s.Mode == ModeEnabled
 }
 
-// ResolveEnablement determines whether hide-secrets mode should be active based on
-// the experiment gate and user config.
+// ResolveEnablement determines whether hide-secrets mode should be active based on user config.
 func ResolveEnablement(configEnabled bool) *EnablementStatus {
-	// Check master experiment gate first
-	gateValue := os.Getenv(ExperimentGateEnv)
-	featureGated := gateValue != "1"
-
-	if featureGated {
-		// Feature is gated off - config is ignored
-		return &EnablementStatus{
-			Mode:         ModeDisabled,
-			Reason:       fmt.Sprintf("%s env var is not set to '1'", ExperimentGateEnv),
-			Source:       "experiment_gate_disabled",
-			FeatureGated: true,
-		}
-	}
-
-	// Gate is open, check user config
 	if !configEnabled {
 		return &EnablementStatus{
 			Mode:         ModeDisabled,
@@ -62,10 +45,9 @@ func ResolveEnablement(configEnabled bool) *EnablementStatus {
 		}
 	}
 
-	// Both gates passed
 	return &EnablementStatus{
 		Mode:         ModeEnabled,
-		Reason:       "Enabled via config with experiment gate satisfied",
+		Reason:       "Enabled via config",
 		Source:       "config_enabled",
 		FeatureGated: false,
 	}

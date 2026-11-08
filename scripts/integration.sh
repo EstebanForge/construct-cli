@@ -91,7 +91,7 @@ fi
 
 # Test: Init command creates config directory
 print_test "Init command creates config directory"
-"${BINARY}" sys init > /dev/null 2>&1
+"${BINARY}" sys image init > /dev/null 2>&1
 if [ -d "${TEST_CONFIG_DIR}" ]; then
     print_pass "Config directory created: ${TEST_CONFIG_DIR}"
 else
@@ -164,7 +164,7 @@ fi
 print_test "Init is idempotent (doesn't overwrite)"
 # Add a marker to detect if file gets overwritten
 echo "# test-marker-$$" >> "${TEST_CONFIG_DIR}/config.toml"
-"${BINARY}" sys init > /dev/null 2>&1
+"${BINARY}" sys image init > /dev/null 2>&1
 
 if grep -q "# test-marker-$$" "${TEST_CONFIG_DIR}/config.toml"; then
     print_pass "Init doesn't overwrite existing files"
@@ -228,51 +228,45 @@ else
     print_fail "Config file permissions incorrect"
 fi
 
-# Test: aliases --install command
-print_test "aliases --install command"
+# Test: shims install command
+print_test "shims install command"
 # Fake a shell rc file
 export SHELL="/bin/bash"
 # Ensure HOME is set to TEST_DIR for this specific test
 export HOME="${TEST_DIR}"
 TOUCH_RC="${TEST_DIR}/.bashrc"
 touch "${TOUCH_RC}"
-# Capture output and exit code for debugging
-INSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys aliases --install 2>&1)
+# Seed legacy alias block to verify shims install cleans it up
+cat << 'EOF' > "${TOUCH_RC}"
+# construct-cli aliases start
+alias claude='ct claude'
+# construct-cli aliases end
+EOF
+INSTALL_OUTPUT=$("${BINARY}" sys shims install --dir "${TEST_DIR}/.local/bin" 2>&1)
 INSTALL_EXIT=$?
 if [ "${INSTALL_EXIT}" -ne 0 ]; then
-    print_fail "aliases --install command failed with exit code ${INSTALL_EXIT}"
+    print_fail "shims install command failed with exit code ${INSTALL_EXIT}"
     echo "Output: ${INSTALL_OUTPUT}"
-elif grep -q "# construct-cli aliases start" "${TOUCH_RC}" && \
-     grep -q "alias claude=" "${TOUCH_RC}" && \
-     grep -q "cc-zai" "${TOUCH_RC}" && \
-     grep -q "# construct-cli aliases end" "${TOUCH_RC}"; then
-    print_pass "aliases --install command works and creates correct block"
+elif [ -f "${TEST_DIR}/.local/bin/claude" ] && \
+     ! grep -q "# construct-cli aliases start" "${TOUCH_RC}"; then
+    print_pass "shims install command creates shim and cleans legacy aliases"
 else
-    print_fail "aliases --install command failed to create correct block in ${TOUCH_RC}"
+    print_fail "shims install failed to create shim or clean aliases"
     echo "Exit code: ${INSTALL_EXIT}"
-    echo "File content:"
-    cat "${TOUCH_RC}" || echo "(file empty or missing)"
-    echo "---"
+    echo "Output: ${INSTALL_OUTPUT}"
 fi
 
-# Test: aliases --uninstall command
-print_test "aliases --uninstall command"
-UNINSTALL_OUTPUT=$(echo "y" | "${BINARY}" sys aliases --uninstall 2>&1)
+# Test: shims uninstall command
+print_test "shims uninstall command"
+UNINSTALL_OUTPUT=$("${BINARY}" sys shims uninstall --dir "${TEST_DIR}/.local/bin" 2>&1)
 UNINSTALL_EXIT=$?
 if [ "${UNINSTALL_EXIT}" -ne 0 ]; then
-    print_fail "aliases --uninstall command failed with exit code ${UNINSTALL_EXIT}"
+    print_fail "shims uninstall command failed with exit code ${UNINSTALL_EXIT}"
     echo "Output: ${UNINSTALL_OUTPUT}"
-elif ! grep -q "# construct-cli aliases start" "${TOUCH_RC}" && \
-     ! grep -q "alias claude=" "${TOUCH_RC}" && \
-     ! grep -q "cc-zai" "${TOUCH_RC}" && \
-     ! grep -q "# construct-cli aliases end" "${TOUCH_RC}"; then
-    print_pass "aliases --uninstall command removes alias block"
+elif [ ! -f "${TEST_DIR}/.local/bin/claude" ]; then
+    print_pass "shims uninstall command removes shims"
 else
-    print_fail "aliases --uninstall command failed to remove alias block in ${TOUCH_RC}"
-    echo "Exit code: ${UNINSTALL_EXIT}"
-    echo "File content:"
-    cat "${TOUCH_RC}" || echo "(file empty or missing)"
-    echo "---"
+    print_fail "shims uninstall command failed to remove shims"
 fi
 
 # Summary

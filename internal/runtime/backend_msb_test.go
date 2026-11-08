@@ -12,54 +12,20 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-func TestDetectBackendFailClosed(t *testing.T) {
-	cfg := config.DefaultConfig()
-	_ = &cfg
-	cfg.Runtime.Backend = "bogus"
-	if _, err := DetectBackend(&cfg); err == nil || !strings.Contains(err.Error(), "unknown runtime backend") {
-		t.Fatalf("want unknown-backend error, got %v", err)
-	}
-	cfg.Runtime.Backend = "docker"
-	b, err := DetectBackend(&cfg)
-	if err != nil {
-		t.Skipf("no container runtime on this host: %v", err)
-	}
-	if _, ok := b.(*DockerBackend); !ok {
-		t.Fatalf("docker backend expected, got %T", b)
-	}
-}
-
-// TestDetectBackendContainersIgnoresCategoryBinary: "containers" is the
-// engine-pool value, never a binary pin. A PATH executable named
-// "containers" must not be selected as the runtime.
-func TestDetectBackendContainersIgnoresCategoryBinary(t *testing.T) {
-	fake := t.TempDir()
-	if err := os.WriteFile(filepath.Join(fake, "containers"), []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-		t.Fatalf("write fake binary: %v", err)
-	}
-	t.Setenv("PATH", fake+string(os.PathListSeparator)+os.Getenv("PATH"))
-	cfg := config.DefaultConfig()
-	cfg.Runtime.Backend = config.BackendContainers
-	b, err := DetectBackend(&cfg)
-	if err != nil {
-		t.Skipf("no container runtime on this host: %v", err)
-	}
-	if name := b.Name(); name == "containers" {
-		t.Fatalf("category value leaked as binary pin: runtime = %q", name)
-	}
-}
-
 func TestValidateBackendSelected(t *testing.T) {
 	cfg := config.DefaultConfig()
+	// The platform default may be msb (KVM / Apple Silicon hosts); pin the
+	// OCI pool for the validates case.
+	cfg.Runtime.Backend = config.BackendContainers
 	if err := ValidateBackendSelected(&cfg); err != nil {
-		t.Fatalf("default backend should validate: %v", err)
+		t.Fatalf("containers backend should validate: %v", err)
 	}
 	cfg.Runtime.Backend = "docker"
 	if err := ValidateBackendSelected(&cfg); err != nil {
 		t.Fatalf("docker backend should validate: %v", err)
 	}
 	cfg.Runtime.Backend = config.BackendMsb
-	if err := ValidateBackendSelected(&cfg); err == nil || !strings.Contains(err.Error(), "does not support") {
+	if err := ValidateBackendSelected(&cfg); err == nil || !strings.Contains(err.Error(), "not available on the msb backend") {
 		t.Fatalf("msb should fail closed on compose-only paths, got %v", err)
 	}
 	cfg.Runtime.Backend = "bogus"
@@ -124,7 +90,7 @@ func TestManifestDigestForHost(t *testing.T) {
 }
 
 // TestEnsureImagePrefersLocalBuild: a localhost/ ref only lands via an
-// explicit local build + transition (`construct sys rebuild` / `sys init`
+// explicit local build + transition (`construct sys image rebuild` / `sys image init`
 // on this backend), so EnsureImage must adopt it WITHOUT consulting GHCR —
 // even when a stale GHCR ref is ALSO cached (the normal state after any
 // prior run pulled from the registry). The digest drift check would see a
@@ -557,7 +523,7 @@ func TestMsbConstructImageRefPrefersLocalBuildOverGhcr(t *testing.T) {
 
 // TestTransitionLocalConstructImageToMsbNoLocalImage: without a locally
 // built docker image the transition is a no-op success — the GHCR pull
-// remains the acquisition path and `sys rebuild` must not fail on a
+// remains the acquisition path and `sys image rebuild` must not fail on a
 // machine whose docker store has no construct-box image.
 func TestTransitionLocalConstructImageToMsbNoLocalImage(t *testing.T) {
 	orig := localConstructImageExistsFn

@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 This will:
 1. Download the latest binary for your platform
 2. Install to `/usr/local/bin`
-3. Print the `construct sys init` follow-up command
+3. Print the `construct sys image init` follow-up command
 
 ### Alternative: Homebrew
 
@@ -52,28 +52,28 @@ brew install EstebanForge/tap/construct-cli
 - **macOS 13+** supported with Docker Desktop or OrbStack
 - **Homebrew** (optional, for easier updates)
 
-#### Container Runtime Options
+#### Isolation Backend Options
 
-**Option 1: Native Container Runtime (macOS 26+)**
+**Default: MicroVM isolation (`msb`)**
+- Nothing to install: release builds ship a version-matched microsandbox runtime embedded in the binary
+- Runs sandboxes with dedicated Linux guest kernels via Apple Hypervisor.framework (Apple Silicon)
+- Selected automatically on Apple Silicon Macs; no config change needed
+
+**Alternative: Native Container Runtime (macOS 26+)**
 - Built into macOS
 - No additional software required
-- Best performance
-- Auto-detected by Construct
+- Auto-detected when the microVM backend is unavailable (Intel Macs)
+- Select with `backend = "containers"` in `[runtime]`
 
-**Option 2: Docker Desktop**
+**Alternative: Docker Desktop**
 - Download from [docker.com](https://www.docker.com/products/docker-desktop/)
 - Start Docker Desktop before running Construct
 - Works on macOS 13+
 
-**Option 3: OrbStack**
+**Alternative: OrbStack**
 - Download from [orbstack.dev](https://orbstack.dev/)
 - Lightweight alternative to Docker Desktop
 - Auto-detected if available
-
-**Option 4: MicroVM Isolation (Experimental)**
-- Install microsandbox: `curl -fsSL https://install.microsandbox.dev | sh`
-- Set `backend = "msb"` in `~/.config/construct-cli/config.toml` under `[runtime]`
-- Runs sandboxes with dedicated Linux guest kernels via Apple Hypervisor.framework
 
 #### Installation Steps
 
@@ -93,12 +93,23 @@ construct version
 #### Requirements
 
 - **Linux kernel 5.15+** recommended
-- **Podman** (recommended) or Docker
+- **KVM** (`/dev/kvm`) for the default microVM backend, or **Podman**/Docker for the OCI backend
 - **Systemd** for service management (optional)
 
-#### Container Runtime Setup
+#### Isolation Backend Setup
 
-**Option 1: Podman (Recommended)**
+**Default: MicroVM isolation (`msb`)**
+
+```bash
+# Ensure KVM access (/dev/kvm)
+sudo usermod -aG kvm $USER
+
+# Log out and back in for group changes to take effect
+```
+
+Nothing else to install: release builds ship the microsandbox runtime embedded in the binary, and the sandbox image pulls from GHCR on first use.
+
+**Alternative: Podman**
 
 ```bash
 # Install Podman (Ubuntu/Debian)
@@ -114,7 +125,7 @@ sudo usermod --add-subuids --range 100000-165535 $USER
 sudo usermod --add-subgids --range 100000-165535 $USER
 ```
 
-**Option 2: Docker**
+**Alternative: Docker**
 
 ```bash
 # Install Docker (Ubuntu/Debian)
@@ -122,18 +133,6 @@ curl -fsSL https://get.docker.com | sh
 sudo usermod -aG docker $USER
 
 # Log out and back in for group changes to take effect
-```
-
-**Option 3: MicroVM Isolation (Experimental)**
-
-```bash
-# Install microsandbox
-curl -fsSL https://install.microsandbox.dev | sh
-
-# Ensure KVM access (/dev/kvm)
-sudo usermod -aG kvm $USER
-
-# Set backend in config.toml: [runtime] backend = "msb"
 ```
 
 #### Installation Steps
@@ -193,7 +192,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 
 ```bash
 # Install specific version (env var, no flags)
-curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | VERSION=1.17.9 bash
+curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | VERSION=2.0.0 bash
 
 # Install to custom directory
 curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scripts/install.sh | INSTALL_DIR=~/local/bin bash
@@ -243,7 +242,7 @@ sudo mv construct-linux-amd64 /usr/local/bin/construct
 After installation, run the first-time setup:
 
 ```bash
-construct sys init
+construct sys image init
 ```
 
 This will:
@@ -263,7 +262,7 @@ construct sys doctor
 
 Expected output:
 ```
-✓ Runtime backend: docker (or podman / container / microvm)
+✓ Runtime backend: msb (or containers / podman / docker)
 ✓ Configuration: ~/.config/construct-cli
 ✓ Image: construct-box present (microvm) / built (docker)
 ✓ Agents: installed
@@ -278,7 +277,7 @@ If auto-detection fails, specify runtime explicitly:
 ```toml
 # ~/.config/construct-cli/config.toml
 [runtime]
-backend = "podman"  # or "containers", "docker", "msb"
+backend = "podman"  # or "msb" (default), "containers", "docker"
 ```
 
 ### Verification
@@ -417,7 +416,7 @@ After installation:
 1. **Read the [Configuration Guide](CONFIGURATION.md)** to customize Construct
 2. **Check out [Security Guide](SECURITY.md)** for hardening your setup
 3. **Explore [Providers Guide](PROVIDERS.md)** to use custom Claude endpoints
-4. **See [Examples](../README.md#common-examples)** for common workflows
+4. **See [Examples](QUICK-REFERENCE.md#common-examples)** for common workflows
 
 ## Getting Help
 

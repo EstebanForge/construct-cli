@@ -7,20 +7,21 @@
 # Isolation backend. One value, one engine; the value names the engine, not
 # the technology:
 #
-#   "containers"  (default) Any OCI engine, auto-picked in this order:
+#   "msb"         (default) Microsandbox (https://microsandbox.dev)
+#                 microVMs: one dedicated guest Linux kernel per sandbox.
+#                 Requires Apple Silicon macOS or Linux with KVM. Hosts
+#                 without microVM support default to "containers" instead.
+#   "containers"  Any OCI engine, auto-picked in this order:
 #                 Apple container (macOS 26+), then podman, then docker.
 #                 Works with podman and docker alike.
 #   "podman"      Pin the podman binary.
 #   "docker"      Pin the docker binary.
-#   "msb"         Microsandbox (https://microsandbox.dev) microVMs: one
-#                 dedicated guest Linux kernel per sandbox. Requires Apple
-#                 Silicon macOS or Linux with KVM.
 #
 # With "msb": use the daemon and set [daemon] multi_paths_enabled + mount_paths to cover
 # your project roots. The daemon sandbox is then created once and reused across projects;
 # without it, switching project roots recreates the sandbox and re-runs guest initialization
 # (first boot takes minutes).
-# backend = "containers"
+# backend = "msb"
 
 # Automatically check for updates once per day (true/false)
 auto_update_check = true
@@ -130,7 +131,7 @@ exec_as_host_user = true
 # WARNING: each listed binary runs on the host with FULL container-controlled argv. Only list
 # binaries you trust with that. Declaring e.g. "docker" grants effective host root to the agent;
 # "aws"/"kubectl" likewise. The bridge is token-gated and allowlist-pinned, but argv is not filtered.
-# Off when empty (feature disabled, no bridge started). Requires `construct sys rebuild` after first set
+# Off when empty (feature disabled, no bridge started). Requires `construct sys image rebuild` after first set
 # so the container shim is baked into the image. See docs/HOST-EXEC.md.
 # host_binaries = ["wicket"]
 # Explicit host env vars to pass through into Construct unchanged.
@@ -212,7 +213,7 @@ host_loopback_ports = [80, 443]
 #        $XDG_DATA_HOME/construct/skills
 #   4. None found: no mount, no error. The feature is opt-out by silent absence.
 # Set to false to disable entirely and rely on a pre-sync step (legacy behavior).
-# See docs/VMsv2.md (phase 7) and docs/CONFIGURATION.md.
+# See docs/ARCHITECTURE-DESIGN.md §4.1 (phase 7) and docs/CONFIGURATION.md.
 mount_skills = true
 # Skills mount mode (default: true = read-only). The mount uses `:ro` so the
 # agent inside the sandbox cannot modify the host skills source; this is the
@@ -312,6 +313,10 @@ blocked_ips = [
     "203.0.113.0/24"
 ]
 
+# Raw TCP services allowlist (databases, caches, message queues).
+# Specific host:port pairs bypass TLS MITM and pipe raw TCP bytes straight through.
+allowed_tcp = []
+
 # Maintenance Settings
 [maintenance]
 # Enable periodic cleanup of old log files (true/false)
@@ -323,12 +328,12 @@ cleanup_interval_seconds = 86400
 # Delete logs older than this many days (default: 15)
 log_retention_days = 15
 
-# Secret Redaction Mode (Experimental, Opt-In)
+# Secret Redaction Mode
 [security]
-# WARNING: This is an experimental feature. Requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1 env var to function.
 # When enabled, prevents LLM agents from seeing raw secrets in mounted project files and environment variables.
-# Default: false (disabled)
-hide_secrets = false
+# Files containing detected secrets are shadowed with clean redacts in-container.
+# Default: true
+hide_secrets = true
 
 # Mask style for redacted secrets: "hash" (default) or "fixed"
 # - "hash": Shows unique placeholder per secret (CONSTRUCT_REDACTED_<H8>) - better for debugging
@@ -401,3 +406,9 @@ hide_git_dir = true
 # ANTHROPIC_BASE_URL = "https://api.xiaomimimo.com/anthropic"
 # ANTHROPIC_AUTH_TOKEN = "${CNSTR_MIMO_API_KEY}"
 # API_TIMEOUT_MS = "3000000"
+
+# Modular Toolchains (v3.0)
+[toolchains]
+# Automatically fetch detected project toolchains (e.g. node, rust, go, python, dart, swift)
+# from GHCR when missing from host cache ~/.cache/construct/toolchains. (default: true)
+auto_fetch = true

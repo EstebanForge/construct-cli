@@ -2,7 +2,10 @@ package runtime
 
 import (
 	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
@@ -24,7 +27,7 @@ func TestMaybePrepullImageDisabledByFlag(t *testing.T) {
 			PrepullImage: false,
 		},
 	}
-	MaybePrepullImage(cfg)
+	MaybePrepullImage(cfg, "")
 	// No log file means we never spawned. The test runner never has
 	// `msb` on PATH, so a real spawn would have failed and logged.
 	if _, err := os.Stat(prepullLogFilePath()); err == nil {
@@ -45,10 +48,113 @@ func TestMaybePrepullImageSkipsNonMicrovm(t *testing.T) {
 			PrepullImage: true,
 		},
 	}
-	MaybePrepullImage(cfg)
+	MaybePrepullImage(cfg, "")
 	if _, err := os.Stat(prepullLogFilePath()); err == nil {
 		t.Errorf("prepull log was written; expected no-op for non-microvm backend")
 	}
+}
+
+func TestMaybePrepullImageUsesNewBinaryAfterSelfUpdate(t *testing.T) {
+	withPrepullTestHome(t)
+	dir := t.TempDir()
+	installFakeMsb(t, dir, "#!/bin/sh\nexit 0\n")
+	target := filepath.Join(dir, "construct")
+	backup := target + ".backup"
+	marker := filepath.Join(dir, "prepull-called")
+	script := "#!/bin/sh\nprintf '%s' \"$*\" > \"$PREPULL_TEST_MARKER\"\n"
+	if err := os.WriteFile(target, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(target, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PREPULL_TEST_MARKER", marker)
+
+	MaybePrepullImage(&config.Config{Runtime: config.RuntimeConfig{Backend: config.BackendMsb, PrepullImage: true}}, target)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		data, err := os.ReadFile(marker)
+		if err == nil {
+			if got := string(data); got != "sys prepull --once" {
+				t.Fatalf("prepull args = %q, want sys prepull --once", got)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("new binary was not executed: %v", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestPullImageRetriesWithResumableLayers(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls")
+	statePath := filepath.Join(dir, "state")
+	script := `#!/bin/sh
+printf '%s\n' "$*" >> "$MSB_TEST_LOG"
+count=0
+if [ -f "$MSB_TEST_STATE" ]; then count=$(cat "$MSB_TEST_STATE"); fi
+count=$((count + 1))
+printf '%s' "$count" > "$MSB_TEST_STATE"
+if [ "$count" -lt 3 ]; then exit 1; fi
+`
+	installFakeMsb(t, dir, script)
+	t.Setenv("MSB_TEST_LOG", logPath)
+	t.Setenv("MSB_TEST_STATE", statePath)
+
+	if err := PullImage(&config.Config{Runtime: config.RuntimeConfig{Backend: config.BackendMsb}}); err != nil {
+		t.Fatalf("PullImage() error = %v", err)
+	}
+
+	calls := readFakeMsbCalls(t, logPath)
+	if len(calls) != 3 {
+		t.Fatalf("msb call count = %d, want 3; calls = %q", len(calls), calls)
+	}
+	for i, call := range calls {
+		if call != "image pull "+PrepullImageRef {
+			t.Errorf("call %d = %q, want resumable image pull", i+1, call)
+		}
+	}
+}
+
+func TestPullImageStopsAfterThreeFailedAttempts(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "calls")
+	installFakeMsb(t, dir, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$MSB_TEST_LOG\"\nexit 1\n")
+	t.Setenv("MSB_TEST_LOG", logPath)
+
+	err := PullImage(&config.Config{Runtime: config.RuntimeConfig{Backend: config.BackendMsb}})
+	if err == nil {
+		t.Fatal("PullImage() error = nil, want terminal pull failure")
+	}
+	if calls := readFakeMsbCalls(t, logPath); len(calls) != 3 {
+		t.Fatalf("msb call count = %d, want 3; calls = %q", len(calls), calls)
+	}
+}
+
+func installFakeMsb(t *testing.T, dir, script string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+func readFakeMsbCalls(t *testing.T, path string) []string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
 // TestPrepullLogPathStable: the log path is fixed so users know where

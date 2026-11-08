@@ -15,6 +15,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/templates"
 )
@@ -721,6 +722,55 @@ func TestCollectForwardedEnvProviderEnvOverridesGenericPassthrough(t *testing.T)
 	forwarded := collectForwardedEnv(cfg, []string{"OPENAI_API_KEY=provider-openai"})
 	if envValue(forwarded, "OPENAI_API_KEY") != "provider-openai" {
 		t.Fatalf("Expected provider env override to win, got %q", envValue(forwarded, "OPENAI_API_KEY"))
+	}
+}
+
+func TestSentinelizeEnvReplacesBoundProviderKeys(t *testing.T) {
+	pServer, err := proxy.NewServer(proxy.Config{
+		Tier:         proxy.TierAllowlist,
+		SessionToken: "test-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rawEnv := []string{
+		"ANTHROPIC_API_KEY=sk-ant-live-real-secret-12345",
+		"OPENAI_API_KEY=sk-live-real-secret-67890",
+		"CUSTOM_VAR=keep-unaltered",
+	}
+
+	sentinelized := sentinelizeEnv(pServer, rawEnv)
+
+	anthropicVal := envValue(sentinelized, "ANTHROPIC_API_KEY")
+	if anthropicVal == "" || anthropicVal == "sk-ant-live-real-secret-12345" {
+		t.Errorf("expected ANTHROPIC_API_KEY to be replaced with sentinel, got %q", anthropicVal)
+	}
+	if !strings.HasPrefix(anthropicVal, "sk-ant-api03-") {
+		t.Errorf("expected ANTHROPIC_API_KEY sentinel prefix sk-ant-api03-, got %q", anthropicVal)
+	}
+
+	openaiVal := envValue(sentinelized, "OPENAI_API_KEY")
+	if openaiVal == "" || openaiVal == "sk-live-real-secret-67890" {
+		t.Errorf("expected OPENAI_API_KEY to be replaced with sentinel, got %q", openaiVal)
+	}
+	if !strings.HasPrefix(openaiVal, "sk-proj-") {
+		t.Errorf("expected OPENAI_API_KEY sentinel prefix sk-proj-, got %q", openaiVal)
+	}
+
+	if envValue(sentinelized, "CUSTOM_VAR") != "keep-unaltered" {
+		t.Errorf("expected CUSTOM_VAR to remain untouched, got %q", envValue(sentinelized, "CUSTOM_VAR"))
+	}
+
+	// Double sentinelization must be idempotent (H2)
+	doubleSentinelized := sentinelizeEnv(pServer, sentinelized)
+	if envValue(doubleSentinelized, "ANTHROPIC_API_KEY") != anthropicVal {
+		t.Errorf("double sentinelization mutated sentinel: expected %q, got %q",
+			anthropicVal, envValue(doubleSentinelized, "ANTHROPIC_API_KEY"))
+	}
+	if envValue(doubleSentinelized, "OPENAI_API_KEY") != openaiVal {
+		t.Errorf("double sentinelization mutated sentinel: expected %q, got %q",
+			openaiVal, envValue(doubleSentinelized, "OPENAI_API_KEY"))
 	}
 }
 

@@ -41,7 +41,7 @@ RUN echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct && \
 # Hash-gate dir (root-fs install gate): pre-created owned by construct so
 # non-root runtimes (non_root_strict, rootless podman) can write the gate
 # without the entrypoint's root phase.
-RUN mkdir -p /var/lib/construct-cli && chown construct:construct /var/lib/construct-cli
+RUN mkdir -p /var/lib/construct-cli /opt/toolchains && chown construct:construct /var/lib/construct-cli /opt/toolchains
 
 # 2. Base environment (brew exited 2026-09-22; see docs/BREW-EXIT.md).
 # Every former brew formula now ships from trixie, a vendor repo, an
@@ -197,14 +197,13 @@ RUN gem install jekyll -v 4.4.1 && \
 # Copy entrypoint scripts (still USER root from step 3b)
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
-COPY network-filter.sh /usr/local/bin/network-filter.sh
 COPY clipper /usr/local/bin/clipper
 COPY clipboard-x11-sync.sh /usr/local/bin/clipboard-x11-sync.sh
 COPY osascript /usr/local/bin/osascript
 COPY construct-host-exec /usr/local/bin/construct-host-exec
 # We don't COPY install_user_packages.sh here because it is generated at runtime
 # and mounted via docker-compose.override.yml.
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/network-filter.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript /usr/local/bin/construct-host-exec
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/update-all.sh /usr/local/bin/clipper /usr/local/bin/clipboard-x11-sync.sh /usr/local/bin/osascript /usr/local/bin/construct-host-exec
 
 # Create symlink for g++-11 to point to g++ (for node-gyp compatibility)
 # Some native Node.js modules are hardcoded to use g++-11, but Debian Trixie has g++-14

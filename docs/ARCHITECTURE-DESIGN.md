@@ -4,7 +4,7 @@
 ---
 
 ## 1. Executive Summary
-Construct CLI is a single-binary tool that launches an isolated, ephemeral container preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, network/clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds or pulls the image, and installs user-tier tools via a `packages.toml`-driven script into the bind-mounted construct home (the core toolchain ships baked in the image). Its runtime engine is configurable (auto-detecting `container`, `podman`, or `docker`, with an experimental microVM `microvm` backend and macOS 26+ native support), and migrations keep templates/config aligned across versions. Network isolation supports `permissive`, `strict`, and `offline` modes with allow/block lists, plus a clipboard bridge for text/image paste, login callback forwarding, SSH agent forwarding (Linux socket mount, macOS TCP bridge) with optional key import, global AGENTS.md management, host alias management (sandboxed + ns-), and yolo-mode flags per agent. It also ships a headless Agent Browser CLI.
+Construct CLI is a single-binary tool that launches an isolated, ephemeral sandbox preloaded with AI agents. It embeds templates (Dockerfile, compose, entrypoint, clipboard shims), writes them to `~/.config/construct-cli/` on first run, builds or pulls the image, and installs user-tier tools via a `packages.toml`-driven script into the bind-mounted construct home (the core toolchain ships baked in the image). Its runtime engine defaults to microVM isolation via the embedded `msb` backend (Apple Silicon macOS or Linux with KVM) and is configurable, with an OCI engine pool (auto-detecting `container`, `podman`, or `docker`) as the fallback for hosts without microVM support, and migrations keep templates/config aligned across versions. Security features include a host-side authenticated Sentinel Credential Proxy (substituting real API keys with shape-mimicking sentinels on outbound HTTPS CONNECT requests, enforcing domain fronting guards, preventing DNS rebinding, and tunneling raw non-HTTP TCP databases), policy tiers (`allowlist`, `open`, `internet`, `none`) with ecosystem presets, modular on-demand OCI toolchains (Go, Rust, Python, Node, PHP, Ruby, Zig, Dart, Kotlin, Java, Swift), host git repository protection with OS immutable flags, disposable clone execution (`--clone`) with patch bundle export, and workspace secret redaction (`hide_secrets`). It also includes a clipboard bridge for text/image paste, login callback forwarding, SSH agent forwarding (Linux socket mount, macOS TCP bridge) with optional key import, global AGENTS.md management, host alias management (sandboxed + ns-), and yolo-mode flags per agent. It also ships a headless Agent Browser CLI.
 
 ---
 
@@ -12,9 +12,11 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Zero-trace host**: Containers run with `--rm`; only named volumes persist installs/state.
 - **Flexible runtime support**: User-configurable isolation backend with auto-detection and auto-start capabilities.
 - **Fast subsequent runs**: User-tier installs persist in the bind-mounted construct home and baked tooling ships inside the image; optional daemon mode enables instant agent startup via a persistent sandbox.
-- **Network control**: Allow/deny lists with `permissive/strict/offline`; strict mode creates a custom bridge network.
+- **Host-enforced network control**: Egress Sentinel Proxy on tiers `allowlist/open/internet/none` with ecosystem presets, dynamic CA leaf signing, sentinel key swapping, domain fronting guards, and raw TCP database tunnels (`allowed_tcp`). In-guest UFW has been removed.
 - **Single config**: TOML at `~/.config/construct-cli/config.toml` with `[runtime]`, `[sandbox]`, `[network]`, `[maintenance]`, `[agents]`, `[daemon]`, `[claude]`, `[security]`, including first-class env passthrough controls in `[sandbox]`.
-- **SSH access**: Forward SSH agent when available (configurable); `sys ssh-import` can copy host keys into the persistent home bind.
+- **Host Git & Workspace Hardening**: Host `.git` protected with OS immutable attributes (`chattr +i` / `chflags uchg`), `.git` masked in guest mounts, and disposable execution via `--clone` with automatic git bundle patch export.
+- **Modular Toolchains**: On-demand multi-arch OCI toolchain fetching and caching (`~/.cache/construct/toolchains`) for polyglot language runtimes without image bloat.
+- **SSH access**: Forward SSH agent when available (configurable); `sys ssh import` can copy host keys into the persistent home bind.
 - **Git identity propagation**: Optional `user.name`/`user.email` injection into container env.
 - **Packages customization**: `packages.toml` drives user-tier tool installs (mise, npm, bun, pipx, cargo, gems), post-install hooks, and topgrade config generation.
 - **Clear UX**: Gum-based prompts/spinners; `--ct-*` global flags avoid agent conflicts; `ct` symlink creation is attempted on basic help/sys invocations.
@@ -26,13 +28,13 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Self-Update**: Automatic checks against the published release marker file (`VERSION` for stable, `VERSION-BETA` for beta channel); updates use tarball install with backup/rollback, and Homebrew installs can self-update via a user-local override binary.
 - **Log maintenance**: Configurable cleanup of old log files under `~/.config/construct-cli/logs/`.
 - **Daemon management**: Optional background daemon for instant agent execution with auto-start on login/boot via system services (launchd/systemd), plus opt-in multi-root mounts for cross-workspace reuse.
-- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the six baked agents `claude`, `codex`, `agy`, `pi`, `pig`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that (kotlin, scala, groovy, gradle) install on demand via the `[mise]` user tier in `packages.toml`; anything else arrives through `[mise]`/`[npm]`/`[bun]`/`[pipx]` user entries and shadows baked equivalents by PATH.
+- **Toolchain**: The baked image ships the dev baseline (apt packages, `gh` + `nodejs 24` vendor repos, go.dev tarball, rustup rust, a pinned mise github: tier: `yq`, `topgrade`, `git-cliff`, `zola`, `tlrc`, `rtk`, `mcp-cli-ent`, `md-over-here`, npm dev tools like `typescript`, `prettier`, `vite`, `webpack`, and the six baked agents `claude`, `codex`, `agy`, `pi`, `pig`, `opencode` plus `acpx` and `codegraph`). Language runtimes beyond that install dynamically via modular OCI toolchains or the `[mise]` user tier in `packages.toml`.
 
 ---
 
 ## 3. Architecture
 - **Entrypoint**: `cmd/construct/main.go`
-  - Embeds templates (Dockerfile, docker-compose.yml, entrypoint.sh, update-all.sh, network-filter.sh, config.toml, packages.toml, and clipboard shims).
+  - Embeds templates (Dockerfile, docker-compose.yml, entrypoint.sh, update-all.sh, config.toml, packages.toml, and clipboard shims).
   - Handles namespaces: `sys`, `network`, `daemon`, `cc`, and agent passthrough.
   - Migration check before config load; log cleanup; passive update check.
   - Runtime detection/startup, build, update, reset, doctor, and agent execution.
@@ -43,8 +45,8 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 - **Templates**: `internal/templates/`
   - Dockerfile uses `debian:trixie-slim` with the apt tier, three vendor repos (`gh`, `nodejs 24`; dart removed 2026-09-22), the go.dev tarball, rustup, and the pinned mise github: tier; every baked tool is execute-verified in-build on both amd64 and arm64.
   - docker-compose.yml plus auto-generated override for OS/network specifics.
-  - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, and starts login forwarders when enabled.
-  - network-filter script for strict mode; update-all for maintenance.
+  - entrypoint installs tools on first run based on generated `install_user_packages.sh`, enforces PATH, shims clipboard tools, mounts dynamic CA certificates, and starts login forwarders when enabled.
+  - update-all for maintenance.
   - clipper, clipboard-x11-sync.sh, and osascript shim for clipboard bridging.
   - packages.toml template used to generate the install script (apt/mise/bun/cargo/npm/pi/pip/gems + post-install hooks; the former `[brew]` tier is gone — see docs/BREW-EXIT.md).
 - **PATH Construction**
@@ -82,14 +84,14 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
 ---
 
 ## 4. Runtimes & Isolation
-- **Runtime Detection**: The OCI binary is determined by the unified `backend` setting in `config.toml` (`container`, `podman`, `docker`; `microvm` bypasses it for the msb SDK). If set to `auto` (the default), it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
+- **Runtime Detection**: The default backend is `msb` (embedded microsandbox microVMs; Apple Silicon macOS or Linux with KVM). Hosts without microVM support default to the OCI pool. The OCI binary is determined by the unified `backend` setting in `config.toml` (`containers`, `podman`, `docker`; `msb` bypasses it for the msb SDK). With `containers`, it checks for an active runtime by checking all runtimes **in parallel** (container, podman, docker) with a 500ms timeout, returning the first available one. If no runtime is active, it attempts to start one in the order of `container`, then `podman`, then `docker` (macOS launches OrbStack when available).
 - **Parallel detection optimization**: Multiple runtimes are checked concurrently using goroutines and channels, reducing detection time from 500ms-1.5s (sequential) to ~50-500ms (parallel) when multiple runtimes are installed.
 - **Linux specifics**:
   - Docker compose startup and daemon runs propagate host `CONSTRUCT_HOST_UID`/`CONSTRUCT_HOST_GID` on Linux to keep mounted home/config ownership aligned.
   - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning, keeps host UID:GID mapping, and forces `HOME=/home/construct`.
   - Config/migration ownership checks prompt for confirmation before repair; Linux remediation is runtime-aware (`podman unshare chown -R 0:0` in rootless/userns contexts where applicable, then sudo fallback), with explicit manual commands when repair is declined or fails.
-  - `construct sys doctor --fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
-  - `construct sys doctor --fix` compose actions propagate runtime identity context (`CONSTRUCT_USERNS_REMAP`) to avoid immediate post-fix ownership drift on recreated daemon containers.
+  - `construct sys doctor fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
+  - `construct sys doctor fix` compose actions propagate runtime identity context (`CONSTRUCT_USERNS_REMAP`) to avoid immediate post-fix ownership drift on recreated daemon containers.
   - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
   - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
@@ -106,11 +108,11 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral conta
   - `permissive`: full egress
   - `strict`: custom `construct-net` bridge + UFW rules; allow/block lists via env
   - `offline`: `network_mode: none`
-- **VM backend (experimental)**: `backend = "msb"` in `[runtime]` selects [microsandbox](https://microsandbox.dev) microVM isolation instead of OCI containers (a separate guest kernel per agent). The runtime layer exposes a `Backend` interface (`internal/runtime/backend.go`: exec, interactive exec, state, mounts, labels, image, lifecycle) with a Docker facade implementation and an msb implementation over the msb Go SDK. `DetectBackend` resolves the configured backend fail-closed (no silent Docker fallback). The msb run path: persistent detached sandbox `construct-cli-daemon` (unlimited idle/max duration), entrypoint readiness marker on tmpfs, first-run agent install inside the VM, image transition via `docker save` -> `msb load` or GHCR image pull. Detailed design and operational architecture: Section 4.1 below.
+- **VM backend (default)**: `backend = "msb"` in `[runtime]` selects [microsandbox](https://microsandbox.dev) microVM isolation instead of OCI containers (a separate guest kernel per agent); it is the shipped default on capable hosts. The runtime layer exposes a `Backend` interface (`internal/runtime/backend.go`: exec, interactive exec, state, mounts, labels, image, lifecycle) with a Docker facade implementation and an msb implementation over the msb Go SDK. Unknown backend values fail closed (no silent fallback). The msb run path: persistent detached sandbox `construct-cli-daemon` (unlimited idle/max duration), entrypoint readiness marker on tmpfs, first-run agent install inside the VM, image transition via `docker save` -> `msb load` or GHCR image pull. Detailed design and operational architecture: Section 4.1 below.
 
 ### 4.1 MicroVM Isolation Engine (microsandbox Backend)
 
-Construct supports microVM hardware isolation as an opt-in runtime backend (`backend = "msb"` in `[runtime]`), powered by [microsandbox](https://microsandbox.dev). Instead of sharing the host Linux kernel inside an OCI container, each sandbox runs within an isolated Linux guest kernel via hardware hypervisors (Apple Hypervisor.framework on macOS, KVM on Linux).
+Construct runs agents under microVM hardware isolation by default (`backend = "msb"` in `[runtime]`, the shipped default on Apple Silicon macOS and Linux with KVM), powered by [microsandbox](https://microsandbox.dev). Instead of sharing the host Linux kernel inside an OCI container, each sandbox runs within an isolated Linux guest kernel via hardware hypervisors (Apple Hypervisor.framework on macOS, KVM on Linux).
 
 - **Runtime Architecture & Backend Abstraction**:
   - The runtime interface (`internal/runtime/backend.go`) decouples execution from container specifics, standardizing commands, streaming, interactive PTY sessions, lifecycle, and image management across backends.
@@ -138,6 +140,22 @@ Construct supports microVM hardware isolation as an opt-in runtime backend (`bac
   - **VirtioFS Mounts**: Mounts the host workspace to `/workspace`, user home to `/home/construct`, and conditional caches (qmd models, gitignore seeds).
   - **Host UID/GID Mapping**: Mounts configure `StatVirtualization: msb.StatVirtualizationOff` and execute commands with the host's numeric UID/GID (`ResolveExecUserMsb`), ensuring files written by agents match host user ownership.
   - **Dynamic Multi-Root Switching**: Multi-path mode (`daemon.multi_paths_enabled` + `daemon.mount_paths`, Docker parity) mounts every configured root under `/workspaces/<hash>` and stamps `construct.daemon.mounts_hash`; the daemon is reused for any cwd inside the set and recreated only when the configured set itself changes (mounts are create-time only in the microsandbox SDK). Single-path mode hashes the effective root set (configured roots + auto-learned roots from roots.json + the run's cwd) into `construct.project_dir` + `construct.daemon.mounts_hash` and recreates whenever that set changes. Directories inside `$HOME` are auto-learned on first use with no prompt; sensitive home trees (hidden top-level dirs, `~/Library`) and `$HOME` itself always prompt, and the home prompt re-fires every run with a default-NO confirm. An uncovered cwd outside `$HOME` prompts interactively or fails headless with `ErrMsbDaemonWorkdirUnmapped` (actionable error, never a destructive recreate); a declined cwd fails with `ErrMsbDaemonWorkdirDeclined` and the `roots add` reversal. Beyond mounts, the daemon recreates on `construct.daemon.skills_hash`, `construct.daemon.sudo`, and `construct.daemon.image_digest` label drift.
+
+- **Core Invariants** (do not bend without a re-review):
+  - ONE shared sandbox `construct-cli-daemon` backs all microVM runs. No per-workspace VMs, no per-agent images, no second execution model.
+  - One generic image `construct-box:latest` (GHCR). Agents are NOT baked into per-agent images; user-tier installs persist in the host bind and survive everything, while guest-root state (brew/apt) dies with the root disk on remove.
+  - Mounts are create-time only in the microsandbox SDK (`ModifyOptions` has no mounts field). Changing the mount set always means recreate; there is no hot-add.
+  - `WithIdleTimeout(0)` and `WithMaxDuration(0)` stay zero forever. Idle behavior is implemented host-side (session registry + watcher), never by the SDK idle timeout: an idle REBOOT would not re-run the default workload and would kill the daemon model.
+  - Run-path output goes to stderr (`ui.Info*`), never stdout (RPC modes stream line-delimited JSON on stdout).
+- **Idle Stop**: the daemon stops after `daemon.idle_stop_minutes` (default 45, 0 disables) with zero live construct-owned sessions. A session registry (`~/.config/construct-cli/sessions/<pid>.json`) registers each run after `EnsureMsbDaemon` and unregisters in Teardown; stale pids are swept. The last unregister spawns a detached `construct sys daemon idle-watch` helper that sleeps, rechecks the registry under the daemon flock, and stops the sandbox if still idle. A run arriving during the countdown registers a session and the watcher stands down. Idle means zero registered sessions, never VM CPU: a long build or a thinking agent keeps its session registered. If the helper dies, the VM stays running (status quo).
+- **Recreate Decision**: daemon reuse is hash-based. Cold create stamps `construct.daemon.*` labels (`mounts_hash`, `skills_hash`, `sudo`, `image_digest`) and persists the same decision inputs to a construct-owned spec file (`~/.config/construct-cli/msb-daemon-spec.json`), because msb records lose labels across a snapshot restore. Every run compares labels + spec against current config and recreates with a named reason on drift (mount set change, skills change, sudo policy change, image digest drift, unreadable spec/labels). An unreadable stored config never silently reconnects: it prints a warning naming `sys daemon recreate` as the recovery. `sys daemon recreate` is the deliberate full reset (stop, remove with root disk, cold create); `sys daemon restart` is the cheap path that warm-boots when labels match.
+- **Snapshot Fork Recreate Accelerator**: eligible recreates (reason allowlist: workspace roots, mount_paths, skills, with the bind-side install-complete marker) fork the OUTGOING daemon instead of cold-creating: capture a FULL snapshot (disk + checkpoint, `GuestFlush: required` — without forced writeback, pre-snapshot writes vanish with the discarded memory state) while it runs, stop and destroy it, then `RestoreSandbox` disk-only into the same name with the new mount set. The restore carries no workload, env, or labels, so the entrypoint is booted explicitly. Failures leave the daemon name free and fall back to the cold path. Fork snapshots are full disk images (~4 GiB); only the newest is kept and pruning is best-effort.
+- **Learned Roots State**: `~/.config/construct-cli/roots.json` holds learned roots (LRU-capped by `daemon.max_learned_roots`, default 16; configured `mount_paths` are pinned and never evicted), plus `declined` and `accepted` records. Declines are subtree exclusions; acceptances (large-workspace warning, budget `workspace_max_entries`) skip the warning on later runs. Writes happen only inside the daemon flock. `construct sys daemon roots list|add|forget` is the inspect/manage surface; invisible mount state is a security objection, so the set is always inspectable.
+- **Boot Telemetry**: `EnsureMsbDaemon` logs `msb-boot: outcome=<cold|recreate|warm|reconnect> seconds=<s> mounts=<m> learned=<l> cwd_mounted=<bool> reason="<r>"` (mirrored to `msb-telemetry.jsonl`), so recreate frequency and boot cost stay measurable. The daily lab matrix accumulates medians.
+- **Image Pre-Pull**: after a successful self-update (and when enabled), a detached best-effort pull stages `construct-box` in the background (`runtime.prepull_image = false` opts out; `construct sys prepull` is the deterministic foreground path). The msb store caches the image under the full GHCR ref; boot ref candidates are preference-ordered localhost/ -> bare -> ghcr so a deliberate local build always wins.
+- **Security Invariants**: a learned root is NOT trust-equivalent to a configured root (the consent gate is the prompt/auto-learn policy, the workspace guard is only a floor); host skills mounts are read-only by default so a hostile agent cannot mutate the host source; idle stop shrinks the host attack surface to zero while no session is live (bridges die with the sandbox).
+
+**Implementer's map**: daemon lifecycle, mounts, recreate decisions, snapshot fork — `internal/runtime/backend_msb_run.go`, `daemon_mounts.go`, `roots_store.go`, `daemon_lock.go`, `skills_mount.go`, `idle_watch.go`; engine run path — `internal/agent/engine_msb.go` (sessions) + `engine.go` (Teardown); daemon CLI — `internal/daemon/daemon.go`; image acquisition and backend selection — `internal/runtime/backend_msb.go`, `prepull.go`; workspace guard — `internal/runtime/workspace_guard.go`; embedded runtime pairing — `internal/msbembed` (see [EMBEDDED-RUNTIME.md](EMBEDDED-RUNTIME.md)). Design provenance: derived from studying Docker Sandboxes (`sbx`) and hardened over multiple adversarial peer-review rounds; review history lives in the git history of this document's predecessors.
 
 ---
 
@@ -191,7 +209,7 @@ API_TIMEOUT_MS = "3000000"
 ---
 
 ## 6. Install / Update Behavior
-- **First run** (`construct sys init`):
+- **First run** (`construct sys image init`):
   - Writes embedded templates to `~/.config/construct-cli/`.
   - Builds `construct-box` image.
   - Generates `container/install_user_packages.sh` from `packages.toml` and installs tools on first container start (including post-install hooks).
@@ -204,12 +222,12 @@ API_TIMEOUT_MS = "3000000"
   - pi: dedicated step updates extensions and model catalogs unconditionally, and pi itself when the binary is writable (images since 1.17.17 chown the baked agent tier to the construct user, so agents self-update in place).
   - The baked agent tier is construct-owned and updates in-guest; updates live in the container layer and revert when the daemon is recreated (construct prints this warning after each update; `construct sys update` re-applies them). Dev packages additionally move with image updates.
   - npm: per-package reinstall at `@latest` (after sweeping stale dot-prefixed temp dirs from interrupted npm runs) — `npm update -g` never crosses semver boundaries.
-- **Update Check** (`sys check-update` / automatic):
+- **Update Check** (`sys self-update check` / automatic):
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
-  - Actively checks when `construct sys check-update` is run.
-  - If a new version is found, it notifies the user to run the (currently manual) update command.
-- **Reset**: `sys reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone.
-- **Migrate**: `sys config --migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
+  - Actively checks when `construct sys self-update check` is run.
+  - If a new version is found, it notifies the user to run the update command.
+- **Reset**: `sys image reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone. OCI backends only; under msb the equivalent full reset is `construct sys daemon recreate`.
+- **Migrate**: `sys config migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
 
 ---
 
@@ -231,25 +249,27 @@ make cross-compile   # all platforms
 ## 8. UX Notes
 - Global flags: `-ct-v/--ct-verbose`, `-ct-d/--ct-debug`, `-ct-n/--ct-network`.
 - Claude provider commands: `construct cc <provider>` and `construct cc --help`.
-- `shims --install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
-- `shims --uninstall`: Remove previously installed shims (only touches files it wrote).
-- `shims --remove-aliases`: Standalone cleanup of the legacy managed shell alias block. `sys aliases --uninstall` still works as a deprecation route; any other legacy aliases flag prints replacement guidance.
+- `shims install`: Write real executables for every supported agent: `<slug>` (sandboxed via construct) and `ns-<slug>` (real host binary). Removes the legacy managed shell alias block.
+- `shims uninstall`: Remove previously installed shims (only touches files it wrote).
+- `shims fix`: Repair the `ct` shorthand symlink.
+- `shims list`: Show state of all agent shims.
 - Run-path status output (daemon banners, proxy notices, image-build progress, migration chatter) goes to stderr via `ui.Info/InfoLn/InfoF`; stdout is reserved for the agent's own output so RPC modes stream clean JSONL. The interactive attach prompt and explicit CLI output (`construct agents`, help) stay on stdout.
 - Harness host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to `/home/construct/.construct-staging/...` in `engine.Prepare`, covering daemon exec, compose run, and msb alike ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
-- `sys check-update`: Manual command to check for new versions.
-- `sys self-update`: Update the Construct binary itself.
-- `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues.
+- `sys self-update`: Update the Construct binary itself (`check` to check for updates).
+- `sys doctor fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues (`clipboard` for clipboard diagnostics).
 - `sys packages`: Open `packages.toml` for customization.
-- `sys packages --install`: Regenerate/install user packages into the running container.
-- `sys agents-md`: Manage global instruction files (rules) per agent.
-- `sys config --migrate`: Refresh templates/config to match the running binary.
+- `sys packages install`: Regenerate/install user packages into the running container.
+- `sys agents rules`: Manage global instruction files (rules) per agent.
+- `sys config migrate`: Refresh templates/config to match the running binary.
 - `sys exec -- <command>`: Run a single command inside a running Construct container (non-interactive, no TTY). Designed for LLM agents that need to execute commands inside the container without attaching to a shell.
-- `sys login-bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
-- `sys config --restore`: Restore config from backup.
-- `sys set-password`: Change the container user password (default is `construct`).
-- `sys ssh-import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
+- `sys auth bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
+- `sys auth password`: Change the container user password (default is `construct`).
+- `sys config restore`: Restore config from backup.
+- `sys ssh import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
 - `sys agents push`: One-way push of host agent configs (settings, rules, MCP config, credentials) into the construct home. Interactive runs preview then confirm; scripted runs are fail-closed (`--yes` to apply). See [CONFIGURATION.md](CONFIGURATION.md).
-- `sys pull`: Pull latest construct-box image from GHCR.
+- `sys image pull`: Pull latest construct-box image from GHCR.
+- `sys image rebuild`: Re-sync templates and rebuild the sandbox image.
+- `sys image reset`: Delete agent binaries and cache (OCI volumes).
 - `sys daemon install`: Install daemon as auto-start service (launchd on macOS, systemd on Linux).
 - `sys daemon uninstall`: Remove daemon auto-start service.
 - `sys daemon status`: Show daemon runtime + auto-start service status.
@@ -906,10 +926,10 @@ fi
 
 **Config Modification During Runtime:**
 Config IS modified during runtime via network commands:
-- `construct network allow <domain>` - AddRuleToConfig() → cfg.Save()
-- `construct network block <domain>` - AddRuleToConfig() → cfg.Save()
-- `construct network remove <domain>` - RemoveRuleFromConfig() → cfg.Save()
-- `construct network clear` - ClearRules() → cfg.Save()
+- `construct sys network allow <domain>` - AddRuleToConfig() → cfg.Save()
+- `construct sys network block <domain>` - AddRuleToConfig() → cfg.Save()
+- `construct sys network remove <domain>` - RemoveRuleFromConfig() → cfg.Save()
+- `construct sys network clear` - ClearRules() → cfg.Save()
 
 **Regression Risk with sync.Once Caching:**
 1. **Stale config problem**: If config is cached globally with sync.Once:

@@ -2,14 +2,19 @@
 package network
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
@@ -108,6 +113,12 @@ func RemoveRule(target string) {
 	}
 	for _, ip := range cfg.Network.AllowedIPs {
 		if ip == target {
+			found = true
+			break
+		}
+	}
+	for _, tcp := range cfg.Network.AllowedTCP {
+		if tcp == target {
 			found = true
 			break
 		}
@@ -232,6 +243,24 @@ func ListRules() {
 		ui.InfoLn()
 	}
 
+	// Allowed TCP Services
+	if len(cfg.Network.AllowedTCP) > 0 {
+		cmd = ui.GetGumCommand("style", "--foreground", "39", "--bold", "Allowed TCP Services:")
+		cmd.Stdout = os.Stdout
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to render allowed TCP header: %v\n", err)
+		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			cmd = ui.GetGumCommand("style", "--foreground", "242",
+				fmt.Sprintf("  • %s", tcp))
+			cmd.Stdout = os.Stdout
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to render allowed TCP service: %v\n", err)
+			}
+		}
+		ui.InfoLn()
+	}
+
 	// Blocked rules (red)
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
 		cmd = ui.GetGumCommand("style", "--foreground", "196", "--bold", "Blocked:")
@@ -260,6 +289,7 @@ func ListRules() {
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
+		len(cfg.Network.AllowedTCP) == 0 &&
 		len(cfg.Network.BlockedDomains) == 0 && len(cfg.Network.BlockedIPs) == 0 {
 		ui.GumInfo("No network rules configured")
 	}
@@ -286,6 +316,14 @@ func ListRulesBasic(cfg *config.Config) {
 		ui.InfoLn()
 	}
 
+	if len(cfg.Network.AllowedTCP) > 0 {
+		ui.InfoLn("Allowed TCP Services:")
+		for _, tcp := range cfg.Network.AllowedTCP {
+			ui.InfoF("  • %s\n", tcp)
+		}
+		ui.InfoLn()
+	}
+
 	if len(cfg.Network.BlockedDomains) > 0 || len(cfg.Network.BlockedIPs) > 0 {
 		ui.InfoLn("Blocked:")
 		for _, domain := range cfg.Network.BlockedDomains {
@@ -298,6 +336,7 @@ func ListRulesBasic(cfg *config.Config) {
 	}
 
 	if len(cfg.Network.AllowedDomains) == 0 && len(cfg.Network.AllowedIPs) == 0 &&
+		len(cfg.Network.AllowedTCP) == 0 &&
 		len(cfg.Network.BlockedDomains) == 0 && len(cfg.Network.BlockedIPs) == 0 {
 		ui.InfoLn("No network rules configured")
 	}
@@ -335,9 +374,9 @@ func ShowStatus() {
 	var cmd *exec.Cmd
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "/usr/local/bin/network-filter.sh", "show_status")
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi")
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "/usr/local/bin/network-filter.sh", "show_status")
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi")
 	}
 
 	cmd.Stdout = os.Stdout
@@ -397,7 +436,16 @@ func ValidateTarget(target string) (string, error) {
 		return "domain", nil
 	}
 
-	return "", fmt.Errorf("invalid target: must be IP, CIDR, or domain")
+	// Check if it's a valid host:port TCP service
+	if host, portStr, err := net.SplitHostPort(target); err == nil {
+		if port, err := strconv.Atoi(portStr); err == nil && port > 0 && port <= 65535 {
+			if IsValidDomain(host) || IsValidIP(host) {
+				return "tcp", nil
+			}
+		}
+	}
+
+	return "", fmt.Errorf("invalid target: must be IP, CIDR, domain, or host:port TCP service")
 }
 
 // IsValidIP checks if a string is a valid IPv4 address
@@ -510,6 +558,11 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 				return fmt.Errorf("'%s' is already in allowed IPs", target)
 			}
 		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			if tcp == target {
+				return fmt.Errorf("'%s' is already in allowed TCP services", target)
+			}
+		}
 
 		// Check if in blocklist (conflict)
 		for _, domain := range cfg.Network.BlockedDomains {
@@ -547,6 +600,11 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 				return fmt.Errorf("'%s' is in allowed IPs. Remove it first or use 'remove' command", target)
 			}
 		}
+		for _, tcp := range cfg.Network.AllowedTCP {
+			if tcp == target {
+				return fmt.Errorf("'%s' is in allowed TCP services. Remove it first or use 'remove' command", target)
+			}
+		}
 	}
 
 	return nil
@@ -556,12 +614,18 @@ func CheckRuleConflicts(cfg *config.Config, target, action string) error {
 func AddRuleToConfig(cfg *config.Config, target, action, ruleType string) error {
 	switch action {
 	case "allow":
-		if ruleType == "domain" {
+		switch ruleType {
+		case "domain":
 			cfg.Network.AllowedDomains = AppendUnique(cfg.Network.AllowedDomains, target)
-		} else {
+		case "tcp":
+			cfg.Network.AllowedTCP = AppendUnique(cfg.Network.AllowedTCP, target)
+		default:
 			cfg.Network.AllowedIPs = AppendUnique(cfg.Network.AllowedIPs, target)
 		}
 	case "block":
+		if ruleType == "tcp" {
+			return fmt.Errorf("blocking specific TCP ports is not supported; block the host or domain instead")
+		}
 		if ruleType == "domain" {
 			cfg.Network.BlockedDomains = AppendUnique(cfg.Network.BlockedDomains, target)
 		} else {
@@ -579,6 +643,7 @@ func RemoveRuleFromConfig(cfg *config.Config, target string) error {
 	// Remove from all possible locations
 	cfg.Network.AllowedDomains = RemoveString(cfg.Network.AllowedDomains, target)
 	cfg.Network.AllowedIPs = RemoveString(cfg.Network.AllowedIPs, target)
+	cfg.Network.AllowedTCP = RemoveString(cfg.Network.AllowedTCP, target)
 	cfg.Network.BlockedDomains = RemoveString(cfg.Network.BlockedDomains, target)
 	cfg.Network.BlockedIPs = RemoveString(cfg.Network.BlockedIPs, target)
 
@@ -666,22 +731,22 @@ func RemoveRuleFromContainer(containerRuntime, containerName, target string) err
 	return nil
 }
 
-// ExecUFWCommand executes a UFW command in the container via network-filter.sh
+// ExecUFWCommand executes a network command in the container (deprecated; egress proxy handles enforcement).
 func ExecUFWCommand(containerRuntime, containerName, command, arg string) error {
 	var cmd *exec.Cmd
 
 	switch containerRuntime {
 	case "docker", "container":
-		cmd = exec.Command("docker", "exec", containerName, "/usr/local/bin/network-filter.sh", command, arg)
+		cmd = exec.Command("docker", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", command, arg)
 	case "podman":
-		cmd = exec.Command("podman", "exec", containerName, "/usr/local/bin/network-filter.sh", command, arg)
+		cmd = exec.Command("podman", "exec", containerName, "sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", command, arg)
 	default:
 		return fmt.Errorf("unsupported runtime: %s", containerRuntime)
 	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("UFW command failed: %w\nOutput: %s", err, string(output))
+		return fmt.Errorf("network command failed: %w\nOutput: %s", err, string(output))
 	}
 
 	return nil
@@ -724,7 +789,7 @@ func applyRuleMsb(target, action string, resolvedIPs []string) {
 		}
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"/usr/local/bin/network-filter.sh", cmd, ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", cmd, ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -756,7 +821,7 @@ func removeRuleMsb(target string) {
 	for _, ip := range ipsToRemove {
 		_, code, err := m.Exec(ctx, runtime.ExecOptions{
 			Name:    "construct-cli-daemon",
-			Command: []string{"/usr/local/bin/network-filter.sh", "remove_rule", ip},
+			Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh \"$@\"; else echo 'error: network-filter.sh not found' >&2; exit 1; fi", "--", "remove_rule", ip},
 			User:    "root",
 		})
 		if err != nil || code != 0 {
@@ -777,15 +842,148 @@ func showStatusMsb() {
 		ui.InfoLn("Start an agent to see active network status")
 		os.Exit(1)
 	}
-	ui.InfoLn("=== Active UFW Status in Sandbox ===")
+	ui.InfoLn("=== Active Network Status in Sandbox ===")
 	ui.InfoLn()
 	_, err = m.ExecStream(ctx, runtime.ExecOptions{
 		Name:    "construct-cli-daemon",
-		Command: []string{"/usr/local/bin/network-filter.sh", "show_status"},
+		Command: []string{"sh", "-c", "if [ -x /usr/local/bin/network-filter.sh ]; then /usr/local/bin/network-filter.sh show_status; else echo 'Host egress proxy active; in-guest filter script not installed'; fi"},
 		User:    "root",
 	})
 	if err != nil {
 		ui.GumError(fmt.Sprintf("Failed to get status: %v", err))
 		os.Exit(1)
+	}
+}
+
+// Explain diagnoses whether an egress destination is allowed or blocked by the proxy policy.
+func Explain(target string) {
+	if target == "" {
+		ui.GumError("Usage: construct sys network explain <host[:port]>")
+		return
+	}
+
+	cfg, _, err := config.Load()
+	if err != nil {
+		ui.GumError(fmt.Sprintf("Failed to load config: %v", err))
+		return
+	}
+
+	p := proxy.NewPolicy(cfg.Network.Mode, cfg.Network.AllowedDomains, cfg.Sandbox.HostLoopbackPorts, "", cfg.Network.AllowedTCP)
+	p.SetBlocklists(cfg.Network.BlockedDomains, cfg.Network.BlockedIPs)
+	p.SetAllowedIPs(cfg.Network.AllowedIPs)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	decision := p.Explain(ctx, target)
+
+	fmt.Println()
+	fmt.Printf("Destination: %s:%d\n", decision.TargetHost, decision.TargetPort)
+	fmt.Printf("Active Tier: %s\n", decision.Tier)
+
+	if decision.Allowed {
+		fmt.Printf("Decision:    \033[32mALLOWED\033[0m\n")
+		if decision.Source != "" {
+			fmt.Printf("Rule Source: %s\n", decision.Source)
+		}
+		if len(decision.ResolvedIPs) > 0 {
+			var ipStrs []string
+			for _, ip := range decision.ResolvedIPs {
+				ipStrs = append(ipStrs, ip.String())
+			}
+			fmt.Printf("Resolved IP: %s\n", strings.Join(ipStrs, ", "))
+		}
+	} else {
+		fmt.Printf("Decision:    \033[31mBLOCKED\033[0m\n")
+		fmt.Printf("Reason:      %s\n", decision.Reason)
+		fmt.Println()
+		if decision.Tier == proxy.TierAllowlist {
+			fmt.Println("To allow this host, run:")
+			fmt.Printf("  construct sys network allow %s\n", decision.TargetHost)
+		}
+	}
+	fmt.Println()
+}
+
+// ShowLog displays egress proxy access logs and security events.
+func ShowLog(args []string) {
+	logPath := filepath.Join(config.GetLogsDir(), "proxy.log")
+
+	tailCount := 50
+	follow := false
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--follow", "-f":
+			follow = true
+		case "--tail", "-n":
+			if i+1 < len(args) {
+				if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+					tailCount = n
+					i++
+				}
+			}
+		}
+	}
+
+	file, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			ui.InfoLn("No proxy access logs found. Logs are recorded during active agent sessions.")
+			return
+		}
+		ui.GumError(fmt.Sprintf("Failed to open proxy log: %v", err))
+		return
+	}
+	defer file.Close() //nolint:errcheck
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		ui.GumError(fmt.Sprintf("Error reading proxy log: %v", err))
+		return
+	}
+
+	if len(lines) == 0 {
+		ui.InfoLn("Proxy log is empty.")
+		if !follow {
+			return
+		}
+	}
+
+	start := 0
+	if len(lines) > tailCount {
+		start = len(lines) - tailCount
+	}
+
+	for _, line := range lines[start:] {
+		printFormattedLogLine(line)
+	}
+
+	if !follow {
+		return
+	}
+
+	for {
+		time.Sleep(250 * time.Millisecond)
+		for scanner.Scan() {
+			printFormattedLogLine(scanner.Text())
+		}
+	}
+}
+
+func printFormattedLogLine(line string) {
+	switch {
+	case strings.Contains(line, "action=ALLOW"):
+		fmt.Printf("\033[32m%s\033[0m\n", line)
+	case strings.Contains(line, "action=BLOCK"):
+		fmt.Printf("\033[31m%s\033[0m\n", line)
+	case strings.Contains(line, "action=LEAK_DROP") || strings.Contains(line, "action=FRONTING_DROP"):
+		fmt.Printf("\033[33m%s\033[0m\n", line)
+	default:
+		fmt.Println(line)
 	}
 }

@@ -126,7 +126,7 @@ func (c *PackagesConfig) SavePackages() error {
 // bakeMigrationVersion identifies the baked-tool set this CLI ships. Bump
 // when the image's baked set grows so existing homes sweep once more (the
 // marker filename embeds it).
-const bakeMigrationVersion = 1
+const bakeMigrationVersion = 2
 
 // bakedCopy describes one baked agent's stale pre-bake bind copies.
 type bakedCopy struct {
@@ -527,7 +527,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("done\n\n")
 	b.WriteString("if [ -n \"$missing_cmds\" ]; then\n")
 	b.WriteString("    echo \"⚠️ Missing commands after setup:$missing_cmds\"\n")
-	b.WriteString("    echo \"   If these agents are expected, re-run: construct sys packages --install\"\n")
+	b.WriteString("    echo \"   If these agents are expected, re-run: construct sys packages install\"\n")
 	b.WriteString("fi\n\n")
 
 	b.WriteString("echo 'User package installation completed successfully.'\n")

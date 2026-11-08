@@ -4,7 +4,7 @@ Complete list of supported AI agents in The Construct CLI.
 
 ## Overview
 
-The Construct CLI supports 13 AI agents that can run inside an isolated sandboxed container. Each agent has its own strengths and use cases.
+The Construct CLI supports 14 AI agents that can run inside an isolated sandbox. Each agent has its own strengths and use cases.
 
 ## Available Agents
 
@@ -219,14 +219,17 @@ construct claude "Help me with this code"
 construct agy "Explain this function"
 ```
 
-### With Network Modes
+### With Network Modes & Clone Execution
 
 ```bash
-# Strict network isolation
-construct claude -ct-n strict "Review my code"
+# Allowlist network tier (ecosystem presets + configured allowlist)
+construct claude -ct-n allowlist "Review my code"
 
-# Offline mode
-construct agy --ct-network offline "Explain this code"
+# Ephemeral clone execution (disposable worktree with patch bundle export)
+construct claude --clone "Refactor this module"
+
+# Offline mode (zero network egress)
+construct agy --ct-network none "Explain this code"
 ```
 
 ### With Configuration
@@ -303,7 +306,7 @@ clipboard_image_patch = true # Enable image paste support
 Global agent rules managed via:
 
 ```bash
-construct sys agents-md
+construct sys agents rules
 ```
 
 This opens your global AGENTS.md file for editing.

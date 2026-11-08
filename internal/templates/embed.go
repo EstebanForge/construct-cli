@@ -81,12 +81,11 @@ var GlobalAgentsRules string
 // These two maps (ImageTierTemplates + SoftTierTemplates) are the single
 // source of truth for container templates. internal/migration/migration.go
 // merges them into its `containerFiles` map on every rebuild, so adding a
-// new entry here automatically flows into `ct sys rebuild`.
+// new entry here automatically flows into `ct sys image rebuild`.
 var ImageTierTemplates = map[string]string{
 	"Dockerfile":            Dockerfile,
 	"entrypoint.sh":         Entrypoint,
 	"update-all.sh":         UpdateAll,
-	"network-filter.sh":     NetworkFilter,
 	"clipper":               Clipper,
 	"clipboard-x11-sync.sh": ClipboardX11Sync,
 	"osascript":             Osascript,

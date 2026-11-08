@@ -141,10 +141,10 @@ func TestMsbBaseEnvIncludesNetwork(t *testing.T) {
 		t.Errorf("NETWORK_ALLOWED_DOMAINS = %q", env["NETWORK_ALLOWED_DOMAINS"])
 	}
 
-	def := config.DefaultConfig() // mode defaults to permissive
+	def := config.DefaultConfig() // mode defaults to open
 	envDef := envSliceToMap(msbBaseEnv(&def))
-	if envDef["NETWORK_MODE"] != "permissive" {
-		t.Errorf("default NETWORK_MODE = %q, want permissive", envDef["NETWORK_MODE"])
+	if envDef["NETWORK_MODE"] != "open" && envDef["NETWORK_MODE"] != "permissive" {
+		t.Errorf("default NETWORK_MODE = %q, want open", envDef["NETWORK_MODE"])
 	}
 }
 
@@ -619,9 +619,20 @@ func TestMsbNetworkEmptyPortsAnyPortHostRule(t *testing.T) {
 	wantPorts := map[string]bool{
 		fmt.Sprintf("%d-%d", MsbBridgePortBase, MsbBridgePortBase+MsbBridgePortSpan-1):                false,
 		fmt.Sprintf("%d-%d", MsbHerdrBridgePortBase, MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan-1): false,
+		fmt.Sprintf("%d-%d", MsbProxyPortBase, MsbProxyPortBase+MsbProxyPortSpan-1):                   false,
 	}
-	for _, mode := range []string{"offline", "permissive"} {
+	for _, mode := range []string{"offline", "none", "permissive", "open", "internet", "strict", "allowlist"} {
 		net := msbNetworkConfig(mode, nil)
+		switch mode {
+		case "offline", "none", "strict", "allowlist":
+			if net.DefaultEgress != msb.PolicyActionDeny {
+				t.Errorf("%s: expected DefaultEgress deny, got %v", mode, net.DefaultEgress)
+			}
+		default:
+			if net.DefaultEgress != msb.PolicyActionAllow {
+				t.Errorf("%s: expected DefaultEgress allow, got %v", mode, net.DefaultEgress)
+			}
+		}
 		for port := range wantPorts {
 			wantPorts[port] = false
 		}

@@ -20,7 +20,7 @@ type AgentMemory struct {
 	Paths        []string // Multiple paths for fallback logic (e.g. Cline)
 }
 
-// GetSupportedAgents returns the list of agents supported by 'sys agents-md'
+// GetSupportedAgents returns the list of agents supported by 'sys agents rules'
 func GetSupportedAgents() []AgentMemory {
 	return []AgentMemory{
 		{Name: "agy", FriendlyName: "Antigravity CLI", Paths: []string{"~/.antigravity/AGENTS.md"}},

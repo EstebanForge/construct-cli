@@ -35,15 +35,15 @@ sudo is enabled by default (`sandbox.passwordless_sudo = true`, free
 `NOPASSWD:ALL`): the microVM is the security boundary, guest root adds no host
 reach beyond the mounts already granted, and read-only mounts stay read-only
 even for root. Set `passwordless_sudo = false` to scope sudo back down to the
-apt/ufw/chown allowlist. Toggling recreates the daemon once.
+apt/chown allowlist. Toggling recreates the daemon once.
 
 **Security implications:**
 - ⚠️ **Warning**: If you expose container to untrusted networks (port forwarding, bridge mode), change the password
-- ⚠️ **Warning**: Free sudo means an agent can take any action inside the guest, including disabling in-guest firewalls. Network enforcement belongs host-side; see docs/TODO-SENTINEL-PROXY.md
+- ⚠️ **Warning**: Free sudo means an agent can take any action inside the guest. Network enforcement is strictly host-side via the authenticated Sentinel Credential Proxy and hypervisor transport rules.
 
 **Change password:**
 ```bash
-construct sys set-password
+construct sys auth password
 ```
 
 ### Container Isolation
@@ -52,11 +52,12 @@ construct sys set-password
 - Access files outside the project directory
 - Escape the container filesystem
 - Access host system processes (by default)
+- Corrupt host `.git` repository metadata (protected with immutable OS attributes)
 - Persist data across runs (without explicit configuration)
 
 **What agents CAN do:**
 - Read/write project files
-- Make network requests (subject to network mode)
+- Make network requests (subject to network policy tiers and proxy allowlists)
 - Execute commands within container
 - Access mounted volumes (home, SSH agent, etc.)
 
@@ -87,15 +88,15 @@ exec_as_host_user = true
 disable_seccomp = true
 ```
 
-This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct sys rebuild` to regenerate the image/override and restart the container.
+This emits `security_opt: [seccomp:unconfined]` in the generated override. After enabling, run `construct sys image rebuild` to regenerate the image/override and restart the container.
 
 **Tradeoff:** `seccomp:unconfined` removes a kernel-level syscall-restriction layer. It is a deliberate security reduction, scoped to users who run browsers in-container. Default-off preserves isolation for everyone else. An alternative is a Chrome-tailored seccomp JSON profile (whitelist only the needed syscalls) if you need tighter control than full unconfined.
 
-## MicroVM Isolation (Experimental Backend)
+## MicroVM Isolation (Default Backend)
 
 ### Overview
 
-When `backend = "msb"` is enabled in `[runtime]`, Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
+By default (`backend = "msb"` in `[runtime]`, the shipped default on capable hosts), Construct runs agents inside microVMs using [microsandbox](https://microsandbox.dev) rather than shared-kernel OCI containers.
 
 ### Threat Model Difference
 
@@ -105,15 +106,46 @@ When `backend = "msb"` is enabled in `[runtime]`, Construct runs agents inside m
 ### Security Guarantees
 
 - **Separate Guest Kernel**: No shared syscall table or shared kernel namespaces with the host.
-- **Fail-Closed Egress**: Network policy is enforced at the hypervisor boundary in addition to in-guest iptables filtering.
+- **Fail-Closed Egress**: Network policy is enforced at the hypervisor boundary via VMM transport policy and the host-side Egress Sentinel Proxy. In-guest UFW has been removed.
 - **Resource Limits**: Sandboxes allocate 4 vCPUs and 4096 MiB RAM by default, preventing host resource exhaustion.
 - **Controlled Bridges**: Guest-to-host bridges (clipboard, host-exec, SSH agent proxy, loopback relays) authenticate via per-session tokens and only communicate over dedicated local listeners. Detailed analysis: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
+
+## Sentinel Credential Proxy & Network Policy
+
+Construct v3.0 features a host-side authenticated egress proxy (`internal/proxy`) that terminates outbound requests from guest agents.
+
+### Invariants
+
+1. **Real keys never enter the sandbox**: Real provider API keys (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `ANTIGRAVITY_API_KEY`, etc.) remain in host memory. The sandbox receives shape-mimicking sentinel placeholders.
+2. **Dynamic CA Lifecycle**: The host generates an ECDSA P-256 root CA and dynamically signs per-host leaf certs with LRU caching. The root CA certificate is injected into guest trust stores at startup.
+3. **Outbound Secret Swapping**: On HTTPS CONNECT tunnels, the proxy MITMs requests to bound provider hosts, swaps sentinel placeholders for real credentials, and drops requests containing leaked raw secrets (`LEAK_DROP`).
+4. **Domain Fronting Guard**: The proxy validates that the CONNECT target host equals the TLS SNI and the HTTP Host header. Mismatches abort immediately (`FRONTING_DROP`).
+5. **Strict IP Validation**: The proxy resolves DNS independently and rejects private, loopback, link-local, and CGNAT IP addresses unless explicitly configured (`allowed_tcp`), preventing DNS rebinding.
+6. **Policy Tiers & Non-HTTP TCP**: Egress tiers (`allowlist`, `open`, `internet`, `none`) control access. Built-in presets permit standard package ecosystems. Specific `host:port` pairs in `[network] allowed_tcp` bypass MITM inspection to pipe raw TCP to databases and queues (`ALLOW_TCP`).
+
+## Host Git Protection & Disposable Clones
+
+### Repository Hardening
+
+Construct protects the caller's `.git` repository from agent tamper:
+- **OS-Level Immutable Flags**: Applies `chattr +i` on Linux or `chflags uchg` on macOS to the host `.git` directory prior to agent launch and restores flags on clean shutdown.
+- **Guest `.git` Masking**: Masks `.git` directories in the guest mounts with read-only stubs so agents cannot modify hooks or history directly.
+
+### Ephemeral Clone Execution (`--clone`)
+
+Run agents in an isolated temporary worktree:
+
+```bash
+construct claude --clone "Implement experimental feature"
+```
+
+Upon agent exit, changes made in the clone are validated and exported to a git bundle (`construct-patch-<id>.bundle`) in the workspace root, guaranteeing zero accidental modifications to your working tree.
 
 ## Secret Redaction
 
 ### Overview
 
-**Experimental feature** that prevents LLM agents from seeing raw secrets in project files and environment variables.
+Workspace secret redaction (`hide_secrets`) prevents LLM agents from seeing raw secrets in project files and environment variables.
 
 **What gets protected:**
 - ✅ Project files with secrets (`.env`, config files, credentials)
@@ -121,38 +153,12 @@ When `backend = "msb"` is enabled in `[runtime]`, Construct runs agents inside m
 - ✅ Agent output from Construct-controlled subprocesses
 - ✅ `.git` directory (when enabled)
 
-**What's NOT protected (V1):**
-- ❌ Secrets already in git history
-- ❌ Binary/archive files
-- ❌ Provider API calls (requires proxy, V2)
-- ❌ Malicious host-side tools outside Construct
-
 ### Enablement
 
-**Required:** Set environment gate
-```bash
-export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
-```
-
-**Configure:** Enable in `config.toml`
+Configure in `config.toml`:
 ```toml
 [security]
-hide_secrets = true
-hide_secrets_mask_style = "hash"
-```
-
-### How It Works
-
-1. **Workspace Isolation**: Agent runs in isolated workspace (OverlayFS/APFS)
-2. **File Redaction**: Secrets replaced with `CONSTRUCT_REDACTED_<HASH>`
-3. **Env Masking**: Secret env vars masked before injection
-4. **Read-Only Sessions**: Agent writes don't persist to real project
-
-### Configuration Options
-
-```toml
-[security]
-hide_secrets = true                    # Master switch
+hide_secrets = "mask"                  # mask | redact | off
 hide_secrets_mask_style = "hash"       # hash | fixed
 hide_secrets_deny_paths = []           # Force-scan these files
 hide_secrets_allow_paths = []          # Never redact these files (dangerous!)
@@ -181,16 +187,17 @@ hide_git_dir = true                     # Hide .git directory
 
 ### ✅ DO
 
-**1. Use Network Isolation**
+**1. Use Network Policy Tiers**
 ```toml
 [network]
-mode = "strict"  # For sensitive work
+mode = "allowlist"  # For sensitive work
 allowed_domains = ["*.anthropic.com"]
 ```
 
 **2. Enable Secret Redaction**
-```bash
-export CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
+```toml
+[security]
+hide_secrets = "mask"
 ```
 
 **3. Mount Home Selectively**
@@ -348,7 +355,7 @@ sha256sum construct
 
 **Solution:** Change container password
 ```bash
-construct sys set-password
+construct sys auth password
 ```
 
 **"Hide-secrets mode is experimental"**

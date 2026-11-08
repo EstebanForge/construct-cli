@@ -40,7 +40,7 @@ func TestRemoveMsbImageCacheRemovesAllRefs(t *testing.T) {
 
 // TestRebuildNotesEngineAware: the migration completion notes must speak
 // the engine's language — the microvm backend re-pulls a microVM image
-// from GHCR (local build only via an explicit `sys rebuild`), while the
+// from GHCR (local build only via an explicit `sys image rebuild`), while the
 // container backends re-pull a container image.
 func TestRebuildNotesEngineAware(t *testing.T) {
 	orig := isMicrovmBackendFn
@@ -64,22 +64,28 @@ func TestRebuildNotesEngineAware(t *testing.T) {
 }
 
 // TestIsMicrovmBackendReadsConfig: the note helpers must detect the
-// configured backend from config.toml, not assume the container default.
+// configured backend from config.toml, not assume either default.
 func TestIsMicrovmBackendReadsConfig(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	if err := config.Init(); err != nil {
 		t.Fatalf("config.Init() failed: %v", err)
 	}
-	if isMicrovmBackend() {
-		t.Fatal("default config must not report microvm")
+	// The shipped default is platform-dependent (msb on Apple Silicon / KVM
+	// hosts); only assert the helper agrees with the resolved default.
+	cfg, _, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load() failed: %v", err)
+	}
+	if isMicrovmBackend() != (cfg.Runtime.Backend == config.BackendMsb) {
+		t.Fatalf("isMicrovmBackend() disagrees with resolved default %q", cfg.Runtime.Backend)
 	}
 
 	cfgPath := filepath.Join(config.GetConfigDir(), "config.toml")
-	if err := os.WriteFile(cfgPath, []byte("runtime.backend = \"microvm\"\n"), 0o644); err != nil {
+	if err := os.WriteFile(cfgPath, []byte("runtime.backend = \"msb\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if !isMicrovmBackend() {
-		t.Fatal("runtime.backend = microvm in config.toml not detected")
+		t.Fatal("runtime.backend = msb in config.toml not detected")
 	}
 }
 

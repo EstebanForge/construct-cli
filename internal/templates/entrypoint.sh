@@ -119,7 +119,7 @@ if [ "$(id -u)" = "0" ]; then
     if [ "${CONSTRUCT_PASSWORDLESS_SUDO:-1}" = "1" ]; then
         echo "construct ALL=(ALL:ALL) NOPASSWD:ALL" > /etc/sudoers.d/construct 2>/dev/null || true
     else
-        echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /usr/sbin/ufw, /bin/chown, /usr/bin/chown" > /etc/sudoers.d/construct 2>/dev/null || true
+        echo "construct ALL=(ALL) NOPASSWD: /usr/bin/apt*, /usr/sbin/apt*, /usr/bin/apt-get, /usr/sbin/apt-get, /bin/chown, /usr/bin/chown" > /etc/sudoers.d/construct 2>/dev/null || true
     fi
     chmod 0440 /etc/sudoers.d/construct 2>/dev/null || true
 
@@ -127,7 +127,120 @@ if [ "$(id -u)" = "0" ]; then
     # filesystem (resets on recreate, so declared packages re-provision).
     # Prepared here as root so the construct-phase can write it; the
     # construct phase falls back to the bind when unwritable (rootless).
-    mkdir -p /var/lib/construct-cli 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli 2>/dev/null || true
+    mkdir -p /var/lib/construct-cli /opt/toolchains 2>/dev/null && chown "$RUN_AS_CHOWN" /var/lib/construct-cli /opt/toolchains 2>/dev/null || true
+
+    # Protect repository .git directories against guest modification:
+    # 1. Mount read-only tmpfs over hooks to prevent execution of planted scripts
+    # 2. Bind-mount .git/config read-only to prevent malicious command execution
+    # Active mounts inside .git also prevent directory rename by the guest (EBUSY).
+    for ws_dir in /workspaces/* /projects/* /projects; do
+        [ -e "$ws_dir" ] || continue
+        if [ -f "$ws_dir/.git" ]; then
+            mount --bind "$ws_dir/.git" "$ws_dir/.git" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git" 2>/dev/null || true
+            _gitdir=$(grep -E '^gitdir:' "$ws_dir/.git" 2>/dev/null | awk '{print $2}')
+            if [ -n "$_gitdir" ] && [ -d "$_gitdir" ]; then
+                if [ -d "$_gitdir/hooks" ]; then
+                    mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$_gitdir/hooks" 2>/dev/null || true
+                fi
+                if [ -f "$_gitdir/config" ]; then
+                    mount --bind "$_gitdir/config" "$_gitdir/config" 2>/dev/null && mount -o remount,ro,bind "$_gitdir/config" 2>/dev/null || true
+                fi
+            fi
+        elif [ -d "$ws_dir/.git" ]; then
+            if [ -d "$ws_dir/.git/hooks" ]; then
+                mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$ws_dir/.git/hooks" 2>/dev/null || true
+            fi
+            if [ -f "$ws_dir/.git/config" ]; then
+                mount --bind "$ws_dir/.git/config" "$ws_dir/.git/config" 2>/dev/null && mount -o remount,ro,bind "$ws_dir/.git/config" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    # Enforce container network confinement when in allowlist or strict mode.
+    # Block direct outbound egress to public internet so all agent traffic must
+    # transit the authenticated host egress proxy.
+    if [ "${NETWORK_MODE:-}" = "allowlist" ] || [ "${NETWORK_MODE:-}" = "strict" ]; then
+        if command -v iptables >/dev/null 2>&1 && iptables -L -n >/dev/null 2>&1; then
+            iptables -F OUTPUT 2>/dev/null || true
+            iptables -A OUTPUT -o lo -j ACCEPT
+            iptables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+            default_gw=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
+
+            # DNS resolution to configured nameservers and default gateway
+            for ns in $(awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null); do
+                iptables -A OUTPUT -d "$ns" -p udp --dport 53 -j ACCEPT
+                iptables -A OUTPUT -d "$ns" -p tcp --dport 53 -j ACCEPT
+            done
+            if [ -n "$default_gw" ]; then
+                iptables -A OUTPUT -d "$default_gw" -p udp --dport 53 -j ACCEPT
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport 53 -j ACCEPT
+            fi
+
+            # Allow host egress proxy strictly on proxy port to proxy host and gateway
+            proxy_port=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -e 's|^.*://||' -e 's|/.*$||' -e 's|^.*@||' | sed -n 's|.*:\([0-9]\+\)$|\1|p')
+            proxy_host=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -e 's|^.*://||' -e 's|/.*$||' -e 's|^.*@||' -e 's|:.*$||')
+            proxy_ips=""
+            if [ -n "$proxy_host" ]; then
+                proxy_ips=$(getent ahostsv4 "$proxy_host" 2>/dev/null | awk '{print $1}' | sort -u)
+            fi
+            if [ -z "$proxy_ips" ] && [ -n "$default_gw" ]; then
+                proxy_ips="$default_gw"
+            fi
+
+            for pip in $proxy_ips; do
+                if [ -n "$proxy_port" ]; then
+                    iptables -A OUTPUT -d "$pip" -p tcp --dport "$proxy_port" -j ACCEPT
+                else
+                    iptables -A OUTPUT -d "$pip" -p tcp --dport 58700:63700 -j ACCEPT
+                fi
+            done
+            if [ -n "$default_gw" ]; then
+                if [ -n "$proxy_port" ]; then
+                    iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$proxy_port" -j ACCEPT
+                else
+                    iptables -A OUTPUT -d "$default_gw" -p tcp --dport 58700:63700 -j ACCEPT
+                fi
+            fi
+
+            # Allow SSH bridge port to host gateway if configured
+            if [ -n "$default_gw" ] && [ -n "${CONSTRUCT_SSH_BRIDGE_PORT:-}" ]; then
+                iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$CONSTRUCT_SSH_BRIDGE_PORT" -j ACCEPT
+            fi
+
+            # Allow configured host loopback relay ports to host gateway
+            if [ -n "$default_gw" ] && [ -n "${CONSTRUCT_LOOPBACK_PORTS:-}" ]; then
+                IFS=',' read -ra _lb_ports <<< "$CONSTRUCT_LOOPBACK_PORTS"
+                for _p in "${_lb_ports[@]}"; do
+                    case "$_p" in
+                        ''|*[!0-9]*) continue ;;
+                        *) iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$_p" -j ACCEPT ;;
+                    esac
+                done
+            fi
+
+            # Reject all remaining direct outbound traffic (fail-closed)
+            iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
+            iptables -A OUTPUT -j REJECT
+        else
+            echo "Error: iptables capability missing; cannot enforce network boundary." >&2
+            exit 1
+        fi
+
+        # IPv6 egress block
+        if command -v ip6tables >/dev/null 2>&1 && ip6tables -L -n >/dev/null 2>&1; then
+            ip6tables -F OUTPUT 2>/dev/null || true
+            ip6tables -A OUTPUT -o lo -j ACCEPT
+            ip6tables -A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+            ip6tables -A OUTPUT -j REJECT 2>/dev/null || ip6tables -A OUTPUT -j DROP 2>/dev/null || true
+        fi
+    fi
+
+    # Trust Construct root CA if provisioned by the host
+    if [ -f "/home/construct/.config/construct-cli/ca/construct-ca.crt" ]; then
+        cp -f "/home/construct/.config/construct-cli/ca/construct-ca.crt" /usr/local/share/ca-certificates/construct-ca.crt 2>/dev/null || true
+        update-ca-certificates >/dev/null 2>&1 || true
+    fi
 
     # Preserve HOME even when dropping to numeric UID:GID without passwd entry.
     export HOME="${HOME:-/home/construct}"
@@ -149,6 +262,20 @@ else
         if [ -d /home/construct/.local ] && [ "$(stat -c '%u:%g' /home/construct/.local 2>/dev/null)" != "$(id -u):$(id -g)" ]; then
             sudo chown -R "$(id -u):$(id -g)" /home/construct 2>/dev/null || true
         fi
+
+        for ws_dir in /workspaces/* /projects/* /projects; do
+            [ -e "$ws_dir" ] || continue
+            if [ -f "$ws_dir/.git" ]; then
+                sudo mount --bind "$ws_dir/.git" "$ws_dir/.git" 2>/dev/null && sudo mount -o remount,ro,bind "$ws_dir/.git" 2>/dev/null || true
+            elif [ -d "$ws_dir/.git" ]; then
+                if [ -d "$ws_dir/.git/hooks" ]; then
+                    sudo mount -t tmpfs -o ro,nodev,noexec,nosuid tmpfs "$ws_dir/.git/hooks" 2>/dev/null || true
+                fi
+                if [ -f "$ws_dir/.git/config" ]; then
+                    sudo mount --bind "$ws_dir/.git/config" "$ws_dir/.git/config" 2>/dev/null && sudo mount -o remount,ro,bind "$ws_dir/.git/config" 2>/dev/null || true
+                fi
+            fi
+        done
 
     fi
 fi
@@ -618,11 +745,6 @@ setup_shell_environment
 # no clipboard env, so the guard below only fires on the Docker path.
 if [ -n "$CONSTRUCT_CLIPBOARD_URL" ]; then
     /usr/local/bin/clipboard-x11-sync.sh >/tmp/clipboard-x11-sync.log 2>&1 &
-fi
-
-# Configure network filtering (if in strict mode)
-if [ -f "/usr/local/bin/network-filter.sh" ]; then
-    /usr/local/bin/network-filter.sh || true
 fi
 
 # Forward localhost login callbacks to the container when requested.

@@ -24,7 +24,8 @@ import (
 var getImageEntrypointHashFn = getImageEntrypointHash
 
 // RunWithArgs executes an agent inside the container with optional network override.
-func RunWithArgs(args []string, networkFlag string) {
+func RunWithArgs(args []string, networkFlag string, cloneMode ...bool) {
+	isClone := len(cloneMode) > 0 && cloneMode[0]
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.LogError(err)
@@ -36,7 +37,7 @@ func RunWithArgs(args []string, networkFlag string) {
 	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
 	if cfg.Runtime.Backend == config.BackendMsb {
-		os.Exit(runMsbWithArgs(args, cfg, nil))
+		os.Exit(runMsbWithArgs(args, cfg, nil, isClone))
 	}
 
 	// Fail closed on unsupported isolation backends before any container op
@@ -45,7 +46,7 @@ func RunWithArgs(args []string, networkFlag string) {
 			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "validate runtime backend",
 			Err:        err,
-			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+			Suggestion: "Set backend to one of: msb, containers, podman, docker",
 		})
 		os.Exit(1)
 	}
@@ -77,7 +78,7 @@ func RunWithArgs(args []string, networkFlag string) {
 	}
 
 	// Continue with container execution (no provider env vars)
-	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, nil)
+	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, nil, isClone)
 
 	if isGooseConfigure(args) {
 		if err := markGooseConfigured(configPath); err != nil {
@@ -90,21 +91,31 @@ func RunWithArgs(args []string, networkFlag string) {
 
 func applyNetworkFlag(cfg *config.Config, networkFlag string) {
 	if networkFlag != "" {
-		if err := network.ValidateMode(networkFlag); err != nil {
+		norm, err := network.NormalizeMode(networkFlag)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s': %v\n\n", networkFlag, err)
 			os.Exit(1)
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			ui.InfoF("Network mode: %s (CLI flag override)\n", networkFlag)
+			ui.InfoF("Network mode: %s (CLI flag override)\n", norm)
 		}
-		cfg.Network.Mode = networkFlag
-	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		ui.InfoF("Network mode: %s (from config)\n", cfg.Network.Mode)
+		cfg.Network.Mode = norm
+	} else {
+		norm, err := network.NormalizeMode(cfg.Network.Mode)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s' in configuration: %v\n\n", cfg.Network.Mode, err)
+			os.Exit(1)
+		}
+		cfg.Network.Mode = norm
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			ui.InfoF("Network mode: %s (from config)\n", cfg.Network.Mode)
+		}
 	}
 }
 
 // RunWithProvider executes Claude with a configured provider alias.
-func RunWithProvider(args []string, networkFlag, providerName string) {
+func RunWithProvider(args []string, networkFlag, providerName string, cloneMode ...bool) {
+	isClone := len(cloneMode) > 0 && cloneMode[0]
 	cfg, _, err := config.Load()
 	if err != nil {
 		ui.LogError(err)
@@ -144,7 +155,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	// msb backend: run path is wired (engine dispatches to the persistent
 	// sandbox); skip the Docker prepare/setup chain.
 	if cfg.Runtime.Backend == config.BackendMsb {
-		os.Exit(runMsbWithArgs(args, cfg, providerEnv))
+		os.Exit(runMsbWithArgs(args, cfg, providerEnv, isClone))
 	}
 
 	// Fail closed on unsupported isolation backends before any container op
@@ -153,7 +164,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 			Category:   cerrors.ErrorCategoryRuntime,
 			Operation:  "validate runtime backend",
 			Err:        err,
-			Suggestion: "Set backend = \"docker\" in [runtime], or remove the key",
+			Suggestion: "Set backend to one of: msb, containers, podman, docker",
 		})
 		os.Exit(1)
 	}
@@ -179,7 +190,7 @@ func RunWithProvider(args []string, networkFlag, providerName string) {
 	}
 
 	// Continue with container execution, passing provider env vars
-	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv)
+	exitCode := runWithProviderEnv(args, cfg, containerRuntime, configPath, providerEnv, isClone)
 	os.Exit(exitCode)
 }
 
@@ -211,7 +222,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			} else {
 				ui.InfoLn("⚠️  Rebuild required.")
 			}
-			ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
+			ui.InfoLn("Run 'construct sys image rebuild' to refresh the container image.")
 			return fmt.Errorf("rebuild required")
 		}
 	}
@@ -229,7 +240,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
 		}
 		ui.InfoLn("⚠️  Container image entrypoint is stale.")
-		ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
+		ui.InfoLn("Run 'construct sys image rebuild' to refresh the container image.")
 		return fmt.Errorf("rebuild required")
 	}
 
@@ -401,7 +412,7 @@ func runSetup(cfg *config.Config, containerRuntime, configPath string) error {
 // runMsbWithArgs runs the agent through the msb backend: backend-agnostic
 // prepare (templates, install script) then the engine, which dispatches to
 // the persistent daemon sandbox. Goose gating matches the Docker path.
-func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int {
+func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string, cloneMode ...bool) int {
 	configPath := config.GetConfigDir()
 	if err := runtime.PrepareBackendAgnostic(cfg, configPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: Failed to prepare runtime: %v\n", err)
@@ -412,7 +423,7 @@ func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int
 		ui.InfoLn("Run: ct goose configure")
 		return 1
 	}
-	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv)
+	exitCode := runWithProviderEnv(args, cfg, "", configPath, providerEnv, cloneMode...)
 	if isGooseConfigure(args) {
 		if err := markGooseConfigured(configPath); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: failed to save Goose configure state: %v\n", err)
@@ -421,8 +432,11 @@ func runMsbWithArgs(args []string, cfg *config.Config, providerEnv []string) int
 	return exitCode
 }
 
-func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string) int {
+func runWithProviderEnv(args []string, cfg *config.Config, containerRuntime, configPath string, providerEnv []string, cloneMode ...bool) int {
 	engine := NewRuntimeEngine(cfg, args, containerRuntime, configPath, providerEnv)
+	if len(cloneMode) > 0 && cloneMode[0] {
+		engine.SetCloneMode(true)
+	}
 	defer engine.Teardown()
 
 	if err := engine.Prepare(); err != nil {

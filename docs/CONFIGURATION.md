@@ -35,7 +35,7 @@ The main configuration file lives at:
 ```toml
 # Runtime Configuration
 [runtime]
-engine = "auto"              # Container runtime: auto|podman|docker|container
+backend = "msb"              # Isolation backend: msb (default)|containers|podman|docker
 auto_update_check = true     # Check for updates automatically
 update_check_interval = 86400 # Update check interval (seconds)
 update_channel = "stable"     # Release channel: stable|beta
@@ -47,28 +47,29 @@ forward_ssh_agent = true     # Forward SSH agent socket
 propagate_git_identity = true # Propagate git host identity
 non_root_strict = false      # Enforce non-root user in container
 exec_as_host_user = true     # Run commands as host user (when possible)
-passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/ufw/chown only)
+passwordless_sudo = true     # Free NOPASSWD sudo for the guest user (false = scoped apt/chown only)
 workspace_max_entries = 500000 # File count before the large-workspace warning (0 = use default). One Yes is remembered per folder in roots.json
 env_passthrough = ["GITHUB_TOKEN"] # Env vars to always pass through
 shell = "/bin/bash"          # Default shell in container
 
 # Network Configuration
 [network]
-mode = "permissive"          # Network mode: permissive|strict|offline
-allowed_domains = []         # Domain allowlist (strict mode)
-allowed_ips = []             # IP allowlist (strict mode)
+mode = "allowlist"           # Policy tier: allowlist|open|internet|none (legacy aliases: permissive|strict|offline)
+allowed_domains = []         # Domain allowlist (wildcards supported)
+allowed_ips = []             # IP allowlist (CIDRs supported)
 blocked_domains = []         # Domain blocklist
 blocked_ips = []             # IP blocklist
+allowed_tcp = []             # Raw TCP service tunnels (host:port, e.g. ["postgres.internal:5432"])
 
 # Security Configuration
 [security]
-hide_secrets = false         # Enable secret redaction (experimental)
+hide_secrets = "mask"        # Workspace secret redaction: mask|redact|off
 hide_secrets_mask_style = "hash" # Mask style: hash|fixed
 hide_secrets_deny_paths = [] # Force-scan these files
 hide_secrets_allow_paths = [] # Never redact these files (dangerous!)
 hide_secrets_passthrough_vars = [] # Never mask these env vars
 hide_secrets_report = true   # Show scan report
-hide_git_dir = true          # Hide .git directory
+hide_git_dir = true          # Hide and mask .git directory
 
 # Agent Configuration
 [agents]
@@ -94,22 +95,18 @@ ANTHROPIC_AUTH_TOKEN = "${ANTHROPIC_API_KEY}"
 
 ```toml
 [runtime]
-backend = "containers"  # containers (default) | podman | docker | msb (experimental)
+backend = "msb"  # msb (default) | containers | podman | docker
 ```
 
 One key selects both the isolation technology and, for the container path, the OCI binary. Values name the engine, not the technology. It fails closed: a configured but missing backend is a hard error, never a silent fallback.
 
 **Options:**
-- `containers` (default): any OCI engine, auto-picked, priority `container` (Apple, macOS 26+) > `podman` > `docker`. Works with podman and docker alike.
+- `msb` (default): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Release builds ship their own version-matched `msb` + `libkrunfw` pair embedded in the binary, so no host msb install is needed: construct extracts the pair on first use under `~/.config/construct-cli/msb-runtime/` and runs the whole stack from an isolated home (`~/.config/construct-cli/msb-home`), leaving any host msb untouched. Requires Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Developer builds without the embedded pair (`make build`) require the host `msb` CLI at the SDK's exact version; mismatches fail fast before any download with the exact fix (`msb update` or `ct sys self-update`), and `construct sys doctor` reports the pairing (embedded builds report the extracted pair instead). The first embedded-mode run re-pulls the construct image into the isolated home (one-time ~2 GiB); an existing `~/.microsandbox` store is never touched. Every run executes in the persistent daemon sandbox: with `[daemon] multi_paths_enabled = true` and `mount_paths` set to your project roots, the sandbox is created once and reused across all of them, so the guest is not re-initialized when you switch directories (see [Daemon Settings](#daemon-settings)). Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
+- `containers`: any OCI engine, auto-picked, priority `container` (Apple, macOS 26+) > `podman` > `docker`. Works with podman and docker alike. This is the default on hosts without microVM support (Intel Macs, Linux without `/dev/kvm`).
 - `podman`: pin Podman
 - `docker`: pin Docker (OrbStack on macOS, then Docker Desktop). Pinning sets the priority order, not a hard requirement: if the pinned binary is unavailable, detection falls through to the others.
-- `msb` (experimental): [microsandbox](https://microsandbox.dev) microVMs (a dedicated Linux guest kernel per agent sandbox). Release builds ship their own version-matched `msb` + `libkrunfw` pair embedded in the binary, so no host msb install is needed: construct extracts the pair on first use under `~/.config/construct-cli/msb-runtime/` and runs the whole stack from an isolated home (`~/.config/construct-cli/msb-home`), leaving any host msb untouched. Requires Apple Silicon macOS (Hypervisor.framework) or Linux with KVM (`/dev/kvm`). Allocates 4 vCPUs and 4096 MiB RAM by default. Bridges (clipboard, host-exec, SSH agent proxy, loopback dev-site forwarding) and network enforcement modes (permissive, strict, offline) are fully supported. The daemon sandbox automatically transitions images via GHCR pull or local docker save/load. Developer builds without the embedded pair (`make build`) require the host `msb` CLI at the SDK's exact version; mismatches fail fast before any download with the exact fix (`msb update` or `ct sys self-update`), and `construct sys doctor` reports the pairing (embedded builds report the extracted pair instead). The first embedded-mode run re-pulls the construct image into the isolated home (one-time ~2 GiB); an existing `~/.microsandbox` store is never touched. Every run executes in the persistent daemon sandbox: with `[daemon] multi_paths_enabled = true` and `mount_paths` set to your project roots, the sandbox is created once and reused across all of them, so the guest is not re-initialized when you switch directories (see [Daemon Settings](#daemon-settings)). Complete design, benchmarks, and details: [docs/ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend).
 
-**Image acquisition (all backends):** every backend resolves the `construct-box` image through the same three steps. First, the local store (docker/podman image, or the microVM image store) is used when the image already exists. Next, the published image is pulled from `ghcr.io/estebanforge/construct-box:latest`; the Docker and Podman backends alias it to the local `construct-box:latest` name, while the microVM image store caches it under the full registry ref and resolves candidates automatically. Only when neither is available does Construct offer a local build: it asks for confirmation first, because a from-scratch build takes about 15 minutes on modern hardware. Non-interactive sessions never start a build on their own; they stop with instructions to run `construct sys rebuild` (or `docker pull ghcr.io/estebanforge/construct-box:latest`) from a terminal. Set `CONSTRUCT_SKIP_IMAGE_BUILD=1` to declare that an externally provisioned image will be provided (CI, lab fixtures) and skip both the prompt and the build.
-
-**Migrating from the old `engine` key:** `engine` and `backend` merged into the single `backend` key. On first run, Construct rewrites a legacy `engine` key in place (comments preserved): a pinned `engine = "podman"` becomes `backend = "podman"`, and `engine = "auto"` is dropped.
-
-**Migrating from legacy backend values:** values now name the engine. On first run, Construct rewrites them in place (comments preserved): `backend = "msb"` becomes `backend = "msb"`, and `backend = "auto"` or the old Apple-container pin `backend = "container"` become `backend = "containers"` (the same auto-pick, Apple container > podman > docker). To pin Apple's container binary specifically, it is still honored through the `containers` priority order.
+**Image acquisition (all backends):** every backend resolves the `construct-box` image through the same three steps. First, the local store (docker/podman image, or the microVM image store) is used when the image already exists. Next, the published image is pulled from `ghcr.io/estebanforge/construct-box:latest`; the Docker and Podman backends alias it to the local `construct-box:latest` name, while the microVM image store caches it under the full registry ref and resolves candidates automatically. Only when neither is available does Construct offer a local build: it asks for confirmation first, because a from-scratch build takes about 15 minutes on modern hardware. Non-interactive sessions never start a build on their own; they stop with instructions to run `construct sys image rebuild` (or `docker pull ghcr.io/estebanforge/construct-box:latest`) from a terminal. Set `CONSTRUCT_SKIP_IMAGE_BUILD=1` to declare that an externally provisioned image will be provided (CI, lab fixtures) and skip both the prompt and the build.
 
 ### Update Management
 
@@ -199,7 +196,7 @@ forward_ssh_agent = true
 
 **Fallback:**
 ```bash
-construct sys ssh-import  # Import host keys manually
+construct sys ssh import  # Import host keys manually
 ```
 
 ### Agent Config Push
@@ -293,7 +290,7 @@ host_binaries = ["wicket"]
 **⚠ Security**: each listed binary runs on the host with **full container-controlled argv**. Only list binaries you trust with that. Declaring `docker` grants effective host root to the agent; `aws`/`kubectl` likewise. The bridge is token-gated and allowlist-pinned, but argv is not filtered.
 
 - **Off when empty** (default). No bridge starts, zero attack surface.
-- Requires `construct sys rebuild` after first enabling, so the container shim is baked into the image.
+- Requires `construct sys image rebuild` after first enabling, so the container shim is baked into the image.
 - Non-interactive only: no controlling terminal/PTY. Pipe stdin (one-shot) works; interactive prompts do not. Pass `--no-interactive`/`--json`/`--yes` flags where available.
 - A startup banner (`⚠ host exec enabled: ...`) confirms when active.
 - Full details: [Host Exec Bridge](HOST-EXEC.md).
@@ -322,35 +319,38 @@ For each listed port, `entrypoint.sh` starts a blind TCP relay on the container'
 
 ## Network Settings
 
-### Network Modes
+### Policy Tiers
 
 ```toml
 [network]
-mode = "permissive"  # Options: permissive, strict, offline
+mode = "allowlist"  # Options: allowlist, open, internet, none (aliases: permissive -> open, strict -> allowlist, offline -> none)
 ```
 
-**Modes:**
+**Tiers:**
 
-**Permissive (default):**
-- All network traffic allowed
-- Domain/IP blocklists still enforced
-- Good for general development
+**Allowlist (default):**
+- Only allowlisted domains, IPs, and built-in ecosystem presets are permitted
+- Ecosystem presets attached automatically: npm, PyPI, crates.io, Go proxy, apt, and GitHub release assets
+- Requests undergo TLS MITM inspection and sentinel credential swapping
+- Best balance of productivity and isolation
 
-**Strict:**
-- Only allowlisted traffic allowed
-- Must configure `allowed_domains` and/or `allowed_ips`
-- Best security for sensitive work
+**Open (permissive alias):**
+- Outbound access to all destinations
+- MITM inspection and sentinel substitution remain active for provider API endpoints
+- Blocklists still enforced
 
-**Offline:**
-- No network access
-- Agent cannot make external API calls
-- Maximum security for air-gapped environments
+**Internet:**
+- General public Internet egress permitted; private IP, CGNAT, and link-local ranges blocked
 
-### Allowlists (Strict Mode)
+**None (offline alias):**
+- Zero outbound network access
+- Maximum security for air-gapped operations
+
+### Allowlists
 
 ```toml
 [network]
-mode = "strict"
+mode = "allowlist"
 allowed_domains = [
     "*.anthropic.com",
     "*.openai.com",
@@ -368,6 +368,21 @@ allowed_ips = [
 - CIDR notation for IPs: `192.168.1.0/24`
 - Exact matches: `api.example.com`
 
+### Raw TCP Tunnels (`allowed_tcp`)
+
+For non-HTTP services like PostgreSQL, MySQL, Redis, and message queues:
+
+```toml
+[network]
+allowed_tcp = [
+    "postgres.internal:5432",
+    "*.rds.amazonaws.com:5432",
+    "10.0.0.5:6379"
+]
+```
+
+These destinations bypass TLS MITM inspection and pipe raw TCP byte streams directly through the host CONNECT proxy.
+
 ### Blocklists
 
 ```toml
@@ -384,16 +399,30 @@ blocked_ips = [
 
 **Priority:** Blocklists take precedence over allowlists.
 
+### Network Diagnostics
+
+Inspect why a target is allowed or blocked:
+
+```bash
+construct sys network explain api.anthropic.com:443
+construct sys network explain postgres.internal:5432
+```
+
+View live proxy access audit logs:
+
+```bash
+construct sys network log
+construct sys network log --tail 50 -f
+```
+
 ## Security Settings
 
-### Secret Redaction (Experimental)
-
-⚠️ **Requires environment gate:** `CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1`
+### Secret Redaction (`hide_secrets`)
 
 ```toml
 [security]
-hide_secrets = true
-hide_secrets_mask_style = "hash"
+hide_secrets = "mask"            # Options: mask, redact, off
+hide_secrets_mask_style = "hash" # Options: hash, fixed
 hide_secrets_deny_paths = ["**/secrets.yml"]
 hide_secrets_allow_paths = ["~/.aws/credentials"]
 hide_secrets_passthrough_vars = ["PUBLIC_API_URL"]
@@ -401,7 +430,23 @@ hide_secrets_report = true
 hide_git_dir = true
 ```
 
-**See:** [Hide Secrets Guide](HIDE-SECRETS.md) for complete documentation.
+- **mask**: Redacts secrets from disk files before mounting into the sandbox and masks matching tokens in stream output
+- **redact**: Replaces secret values with zeroed tokens
+- **off**: Disables workspace redaction
+
+### Host Git Repository Protection
+
+Construct locks the host `.git` repository before spawning agents using OS-level immutable flags (`chattr +i` on Linux, `chflags uchg` on macOS). Guest mounts mask `.git` as read-only.
+
+### Disposable Clone Execution (`--clone`)
+
+Run an agent in a disposable ephemeral clone:
+
+```bash
+construct claude --clone "Refactor database migrations"
+```
+
+When the agent exits, changes are verified and exported to a git bundle (`construct-patch-<id>.bundle`) in the project directory, leaving the original workspace untouched.
 
 ## Agent Settings
 
@@ -553,7 +598,6 @@ packages = [
 
 **Runtime overrides:**
 ```bash
-CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1  # Enable hide-secrets mode
 CONSTRUCT_CONFIG_DIR=/custom/path      # Custom config directory
 CONSTRUCT_DATA_DIR=/custom/data        # Custom data directory
 ```
@@ -578,7 +622,8 @@ ANTHROPIC_AUTH_TOKEN = "${CUSTOM_API_KEY}"
 
 ```toml
 [runtime]
-engine = "auto"
+# backend defaults to msb on Apple Silicon macOS / Linux with KVM,
+# containers elsewhere; set it explicitly only to pin or override.
 
 [network]
 mode = "permissive"
@@ -617,7 +662,7 @@ exec_as_host_user = true
 passwordless_sudo = true
 
 [network]
-mode = "strict"
+mode = "allowlist"
 allowed_domains = [
     "*.anthropic.com",
     "*.openai.com",
@@ -626,7 +671,7 @@ allowed_domains = [
 blocked_ips = ["0.0.0.0/8"] # Block local network
 
 [security]
-hide_secrets = true  # Requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1
+hide_secrets = "mask"
 hide_git_dir = true
 
 [agents]
@@ -637,7 +682,7 @@ yolo_all = false
 
 ```toml
 [runtime]
-engine = "container"  # macOS native runtime
+backend = "msb"  # microVM isolation (works offline; host transport stays allowed)
 
 [network]
 mode = "offline"  # No network access
@@ -658,7 +703,7 @@ Construct automatically migrates your config when upgrading:
 
 **Manual migration:**
 ```bash
-construct sys config --migrate
+construct sys config migrate
 ```
 
 ## Next Steps

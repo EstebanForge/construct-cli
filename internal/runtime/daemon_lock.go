@@ -14,7 +14,7 @@ import (
 // DaemonLockPath is the host-local flock file. One per construct config
 // dir. A 10-minute first boot behind this lock is expected (matches the
 // wide critical section in EnsureMsbDaemon: read state + decide + write
-// state + recreate/boot, all as one unit). See docs/VMsv2.md phase 1.
+// state + recreate/boot, all as one unit). See docs/ARCHITECTURE-DESIGN.md §4.1.
 //
 // Exported so the doctor check can surface the path in its details.
 func DaemonLockPath() string {

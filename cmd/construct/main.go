@@ -38,8 +38,13 @@ func main() {
 	}
 
 	var networkFlag string
+	var cloneFlag bool
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--clone", "--ct-clone":
+			cloneFlag = true
+			args = append(args[:i], args[i+1:]...)
+			i--
 		case "--ct-verbose", "-ct-v":
 			ui.SetLogLevel(ui.LogLevelInfo)
 			args = append(args[:i], args[i+1:]...)
@@ -112,21 +117,26 @@ func main() {
 
 	command := args[0]
 
-	// Namespace routing
+	// Top-level shortcuts and namespace routing
 	switch command {
+	case "doctor":
+		handleDoctorCommand(args[1:], cfg)
+		return
+	case "agents":
+		handleAgentsCommand(args[1:])
+		return
+	case "update":
+		cfg = ensureConfigLoaded(cfg)
+		runUpdate(cfg)
+		return
 	case "sys":
 		if len(args) < 2 {
 			sys.EnsureCtSymlink()
-			ui.PrintSysHelp()
+			ui.PrintSysHelp(cfg.Runtime.Backend)
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
-	case "network":
-		if len(args) < 2 {
-			ui.PrintNetworkHelp()
-			os.Exit(1)
-		}
-		handleNetworkCommand(args[1:])
+		return
 	case "cc":
 		if len(args) < 2 || args[1] == "--help" || args[1] == "-h" {
 			cfg = ensureConfigLoaded(cfg)
@@ -135,17 +145,19 @@ func main() {
 		}
 		providerName := args[1]
 		agentArgs := append([]string{"claude"}, args[2:]...)
-		agent.RunWithProvider(agentArgs, networkFlag, providerName)
+		agent.RunWithProvider(agentArgs, networkFlag, providerName, cloneFlag)
+		return
 	case "claude":
 		if len(args) > 1 && cfg != nil {
 			if _, exists := cfg.Claude.Providers[args[1]]; exists {
 				providerName := args[1]
 				agentArgs := append([]string{"claude"}, args[2:]...)
-				agent.RunWithProvider(agentArgs, networkFlag, providerName)
+				agent.RunWithProvider(agentArgs, networkFlag, providerName, cloneFlag)
 				return
 			}
 		}
-		agent.RunWithArgs(args, networkFlag)
+		agent.RunWithArgs(args, networkFlag, cloneFlag)
+		return
 	default:
 		// Check if it's a supported agent
 		if !agent.IsSupported(command) {
@@ -154,15 +166,43 @@ func main() {
 			os.Exit(1)
 		}
 		// Everything else is an agent invocation
-		agent.RunWithArgs(args, networkFlag)
+		agent.RunWithArgs(args, networkFlag, cloneFlag)
 	}
 }
 
-func handleSysCommand(args []string, cfg *config.Config) {
-	// Auto-create ct symlink for all sys commands
-	sys.EnsureCtSymlink()
+func handleDoctorCommand(args []string, cfg *config.Config) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "clipboard":
+			cfg = ensureConfigLoaded(cfg)
+			sys.ClipboardDebug(cfg)
+			return
+		case "fix":
+			doctor.Run(append([]string{"fix"}, args[1:]...)...)
+			return
+		}
+	}
+	doctor.Run(args...)
+}
+
+func handleImageCommand(args []string, cfg *config.Config) {
+	if len(args) == 0 || args[0] == "--help" || args[0] == "-h" || args[0] == "help" {
+		fmt.Println("Usage: construct sys image <pull|rebuild|reset|init>")
+		fmt.Println("\nCommands:")
+		fmt.Println("  pull       Pull latest construct-box image from GHCR")
+		fmt.Println("  rebuild    Re-sync templates and rebuild the sandbox image")
+		fmt.Println("  reset      Delete agent binaries and cache (preserves personal config)")
+		fmt.Println("  init       Initialize environment and install agents inside Construct")
+		os.Exit(0)
+	}
 
 	switch args[0] {
+	case "pull":
+		cfg = ensureConfigLoaded(cfg)
+		if err := runtime.PullImage(cfg); err != nil {
+			ui.GumError(fmt.Sprintf("Pull failed: %v", err))
+			os.Exit(1)
+		}
 	case "init", "rebuild":
 		if args[0] == "rebuild" {
 			if err := migration.ForceRefresh(); err != nil {
@@ -172,27 +212,45 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		}
 
 		cfg = ensureConfigLoaded(cfg)
+		if cfg.Runtime.Backend == config.BackendMsb {
+			rt := runtime.DetectRuntime("auto")
+			if rt == "" || rt == "none" {
+				if err := runtime.PullImage(cfg); err != nil {
+					ui.GumError(fmt.Sprintf("Image pull failed: %v", err))
+					os.Exit(1)
+				}
+				return
+			}
+		}
 		runtime.BuildImage(cfg)
-		// msb backend: compose build lands in the docker store, but the
-		// guest boots from the msb image cache and EnsureImage prefers a
-		// GHCR pull over that store. Transition the fresh build now or the
-		// next run shadows it with a stale published image.
 		if cfg.Runtime.Backend == config.BackendMsb {
 			if err := runtime.TransitionLocalConstructImageToMsb(cfg); err != nil {
 				ui.GumError(fmt.Sprintf("msb image transition failed: %v", err))
 				os.Exit(1)
 			}
 		}
-	case "update":
-		runUpdate(cfg)
 	case "reset":
 		cfg = ensureConfigLoaded(cfg)
 		sys.ResetVolumes(cfg)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown image command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Run 'construct sys image help' for available commands.\n")
+		os.Exit(1)
+	}
+}
+
+func handleSysCommand(args []string, cfg *config.Config) {
+	// Auto-create ct symlink for all sys commands
+	sys.EnsureCtSymlink()
+
+	switch args[0] {
+	case "image":
+		handleImageCommand(args[1:], cfg)
+	case "update":
+		runUpdate(cfg)
 	case "shell":
-		// Shell is just running with empty args (entrypoint defaults to shell)
 		agent.RunWithArgs([]string{}, "")
 	case "exec":
-		// Non-interactive command execution inside running container
 		execArgs := parseExecArgs(args[1:])
 		if len(execArgs) == 0 {
 			fmt.Fprintf(os.Stderr, "Usage: construct sys exec -- <command> [args...]\n")
@@ -201,91 +259,86 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		}
 		exitCode := sys.ExecCommand(cfg, execArgs)
 		os.Exit(exitCode)
-	case "aliases":
-		handleLegacyAliasesCommand(args[1:])
 	case "shims":
 		sys.HandleShimsCommand(args[1:])
 	case "version":
 		ui.PrintVersion()
 	case "help":
-		ui.PrintHelp()
+		ui.PrintSysHelp(cfg.Runtime.Backend)
 	case "config":
 		handleConfigCommand(args[1:])
 	case "packages":
 		handlePackagesCommand(args[1:], cfg)
 	case "agents":
-		if len(args) > 1 && (args[1] == "push" || args[1] == "--push") {
-			if err := agent.SyncAgentConfigs(args[2:]); err != nil {
-				ui.GumError(fmt.Sprintf("Agent configs push failed: %v", err))
+		handleAgentsCommand(args[1:])
+	case "network", "net":
+		if len(args) < 2 {
+			ui.PrintNetworkHelp()
+			os.Exit(1)
+		}
+		handleNetworkCommand(args[1:])
+	case "toolchains", "toolchain":
+		sys.HandleToolchainsCommand(args[1:])
+	case "doctor":
+		handleDoctorCommand(args[1:], cfg)
+	case "self-update":
+		if len(args) > 1 {
+			switch args[1] {
+			case "check":
+				latest, available, err := update.CheckForUpdates(cfg)
+				if err != nil {
+					ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
+					os.Exit(1)
+				}
+				if available {
+					update.DisplayNotification(latest)
+					if ui.GumConfirm("Would you like to update now?") {
+						if err := update.SelfUpdate(cfg); err != nil {
+							ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
+							os.Exit(1)
+						}
+					}
+				} else {
+					if ui.GumAvailable() {
+						ui.GumSuccess("You are on the latest version.")
+					} else {
+						fmt.Printf("You are on the latest version (%s)\n", constants.Version)
+					}
+				}
+				update.RecordUpdateCheck()
+				return
+			default:
+				fmt.Fprintf(os.Stderr, "Unknown self-update option: %s\n", args[1])
+				fmt.Fprintf(os.Stderr, "Usage: construct sys self-update [check]\n")
 				os.Exit(1)
 			}
-			return
 		}
-		agent.List()
-	case "agents-md":
-		sys.ListAgentMemories()
-	case "pull":
-		cfg = ensureConfigLoaded(cfg)
-		if err := runtime.PullImage(cfg); err != nil {
-			ui.GumError(fmt.Sprintf("Pull failed: %v", err))
-			os.Exit(1)
-		}
-	case "doctor":
-		doctor.Run(args[1:]...)
-	case "clipboard-debug":
-		sys.ClipboardDebug(cfg)
-	case "ct-fix":
-		changed, msg, err := sys.FixCtSymlink()
-		if err != nil {
-			ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
-			os.Exit(1)
-		}
-		if ui.GumAvailable() {
-			if changed {
-				ui.GumSuccess(msg)
-			} else {
-				ui.GumInfo(msg)
-			}
-		} else {
-			fmt.Println(msg)
-		}
-	case "self-update":
 		if err := update.SelfUpdate(cfg); err != nil {
 			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
 			os.Exit(1)
 		}
-	case "check-update":
-		latest, available, err := update.CheckForUpdates(cfg)
-		if err != nil {
-			ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
-		} else if available {
-			update.DisplayNotification(latest)
-			// Offer to self-update
-			if ui.GumConfirm("Would you like to update now?") {
-				if err := update.SelfUpdate(cfg); err != nil {
-					ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
-					os.Exit(1)
-				}
-			}
-		} else {
-			if ui.GumAvailable() {
-				ui.GumSuccess("You are on the latest version.")
-			} else {
-				fmt.Printf("You are on the latest version (%s)\n", constants.Version)
+	case "ssh":
+		if len(args) > 1 && args[1] == "import" {
+			sys.SSHImport()
+			return
+		}
+		fmt.Fprintf(os.Stderr, "Usage: construct sys ssh import\n")
+		os.Exit(1)
+	case "auth":
+		if len(args) > 1 {
+			switch args[1] {
+			case "bridge":
+				sys.LoginBridge(args[2:])
+				return
+			case "password":
+				cfg = ensureConfigLoaded(cfg)
+				sys.SetPassword(cfg)
+				return
 			}
 		}
-		update.RecordUpdateCheck()
-	case "ssh-import":
-		sys.SSHImport()
-	case "login-bridge":
-		sys.LoginBridge(args[1:])
-	case "set-password":
-		cfg = ensureConfigLoaded(cfg)
-		sys.SetPassword(cfg)
+		fmt.Fprintf(os.Stderr, "Usage: construct sys auth <bridge|password>\n")
+		os.Exit(1)
 	case "prepull":
-		// Invoked as a detached process by MaybePrepullImage. Not meant
-		// for direct user invocation; exposed so the binary can re-exec
-		// itself for the background pull loop.
 		runtime.PrepullRun()
 	case "daemon":
 		if len(args) < 2 {
@@ -300,34 +353,24 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	}
 }
 
-// handleLegacyAliasesCommand keeps the removed `sys aliases` entry point
-// working for upgrades: --uninstall still removes the managed alias block;
-// anything else explains the replacement instead of failing blind.
-func handleLegacyAliasesCommand(args []string) {
-	fmt.Fprintln(os.Stderr, "Note: `construct sys aliases` was replaced by `construct sys shims`.")
+func handleAgentsCommand(args []string) {
+	if len(args) == 0 || args[0] == "list" {
+		agent.List()
+		return
+	}
 
-	uninstall := false
-	for _, arg := range args {
-		if arg == "--uninstall" {
-			uninstall = true
+	switch args[0] {
+	case "push":
+		if err := agent.SyncAgentConfigs(args[1:]); err != nil {
+			ui.GumError(fmt.Sprintf("Agent configs push failed: %v", err))
+			os.Exit(1)
 		}
-	}
-
-	if !uninstall {
-		fmt.Fprintln(os.Stderr, "To install PATH shims (<slug> sandboxed + ns-<slug> host binary), run: construct sys shims --install")
-		fmt.Fprintln(os.Stderr, "To only remove old shell aliases, run: construct sys shims --remove-aliases")
+	case "rules", "rule":
+		sys.ListAgentMemories()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown agents command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct agents [list|push|rules]\n")
 		os.Exit(1)
-	}
-
-	removed, configFile, err := sys.RemoveLegacyAliasBlock()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error removing aliases: %v\n", err)
-		os.Exit(1)
-	}
-	if removed {
-		fmt.Printf("\u2713 removed legacy shell alias block from %s (backup created)\n", configFile)
-	} else {
-		fmt.Println("No Construct alias block found; nothing to remove.")
 	}
 }
 
@@ -338,53 +381,20 @@ func handlePackagesCommand(args []string, cfg *config.Config) {
 		return
 	}
 
-	var install bool
-	var updateFlag bool
-	var reinstall bool
-
-	for _, arg := range args {
-		switch arg {
-		case "--install":
-			install = true
-		case "--update":
-			updateFlag = true
-		case "--reinstall":
-			reinstall = true
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown packages flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Usage: construct sys packages [--install|--update|--reinstall]\n")
-			os.Exit(1)
-		}
-	}
-
-	selected := 0
-	if install {
-		selected++
-	}
-	if updateFlag {
-		selected++
-	}
-	if reinstall {
-		selected++
-	}
-
-	if selected != 1 {
-		fmt.Fprintf(os.Stderr, "Specify exactly one of: --install, --update, or --reinstall\n")
+	switch args[0] {
+	case "install":
+		cfg = ensureConfigLoaded(cfg)
+		sys.InstallPackages(cfg)
+	case "reinstall":
+		cfg = ensureConfigLoaded(cfg)
+		sys.ReinstallPackages(cfg)
+	case "update":
+		runUpdate(cfg)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown packages command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct sys packages [install|reinstall|update]\n")
 		os.Exit(1)
 	}
-
-	if updateFlag {
-		// Thin wrapper to the canonical global update command.
-		runUpdate(cfg)
-		return
-	}
-
-	cfg = ensureConfigLoaded(cfg)
-	if reinstall {
-		sys.ReinstallPackages(cfg)
-		return
-	}
-	sys.InstallPackages(cfg)
 }
 
 func handleConfigCommand(args []string) {
@@ -393,42 +403,19 @@ func handleConfigCommand(args []string) {
 		return
 	}
 
-	var migrateFlag bool
-	var restoreFlag bool
-	for _, arg := range args {
-		switch arg {
-		case "--migrate":
-			migrateFlag = true
-		case "--restore":
-			restoreFlag = true
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown config flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Usage: construct sys config [--migrate|--restore]\n")
+	switch args[0] {
+	case "migrate":
+		// Force refresh configuration and templates from binary.
+		if err := migration.ForceRefresh(); err != nil {
+			ui.GumError(fmt.Sprintf("Migration failed: %v", err))
+			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
 			os.Exit(1)
 		}
-	}
-
-	selected := 0
-	if migrateFlag {
-		selected++
-	}
-	if restoreFlag {
-		selected++
-	}
-	if selected != 1 {
-		fmt.Fprintf(os.Stderr, "Specify exactly one of: --migrate or --restore\n")
-		os.Exit(1)
-	}
-
-	if restoreFlag {
+	case "restore":
 		sys.RestoreConfig()
-		return
-	}
-
-	// Force refresh configuration and templates from binary.
-	if err := migration.ForceRefresh(); err != nil {
-		ui.GumError(fmt.Sprintf("Migration failed: %v", err))
-		fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct sys config [migrate|restore]\n")
 		os.Exit(1)
 	}
 }
@@ -455,19 +442,19 @@ func handleNetworkCommand(args []string) {
 	switch command {
 	case "allow":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network allow <domain|ip>")
+			ui.GumError("Usage: construct sys network allow <domain|ip>")
 			os.Exit(1)
 		}
 		network.AddRule(args[1], "allow")
 	case "block":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network block <domain|ip>")
+			ui.GumError("Usage: construct sys network block <domain|ip>")
 			os.Exit(1)
 		}
 		network.AddRule(args[1], "block")
 	case "remove":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network remove <domain|ip>")
+			ui.GumError("Usage: construct sys network remove <domain|ip>")
 			os.Exit(1)
 		}
 		network.RemoveRule(args[1])
@@ -477,6 +464,14 @@ func handleNetworkCommand(args []string) {
 		network.ShowStatus()
 	case "clear":
 		network.ClearRules()
+	case "explain":
+		if len(args) < 2 {
+			ui.GumError("Usage: construct sys network explain <host[:port]>")
+			os.Exit(1)
+		}
+		network.Explain(args[1])
+	case "log", "logs":
+		network.ShowLog(args[1:])
 	default:
 		ui.GumError(fmt.Sprintf("Unknown network command: %s", command))
 		ui.PrintNetworkHelp()
@@ -562,25 +557,49 @@ func shouldRunMigration(args []string) bool {
 	}
 
 	switch args[0] {
+	case "doctor", "agents", "update":
+		return true
 	case "sys":
 		if len(args) < 2 {
 			return false
 		}
 		switch args[1] {
-		case "init", "rebuild", "update", "reset", "shell", "exec", "version", "help",
-			"config", "packages", "agents", "agents-md", "doctor", "clipboard-debug", "ct-fix", "self-update",
-			"check-update", "ssh-import", "login-bridge", "set-password", "daemon":
-			return args[1] != "self-update" && args[1] != "rebuild"
-		default:
-			return false
-		}
-	case "network":
-		if len(args) < 2 {
-			return false
-		}
-		switch args[1] {
-		case "allow", "block", "remove", "list", "status", "clear":
+		case "image":
+			if len(args) < 3 {
+				return false
+			}
+			switch args[2] {
+			case "pull", "init", "reset":
+				return true
+			default:
+				return false
+			}
+		case "shims":
+			if len(args) < 3 {
+				return false
+			}
+			switch args[2] {
+			case "install", "uninstall":
+				return true
+			default:
+				return false
+			}
+		case "update", "shell", "exec", "version", "help",
+			"config", "packages", "agents", "toolchains", "toolchain", "doctor",
+			"ssh", "auth", "daemon":
 			return true
+		case "self-update":
+			return false
+		case "network", "net":
+			if len(args) < 3 {
+				return false
+			}
+			switch args[2] {
+			case "allow", "block", "remove", "list", "status", "clear", "explain", "log", "logs":
+				return true
+			default:
+				return false
+			}
 		default:
 			return false
 		}

@@ -143,14 +143,22 @@ func constructHomeDir() string {
 
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
-	// Parse flags first: --json suppresses the human header/banner.
+	// Parse and validate arguments first before any output.
 	jsonRequested := false
+	fixRequested := false
 	for _, arg := range args {
-		if arg == "--json" {
+		switch arg {
+		case "fix":
+			fixRequested = true
+		case "--json":
 			jsonRequested = true
-			break
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown doctor argument: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Usage: construct doctor [fix|clipboard] [--json]\n")
+			os.Exit(1)
 		}
 	}
+
 	if !jsonRequested {
 		fmt.Println()
 		if ui.GumAvailable() {
@@ -166,15 +174,6 @@ func Run(args ...string) {
 	}
 
 	checks := make([]CheckResult, 0, 15)
-	fixRequested := false
-	for _, arg := range args {
-		switch arg {
-		case "--fix":
-			fixRequested = true
-		case "--json":
-			jsonRequested = true
-		}
-	}
 
 	// 0. Version Check
 	versionCheck := CheckResult{
@@ -244,7 +243,7 @@ func Run(args ...string) {
 		runtimeName = runtimepkg.ResolveContainerRuntime(cfg)
 	}
 
-	// Backend dispatch (docs/VMsv2.md): under the msb backend the
+	// Backend dispatch (docs/ARCHITECTURE-DESIGN.md §4.1): under the msb backend the
 	// Docker-only checks below are not applicable. runtimeName is blanked
 	// after the Runtime Check so every runtimeName-gated check degrades to
 	// its skipped/not-applicable branch instead of probing a container
@@ -282,7 +281,7 @@ func Run(args ...string) {
 			if runtime.GOOS == "linux" && runtimeUsesUserNamespaceRemapFn(runtimeName) && (cfg == nil || !cfg.Sandbox.AllowCustomOverride) {
 				envCheck.Status = CheckStatusWarning
 				envCheck.Message = "Stale podman user mapping detected for rootless mode"
-				envCheck.Suggestion = "Run 'construct sys doctor --fix' to regenerate docker-compose.override.yml"
+				envCheck.Suggestion = "Run 'construct sys doctor fix' to regenerate docker-compose.override.yml"
 			}
 		}
 	} else {
@@ -319,7 +318,7 @@ func Run(args ...string) {
 		ctCheck.Status = CheckStatusWarning
 		ctCheck.Message = "Failed to fix ct symlink"
 		ctCheck.Details = append(ctCheck.Details, err.Error())
-		ctCheck.Suggestion = "Run 'construct sys ct-fix' manually"
+		ctCheck.Suggestion = "Run 'construct sys shims fix' manually"
 	} else {
 		ctCheck.Status = CheckStatusOK
 		ctCheck.Message = msg
@@ -328,6 +327,37 @@ func Run(args ...string) {
 		}
 	}
 	checks = append(checks, ctCheck)
+
+	// 3.9 Isolation Backend Check: the configured value must be a known
+	// backend, and msb must be possible on this host. Catches typos and
+	// configs carried to a host without KVM/Apple Silicon.
+	backendCheck := CheckResult{Name: "Isolation Backend"}
+	if cfg == nil {
+		backendCheck.Status = CheckStatusSkipped
+		backendCheck.Message = "Config unavailable; backend not checked"
+	} else {
+		switch cfg.Runtime.Backend {
+		case config.BackendMsb, config.BackendContainers, config.BackendPodman, config.BackendDocker:
+			backendCheck.Status = CheckStatusOK
+			backendCheck.Message = fmt.Sprintf("backend = %s", cfg.Runtime.Backend)
+		default:
+			backendCheck.Status = CheckStatusError
+			backendCheck.Message = fmt.Sprintf("Unknown backend %q", cfg.Runtime.Backend)
+			backendCheck.Suggestion = "Set [runtime] backend to one of: msb, containers, podman, docker"
+		}
+		if backendCheck.Status == CheckStatusOK && cfg.Runtime.Backend == config.BackendMsb && !config.MsbPlatformSupported() {
+			backendCheck.Status = CheckStatusError
+			backendCheck.Message = "backend = msb is not supported on this host"
+			backendCheck.Details = nil
+			if runtime.GOOS == "linux" {
+				backendCheck.Details = append(backendCheck.Details, "No /dev/kvm (enable KVM or install the kvm group)")
+			} else {
+				backendCheck.Details = append(backendCheck.Details, "msb requires Apple Silicon (Hypervisor.framework) on macOS")
+			}
+			backendCheck.Suggestion = `Set [runtime] backend = "containers" (or podman/docker)`
+		}
+	}
+	checks = append(checks, backendCheck)
 
 	// 4. Runtime Check
 	runtimeCheck := CheckResult{Name: "Container Runtime"}
@@ -387,7 +417,7 @@ func Run(args ...string) {
 			overrideFixCheck.Message = "Failed to reconcile compose override"
 			overrideFixCheck.Details = append(overrideFixCheck.Details, details...)
 			overrideFixCheck.Details = append(overrideFixCheck.Details, err.Error())
-			overrideFixCheck.Suggestion = "Run 'construct sys doctor --fix' again after checking ~/.config/construct-cli/container/docker-compose.override.yml"
+			overrideFixCheck.Suggestion = "Run 'construct sys doctor fix' again after checking ~/.config/construct-cli/container/docker-compose.override.yml"
 		} else if skipped {
 			overrideFixCheck.Status = CheckStatusSkipped
 			overrideFixCheck.Message = "Skipped (custom compose override management enabled)"
@@ -422,7 +452,7 @@ func Run(args ...string) {
 			composeNetworkCheck.Status = CheckStatusWarning
 			composeNetworkCheck.Message = "Compose network requires recreation"
 			composeNetworkCheck.Details = append(composeNetworkCheck.Details, details...)
-			composeNetworkCheck.Suggestion = "Run 'construct sys doctor --fix' to recreate stale compose networks"
+			composeNetworkCheck.Suggestion = "Run 'construct sys doctor fix' to recreate stale compose networks"
 		default:
 			composeNetworkCheck.Status = CheckStatusOK
 			composeNetworkCheck.Message = "Compose network settings are compatible"
@@ -483,7 +513,7 @@ func Run(args ...string) {
 			imageFixCheck.Message = "Failed to rebuild image for startup fix"
 			imageFixCheck.Details = append(imageFixCheck.Details, rebuildDetails...)
 			imageFixCheck.Details = append(imageFixCheck.Details, err.Error())
-			imageFixCheck.Suggestion = "Run: construct sys rebuild"
+			imageFixCheck.Suggestion = "Run: construct sys image rebuild"
 		} else if rebuilt {
 			imageFixCheck.Status = CheckStatusOK
 			imageFixCheck.Message = "Image rebuilt for startup ownership fix"
@@ -584,7 +614,7 @@ func Run(args ...string) {
 	} else {
 		configCheck.Status = CheckStatusError
 		configCheck.Message = "Config file missing"
-		configCheck.Suggestion = "Run 'construct sys init'"
+		configCheck.Suggestion = "Run 'construct sys image init'"
 	}
 	checks = append(checks, configCheck)
 
@@ -619,7 +649,7 @@ func Run(args ...string) {
 		missingCheck.Status = CheckStatusWarning
 		missingCheck.Message = fmt.Sprintf("Missing %d default values", len(missingKeys))
 		missingCheck.Details = append(missingCheck.Details, missingKeys...)
-		missingCheck.Suggestion = "Run 'construct sys doctor --fix'"
+		missingCheck.Suggestion = "Run 'construct sys doctor fix'"
 	}
 	checks = append(checks, missingCheck)
 
@@ -640,14 +670,14 @@ func Run(args ...string) {
 		if len(state.Missing) > 0 {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config directories missing"
-			permCheck.Suggestion = "Run 'construct sys init' or 'construct sys config --migrate'"
+			permCheck.Suggestion = "Run 'construct sys image init' or 'construct sys config migrate'"
 		} else if state.HasProblems() {
 			permCheck.Status = CheckStatusWarning
 			permCheck.Message = "Config ownership/permissions mismatch"
 			if runtimeName == "podman" && runtimeUsesUserNamespaceRemapFn(runtimeName) {
-				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: podman unshare chown -R 0:0 ~/.config/construct-cli (fallback: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli)"
+				permCheck.Suggestion = "Run 'construct sys doctor fix' or manually: podman unshare chown -R 0:0 ~/.config/construct-cli (fallback: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli)"
 			} else {
-				permCheck.Suggestion = "Run 'construct sys doctor --fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
+				permCheck.Suggestion = "Run 'construct sys doctor fix' or manually: sudo chown -R $(id -u):$(id -g) ~/.config/construct-cli"
 			}
 		} else {
 			permCheck.Status = CheckStatusOK
@@ -723,7 +753,7 @@ func Run(args ...string) {
 	} else {
 		templatesCheck.Status = CheckStatusWarning
 		templatesCheck.Message = "Templates directory missing or empty"
-		templatesCheck.Suggestion = "Run 'construct sys config --migrate' to refresh templates"
+		templatesCheck.Suggestion = "Run 'construct sys config migrate' to refresh templates"
 	}
 	checks = append(checks, templatesCheck)
 
@@ -781,7 +811,7 @@ func Run(args ...string) {
 
 	// 11d. Baked Image Freshness (msb only): freshness vs GHCR is not
 	// cheaply detectable; --fix runs a bounded best-effort msb pull.
-	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested))
+	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested, jsonRequested))
 
 	// 11e. Host CLI/SDK Skew (msb only): the host msb binary must match
 	// the SDK pin exactly (schema migrations are one-way).
@@ -821,7 +851,7 @@ func Run(args ...string) {
 		} else {
 			imageCheck.Status = CheckStatusWarning
 			imageCheck.Message = "Image missing"
-			imageCheck.Suggestion = "Run 'construct sys init' or run any agent to build"
+			imageCheck.Suggestion = "Run 'construct sys image init' or run any agent to build"
 		}
 	}
 	checks = append(checks, imageCheck)
@@ -996,7 +1026,7 @@ func Run(args ...string) {
 }
 
 // msbBackendCheck verifies the microsandbox backend prerequisites
-// (docs/VMsv2.md): binary + version, hardware virtualization,
+// (docs/ARCHITECTURE-DESIGN.md §4.1): binary + version, hardware virtualization,
 // msbBin resolves the msb binary for doctor probes: the extracted embedded
 // pair when this build ships one, else the host CLI. ok=false means neither
 // is usable and the caller's check degrades to its skipped/error branch.
@@ -1022,7 +1052,7 @@ func msbBackendCheck(fix bool) CheckResult {
 		check.Status = CheckStatusError
 		if msbembed.Available() {
 			check.Message = "Embedded msb runtime failed to extract"
-			check.Suggestion = "Run 'construct sys doctor --fix' to re-extract the embedded msb pair"
+			check.Suggestion = "Run 'construct sys doctor fix' to re-extract the embedded msb pair"
 		} else {
 			check.Message = "msb binary not found"
 			check.Suggestion = "Install microsandbox: curl -fsSL https://install.microsandbox.dev | sh"
@@ -1062,7 +1092,7 @@ func msbBackendCheck(fix bool) CheckResult {
 
 	msbRun := func(args ...string) bool {
 		cmd := exec.Command(msbBinPath, args...)
-		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
+		cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/ARCHITECTURE-DESIGN.md §4.1)
 		return cmd.Run() == nil
 	}
 	// Daemon reachability: `msb list` needs a reachable daemon (auto-started
@@ -1248,7 +1278,7 @@ func checkStalePackagesVolume(fix bool, resolvedRuntime string, msbBackend bool)
 	if !fix {
 		check.Status = CheckStatusWarning
 		check.Message = fmt.Sprintf("Stale volume(s) from the pre-bake layout: %s", strings.Join(stale, ", "))
-		check.Suggestion = "Run 'construct sys doctor --fix' to remove them"
+		check.Suggestion = "Run 'construct sys doctor fix' to remove them"
 		return check
 	}
 
@@ -1311,7 +1341,7 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 		check.Status = CheckStatusWarning
 		check.Message = fmt.Sprintf("%d stale pre-bake copy(ies) shadow the baked agents", len(present))
 		check.Details = append(check.Details, present...)
-		check.Suggestion = "Run 'construct sys doctor --fix' to remove them (configs are never touched)"
+		check.Suggestion = "Run 'construct sys doctor fix' to remove them (configs are never touched)"
 		return check
 	}
 
@@ -1341,7 +1371,7 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 // (msb only). Plain runs verify local presence (cheap, no nag: --fix
 // already pulls on demand and self-updates prepull); --fix additionally runs
 // a bounded best-effort msb pull (exit-0 no-op when already current).
-func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
+func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 	check := CheckResult{Name: "Baked Image Freshness"}
 	if !msbBackend {
 		check.Status = CheckStatusSkipped
@@ -1360,13 +1390,17 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 		inspect.Stdin = nil // msb stdin trap: open pipe hangs
 		if inspect.Run() == nil {
 			check.Status = CheckStatusSkipped
-			check.Message = fmt.Sprintf("Local image %s present (remote freshness is checked by 'construct sys doctor --fix')", imageRef)
+			check.Message = fmt.Sprintf("Local image %s present (remote freshness is checked by 'construct sys doctor fix')", imageRef)
 			return check
 		}
 		check.Status = CheckStatusSkipped
 		check.Message = "Local image not loaded (loaded on first construct run)"
-		check.Suggestion = "Run 'construct sys doctor --fix' to pull the baked image (bounded, best-effort)"
+		check.Suggestion = "Run 'construct sys doctor fix' to pull the baked image (bounded, best-effort)"
 		return check
+	}
+
+	if !jsonRequested {
+		fmt.Fprintf(os.Stderr, "  → Pulling image %s (~3 GB; may take 1-3 minutes depending on network speed)...\n", imageRef)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
@@ -1378,6 +1412,9 @@ func checkBakedImageFreshness(msbBackend, fix bool) CheckResult {
 	cmd := exec.CommandContext(ctx, msbBinPath, "pull", "--force", runtimepkg.PrepullImageRef)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs
 	out, err := cmd.CombinedOutput()
+	if !jsonRequested && err == nil {
+		fmt.Fprintf(os.Stderr, "  ✓ Image pull complete\n")
+	}
 	if ctx.Err() == context.DeadlineExceeded {
 		check.Status = CheckStatusWarning
 		check.Message = "Image pull timed out after 10m (run again later)"
@@ -1426,7 +1463,7 @@ func checkMsbStore(msbBackend, fix bool) CheckResult {
 		}
 		check.Status = CheckStatusWarning
 		check.Message = fmt.Sprintf("Reclaimable: %s", rep)
-		check.Suggestion = "Run 'construct sys doctor --fix' to reclaim"
+		check.Suggestion = "Run 'construct sys doctor fix' to reclaim"
 		return check
 	}
 	rep, err := runtimepkg.RunMsbStoreGC(ctx)
@@ -1460,7 +1497,7 @@ func checkSdkSkew(msbBackend bool) CheckResult {
 			check.Status = CheckStatusError
 			check.Message = "Embedded msb runtime unavailable"
 			check.Details = append(check.Details, err.Error())
-			check.Suggestion = "Run 'construct sys doctor --fix' to re-extract the embedded msb pair"
+			check.Suggestion = "Run 'construct sys doctor fix' to re-extract the embedded msb pair"
 			return check
 		}
 		check.Status = CheckStatusOK
@@ -1623,7 +1660,7 @@ func msbLibkrunfwRepair(fix bool, msbPath, msbHome string) CheckResult {
 	if !fix {
 		check.Status = CheckStatusWarning
 		check.Message = "msb cannot resolve libkrunfw (install layout is correct; resolution is not)"
-		check.Suggestion = "Run 'construct sys doctor --fix' to link the lib into place"
+		check.Suggestion = "Run 'construct sys doctor fix' to link the lib into place"
 		return check
 	}
 	if st.Manual {
@@ -1667,7 +1704,7 @@ func checkStaleConfigDefaults(fix bool) CheckResult {
 		check.Status = CheckStatusWarning
 		check.Message = fmt.Sprintf("%d stale shipped default(s) pin old behavior", len(findings))
 		check.Details = append(check.Details, findings...)
-		check.Suggestion = "Run 'construct sys doctor --fix' (exact-match rewrites only)"
+		check.Suggestion = "Run 'construct sys doctor fix' (exact-match rewrites only)"
 		return check
 	}
 	fixed, err := config.ResetStaleDefaults()
@@ -1675,7 +1712,7 @@ func checkStaleConfigDefaults(fix bool) CheckResult {
 		check.Status = CheckStatusWarning
 		check.Message = "Failed to reset stale config defaults"
 		check.Details = append(check.Details, err.Error())
-		check.Suggestion = "Run 'construct sys doctor --fix' again after checking config.toml"
+		check.Suggestion = "Run 'construct sys doctor fix' again after checking config.toml"
 		return check
 	}
 	check.Status = CheckStatusOK
@@ -1721,7 +1758,7 @@ func checkMsbHomeHelpers(msbBackend, fix bool) CheckResult {
 		check.Status = CheckStatusWarning
 		check.Message = fmt.Sprintf("%d home-volume helper(s) out of date (guest reads them directly)", len(stale))
 		check.Details = append(check.Details, stale...)
-		check.Suggestion = "Run 'construct sys doctor --fix' to refresh them from the embedded templates"
+		check.Suggestion = "Run 'construct sys doctor fix' to refresh them from the embedded templates"
 		return check
 	}
 
@@ -2739,7 +2776,7 @@ func downgradeStatus(current, next CheckStatus) CheckStatus {
 }
 
 // checkDaemonLock reports whether the msb daemon flock is free or held
-// (docs/VMsv2.md phase 1). Held means another construct invocation is in
+// (docs/ARCHITECTURE-DESIGN.md §4.1). Held means another construct invocation is in
 // the daemon setup critical section — either racing the user (likely a
 // stale process), or the user kicked off two constructs in parallel.
 // Free by default; Warning when held.

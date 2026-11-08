@@ -179,16 +179,13 @@ func TestMsbDaemonSpecRoundtripAndDecision(t *testing.T) {
 		t.Fatalf("decision must prefer the spec file, got %v", decided)
 	}
 
-	// No file + record labels: migrate once, then serve the file.
+	// No file + record labels: the record labels are the fallback input.
 	if err := os.Remove(msbDaemonSpecPath()); err != nil {
 		t.Fatal(err)
 	}
 	decided := msbDaemonDecisionLabels(recordLabels)
 	if decided[DaemonMountsLabelKey] != "stale-record-hash" {
-		t.Fatalf("migration must return the record labels, got %v", decided)
-	}
-	if _, ok, err := loadMsbDaemonSpec(); err != nil || !ok {
-		t.Fatalf("migration did not persist the spec: ok=%v err=%v", ok, err)
+		t.Fatalf("fallback must return the record labels, got %v", decided)
 	}
 
 	// Corrupt file: error (never silently treated as no-drift).

@@ -25,8 +25,8 @@ func TestConfirmConstructImageBuildFailsClosedNonInteractive(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error in non-interactive context, got nil")
 	}
-	if !strings.Contains(err.Error(), "construct sys rebuild") {
-		t.Errorf("error should point at `construct sys rebuild`, got: %v", err)
+	if !strings.Contains(err.Error(), "construct sys image rebuild") {
+		t.Errorf("error should point at `construct sys image rebuild`, got: %v", err)
 	}
 	if !strings.Contains(err.Error(), "15") {
 		t.Errorf("error should mention the build duration, got: %v", err)

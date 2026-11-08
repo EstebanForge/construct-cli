@@ -67,7 +67,7 @@ func Start() {
 	checkCmd := exec.Command(checkCmdArgs[0], checkCmdArgs[1:]...)
 	checkCmd.Dir = config.GetContainerDir()
 	if err := checkCmd.Run(); err != nil {
-		ui.GumError("Construct image not found. Run 'construct sys init' first")
+		ui.GumError("Construct image not found. Run 'construct sys image init' first")
 		os.Exit(1)
 	}
 
@@ -110,7 +110,7 @@ func Start() {
 	ui.GumInfo("Use Ctrl+P Ctrl+Q to detach without stopping")
 }
 
-// startMsb boots the persistent msb daemon sandbox (docs/VMsv2.md).
+// startMsb boots the persistent msb daemon sandbox (docs/ARCHITECTURE-DESIGN.md §4.1).
 func startMsb(cfg *config.Config) {
 	cwd, err := os.Getwd()
 	if err != nil {

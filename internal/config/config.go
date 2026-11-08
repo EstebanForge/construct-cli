@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type Config struct {
 	Daemon      DaemonConfig      `toml:"daemon"`
 	Claude      ClaudeConfig      `toml:"claude"`
 	Security    SecurityConfig    `toml:"security"`
+	Toolchains  ToolchainsConfig  `toml:"toolchains"`
 }
 
 // Canonical [runtime] backend values. msb names the engine project;
@@ -45,16 +47,11 @@ const (
 // RuntimeConfig holds container runtime settings.
 type RuntimeConfig struct {
 	// Backend is the single isolation knob. Values name the ENGINE, not the
-	// technology: "containers" (default; any OCI engine, auto-picked:
-	// Apple container > podman > docker), a pinned OCI binary ("podman",
-	// "docker"), or "msb" (microsandbox microVMs; fails closed if not
-	// installed). Legacy spellings ("auto", "container", "microvm") are
-	// migrated in-file on load.
-	Backend string `toml:"backend"`
-	// Engine is the deprecated pre-merge key (auto|container|podman|docker).
-	// Kept for the in-file migration and the in-memory fallback in Load();
-	// the file rewrite removes it, so it never round-trips via Save().
-	Engine              string `toml:"engine,omitempty"`
+	// technology: "msb" (default; microsandbox microVMs, needs Apple Silicon
+	// macOS or Linux with KVM), "containers" (any OCI engine, auto-picked:
+	// Apple container > podman > docker), or a pinned OCI binary ("podman",
+	// "docker"). Hosts without microVM support fall back to "containers".
+	Backend             string `toml:"backend"`
 	AutoUpdateCheck     bool   `toml:"auto_update_check"`
 	UpdateCheckInterval int    `toml:"update_check_interval"` // seconds
 	UpdateChannel       string `toml:"update_channel"`        // stable|beta
@@ -93,7 +90,7 @@ type SandboxConfig struct {
 	HostLoopbackPorts      []int    `toml:"host_loopback_ports"` // container 127.0.0.1 ports relayed to host.docker.internal (Chromium-hardcoded *.localhost/localhost traffic)
 	SSHPinIdentities       []string `toml:"ssh_pin_identities"`  // host=keyname entries; pin one SSH identity per host to avoid sshd MaxAuthTries when the agent holds many keys
 	HostBinaries           []string `toml:"host_binaries"`       // binaries proxied to the host instead of run in-container; see docs/HOST-EXEC.md
-	MountSkills            bool     `toml:"mount_skills"`        // Bind-mount host skills source into each supported agent's skills dir (default: true; auto-detects ~/Dev/EstebanForge/AGENTS/skills, ~/AGENTS/skills, ~/.config/construct-cli/skills, $XDG_DATA_HOME/construct/skills). See docs/VMsv2.md phase 7.
+	MountSkills            bool     `toml:"mount_skills"`        // Bind-mount host skills source into each supported agent's skills dir (default: true; auto-detects ~/Dev/EstebanForge/AGENTS/skills, ~/AGENTS/skills, ~/.config/construct-cli/skills, $XDG_DATA_HOME/construct/skills). See docs/ARCHITECTURE-DESIGN.md §4.1.
 	SkillsReadOnly         bool     `toml:"skills_read_only"`    // Mount skills source read-only (default: true). Set false to allow agents inside the sandbox to author or edit skills (writes flow back to host). Opt-in RW; default is the safe choice.
 	SkillsSource           string   `toml:"skills_source"`       // Override the host skills source path; empty = auto-detect. Env var $CONSTRUCT_SKILLS_SOURCE wins over this key.
 }
@@ -105,6 +102,7 @@ type NetworkConfig struct {
 	AllowedIPs     []string `toml:"allowed_ips"`
 	BlockedDomains []string `toml:"blocked_domains"`
 	BlockedIPs     []string `toml:"blocked_ips"`
+	AllowedTCP     []string `toml:"allowed_tcp"` // Explicit host:port destinations for raw non-HTTP TCP tunneling (databases, queues)
 }
 
 // EnvVars renders the guest network environment (NETWORK_MODE plus the
@@ -127,6 +125,27 @@ func (n NetworkConfig) EnvVars() []string {
 		env = append(env, "NETWORK_BLOCKED_IPS="+strings.Join(n.BlockedIPs, ","))
 	}
 	return env
+}
+
+// NormalizeNetworkMode validates and canonicalizes network mode names.
+// Canonical modes are "allowlist", "open", "internet", and "none".
+// Legacy names "strict", "permissive", and "offline" are normalized to their canonical counterparts.
+func NormalizeNetworkMode(mode string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	switch trimmed {
+	case "strict", "allowlist":
+		return "allowlist", nil
+	case "permissive", "open":
+		return "open", nil
+	case "internet":
+		return "internet", nil
+	case "offline", "none":
+		return "none", nil
+	case "":
+		return "allowlist", nil
+	default:
+		return "", fmt.Errorf("invalid network mode %q: valid modes are allowlist (strict), open (permissive), internet, none (offline)", mode)
+	}
 }
 
 // MaintenanceConfig holds log cleanup settings.
@@ -160,7 +179,7 @@ type ClaudeConfig struct {
 
 // SecurityConfig holds secret redaction and security settings.
 type SecurityConfig struct {
-	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets mode (opt-in, requires CONSTRUCT_EXPERIMENT_HIDE_SECRETS=1)
+	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets workspace redaction mode (default: true)
 	HideSecretsMaskStyle       string   `toml:"hide_secrets_mask_style"`       // Mask style: "hash" (default) or "fixed"
 	HideSecretsDenyPaths       []string `toml:"hide_secrets_deny_paths"`       // Globs always scanned regardless of heuristics
 	HideSecretsAllowPaths      []string `toml:"hide_secrets_allow_paths"`      // Files to NEVER redact (use sparingly! breaks security model)
@@ -169,11 +188,40 @@ type SecurityConfig struct {
 	HideGitDir                 bool     `toml:"hide_git_dir"`                  // Hide .git directory in merged view (default true)
 }
 
+// ToolchainsConfig holds modular toolchain settings.
+type ToolchainsConfig struct {
+	AutoFetch bool `toml:"auto_fetch"` // Auto-fetch detected project toolchains when missing from cache (default: true)
+}
+
+// MsbPlatformSupported reports whether this host can run the msb microVM
+// backend: Apple Silicon macOS or Linux with /dev/kvm.
+func MsbPlatformSupported() bool {
+	if runtime.GOOS == "darwin" {
+		return runtime.GOARCH == "arm64"
+	}
+	if runtime.GOOS == "linux" {
+		if _, err := os.Stat("/dev/kvm"); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// defaultBackend picks the shipped default for hosts without an explicit
+// [runtime] backend: microVMs where the platform supports them (Apple
+// Silicon macOS, or Linux with KVM), the OCI engine pool elsewhere.
+func defaultBackend() string {
+	if MsbPlatformSupported() {
+		return BackendMsb
+	}
+	return BackendContainers
+}
+
 // DefaultConfig returns the default configuration values.
 func DefaultConfig() Config {
 	return Config{
 		Runtime: RuntimeConfig{
-			Backend:             BackendContainers,
+			Backend:             defaultBackend(),
 			AutoUpdateCheck:     true,
 			UpdateCheckInterval: 86400,
 			UpdateChannel:       "stable",
@@ -217,7 +265,7 @@ func DefaultConfig() Config {
 			HostLoopbackPorts:      []int{80, 443},
 		},
 		Network: NetworkConfig{
-			Mode: "permissive",
+			Mode: "open",
 			AllowedDomains: []string{
 				"*.anthropic.com",
 				"*.openai.com",
@@ -236,6 +284,7 @@ func DefaultConfig() Config {
 				"192.168.100.100/32",
 				"203.0.113.0/24",
 			},
+			AllowedTCP: []string{},
 		},
 		Maintenance: MaintenanceConfig{
 			CleanupEnabled:         true,
@@ -263,6 +312,9 @@ func DefaultConfig() Config {
 			HideSecretsPassthroughVars: []string{},
 			HideSecretsReport:          true,
 			HideGitDir:                 true,
+		},
+		Toolchains: ToolchainsConfig{
+			AutoFetch: true,
 		},
 	}
 }
@@ -372,44 +424,16 @@ func Load() (*Config, bool, error) {
 		return nil, createdNew, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	// One-time in-file migrations: fold the deprecated [runtime] engine key
-	// into backend, then rename legacy backend spellings to engine-named
-	// values (msb, containers). Single-line surgery, comments preserved.
-	// When the file cannot be rewritten, the in-memory fold below keeps
-	// behavior identical for that session.
-	text := string(data)
-	mergedKey, renamedValue := false, false
-	if newText, m := migrateLegacyEngineKey(text); m {
-		text, mergedKey = newText, true
-	}
-	if newText, m := migrateBackendValues(text); m {
-		text, renamedValue = newText, true
-	}
-	if mergedKey || renamedValue {
-		if werr := writeFileAtomic(configPath, []byte(text), 0o644); werr == nil {
-			data = []byte(text)
-			switch {
-			case mergedKey && renamedValue:
-				ui.InfoLn("♻️  Migrated config.toml: [runtime] engine key merged, backend names updated (msb, containers)")
-			case renamedValue:
-				ui.InfoLn("♻️  Migrated config.toml: [runtime] backend names updated (msb, containers)")
-			default:
-				ui.InfoLn("♻️  Migrated config.toml: [runtime] engine key merged into backend")
-			}
-		} else {
-			ui.InfoF("⚠️  Could not rewrite config.toml to migrate backend names (%v); applying them in memory for this session\n", werr)
-		}
-	}
-
 	config := DefaultConfig()
 	if err := toml.Unmarshal(data, &config); err != nil {
 		return nil, createdNew, fmt.Errorf("failed to parse config.toml: %w", err)
 	}
-
-	// In-memory fold for files the rewrite could not touch: a pinned legacy
-	// engine must never be silently dropped (auto-detect could pick a
-	// different binary than the user pinned).
-	foldLegacyEngine(&config)
+	config.Runtime.Backend = strings.ToLower(strings.TrimSpace(config.Runtime.Backend))
+	normMode, err := NormalizeNetworkMode(config.Network.Mode)
+	if err != nil {
+		return nil, createdNew, fmt.Errorf("failed to validate network.mode in config.toml: %w", err)
+	}
+	config.Network.Mode = normMode
 
 	return &config, createdNew, nil
 }
@@ -438,174 +462,6 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		return cerr
 	}
 	return os.Rename(tmpName, path)
-}
-
-// foldLegacyEngine maps a decoded legacy engine value onto Backend.
-// Old semantics: engine picked the OCI binary; backend only switched to
-// microvm. So a pinned engine wins over a default/"docker" backend, and
-// microvm always wins (engine was dead there).
-func foldLegacyEngine(cfg *Config) {
-	if cfg.Runtime.Engine != "" {
-		switch strings.ToLower(strings.TrimSpace(cfg.Runtime.Engine)) {
-		case "container", "podman", "docker":
-			switch cfg.Runtime.Backend {
-			case "", "auto", "docker":
-				cfg.Runtime.Backend = strings.ToLower(strings.TrimSpace(cfg.Runtime.Engine))
-			}
-		}
-		// The legacy value is folded: clear it so it can never round-trip into
-		// config.toml via Save() when the in-file rewrite could not remove the
-		// line (single-quoted or dotted-key TOML shapes decode fine but escape
-		// the line surgery).
-		cfg.Runtime.Engine = ""
-	}
-	cfg.Runtime.Backend = normalizeBackendValue(cfg.Runtime.Backend)
-}
-
-// normalizeBackendValue maps legacy backend spellings onto the canonical
-// engine-named values. Kept in sync with migrateBackendValues: the in-file
-// rewrite only covers double-quoted lines inside [runtime], so files with
-// unusual TOML shapes normalize here instead.
-func normalizeBackendValue(b string) string {
-	v := strings.ToLower(strings.TrimSpace(b))
-	switch v {
-	case "", "auto", "container":
-		return BackendContainers
-	case "microvm":
-		return BackendMsb
-	default:
-		return v
-	}
-}
-
-// migrateBackendValues renames legacy backend values in-file with the same
-// single-line surgery as migrateLegacyEngineKey (comments preserved):
-// microvm→msb, container/auto→containers. The canonical values are msb,
-// containers, podman, docker. Idempotent: once no legacy spelling remains
-// the function is a no-op. Returns the new text and whether anything changed.
-func migrateBackendValues(data string) (string, bool) {
-	lines := strings.Split(data, "\n")
-	section := ""
-	changed := false
-	for i, raw := range lines {
-		t := strings.TrimSpace(raw)
-		header := strings.TrimSpace(strings.SplitN(t, "#", 2)[0])
-		if strings.HasPrefix(header, "[") && strings.HasSuffix(header, "]") {
-			section = header
-			continue
-		}
-		if section != "[runtime]" {
-			continue
-		}
-		if k, v, ok := tomlQuotedKV(t); ok && k == "backend" {
-			if n := normalizeBackendValue(v); n != v {
-				eq := strings.Index(t, "=")
-				rest := strings.TrimSpace(t[eq+1:])
-				tail := rest[strings.Index(rest[1:], `"`)+2:] // everything after the closing quote, e.g. " # pin"
-				indent := raw[:len(raw)-len(strings.TrimLeft(raw, " \t"))]
-				eol := ""
-				if strings.HasSuffix(raw, "\r") {
-					eol = "\r" // keep CRLF files consistent
-				}
-				lines[i] = indent + `backend = "` + n + `"` + tail + eol
-				changed = true
-			}
-		}
-	}
-	return strings.Join(lines, "\n"), changed
-}
-
-// migrateLegacyEngineKey folds the deprecated [runtime] engine key into the
-// unified backend key with single-line surgery: comments and every other
-// line stay byte-identical. Rules mirror foldLegacyEngine exactly:
-//   - engine=container|podman|docker with backend unset/"auto"/"docker": the
-//     engine line becomes backend = "<engine>" in place; the explicit
-//     backend line is removed (two backend keys in one section would be
-//     invalid TOML)
-//   - engine with any other explicit backend (podman, microvm, ...): the
-//     engine line is dropped; the explicit backend pin governs
-//   - engine=auto or unknown: the engine line is dropped (the "auto"
-//     default covers it)
-//
-// The surgery is best-effort for the common shape (double-quoted
-// key = "value" inside [runtime]); uncommon-but-valid shapes (single
-// quotes, dotted keys) are left untouched and covered by the in-memory
-// fold, which also clears the field so it cannot round-trip via Save().
-// Returns the new text and whether anything changed. Idempotent: once the
-// engine key is gone the function is a no-op.
-func migrateLegacyEngineKey(data string) (string, bool) {
-	lines := strings.Split(data, "\n")
-	section := ""
-	engineIdx, backendIdx := -1, -1
-	engineVal, backendVal := "", ""
-	for i, raw := range lines {
-		t := strings.TrimSpace(raw)
-		if strings.HasPrefix(t, "[") && strings.HasSuffix(t, "]") {
-			section = t
-			continue
-		}
-		if section != "[runtime]" {
-			continue
-		}
-		if k, v, ok := tomlQuotedKV(t); ok && k == "engine" && engineIdx == -1 {
-			engineIdx, engineVal = i, v
-		}
-		if k, v, ok := tomlQuotedKV(t); ok && k == "backend" && backendIdx == -1 {
-			backendIdx, backendVal = i, v
-		}
-	}
-	if engineIdx == -1 {
-		return data, false
-	}
-
-	replaceWith := ""
-	switch strings.ToLower(engineVal) {
-	case "container", "podman", "docker":
-		switch backendVal {
-		case "", "auto", "docker":
-			replaceWith = `backend = "` + strings.ToLower(engineVal) + `"`
-		}
-	}
-
-	out := make([]string, 0, len(lines))
-	for i, raw := range lines {
-		switch i {
-		case engineIdx:
-			if replaceWith != "" {
-				out = append(out, replaceWith)
-			}
-		case backendIdx:
-			if replaceWith == "" {
-				out = append(out, raw) // keep backend=microvm (or unset value) line
-			}
-			// else: superseded by the migrated backend line; drop it
-		default:
-			out = append(out, raw)
-		}
-	}
-	return strings.Join(out, "\n"), true
-}
-
-// tomlQuotedKV parses a `key = "value"` line with optional trailing
-// comment. Comment lines and non-quoted values are rejected.
-func tomlQuotedKV(trimmed string) (key, value string, ok bool) {
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", "", false
-	}
-	eq := strings.Index(trimmed, "=")
-	if eq < 0 {
-		return "", "", false
-	}
-	key = strings.TrimSpace(trimmed[:eq])
-	rest := strings.TrimSpace(trimmed[eq+1:])
-	if !strings.HasPrefix(rest, "\"") {
-		return "", "", false
-	}
-	end := strings.Index(rest[1:], "\"")
-	if end < 0 {
-		return "", "", false
-	}
-	return key, rest[1 : end+1], true
 }
 
 // DefaultWorkspaceMaxEntries is the current shipped default for
@@ -778,7 +634,11 @@ func tomlIntKV(trimmed string) (key string, value int, ok bool) {
 
 // Save writes the config back to config.toml
 func (c *Config) Save() error {
-	configPath := filepath.Join(GetConfigDir(), "config.toml")
+	configDir := GetConfigDir()
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		return fmt.Errorf("failed to create config directory: %w", err)
+	}
+	configPath := filepath.Join(configDir, "config.toml")
 
 	data, err := toml.Marshal(c)
 	if err != nil {
@@ -861,7 +721,6 @@ func Init() error {
 		{filepath.Join(containerDir, "entrypoint-hash.sh"), []byte(templates.EntrypointHash), 0755},
 		{filepath.Join(containerDir, "update-all.sh"), []byte(templates.UpdateAll), 0755},
 		{filepath.Join(containerDir, "agent-patch.sh"), []byte(templates.AgentPatch), 0755},
-		{filepath.Join(containerDir, "network-filter.sh"), []byte(templates.NetworkFilter), 0755},
 		{filepath.Join(containerDir, "clipper"), []byte(templates.Clipper), 0755},
 		{filepath.Join(containerDir, "clipboard-x11-sync.sh"), []byte(templates.ClipboardX11Sync), 0755},
 		{filepath.Join(containerDir, "osascript"), []byte(templates.Osascript), 0755},

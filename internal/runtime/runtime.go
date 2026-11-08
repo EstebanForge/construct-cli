@@ -26,8 +26,10 @@ import (
 	cerrors "github.com/EstebanForge/construct-cli/internal/cerrors"
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
+	"github.com/EstebanForge/construct-cli/internal/hostgit"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/templates"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -1041,6 +1043,7 @@ type overrideInputs struct {
 	DaemonMulti       bool   // Multi-path daemon mounts enabled
 	DaemonMounts      string // Hash of normalized mount paths
 	GitIgnorePath     string // Host global gitignore path (empty if not found)
+	CACertPath        string // Host proxy CA certificate path (empty if not found)
 	QmdModelsPath     string // Host qmd model cache path (empty if not found)
 	AptCachePath      string // Host apt download cache path (empty if unavailable)
 	LoopbackPorts     string // Comma-joined host_loopback_ports (empty disables socat relays + NET_BIND_SERVICE cap)
@@ -1048,6 +1051,7 @@ type overrideInputs struct {
 	SkillsTargetCount int    // Number of per-agent skills mount targets (0 disables even when source is present)
 	SkillsReadOnly    bool   // Whether the skills mounts use `:ro` (default true; opt-in RW when false)
 	SudoScoped        bool   // sandbox.passwordless_sudo = false (scoped apt/ufw/chown sudoers instead of free)
+	Toolchains        string // Hash of installed toolchain mounts (empty if none)
 }
 
 // hashOverrideInputs computes a SHA256 hash of override inputs
@@ -1082,6 +1086,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "daemonmulti:%v", inputs.DaemonMulti)
 	writeHashString(h, "daemonmounts:%s", inputs.DaemonMounts)
 	writeHashString(h, "gitignorepath:%s", inputs.GitIgnorePath)
+	writeHashString(h, "cacertpath:%s", inputs.CACertPath)
 	writeHashString(h, "qmdmodelspath:%s", inputs.QmdModelsPath)
 	writeHashString(h, "aptcachepath:%s", inputs.AptCachePath)
 	writeHashString(h, "loopbackports:%s", inputs.LoopbackPorts)
@@ -1089,6 +1094,7 @@ func hashOverrideInputs(inputs overrideInputs) string {
 	writeHashString(h, "skillstargets:%d", inputs.SkillsTargetCount)
 	writeHashString(h, "skillsreadonly:%v", inputs.SkillsReadOnly)
 	writeHashString(h, "sudoscoped:%v", inputs.SudoScoped)
+	writeHashString(h, "toolchains:%s", inputs.Toolchains)
 	return hex.EncodeToString(h.Sum(nil))
 }
 
@@ -1187,6 +1193,14 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		sshAuthSock = "" // Don't include in hash if forwarding disabled
 	}
 
+	// Discover installed modular toolchains
+	toolchainMounts := toolchains.AvailableToolchains(toolchains.CacheDir())
+	toolchainParts := make([]string, 0, len(toolchainMounts))
+	for _, tm := range toolchainMounts {
+		toolchainParts = append(toolchainParts, string(tm.ID)+":"+tm.HostPath)
+	}
+	toolchainsHash := strings.Join(toolchainParts, ",")
+
 	// Build override inputs struct
 	allowCustomOverride := cfg != nil && cfg.Sandbox.AllowCustomOverride
 	inputs := overrideInputs{
@@ -1207,6 +1221,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		DaemonMulti:       cfg != nil && cfg.Daemon.MultiPathsEnabled,
 		DaemonMounts:      daemonMounts.Hash,
 		GitIgnorePath:     func() string { p, _ := getGlobalGitIgnorePath(); return p }(),
+		CACertPath:        func() string { p, _ := getCACertPath(); return p }(),
 		QmdModelsPath:     func() string { p, _ := getQmdModelsPath(); return p }(),
 		AptCachePath:      func() string { p, _ := getAptCachePath(); return p }(),
 		LoopbackPorts:     loopbackPortsString(cfg),
@@ -1214,6 +1229,7 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		SkillsTargetCount: len(SkillsMountTargets()),
 		SkillsReadOnly:    cfg != nil && cfg.Sandbox.SkillsReadOnly,
 		SudoScoped:        cfg != nil && !cfg.Sandbox.PasswordlessSudo,
+		Toolchains:        toolchainsHash,
 	}
 
 	// Check if override needs regeneration
@@ -1359,10 +1375,15 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro%s\n",
 				formatVolumePath(gitIgnorePath), selinuxCommaSuffix)
 		}
-		// Mount host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		// Mount Construct root CA (read-only) if provisioned on host
+		if caCertPath, found := getCACertPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/construct-cli/ca/construct-ca.crt:ro%s\n",
+				formatVolumePath(caCertPath), selinuxCommaSuffix)
+		}
+		// Mount host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
-			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models%s\n",
-				formatVolumePath(qmdModelsPath), selinuxSuffix)
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models:ro%s\n",
+				formatVolumePath(qmdModelsPath), selinuxCommaSuffix)
 		}
 		// Persistent apt download cache: recreated containers re-provision
 		// packages.toml on first boot; the cached .debs turn that from a
@@ -1375,13 +1396,18 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 		// Mount host skills source into each supported agent's skills dir
 		// (read-only by default; opt-in RW). Source resolution precedence:
 		// $CONSTRUCT_SKILLS_SOURCE > [sandbox] skills_source > auto-detect.
-		// See internal/runtime/skills_mount.go and docs/VMsv2.md phase 7.
+		// See internal/runtime/skills_mount.go and docs/ARCHITECTURE-DESIGN.md §4.1.
 		if skillsSource, found := GetSkillsSourcePath(cfg); found {
 			opts := SkillsMountOptions(cfg, selinuxSuffix)
 			for _, target := range SkillsMountTargets() {
 				fmt.Fprintf(&override, "      - %s:%s%s\n",
 					formatVolumePath(skillsSource), target, opts)
 			}
+		}
+		// Mount installed modular toolchains read-only into /opt/toolchains
+		for _, tm := range toolchainMounts {
+			fmt.Fprintf(&override, "      - %s:%s:ro%s\n",
+				formatVolumePath(tm.HostPath), tm.GuestPath, selinuxCommaSuffix)
 		}
 	case "darwin":
 		fmt.Fprintf(&override, "      - ${PWD}:%s%s\n", projectPath, projectSelinuxSuffix)
@@ -1398,9 +1424,14 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 			fmt.Fprintf(&override, "      - %s:/home/construct/.config/git/ignore:ro\n",
 				formatVolumePath(gitIgnorePath))
 		}
-		// Reuse host qmd model cache (~1.5GB GGUFs) inside the sandbox
+		// Mount Construct root CA (read-only) if provisioned on host
+		if caCertPath, found := getCACertPath(); found {
+			fmt.Fprintf(&override, "      - %s:/home/construct/.config/construct-cli/ca/construct-ca.crt:ro\n",
+				formatVolumePath(caCertPath))
+		}
+		// Reuse host qmd model cache (~1.5GB GGUFs) read-only inside the sandbox
 		if qmdModelsPath, found := getQmdModelsPath(); found {
-			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models\n",
+			fmt.Fprintf(&override, "      - %s:/home/construct/.cache/qmd/models:ro\n",
 				formatVolumePath(qmdModelsPath))
 		}
 		// Persistent apt download cache (see the linux block above).
@@ -1409,13 +1440,18 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 				formatVolumePath(aptCachePath))
 		}
 		// Mount host skills source into each supported agent's skills dir
-		// (read-only by default; opt-in RW). See phase 7 in VMsv2.md.
+		// (read-only by default; opt-in RW). See docs/ARCHITECTURE-DESIGN.md §4.1.
 		if skillsSource, found := GetSkillsSourcePath(cfg); found {
 			opts := SkillsMountOptions(cfg, "")
 			for _, target := range SkillsMountTargets() {
 				fmt.Fprintf(&override, "      - %s:%s%s\n",
 					formatVolumePath(skillsSource), target, opts)
 			}
+		}
+		// Mount installed modular toolchains read-only into /opt/toolchains
+		for _, tm := range toolchainMounts {
+			fmt.Fprintf(&override, "      - %s:%s:ro\n",
+				formatVolumePath(tm.HostPath), tm.GuestPath)
 		}
 	}
 
@@ -1486,10 +1522,10 @@ func GenerateDockerComposeOverride(configPath string, projectPath string, networ
 
 	// Network isolation mode
 	switch networkMode {
-	case "offline":
+	case "offline", "none":
 		override.WriteString("    network_mode: none\n")
 		ui.InfoLn("✓ Network isolation: offline (no network access)")
-	case "strict":
+	case "strict", "allowlist":
 		override.WriteString("    networks:\n")
 		override.WriteString("      - construct-net\n")
 		caps = append(caps, "NET_ADMIN")
@@ -2232,8 +2268,7 @@ func StopContainer(containerRuntime, containerName string) error {
 
 // getGitConfig retrieves a git configuration value from the host
 func getGitConfig(key string) string {
-	cmd := exec.Command("git", "config", key)
-	output, err := cmd.Output()
+	output, err := hostgit.Output(context.Background(), "config", key)
 	if err != nil {
 		return ""
 	}
@@ -2301,6 +2336,23 @@ func getGlobalGitIgnorePath() (string, bool) {
 		return macosLegacyPath, true
 	}
 
+	return "", false
+}
+
+// getCACertPath returns the path to the Construct CA certificate if it exists on host.
+func getCACertPath() (string, bool) {
+	homeDir := os.Getenv("HOME")
+	if homeDir == "" {
+		fallback, err := os.UserHomeDir()
+		if err != nil {
+			return "", false
+		}
+		homeDir = fallback
+	}
+	p := filepath.Join(homeDir, ".config", "construct-cli", "ca", "construct-ca.crt")
+	if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+		return p, true
+	}
 	return "", false
 }
 

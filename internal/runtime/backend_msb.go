@@ -23,12 +23,12 @@ import (
 )
 
 // ErrMsbUnsupported marks primitives with no msb equivalent yet (Step 6
-// MVP scope; docs/VMsv2.md). Callers surface these as clear errors, not
+// MVP scope; docs/ARCHITECTURE-DESIGN.md §4.1). Callers surface these as clear errors, not
 // silent fallbacks.
-var ErrMsbUnsupported = errors.New("unsupported in the msb backend (experimental) — use the docker backend for this feature")
+var ErrMsbUnsupported = errors.New("unsupported in the msb backend — this feature needs the OCI container backends (containers, podman, docker)")
 
 // MsbBackend implements Backend over microsandbox microVMs (opt-in,
-// experimental; docs/VMsv2.md). Sandboxes are managed through the msb Go
+// experimental; docs/ARCHITECTURE-DESIGN.md §4.1). Sandboxes are managed through the msb Go
 // SDK; image transition reuses the Docker image via save+load.
 type MsbBackend struct{}
 
@@ -59,7 +59,7 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 // full registry ref, `msb load -i` imports archives as localhost/<name>.
 // localhost/ FIRST: it exists only after a deliberate local build
 // (TransitionLocalConstructImageToMsb), which must beat a concurrently
-// cached — possibly stale — GHCR ref when both exist (e.g. `sys init`
+// cached — possibly stale — GHCR ref when both exist (e.g. `sys image init`
 // after prior GHCR pulls). The bare name stays ahead of the registry ref
 // for msb builds that resolve short names.
 var constructImageRefCandidates = []string{
@@ -124,7 +124,7 @@ func inspectImageCached(ref string) bool {
 		return false
 	}
 	cmd := exec.Command(name, "image", "inspect", ref)
-	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/ARCHITECTURE-DESIGN.md §4.1)
 	return cmd.Run() == nil
 }
 
@@ -217,7 +217,7 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
 	// Deliberate local builds win over GHCR: a localhost/ ref only lands
-	// via docker save + msb load (`construct sys rebuild` on this
+	// via docker save + msb load (`construct sys image rebuild` on this
 	// backend), so adopt it as-is. The digest drift check below can never
 	// bless it — a local build's manifest digest never matches the
 	// CI-published image, even at identical content — so letting the flow
@@ -292,12 +292,12 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 		return ref, nil
 	}
 
-	return "", fmt.Errorf("construct-box image not found locally and pull failed; check your network or run 'construct sys pull'")
+	return "", fmt.Errorf("construct-box image not found locally and pull failed; check your network or run 'construct sys image pull'")
 }
 
 // TransitionLocalConstructImageToMsb moves a locally built construct-box
 // docker/podman image into the msb image cache (docker save + msb load).
-// The msb backend never compose-builds, so `construct sys rebuild`
+// The msb backend never compose-builds, so `construct sys image rebuild`
 // calls this after BuildImage to land the fresh build where the guest
 // actually boots from. No local docker image: no-op success — the GHCR
 // pull remains the acquisition path.
@@ -695,39 +695,6 @@ func envSliceToMap(env []string) map[string]string {
 // Interface conformance.
 var _ Backend = (*MsbBackend)(nil)
 
-// DetectBackend resolves the configured isolation backend, fail closed:
-// backend = "msb" with microsandbox missing is a hard error with install
-// instructions, never a silent Docker fallback.
-func DetectBackend(cfg *config.Config) (Backend, error) {
-	backend := cfg.Runtime.Backend
-	if backend == "" {
-		backend = config.BackendContainers
-	}
-	switch backend {
-	case config.BackendContainers, config.BackendPodman, config.BackendDocker:
-		preferred := "auto" // never pass the category value as a binary pin
-		if backend != config.BackendContainers {
-			preferred = backend
-		}
-		rt := DetectRuntime(preferred)
-		if rt == "" {
-			return nil, errors.New("no OCI container runtime found (Apple container, podman, or docker). Install Docker Desktop or Podman")
-		}
-		return NewDockerBackend(rt)
-	case config.BackendMsb:
-		if cfg != nil && strings.EqualFold(cfg.Network.Mode, "strict") {
-			return nil, errors.New("network mode 'strict' is not yet supported under the msb backend (use backend = \"containers\" or network mode = \"permissive\")")
-		}
-		m := NewMsbBackend()
-		if ok, availErr := m.Available(context.Background()); !ok || availErr != nil {
-			return nil, errors.New("runtime backend = \"msb\" but microsandbox is not installed. Install it: curl -fsSL https://install.microsandbox.dev | sh (Apple Silicon macOS or Linux with KVM)")
-		}
-		return m, nil
-	default:
-		return nil, fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", backend)
-	}
-}
-
 // ValidateBackendSelected reports whether the compose-based run path can
 // serve the configured backend. Entry points call this before any container
 // operation: backend = "msb" must fail closed with a clear message on
@@ -737,7 +704,7 @@ func ValidateBackendSelected(cfg *config.Config) error {
 	case "", config.BackendContainers, config.BackendPodman, config.BackendDocker:
 		return nil
 	case config.BackendMsb:
-		return errors.New("the msb backend does not support this operation. Set `backend` to \"containers\", \"podman\", or \"docker\" in [runtime] to use OCI containers")
+		return errors.New("this command drives an OCI container and is not available on the msb backend. Set [runtime] backend to \"containers\", \"podman\", or \"docker\" to use it")
 	}
-	return fmt.Errorf("unknown runtime backend %q (want \"containers\", \"podman\", \"docker\", or \"msb\")", cfg.Runtime.Backend)
+	return fmt.Errorf("unknown runtime backend %q (want \"msb\", \"containers\", \"podman\", or \"docker\")", cfg.Runtime.Backend)
 }

@@ -15,7 +15,7 @@ You are running inside **The Construct**, a secure, isolated Linux sandbox (Debi
 ## 3. Communication Protocol
 - **External Info**: If you need information that is not available inside the sandbox (e.g., host system configuration, hardware details, or files outside the mounted project), you MUST ask the user to provide it or run a command to fetch it.
 - **Permissions**: You have `sudo` access inside this sandbox, but it does not grant you permissions on the host machine.
-- **Security**: Do not attempt to "break out" of the sandbox. If you encounter network restrictions, explain them to the user so they can adjust the `construct network` settings.
+- **Security**: Do not attempt to "break out" of the sandbox. If you encounter network restrictions, explain them to the user so they can adjust the `construct sys network` settings.
 
 ## 4. Installed Tools
 The environment is pre-loaded with a modern toolchain (Go, Node.js, Python, etc.) via apt and mise (Rust, JVM languages, and more install on demand). If a tool is missing, you can suggest the user add it to their `packages.toml`.
@@ -27,4 +27,4 @@ The user may have configured certain binaries to run **on the host machine** whe
 - **Behavior**: invoking any of these runs the real binary on the host, as the user's own account, with your argv passed through verbatim. Output streams back normally; exit codes are preserved.
 - **Non-interactive only**: there is no controlling terminal/PTY. Pipe stdin (one-shot) works; interactive prompts do not. Many CLIs offer a `--no-interactive` / `--json` / `--yes` flag for scripted use — pass it.
 - **Security note for the user (not you)**: each proxied binary runs on the host with container-controlled argv. The allowlist is configured in `[sandbox] host_binaries` in `config.toml`. See `docs/HOST-EXEC.md`.
-- **If a proxied binary exits 126**: the host bridge was unreachable or misconfigured. Tell the user to run `construct sys rebuild` (the shim must be baked into the image) and check `~/.config/construct-cli/logs/host_exec.log` on the host.
+- **If a proxied binary exits 126**: the host bridge was unreachable or misconfigured. Tell the user to run `construct sys image rebuild` (the shim must be baked into the image) and check `~/.config/construct-cli/logs/host_exec.log` on the host.

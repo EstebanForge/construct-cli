@@ -16,12 +16,16 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/env"
+	"github.com/EstebanForge/construct-cli/internal/gitclone"
+	"github.com/EstebanForge/construct-cli/internal/gitprotect"
 	"github.com/EstebanForge/construct-cli/internal/hostexec"
 	"github.com/EstebanForge/construct-cli/internal/network"
+	"github.com/EstebanForge/construct-cli/internal/proxy"
 	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
 	"github.com/EstebanForge/construct-cli/internal/security"
 	"github.com/EstebanForge/construct-cli/internal/templates"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -121,6 +125,17 @@ type RuntimeEngine struct {
 	herdrProxyContainer string // container running our socat (for Teardown)
 	herdrProxyUser      string // exec user for Teardown cleanup
 	bridgeHost          string // guest-visible hostname for host bridge servers
+
+	// Per-session egress CONNECT proxy state.
+	proxyServer *proxy.Server
+	proxyURL    string
+
+	// Detected project toolchains
+	toolchains []toolchains.ToolchainID
+
+	// Ephemeral clone mode
+	cloneMode    bool
+	cloneSession *gitclone.Session
 }
 
 // NewRuntimeEngine creates a new runtime engine.
@@ -134,12 +149,27 @@ func NewRuntimeEngine(cfg *config.Config, args []string, containerRuntime, confi
 	}
 }
 
+// SetCloneMode configures whether the engine runs in an ephemeral git clone.
+func (e *RuntimeEngine) SetCloneMode(enabled bool) {
+	e.cloneMode = enabled
+}
+
 // Prepare handles environment setup, security initialization, and platform bridges.
 func (e *RuntimeEngine) Prepare() error {
 	// 1. Security Initialization
 	cwd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
+	if e.cloneMode {
+		sess, err := gitclone.CreateSession(context.Background(), cwd)
+		if err != nil {
+			return fmt.Errorf("failed to create ephemeral clone session: %w", err)
+		}
+		e.cloneSession = sess
+		cwd = sess.CloneDir
+		ui.InfoF("🛡️  Ephemeral clone active: %s -> %s\n", sess.HostRepoDir, sess.CloneDir)
 	}
 
 	sec, err := security.InitializeSessionForRun(e.cfg, e.configPath, cwd)
@@ -166,7 +196,7 @@ func (e *RuntimeEngine) Prepare() error {
 	// daemon exec, compose run, and msb all see the staged files. Warnings
 	// only; an unstaged path behaves exactly as before this feature.
 	if st := newArgStager(firstArgSlug(e.args), e.configPath, e.cwd); st != nil {
-		st.adaptArgs(e.args)
+		e.args = st.adaptArgs(e.args)
 		e.argStager = st
 	}
 
@@ -186,7 +216,11 @@ func (e *RuntimeEngine) Prepare() error {
 	e.osEnv = runtime.AppendProjectPathEnv(e.osEnv)
 	e.osEnv = network.InjectEnv(e.osEnv, e.cfg)
 	e.osEnv = runtime.AppendRuntimeIdentityEnv(e.osEnv, e.containerRuntime)
-	applyConstructPath(&e.osEnv)
+	e.toolchains = toolchains.DetectToolchains(e.cwd)
+	if e.cfg != nil && e.cfg.Toolchains.AutoFetch && len(e.toolchains) > 0 {
+		_ = toolchains.EnsureToolchains(context.Background(), e.toolchains) //nolint:errcheck // best-effort toolchain pre-fetch
+	}
+	applyConstructPath(&e.osEnv, e.toolchains)
 
 	// 4. Login Bridge Detection
 	e.loginForward, e.loginPorts = shouldEnableLoginForward(e.args)
@@ -277,6 +311,60 @@ func (e *RuntimeEngine) Prepare() error {
 		}
 	}
 
+	// 7. Egress Sentinel Proxy
+	proxyBind := bridgeBindHost(e.cfg.Runtime.Backend)
+	caDir := filepath.Join(e.configPath, "ca")
+	pCfg := proxy.Config{
+		Tier:           e.cfg.Network.Mode,
+		AllowedHosts:   e.cfg.Network.AllowedDomains,
+		AllowedIPs:     e.cfg.Network.AllowedIPs,
+		BlockedDomains: e.cfg.Network.BlockedDomains,
+		BlockedIPs:     e.cfg.Network.BlockedIPs,
+		AllowedTCP:     e.cfg.Network.AllowedTCP,
+		LoopbackPorts:  e.cfg.Sandbox.HostLoopbackPorts,
+		HostGateway:    bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost),
+		CADir:          caDir,
+		LogDir:         filepath.Join(e.configPath, "logs"),
+	}
+
+	normMode := proxy.NormalizeTier(e.cfg.Network.Mode)
+	pSrv, err := proxy.NewServer(pCfg)
+	if err != nil {
+		return fmt.Errorf("failed to initialize egress proxy: %w", err)
+	}
+	var startErr error
+	if e.msbBackendSelected() {
+		ln, lerr := runtime.ListenInBand("proxy-"+e.cwd, proxyBind, runtime.MsbProxyPortBase, runtime.MsbProxyPortSpan)
+		if lerr != nil {
+			return fmt.Errorf("failed to bind egress proxy in msb port band [%d-%d): %w", runtime.MsbProxyPortBase, runtime.MsbProxyPortBase+runtime.MsbProxyPortSpan, lerr)
+		}
+		startErr = pSrv.Serve(ln)
+	} else {
+		startErr = pSrv.Start(fmt.Sprintf("%s:0", proxyBind))
+	}
+	if startErr != nil {
+		return fmt.Errorf("failed to start egress proxy on %s: %w", proxyBind, startErr)
+	}
+	e.proxyServer = pSrv
+	pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
+	e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
+
+	probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
+	cancel()
+	if pErr != nil || status != ConfinementOK {
+		if normMode == proxy.TierAllowlist {
+			return fmt.Errorf("network confinement probe failed: %w", pErr)
+		}
+		ui.LogDebug("Confinement probe status %s: %v", status, pErr)
+	}
+
+	if gitprotect.HasImmutableFlag() {
+		if err := gitprotect.LockRepository(context.Background(), e.cwd); err != nil {
+			ui.LogDebug("gitprotect lock failed: %v", err)
+		}
+	}
+
 	e.prepared = true
 	return nil
 }
@@ -289,8 +377,13 @@ func (e *RuntimeEngine) Execute() (int, error) {
 
 	baseArgs := e.args
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
+	if e.proxyServer != nil {
+		mergedProviderEnv = sentinelizeEnv(e.proxyServer, mergedProviderEnv)
+	} else {
+		return 1, fmt.Errorf("egress proxy not initialized; refusing to launch with unsentinelized credentials")
+	}
 
-	// 0. msb backend dispatch (docs/VMsv2.md): persistent sandbox
+	// 0. msb backend dispatch (docs/ARCHITECTURE-DESIGN.md §4.1): persistent sandbox
 	// daemon path replaces the compose/daemon-container paths entirely.
 	if e.msbBackendSelected() {
 		return e.execViaMsbDaemon(baseArgs, mergedProviderEnv)
@@ -408,8 +501,27 @@ func (e *RuntimeEngine) Teardown() {
 	if e.execServer != nil {
 		e.execServer.Stop()
 	}
+	if e.proxyServer != nil {
+		_ = e.proxyServer.Close() //nolint:errcheck // teardown cleanup
+	}
+	if gitprotect.HasImmutableFlag() {
+		if err := gitprotect.UnlockRepository(context.Background(), e.cwd); err != nil {
+			ui.LogDebug("gitprotect unlock failed: %v", err)
+		}
+	}
 	if e.sec != nil {
 		e.sec.Close() //nolint:errcheck
+	}
+	if e.cloneSession != nil {
+		bundlePath, hasChanges, err := e.cloneSession.Teardown(context.Background())
+		if err != nil {
+			ui.LogWarning("Failed to generate clone bundle: %v", err)
+		} else if hasChanges {
+			ui.InfoF("✓ Ephemeral clone changes exported to bundle: %s\n", bundlePath)
+		} else {
+			ui.InfoLn("✓ Ephemeral clone closed (no changes detected)")
+		}
+		e.cloneSession = nil
 	}
 }
 
@@ -520,7 +632,7 @@ func (e *RuntimeEngine) execViaDaemon(args []string, daemonName string, provider
 	}
 
 	// Ensure Construct home and path
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
 	// Patch the daemon if needed (ensure clipboard shims and wrappers are present)
@@ -560,7 +672,7 @@ skipPatch:
 	if err == nil && len(args) > 0 && (exitCode == 126 || exitCode == 127) {
 		ui.InfoF("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
 		ui.InfoLn("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
-		ui.InfoLn("If needed, run 'construct sys packages --install' to reapply packages.toml.")
+		ui.InfoLn("If needed, run 'construct sys packages install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
 }
@@ -589,7 +701,7 @@ func (e *RuntimeEngine) startDaemonBackground(daemonName string) bool {
 	osEnv = runtime.AppendProjectPathEnv(osEnv)
 	osEnv = network.InjectEnv(osEnv, e.cfg)
 	osEnv = runtime.AppendRuntimeIdentityEnv(osEnv, e.containerRuntime)
-	applyConstructPath(&osEnv)
+	applyConstructPath(&osEnv, e.toolchains)
 
 	daemonRunFlags := []string{"-d", "--rm", "--name", daemonName}
 	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
@@ -677,6 +789,22 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 		env.SetEnvVar(&envVars, "CONSTRUCT_HOST_BINARIES", strings.Join(e.cfg.Sandbox.HostBinaries, ","))
 	}
 
+	if e.proxyURL != "" {
+		env.SetEnvVar(&envVars, "HTTP_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "HTTPS_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "ALL_PROXY", e.proxyURL)
+		env.SetEnvVar(&envVars, "http_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "https_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "all_proxy", e.proxyURL)
+		env.SetEnvVar(&envVars, "NO_PROXY", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "no_proxy", "localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal")
+		env.SetEnvVar(&envVars, "SSL_CERT_FILE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "NODE_EXTRA_CA_CERTS", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "REQUESTS_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "CURL_CA_BUNDLE", "/etc/ssl/certs/ca-certificates.crt")
+		env.SetEnvVar(&envVars, "GIT_SSL_CAINFO", "/etc/ssl/certs/ca-certificates.crt")
+	}
+
 	// SSH bridge: restart socat proxy inside the container and inject proxy env.
 	// The socat from the original entrypoint may be pointing to a stale port
 	// (from a previous session's bridge). We must restart it with the current port.
@@ -714,7 +842,7 @@ func (e *RuntimeEngine) execInRunningContainer(args []string, containerName stri
 	}
 
 	// Ensure Construct home and path
-	applyConstructPath(&envVars)
+	applyConstructPath(&envVars, e.toolchains)
 	env.SetEnvVar(&envVars, "HOME", "/home/construct")
 
 	execUser := runtime.ResolveExecUser(e.cfg, e.containerRuntime)
@@ -842,6 +970,24 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 		*runFlags = append(*runFlags, "-e", fmt.Sprintf("CONSTRUCT_SSH_BRIDGE_PORT=%d", e.sshBridge.Port))
 	}
 
+	if e.proxyURL != "" {
+		*runFlags = append(*runFlags,
+			"-e", "HTTP_PROXY="+e.proxyURL,
+			"-e", "HTTPS_PROXY="+e.proxyURL,
+			"-e", "ALL_PROXY="+e.proxyURL,
+			"-e", "http_proxy="+e.proxyURL,
+			"-e", "https_proxy="+e.proxyURL,
+			"-e", "all_proxy="+e.proxyURL,
+			"-e", "NO_PROXY=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
+			"-e", "no_proxy=localhost,127.0.0.1,host.docker.internal,host.microsandbox.internal",
+			"-e", "SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+			"-e", "GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt",
+		)
+	}
+
 	if pins := sshPinIdentitiesEnv(e.cfg); pins != "" {
 		*runFlags = append(*runFlags, "-e", "CONSTRUCT_SSH_PIN_IDENTITIES="+pins)
 	}
@@ -865,6 +1011,9 @@ func (e *RuntimeEngine) buildRunFlags(runFlags *[]string, providerEnv []string) 
 
 	// Always inject HOME and CONSTRUCT_PATH for agents
 	constructPath := env.BuildConstructPath("/home/construct")
+	if len(e.toolchains) > 0 {
+		constructPath = toolchains.BuildToolchainPath(constructPath, e.toolchains)
+	}
 	*runFlags = append(*runFlags, "-e", "HOME=/home/construct")
 	*runFlags = append(*runFlags, "-e", "CONSTRUCT_PATH="+constructPath)
 
@@ -1012,6 +1161,34 @@ func buildDaemonExecEnv(args []string, providerEnv []string, cbServer *clipboard
 	}
 
 	return envVars
+}
+
+func sentinelizeEnv(pServer *proxy.Server, envs []string) []string {
+	if pServer == nil {
+		return envs
+	}
+	out := make([]string, 0, len(envs))
+	for _, kv := range envs {
+		parts := strings.SplitN(kv, "=", 2)
+		if len(parts) != 2 {
+			out = append(out, kv)
+			continue
+		}
+		key, val := parts[0], parts[1]
+		if pServer.IsSentinel(val) {
+			out = append(out, kv)
+			continue
+		}
+		cleanKey := strings.TrimPrefix(key, "CNSTR_")
+		boundHost := proxy.DefaultHostBindings(cleanKey)
+		if boundHost != "" && val != "" {
+			sentinel := pServer.RegisterSecret(key, val, boundHost)
+			out = append(out, key+"="+sentinel)
+		} else {
+			out = append(out, kv)
+		}
+	}
+	return out
 }
 
 func (e *RuntimeEngine) runAgentPatchInDaemon(daemonName, execUser string) error {
@@ -1239,9 +1416,12 @@ func formatPorts(ports []int) string {
 	return strings.Join(parts, ",")
 }
 
-func applyConstructPath(osEnv *[]string) {
+func applyConstructPath(osEnv *[]string, tcs ...[]toolchains.ToolchainID) {
 	// Strict replacement for compatibility
 	constructPath := env.BuildConstructPath("/home/construct")
+	if len(tcs) > 0 && len(tcs[0]) > 0 {
+		constructPath = toolchains.BuildToolchainPath(constructPath, tcs[0])
+	}
 	env.SetEnvVar(osEnv, "PATH", constructPath)
 	env.SetEnvVar(osEnv, "CONSTRUCT_PATH", constructPath)
 

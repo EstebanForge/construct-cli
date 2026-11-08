@@ -199,7 +199,7 @@ fi
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && "$BIN" sys doctor --json 2>/dev/null | grep -q 'Stale Packages Volume'; then
 	printf '[runtime]\nbackend = "containers"\n' > "$LAB/.config/construct-cli/config.toml"
 	docker volume create labdoctest_construct-packages >/dev/null 2>&1 || true
-	doc=$("$BIN" sys doctor --fix 2>/dev/null || true)
+	doc=$("$BIN" sys doctor fix 2>/dev/null || true)
 	printf '[runtime]\nbackend = "msb"\n' > "$LAB/.config/construct-cli/config.toml"
 	echo "$doc" | grep -q 'Stale Packages Volume: Removed stale volume' || fail "doctor --fix did not remove the stale fixture volume"
 	if docker volume ls --format '{{.Name}}' | grep -q '^labdoctest_construct-packages$'; then

@@ -12,7 +12,7 @@ import (
 	msb "github.com/superradcompany/microsandbox/sdk/go"
 )
 
-// TestMsbLiveSnapshotFork is the phase 6 spike (docs/VMsv2.md) in miniature:
+// TestMsbLiveSnapshotFork is the phase 6 spike (docs/ARCHITECTURE-DESIGN.md §4.1) in miniature:
 // it proves the snapshot-fork recreate primitive end to end against a real
 // msb engine and the cached construct-box image. The daemon fork reuses the
 // exact same sequence (stop -> snapshot -> cleanup -> disk-only restore with

@@ -89,16 +89,58 @@ func sshBridgePortForSeed(seed string) int {
 // msb's VMM proxies allowed guest→host ports to host loopback
 // (live-verified 2026-10), so 127.0.0.1 is reachable and the listener
 // stops exposing every port LAN-wide; docker's Linux host-gateway is the
-// bridge IP, which requires 0.0.0.0. macOS Docker Desktop routes
-// loopback into containers on every backend.
+// bridge IP (e.g. docker0 172.17.0.1). When the bridge IP can be detected,
+// we bind to it directly to avoid listening on all host interfaces (0.0.0.0);
+// otherwise we fail closed to 127.0.0.1 (never exposing unauthenticated listeners on 0.0.0.0).
+// macOS Docker Desktop routes loopback into containers on every backend.
 func bridgeBindHost(backend string) string {
-	if runtime.GOOS == "darwin" {
+	if runtime.GOOS == "darwin" || backend == config.BackendMsb {
 		return "127.0.0.1"
 	}
-	if backend == config.BackendMsb {
-		return "127.0.0.1"
+	if ip := linuxBridgeIP(); ip != "" {
+		return ip
 	}
-	return "0.0.0.0"
+	// Fail closed to loopback: do not expose unauthenticated bridge on 0.0.0.0
+	return "127.0.0.1"
+}
+
+func linuxBridgeIP() string {
+	for _, ifaceName := range []string{"docker0", "podman0", "cni-podman0"} {
+		if ip := getIPv4ForInterface(ifaceName); ip != "" {
+			return ip
+		}
+	}
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range ifaces {
+			name := strings.ToLower(iface.Name)
+			if strings.HasPrefix(name, "br-") || strings.Contains(name, "docker") || strings.Contains(name, "podman") || strings.HasPrefix(name, "virbr") {
+				if ip := getIPv4ForInterface(iface.Name); ip != "" {
+					return ip
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func getIPv4ForInterface(name string) string {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ip4 := ipnet.IP.To4(); ip4 != nil {
+				return ip4.String()
+			}
+		}
+	}
+	return ""
 }
 
 // sshPinIdentitiesEnv serializes cfg.Sandbox.SSHPinIdentities into the

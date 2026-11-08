@@ -251,7 +251,7 @@ main() {
     echo
     success "The Construct installed."
     echo "Verify with: ${BINARY} --version"
-    echo "Then run:    ${BINARY} sys init"
+    echo "Then run:    ${BINARY} sys image init"
 }
 
 main "$@"

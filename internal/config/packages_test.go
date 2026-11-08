@@ -65,8 +65,8 @@ func TestGenerateInstallScriptBakeMigration(t *testing.T) {
 	// Default config sweeps all five baked tools' stale bind copies.
 	script := (&PackagesConfig{}).GenerateInstallScript()
 
-	if !strings.Contains(script, ".construct_bake_migration_v1") {
-		t.Error("Script should be gated by the v1 bake-migration marker")
+	if !strings.Contains(script, ".construct_bake_migration_v2") {
+		t.Error("Script should be gated by the v2 bake-migration marker")
 	}
 	for _, want := range []string{
 		`remove_baked_copy "$HOME/.local/bin/claude"`,
@@ -261,7 +261,7 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 	if !strings.Contains(script, "for cmd in claude amp copilot opencode") {
 		t.Error("Script should verify key agent commands after installation")
 	}
-	if !strings.Contains(script, "If these agents are expected, re-run: construct sys packages --install") {
+	if !strings.Contains(script, "If these agents are expected, re-run: construct sys packages install") {
 		t.Error("Script should include guidance when expected commands are missing")
 	}
 }

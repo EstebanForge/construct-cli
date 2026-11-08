@@ -47,7 +47,7 @@ host_binaries = ["wicket"]
 ```
 
 - **Off when empty** (default). No bridge starts.
-- Requires `construct sys rebuild` after first enabling, so the container shim (`/usr/local/bin/construct-host-exec`) is baked into the image.
+- Requires `construct sys image rebuild` after first enabling, so the container shim (`/usr/local/bin/construct-host-exec`) is baked into the image.
 - Per-call timeout override: set `CONSTRUCT_HOST_EXEC_TIMEOUT` (seconds) on the host; default 30 minutes.
 
 ---
@@ -107,14 +107,14 @@ Construct's daemon is long-lived and reused across invocations. The bridge stays
 
 Audit log on the host: `~/.config/construct-cli/logs/host_exec.log` (always-on; timestamp, argv, resolved path, exit code, duration).
 
-`construct sys doctor` warns when:
-- `host_binaries` is set but the shim isn't in the image (run `construct sys rebuild`).
+`construct doctor` warns when:
+- `host_binaries` is set but the shim isn't in the image (run `construct sys image rebuild`).
 - Manifest contains entries no longer in the config (stale symlinks).
 
 ### Common failure patterns
 
 **Agent gets `127: command not found` for a listed binary:**
-- The image is old and doesn't contain `/usr/local/bin/construct-host-exec`. Run `construct sys rebuild`. (Note: this surfaces as bash's `127`, not the shim's `126`, because the shim itself never gets to run.)
+- The image is old and doesn't contain `/usr/local/bin/construct-host-exec`. Run `construct sys image rebuild`. (Note: this surfaces as bash's `127`, not the shim's `126`, because the shim itself never gets to run.)
 
 **Agent gets `126`:**
 - The bridge didn't start or is unreachable. Check `host_exec.log` on the host; confirm the binary resolves on your host PATH (`which wicket`).

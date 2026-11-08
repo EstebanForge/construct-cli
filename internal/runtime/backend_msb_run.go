@@ -26,6 +26,7 @@ import (
 	"github.com/EstebanForge/construct-cli/internal/constants"
 	"github.com/EstebanForge/construct-cli/internal/msbembed"
 	"github.com/EstebanForge/construct-cli/internal/safefs"
+	"github.com/EstebanForge/construct-cli/internal/toolchains"
 	"github.com/EstebanForge/construct-cli/internal/ui"
 )
 
@@ -240,7 +241,7 @@ func msbHostConstructHome() string {
 // source, and whether the mount is read-only. The qmd models cache stays RW
 // (lazily-fetched models write back to the shared host cache). Skills mounts
 // default to read-only (cfg.Sandbox.SkillsReadOnly = true); opt-in RW when
-// the user wants agents to author or edit skills (see docs/VMsv2.md phase 7).
+// the user wants agents to author or edit skills (see docs/ARCHITECTURE-DESIGN.md §4.1).
 //
 // NOTE: only directory mounts belong here. msb agentd bind-mounts require the
 // target path to pre-exist in the guest image (v0.6.10: a missing target
@@ -250,7 +251,7 @@ func msbHostConstructHome() string {
 func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 	var mounts []msbAutoMount
 	if p, ok := getQmdModelsPath(); ok {
-		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: false})
+		mounts = append(mounts, msbAutoMount{Dest: "/home/construct/.cache/qmd/models", Src: p, Readonly: true})
 	}
 	// Persistent apt download cache (created on demand): recreated daemons
 	// re-provision packages.toml on first boot; cached .debs turn that from
@@ -260,11 +261,17 @@ func conditionalAutoMounts(cfg *config.Config) []msbAutoMount {
 	}
 	// Host skills source -> per-agent skills directory. Each SupportedAgents
 	// entry that hosts skills gets one bind. Mount mode matches cfg.Sandbox
-	// .SkillsReadOnly (default true; opt-in RW). See docs/VMsv2.md phase 7.
+	// .SkillsReadOnly (default true; opt-in RW). See docs/ARCHITECTURE-DESIGN.md §4.1.
 	if p, ok := GetSkillsSourcePath(cfg); ok {
 		readonly := cfg == nil || cfg.Sandbox.SkillsReadOnly
 		for _, target := range SkillsMountTargets() {
 			mounts = append(mounts, msbAutoMount{Dest: target, Src: p, Readonly: readonly})
+		}
+	}
+	// Host toolchains cache -> /opt/toolchains/<id> (read-only).
+	if cacheDir := toolchains.CacheDir(); cacheDir != "" {
+		for _, tm := range toolchains.AvailableToolchains(cacheDir) {
+			mounts = append(mounts, msbAutoMount{Dest: tm.GuestPath, Src: tm.HostPath, Readonly: true})
 		}
 	}
 	return mounts
@@ -277,16 +284,32 @@ type msbAutoMount struct {
 }
 
 // msbNetworkConfig maps construct network modes onto msb network profiles
-// (docs/VMsv2.md): permissive = public, strict = public + in-guest filter
-// (msb policy layer OFF until stacking verified, §9), offline = no net.
-// Every sandbox carries the guest->host transport rules (§3.1).
+// (docs/ARCHITECTURE-DESIGN.md §4.1): permissive/open/internet = public egress,
+// strict/allowlist = deny public egress (guest may only contact host transport/proxy + DNS),
+// offline/none = deny all egress.
 func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
-	switch mode {
-	case "offline":
-		return msbNetworkOffline(bridgePorts)
-	default: // permissive, strict
-		return msbNetworkPublic(bridgePorts)
+	norm, err := config.NormalizeNetworkMode(mode)
+	if err != nil {
+		norm = "none" // Fail closed on invalid mode
 	}
+	switch norm {
+	case "none":
+		return msbNetworkOffline(bridgePorts)
+	case "allowlist":
+		return msbNetworkAllowlist(bridgePorts)
+	case "open", "internet":
+		return msbNetworkPublic(bridgePorts)
+	default:
+		return msbNetworkOffline(bridgePorts)
+	}
+}
+
+func msbNetworkAllowlist(bridgePorts []int) *msb.NetworkConfig {
+	// Egress directly to the internet is denied at the VMM boundary.
+	// Only host transport (SSH, herdr, proxy) and gateway DNS resolution are permitted.
+	net := &msb.NetworkConfig{DefaultEgress: msb.PolicyActionDeny}
+	net.Rules = append(msbHostTransportRules(bridgePorts), dnsRule())
+	return net
 }
 
 // MsbBridgePortBase/Span define the deterministic bridge port band handed
@@ -308,31 +331,38 @@ const (
 	MsbHerdrBridgePortSpan = 10000
 )
 
+// MsbProxyPortBase/Span is the host egress proxy band; must not overlap
+// the SSH and herdr bands above.
+const (
+	MsbProxyPortBase = 58700
+	MsbProxyPortSpan = 5000
+)
+
 // msbHostTransportRules emits the guest->host transport rules (§3.1).
 // bridgePorts are the known bridge listener ports; when empty the full
 // deterministic bridge band is named instead, so any bridge started later
 // inside the band stays reachable (per-port rules are create-time only).
 func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
-	if len(bridgePorts) == 0 {
-		// Both deterministic bridge bands (SSH + herdr), as ranges: the gap
-		// between them stays unforwarded so guest traffic cannot probe
-		// unrelated host loopback services.
-		band := func(base, span int) msb.PolicyRule {
-			return msb.PolicyRule{
-				Action:      msb.PolicyActionAllow,
-				Direction:   msb.PolicyDirectionEgress,
-				Destination: "host",
-				Protocol:    msb.PolicyProtocolTCP,
-				Port:        fmt.Sprintf("%d-%d", base, base+span-1),
-			}
-		}
-		return []msb.PolicyRule{
-			band(MsbBridgePortBase, MsbBridgePortSpan),
-			band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
+	band := func(base, span int) msb.PolicyRule {
+		return msb.PolicyRule{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: "host",
+			Protocol:    msb.PolicyProtocolTCP,
+			Port:        fmt.Sprintf("%d-%d", base, base+span-1),
 		}
 	}
-	rules := make([]msb.PolicyRule, 0, len(bridgePorts))
+	rules := []msb.PolicyRule{
+		band(MsbBridgePortBase, MsbBridgePortSpan),
+		band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
+		band(MsbProxyPortBase, MsbProxyPortSpan),
+	}
 	for _, port := range bridgePorts {
+		if (port >= MsbBridgePortBase && port < MsbBridgePortBase+MsbBridgePortSpan) ||
+			(port >= MsbHerdrBridgePortBase && port < MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan) ||
+			(port >= MsbProxyPortBase && port < MsbProxyPortBase+MsbProxyPortSpan) {
+			continue
+		}
 		rules = append(rules, msb.PolicyRule{
 			Action:      msb.PolicyActionAllow,
 			Direction:   msb.PolicyDirectionEgress,
@@ -573,8 +603,9 @@ func msbEnvHash(cfg *config.Config) string {
 // shape changes; v2 added the public-mode first-match deny cap (msb 0.7.8
 // DefaultEgress allow opens every host port); v3 added private LAN egress
 // for local servers and wired NetworkPolicy into snapshot restore; v4 moved
-// the host deny cap before private LAN to prevent host gateway bypass.
-const netRulesHashSalt = "net-rules=v4"
+// the host deny cap before private LAN to prevent host gateway bypass; v5 added
+// the proxy port band for egress confinement.
+const netRulesHashSalt = "net-rules=v5"
 
 // ResolveExecUserMsb resolves the exec user inside the msb guest sandbox.
 // The entrypoint aligns the guest construct user with CONSTRUCT_HOST_UID:GID,
@@ -696,7 +727,7 @@ func parseMsbConfigMounts(configJSON string) map[string]string {
 // msbDaemonName is the persistent sandbox backing the daemon mode under
 // the msb backend (Docker analog: construct-cli-daemon container). Named
 // sandboxes persist across stop/start, so agent installs and root-disk
-// toolchain state survive daemon restarts (docs/VMsv2.md).
+// toolchain state survive daemon restarts (docs/ARCHITECTURE-DESIGN.md §4.1).
 const msbDaemonName = "construct-cli-daemon"
 
 // ErrMsbDaemonWorkdirUnmapped reports that the requested project dir falls
@@ -854,7 +885,7 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 // outcome (cold | recreate | warm | reconnect), the elapsed seconds, the
 // mount count, and (for recreate) the reason. The start clock is captured
 // at the top; the log is fire-and-forget and never affects the returned
-// sandbox. See msbLogBoot + docs/VMsv2.md phase 0.
+// sandbox. See msbLogBoot + docs/ARCHITECTURE-DESIGN.md §4.1.
 // ensureMsbDaemonCore is the flock-held daemon ensure body; the var
 // exists so tests can stub it while asserting wrapper invariants.
 var ensureMsbDaemonCore = ensureMsbDaemonLocked
@@ -1251,27 +1282,40 @@ func writeMsbInstallScript() error {
 }
 
 // msbSeedAutoFiles copies file-sized conditional auto-mounts (global
-// gitignore) into the guest after boot. msb cannot bind-mount single files
+// gitignore, Construct root CA) into the guest after boot. msb cannot bind-mount single files
 // unless the target already exists in the image (ENOENT kills the sandbox,
 // v0.6.10), so the file is copied instead. The copy is a seed, not a live
 // bind: host edits need a sandbox restart to propagate.
 func msbSeedAutoFiles(ctx context.Context, sb *msb.Sandbox) error {
-	p, ok := getGlobalGitIgnorePath()
-	if !ok {
-		return nil
-	}
 	fs := sb.FS()
-	for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/git"} {
-		if err := fs.Mkdir(ctx, dir); err != nil {
-			// Already-existing dirs are fine; anything else is fatal.
-			if _, statErr := fs.Stat(ctx, dir); statErr != nil {
-				return fmt.Errorf("msb seed %s: %w", dir, err)
+
+	if p, ok := getGlobalGitIgnorePath(); ok {
+		for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/git"} {
+			if err := fs.Mkdir(ctx, dir); err != nil {
+				// Already-existing dirs are fine; anything else is fatal.
+				if _, statErr := fs.Stat(ctx, dir); statErr != nil {
+					return fmt.Errorf("msb seed %s: %w", dir, err)
+				}
 			}
 		}
+		if err := fs.CopyFromHost(ctx, p, "/home/construct/.config/git/ignore"); err != nil {
+			return fmt.Errorf("msb seed gitignore: %w", err)
+		}
 	}
-	if err := fs.CopyFromHost(ctx, p, "/home/construct/.config/git/ignore"); err != nil {
-		return fmt.Errorf("msb seed gitignore: %w", err)
+
+	if caPath, ok := getCACertPath(); ok {
+		for _, dir := range []string{"/home/construct/.config", "/home/construct/.config/construct-cli", "/home/construct/.config/construct-cli/ca"} {
+			if err := fs.Mkdir(ctx, dir); err != nil {
+				if _, statErr := fs.Stat(ctx, dir); statErr != nil {
+					return fmt.Errorf("msb seed %s: %w", dir, err)
+				}
+			}
+		}
+		if err := fs.CopyFromHost(ctx, caPath, "/home/construct/.config/construct-cli/ca/construct-ca.crt"); err != nil {
+			return fmt.Errorf("msb seed construct-ca.crt: %w", err)
+		}
 	}
+
 	return nil
 }
 
@@ -1294,7 +1338,7 @@ func GetMsbDaemonProjectDir(ctx context.Context) string {
 // the outgoing daemon — installs carried over), warm (stopped sandbox
 // booted via StartDetached + keeper wait), reconnect (already running,
 // marker present). The `msb-boot:` prefix is stable; numbers are greppable
-// to fill section 10 of docs/VMsv2.md and gate phase 6 (snapshot fork).
+// to fill section 10 of docs/ARCHITECTURE-DESIGN.md §4.1 and gate phase 6 (snapshot fork).
 //
 // Logged via stderr (ui.InfoF) so it respects the run-path-output rule
 // (AGENTS.md "Run-Path Output"); users capture via `2>log.txt`.
@@ -1619,7 +1663,7 @@ var msbHostVersion = sync.OnceValue(func() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "msb", "--version")
-	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/VMsv2.md)
+	cmd.Stdin = nil // msb stdin trap: open pipe hangs (docs/ARCHITECTURE-DESIGN.md §4.1)
 	out, err := cmd.Output()
 	if err != nil {
 		return "unknown"
