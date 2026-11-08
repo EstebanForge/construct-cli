@@ -77,3 +77,37 @@ func TestSanitizeCredentialDataCamelCaseAndFailClosed(t *testing.T) {
 		t.Fatal("expected error on malformed json, got nil")
 	}
 }
+
+func TestSanitizeCredentialDataArrayHeadersAndPrecision(t *testing.T) {
+	complexJSON := `{
+  "userId": 9223372036854775807,
+  "tokens": ["secret-token-1", "secret-token-2"],
+  "password": "super-secret-password",
+  "authorization": "Bearer real-bearer-token",
+  "x-api-key": "header-secret-key",
+  "numericToken": 987654321
+}`
+
+	sanitized, err := sanitizeCredentialData([]byte(complexJSON))
+	if err != nil {
+		t.Fatalf("sanitizeCredentialData failed: %v", err)
+	}
+
+	s := string(sanitized)
+	for _, leaked := range []string{
+		"secret-token-1",
+		"secret-token-2",
+		"super-secret-password",
+		"real-bearer-token",
+		"header-secret-key",
+	} {
+		if strings.Contains(s, leaked) {
+			t.Errorf("leaked secret %q in sanitized output", leaked)
+		}
+	}
+
+	// Precision of large integer must be preserved exactly
+	if !strings.Contains(s, "9223372036854775807") {
+		t.Errorf("large integer precision was lost: %s", s)
+	}
+}

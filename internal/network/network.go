@@ -1,9 +1,6 @@
 package network
 
 import (
-	"fmt"
-	"strings"
-
 	"github.com/EstebanForge/construct-cli/internal/config"
 )
 
@@ -12,12 +9,13 @@ func InjectEnv(env []string, cfg *config.Config) []string {
 	return append(env, cfg.Network.EnvVars()...)
 }
 
-// ValidateMode checks if the provided network mode is valid
+// NormalizeMode validates and canonicalizes the network mode string.
+func NormalizeMode(mode string) (string, error) {
+	return config.NormalizeNetworkMode(mode)
+}
+
+// ValidateMode checks if the provided network mode is valid.
 func ValidateMode(mode string) error {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "permissive", "strict", "offline", "open", "allowlist", "internet", "none":
-		return nil
-	default:
-		return fmt.Errorf("valid modes are: allowlist (strict), open (permissive), internet, none (offline)")
-	}
+	_, err := config.NormalizeNetworkMode(mode)
+	return err
 }

@@ -200,6 +200,12 @@ func (ca *CA) SignHostCert(host string) (*tls.Certificate, error) {
 		cert:      leaf,
 		expiresAt: now.Add(23 * time.Hour),
 	}
+	for i, h := range ca.leafOrder {
+		if h == host {
+			ca.leafOrder = append(ca.leafOrder[:i], ca.leafOrder[i+1:]...)
+			break
+		}
+	}
 	ca.leafOrder = append(ca.leafOrder, host)
 
 	return leaf, nil

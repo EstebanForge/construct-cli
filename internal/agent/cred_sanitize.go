@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -44,8 +45,10 @@ func sanitizeCredentialData(data []byte) ([]byte, error) {
 		return data, nil
 	}
 
+	d := json.NewDecoder(bytes.NewReader(data))
+	d.UseNumber()
 	var root any
-	if err := json.Unmarshal(data, &root); err != nil {
+	if err := d.Decode(&root); err != nil {
 		return nil, fmt.Errorf("malformed credential json: %w", err)
 	}
 
@@ -59,9 +62,31 @@ func sanitizeNode(node any) any {
 		out := make(map[string]any, len(v))
 		for k, val := range v {
 			if isSensitiveKey(k) {
-				if s, ok := val.(string); ok && s != "" {
-					out[k] = mintCredentialSentinel(k, s)
+				switch vt := val.(type) {
+				case string:
+					if vt != "" {
+						out[k] = mintCredentialSentinel(k, vt)
+						continue
+					}
+				case []any:
+					arr := make([]any, len(vt))
+					for i, elem := range vt {
+						if es, ok := elem.(string); ok && es != "" {
+							arr[i] = mintCredentialSentinel(fmt.Sprintf("%s_%d", k, i), es)
+						} else {
+							arr[i] = sanitizeNode(elem)
+						}
+					}
+					out[k] = arr
 					continue
+				case map[string]any:
+					out[k] = sanitizeNode(vt)
+					continue
+				default:
+					if vt != nil {
+						out[k] = mintCredentialSentinel(k, fmt.Sprintf("%v", vt))
+						continue
+					}
 				}
 			}
 			out[k] = sanitizeNode(val)
@@ -79,12 +104,35 @@ func sanitizeNode(node any) any {
 }
 
 func isSensitiveKey(key string) bool {
+	lower := strings.ToLower(key)
+	if strings.HasPrefix(lower, "non_") ||
+		strings.HasSuffix(lower, "_mode") ||
+		strings.HasSuffix(lower, "_type") ||
+		strings.HasSuffix(lower, "_id") ||
+		strings.HasSuffix(lower, "_url") ||
+		strings.HasSuffix(lower, "_path") ||
+		strings.HasSuffix(lower, "_file") {
+		return false
+	}
 	for _, sens := range sensitiveCredentialKeys {
 		if strings.EqualFold(key, sens) {
 			return true
 		}
 	}
-	return false
+	clean := strings.ReplaceAll(strings.ReplaceAll(lower, "_", ""), "-", "")
+	return strings.HasSuffix(clean, "token") ||
+		strings.HasSuffix(clean, "tokens") ||
+		strings.HasSuffix(clean, "secret") ||
+		strings.HasSuffix(clean, "secrets") ||
+		strings.HasSuffix(clean, "password") ||
+		strings.HasSuffix(clean, "apikey") ||
+		clean == "auth" ||
+		clean == "authorization" ||
+		clean == "credential" ||
+		clean == "credentials" ||
+		strings.HasSuffix(clean, "accesskey") ||
+		strings.HasSuffix(clean, "privatekey") ||
+		clean == "bearer"
 }
 
 func mintCredentialSentinel(key, val string) string {

@@ -18,6 +18,7 @@ type Session struct {
 	HostRepoDir string
 	CloneDir    string
 	BaseCommit  string
+	InitialDiff []byte
 }
 
 // CreateSession clones the given git repository into an ephemeral directory without hardlinks.
@@ -48,23 +49,21 @@ func CreateSession(ctx context.Context, hostRepoDir string) (*Session, error) {
 		return nil, fmt.Errorf("git clone failed (%s): %w", strings.TrimSpace(string(out)), cloneErr)
 	}
 
-	// Extract and apply any uncommitted changes from the host
+	// Extract and apply any uncommitted changes from the host to working tree
 	diffOut, err := hostgit.Output(ctx, "-C", hostRepoDir, "diff", "HEAD")
 	if err == nil && len(diffOut) > 0 {
 		applyCmd := hostgit.Command(ctx, "-C", cloneDir, "apply")
 		applyCmd.Stdin = bytes.NewReader(diffOut)
-		if applyErr := applyCmd.Run(); applyErr == nil {
-			_ = hostgit.Command(ctx, "-C", cloneDir, //nolint:errcheck // best-effort commit
-				"-c", "user.name=Construct",
-				"-c", "user.email=construct@local",
-				"commit", "-am", "Initial uncommitted changes from host").Run()
-		}
+		_ = applyCmd.Run() //nolint:errcheck // best-effort apply of host dirty tree
 	}
+
+	initialDiff, _ := hostgit.Output(ctx, "-C", cloneDir, "diff", "HEAD") //nolint:errcheck // baseline diff check
 
 	return &Session{
 		HostRepoDir: hostRepoDir,
 		CloneDir:    cloneDir,
 		BaseCommit:  baseCommit,
+		InitialDiff: initialDiff,
 	}, nil
 }
 
@@ -79,9 +78,12 @@ func (s *Session) Teardown(ctx context.Context) (bundlePath string, hasChanges b
 		return "", false, nil
 	}
 
-	// Commit any leftover uncommitted changes made inside the clone
-	statusOut, err := hostgit.Output(ctx, "-C", s.CloneDir, "status", "--porcelain")
-	if err == nil && len(strings.TrimSpace(string(statusOut))) > 0 {
+	// Check if working tree has new uncommitted changes compared to initial state
+	currentDiff, _ := hostgit.Output(ctx, "-C", s.CloneDir, "diff", "HEAD")        //nolint:errcheck // teardown diff check
+	untracked, _ := hostgit.Output(ctx, "-C", s.CloneDir, "status", "--porcelain") //nolint:errcheck // teardown status check
+
+	// If working tree changed from initial host diff or new files appeared, stage and commit them
+	if !bytes.Equal(s.InitialDiff, currentDiff) || len(strings.TrimSpace(string(untracked))) > 0 {
 		_ = hostgit.Command(ctx, "-C", s.CloneDir, //nolint:errcheck // best-effort staging
 			"-c", "user.name=Construct",
 			"-c", "user.email=construct@local",

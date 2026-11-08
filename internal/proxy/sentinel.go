@@ -109,6 +109,19 @@ func (r *SecretRegistry) ContainsRealSecret(data []byte) bool {
 	return false
 }
 
+// ContainsSentinel checks whether any registered sentinel placeholder appears verbatim in data.
+func (r *SecretRegistry) ContainsSentinel(data []byte) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for sentinel := range r.bySentinel {
+		if bytes.Contains(data, []byte(sentinel)) {
+			return true
+		}
+	}
+	return false
+}
+
 // SwapHeaders replaces sentinels with real secrets in request headers for authorized destination hosts.
 // Fails closed if real secret bytes are detected prior to swapping (outbound leak guard).
 func (r *SecretRegistry) SwapHeaders(h http.Header, targetHost string) error {
@@ -166,6 +179,20 @@ func DefaultHostBindings(varName string) string {
 		return "openrouter.ai"
 	case "HF_TOKEN":
 		return "huggingface.co"
+	case "ZAI_API_KEY":
+		return "api.z.ai"
+	case "OPENCODE_API_KEY":
+		return "api.opencode.ai"
+	case "KIMI_API_KEY":
+		return "api.moonshot.cn"
+	case "MINIMAX_API_KEY", "MINIMAX_GROUP_ID":
+		return "api.minimax.chat"
+	case "GROQ_API_KEY":
+		return "api.groq.com"
+	case "MISTRAL_API_KEY":
+		return "api.mistral.ai"
+	case "COHERE_API_KEY":
+		return "api.cohere.com"
 	default:
 		return ""
 	}

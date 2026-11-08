@@ -100,24 +100,43 @@ func bridgeBindHost(backend string) string {
 	if ip := linuxBridgeIP(); ip != "" {
 		return ip
 	}
-	return "0.0.0.0"
+	// Fail closed to loopback: do not expose unauthenticated bridge on 0.0.0.0
+	return "127.0.0.1"
 }
 
 func linuxBridgeIP() string {
-	for _, ifaceName := range []string{"docker0", "podman0"} {
-		iface, err := net.InterfaceByName(ifaceName)
-		if err != nil {
-			continue
+	for _, ifaceName := range []string{"docker0", "podman0", "cni-podman0"} {
+		if ip := getIPv4ForInterface(ifaceName); ip != "" {
+			return ip
 		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-				if ip4 := ipnet.IP.To4(); ip4 != nil {
-					return ip4.String()
+	}
+	ifaces, err := net.Interfaces()
+	if err == nil {
+		for _, iface := range ifaces {
+			name := strings.ToLower(iface.Name)
+			if strings.HasPrefix(name, "br-") || strings.Contains(name, "docker") || strings.Contains(name, "podman") || strings.HasPrefix(name, "virbr") {
+				if ip := getIPv4ForInterface(iface.Name); ip != "" {
+					return ip
 				}
+			}
+		}
+	}
+	return ""
+}
+
+func getIPv4ForInterface(name string) string {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return ""
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ip4 := ipnet.IP.To4(); ip4 != nil {
+				return ip4.String()
 			}
 		}
 	}

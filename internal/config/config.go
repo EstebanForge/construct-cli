@@ -127,6 +127,27 @@ func (n NetworkConfig) EnvVars() []string {
 	return env
 }
 
+// NormalizeNetworkMode validates and canonicalizes network mode names.
+// Canonical modes are "allowlist", "open", "internet", and "none".
+// Legacy names "strict", "permissive", and "offline" are normalized to their canonical counterparts.
+func NormalizeNetworkMode(mode string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	switch trimmed {
+	case "strict", "allowlist":
+		return "allowlist", nil
+	case "permissive", "open":
+		return "open", nil
+	case "internet":
+		return "internet", nil
+	case "offline", "none":
+		return "none", nil
+	case "":
+		return "allowlist", nil
+	default:
+		return "", fmt.Errorf("invalid network mode %q: valid modes are allowlist (strict), open (permissive), internet, none (offline)", mode)
+	}
+}
+
 // MaintenanceConfig holds log cleanup settings.
 type MaintenanceConfig struct {
 	CleanupEnabled         bool `toml:"cleanup_enabled"`
@@ -244,7 +265,7 @@ func DefaultConfig() Config {
 			HostLoopbackPorts:      []int{80, 443},
 		},
 		Network: NetworkConfig{
-			Mode: "permissive",
+			Mode: "open",
 			AllowedDomains: []string{
 				"*.anthropic.com",
 				"*.openai.com",
@@ -408,6 +429,11 @@ func Load() (*Config, bool, error) {
 		return nil, createdNew, fmt.Errorf("failed to parse config.toml: %w", err)
 	}
 	config.Runtime.Backend = strings.ToLower(strings.TrimSpace(config.Runtime.Backend))
+	normMode, err := NormalizeNetworkMode(config.Network.Mode)
+	if err != nil {
+		return nil, createdNew, fmt.Errorf("failed to validate network.mode in config.toml: %w", err)
+	}
+	config.Network.Mode = normMode
 
 	return &config, createdNew, nil
 }

@@ -49,3 +49,31 @@ func TestLockUnlockNoopOnNonDarwin(t *testing.T) {
 		t.Errorf("UnlockRepository failed: %v", err)
 	}
 }
+
+func TestLockUnlockWorktreePointer(t *testing.T) {
+	ctx := context.Background()
+	tempDir := t.TempDir()
+	actualGitDir := filepath.Join(tempDir, "main-repo", ".git", "worktrees", "wt")
+	if err := os.MkdirAll(filepath.Join(actualGitDir, "hooks"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(actualGitDir, "config"), []byte("[core]\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	wtDir := filepath.Join(tempDir, "wt")
+	if err := os.MkdirAll(wtDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	dotGitFile := filepath.Join(wtDir, ".git")
+	if err := os.WriteFile(dotGitFile, []byte("gitdir: "+actualGitDir+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := LockRepository(ctx, wtDir); err != nil {
+		t.Errorf("LockRepository worktree failed: %v", err)
+	}
+	if err := UnlockRepository(ctx, wtDir); err != nil {
+		t.Errorf("UnlockRepository worktree failed: %v", err)
+	}
+}

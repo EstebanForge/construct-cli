@@ -444,15 +444,15 @@ func TestConfigModificationPersistence(t *testing.T) {
 	// The key is that subsequent loads should get fresh data
 
 	// Verify initial state
-	if cfg1.Network.Mode != "permissive" {
-		t.Errorf("Expected initial mode 'permissive', got '%s'", cfg1.Network.Mode)
+	if cfg1.Network.Mode != "open" {
+		t.Errorf("Expected initial mode 'open', got '%s'", cfg1.Network.Mode)
 	}
 	if len(cfg1.Network.AllowedDomains) != 0 {
 		t.Errorf("Expected 0 allowed domains initially, got %d", len(cfg1.Network.AllowedDomains))
 	}
 
 	// Modify config (simulating network rule change)
-	cfg1.Network.Mode = "strict"
+	cfg1.Network.Mode = "allowlist"
 	cfg1.Network.AllowedDomains = []string{"*.example.com"}
 	if err := cfg1.Save(); err != nil {
 		t.Fatalf("Failed to save modified config: %v", err)
@@ -468,8 +468,8 @@ func TestConfigModificationPersistence(t *testing.T) {
 
 	// Verify that the second Load() reflects the saved changes
 	// This test will FAIL if sync.Once caching is implemented
-	if cfg2.Network.Mode != "strict" {
-		t.Errorf("After Save(), Load() should return mode 'strict', got '%s'", cfg2.Network.Mode)
+	if cfg2.Network.Mode != "allowlist" {
+		t.Errorf("After Save(), Load() should return mode 'allowlist', got '%s'", cfg2.Network.Mode)
 	}
 	if len(cfg2.Network.AllowedDomains) != 1 {
 		t.Errorf("After Save(), Load() should return 1 allowed domain, got %d", len(cfg2.Network.AllowedDomains))
@@ -490,8 +490,8 @@ func TestConfigModificationPersistence(t *testing.T) {
 		t.Fatalf("Third Load() failed: %v", err)
 	}
 
-	if cfg3.Network.Mode != "strict" {
-		t.Errorf("Third Load() should preserve mode 'strict', got '%s'", cfg3.Network.Mode)
+	if cfg3.Network.Mode != "allowlist" {
+		t.Errorf("Third Load() should preserve mode 'allowlist', got '%s'", cfg3.Network.Mode)
 	}
 	if len(cfg3.Network.AllowedDomains) != 1 {
 		t.Errorf("Third Load() should preserve 1 allowed domain, got %d", len(cfg3.Network.AllowedDomains))
@@ -664,5 +664,43 @@ func TestDefaultConfigPasswordlessSudoEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Sandbox.PasswordlessSudo {
 		t.Error("Expected default passwordless_sudo to be true (free sudo is the sandbox default; false is the opt-out)")
+	}
+}
+
+func TestNormalizeNetworkMode(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+		wantErr  bool
+	}{
+		{"strict", "allowlist", false},
+		{"allowlist", "allowlist", false},
+		{"ALLOWLIST", "allowlist", false},
+		{"  strict  ", "allowlist", false},
+		{"permissive", "open", false},
+		{"open", "open", false},
+		{"OPEN", "open", false},
+		{"internet", "internet", false},
+		{"offline", "none", false},
+		{"none", "none", false},
+		{"", "allowlist", false},
+		{"unknown", "", true},
+		{"invalid", "", true},
+	}
+
+	for _, c := range cases {
+		got, err := NormalizeNetworkMode(c.input)
+		if c.wantErr {
+			if err == nil {
+				t.Errorf("NormalizeNetworkMode(%q) expected error, got nil", c.input)
+			}
+		} else {
+			if err != nil {
+				t.Errorf("NormalizeNetworkMode(%q) unexpected error: %v", c.input, err)
+			}
+			if got != c.expected {
+				t.Errorf("NormalizeNetworkMode(%q) = %q; want %q", c.input, got, c.expected)
+			}
+		}
 	}
 }

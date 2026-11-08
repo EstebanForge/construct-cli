@@ -3,6 +3,7 @@ package proxy
 import (
 	"bufio"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
@@ -120,6 +121,20 @@ func (s *Server) IsSentinel(val string) bool {
 	return s.secrets.IsSentinel(val)
 }
 
+// Serve runs the proxy server on an existing listener.
+func (s *Server) Serve(l net.Listener) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.listener = l
+	go func() {
+		if err := s.httpServer.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return
+		}
+	}()
+	return nil
+}
+
 // Start binds and starts the proxy server on addr (e.g. "127.0.0.1:0").
 func (s *Server) Start(addr string) error {
 	s.mu.Lock()
@@ -178,7 +193,8 @@ func (s *Server) authenticate(r *http.Request) bool {
 
 	// Support Bearer <token>
 	if strings.HasPrefix(auth, "Bearer ") {
-		return strings.TrimPrefix(auth, "Bearer ") == s.sessionToken
+		token := strings.TrimPrefix(auth, "Bearer ")
+		return subtle.ConstantTimeCompare([]byte(token), []byte(s.sessionToken)) == 1
 	}
 
 	// Support Basic <base64(user:token)>
@@ -186,7 +202,7 @@ func (s *Server) authenticate(r *http.Request) bool {
 		payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(auth, "Basic "))
 		if err == nil {
 			parts := strings.SplitN(string(payload), ":", 2)
-			if len(parts) == 2 && parts[1] == s.sessionToken {
+			if len(parts) == 2 && subtle.ConstantTimeCompare([]byte(parts[1]), []byte(s.sessionToken)) == 1 {
 				return true
 			}
 		}
@@ -337,6 +353,9 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 			return
 		}
 
+		// Strip Proxy-Authorization before forwarding to upstream server
+		req.Header.Del("Proxy-Authorization")
+
 		// Perform outbound secret swap on request headers.
 		if err := s.secrets.SwapHeaders(req.Header, targetHost); err != nil {
 			s.logf("LEAK_DROP", targetHost, err.Error())
@@ -351,20 +370,25 @@ func (s *Server) interceptTLS(clientConn, destConn net.Conn, targetHost string) 
 			return
 		}
 
+		_ = destConn.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck
 		if err := req.Write(tlsDest); err != nil {
 			return
 		}
+		_ = destConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
 
+		_ = destConn.SetReadDeadline(time.Now().Add(5 * time.Minute)) //nolint:errcheck
 		resp, err := http.ReadResponse(destReader, req)
 		if err != nil {
 			return
 		}
 
+		_ = clientConn.SetWriteDeadline(time.Now().Add(30 * time.Second)) //nolint:errcheck
 		if err := resp.Write(tlsClient); err != nil {
 			_ = resp.Body.Close() //nolint:errcheck // body drain
 			return
 		}
-		_ = resp.Body.Close() //nolint:errcheck // body drain
+		_ = clientConn.SetWriteDeadline(time.Time{}) //nolint:errcheck
+		_ = resp.Body.Close()                        //nolint:errcheck // body drain
 	}
 }
 
@@ -403,7 +427,7 @@ func (s *Server) handleHTTP(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, fmt.Sprintf("Forbidden: %s", reason), http.StatusForbidden)
 				return
 			}
-			if strings.Contains(v, "cnstr_") {
+			if s.secrets.ContainsSentinel([]byte(v)) || s.secrets.IsSentinel(v) || strings.Contains(v, "cnstr_") {
 				reason := "secret transmission forbidden over unencrypted plaintext HTTP"
 				s.logf("LEAK_DROP", r.URL.Host, reason)
 				w.Header().Set("X-Construct-Reason", reason)

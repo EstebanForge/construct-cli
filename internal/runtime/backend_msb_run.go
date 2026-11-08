@@ -288,13 +288,19 @@ type msbAutoMount struct {
 // strict/allowlist = deny public egress (guest may only contact host transport/proxy + DNS),
 // offline/none = deny all egress.
 func msbNetworkConfig(mode string, bridgePorts []int) *msb.NetworkConfig {
-	switch mode {
-	case "offline", "none":
+	norm, err := config.NormalizeNetworkMode(mode)
+	if err != nil {
+		norm = "none" // Fail closed on invalid mode
+	}
+	switch norm {
+	case "none":
 		return msbNetworkOffline(bridgePorts)
-	case "strict", "allowlist":
+	case "allowlist":
 		return msbNetworkAllowlist(bridgePorts)
-	default: // permissive, open, internet
+	case "open", "internet":
 		return msbNetworkPublic(bridgePorts)
+	default:
+		return msbNetworkOffline(bridgePorts)
 	}
 }
 
@@ -337,27 +343,26 @@ const (
 // deterministic bridge band is named instead, so any bridge started later
 // inside the band stays reachable (per-port rules are create-time only).
 func msbHostTransportRules(bridgePorts []int) []msb.PolicyRule {
-	if len(bridgePorts) == 0 {
-		// Deterministic bridge bands (SSH + herdr + proxy), as ranges: the gap
-		// between them stays unforwarded so guest traffic cannot probe
-		// unrelated host loopback services.
-		band := func(base, span int) msb.PolicyRule {
-			return msb.PolicyRule{
-				Action:      msb.PolicyActionAllow,
-				Direction:   msb.PolicyDirectionEgress,
-				Destination: "host",
-				Protocol:    msb.PolicyProtocolTCP,
-				Port:        fmt.Sprintf("%d-%d", base, base+span-1),
-			}
-		}
-		return []msb.PolicyRule{
-			band(MsbBridgePortBase, MsbBridgePortSpan),
-			band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
-			band(MsbProxyPortBase, MsbProxyPortSpan),
+	band := func(base, span int) msb.PolicyRule {
+		return msb.PolicyRule{
+			Action:      msb.PolicyActionAllow,
+			Direction:   msb.PolicyDirectionEgress,
+			Destination: "host",
+			Protocol:    msb.PolicyProtocolTCP,
+			Port:        fmt.Sprintf("%d-%d", base, base+span-1),
 		}
 	}
-	rules := make([]msb.PolicyRule, 0, len(bridgePorts))
+	rules := []msb.PolicyRule{
+		band(MsbBridgePortBase, MsbBridgePortSpan),
+		band(MsbHerdrBridgePortBase, MsbHerdrBridgePortSpan),
+		band(MsbProxyPortBase, MsbProxyPortSpan),
+	}
 	for _, port := range bridgePorts {
+		if (port >= MsbBridgePortBase && port < MsbBridgePortBase+MsbBridgePortSpan) ||
+			(port >= MsbHerdrBridgePortBase && port < MsbHerdrBridgePortBase+MsbHerdrBridgePortSpan) ||
+			(port >= MsbProxyPortBase && port < MsbProxyPortBase+MsbProxyPortSpan) {
+			continue
+		}
 		rules = append(rules, msb.PolicyRule{
 			Action:      msb.PolicyActionAllow,
 			Direction:   msb.PolicyDirectionEgress,

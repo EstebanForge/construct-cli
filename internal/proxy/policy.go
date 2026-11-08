@@ -44,6 +44,7 @@ func init() {
 		"192.168.0.0/16", // RFC 1918 Private
 		"224.0.0.0/4",    // Multicast
 		"240.0.0.0/4",    // Reserved
+		"::/128",         // IPv6 Unspecified
 		"::1/128",        // IPv6 Loopback
 		"fc00::/7",       // IPv6 Unique Local
 		"fe80::/10",      // IPv6 Link-local
@@ -122,7 +123,7 @@ func NormalizeTier(tier string) string {
 	case "":
 		return TierAllowlist
 	default:
-		return t
+		return TierNone // Fail closed on unknown or invalid tier
 	}
 }
 
@@ -346,6 +347,7 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 	}
 
 	lowerHost := strings.ToLower(host)
+	lowerHost = strings.TrimSuffix(lowerHost, ".")
 	p.mu.RLock()
 	tier := p.tier
 	p.mu.RUnlock()
@@ -363,28 +365,28 @@ func (p *Policy) Explain(ctx context.Context, hostPort string) PolicyDecision {
 		return decision
 	}
 
-	// 2. Loopback relays for host dev site routing.
-	if p.isLoopbackRelay(lowerHost, port) {
-		decision.Allowed = true
-		decision.Source = "loopback_relay"
-		decision.ResolvedIPs = []net.IP{net.ParseIP("127.0.0.1")}
-		return decision
-	}
-
-	// 3. Blocklist check: blocked domains.
+	// 2. Blocklist check: blocked domains (takes precedence over relays and allowlists).
 	if p.isDomainBlocked(lowerHost) {
 		decision.Allowed = false
 		decision.Reason = fmt.Sprintf("host %q is blocked by network policy", lowerHost)
 		return decision
 	}
 
-	// 4. Blocklist check: blocked IPs.
+	// 3. Blocklist check: blocked IPs.
 	if parsedIP := net.ParseIP(host); parsedIP != nil {
 		if p.isIPExplicitlyBlocked(parsedIP) {
 			decision.Allowed = false
 			decision.Reason = fmt.Sprintf("ip %s is blocked by network policy", host)
 			return decision
 		}
+	}
+
+	// 4. Loopback relays for host dev site routing.
+	if p.isLoopbackRelay(lowerHost, port) {
+		decision.Allowed = true
+		decision.Source = "loopback_relay"
+		decision.ResolvedIPs = []net.IP{net.ParseIP("127.0.0.1")}
+		return decision
 	}
 
 	// 5. Allowed TCP rules.

@@ -327,3 +327,29 @@ func TestFetchToolchainDigestMismatch(t *testing.T) {
 		t.Fatalf("expected digest mismatch error, got: %v", err)
 	}
 }
+
+func TestEnsureNoSymlinkAncestors(t *testing.T) {
+	tmpDir := t.TempDir()
+	stageDir := filepath.Join(tmpDir, "stage")
+	if err := os.MkdirAll(stageDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Legitimate path
+	normalPath := filepath.Join(stageDir, "bin", "tool")
+	if err := ensureNoSymlinkAncestors(stageDir, normalPath); err != nil {
+		t.Fatalf("expected clean path to pass, got: %v", err)
+	}
+
+	// Create a directory symlink: stage/symdir -> stage
+	symDir := filepath.Join(stageDir, "symdir")
+	if err := os.Symlink(stageDir, symDir); err != nil {
+		t.Fatal(err)
+	}
+
+	// Attempt to traverse through symdir
+	evasionPath := filepath.Join(symDir, "evil")
+	if err := ensureNoSymlinkAncestors(stageDir, evasionPath); err == nil {
+		t.Fatal("expected symlink directory ancestor traversal to be rejected, got nil")
+	}
+}

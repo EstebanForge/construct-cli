@@ -241,6 +241,13 @@ func (s *argStager) stageValue(flag, value string) (replacement string, copyBack
 		ui.InfoF("⚠ staging %s failed: %v\n", flag, err)
 		return value, false, false
 	}
+	if strings.HasSuffix(strings.ToLower(dst), ".json") {
+		if data, rErr := os.ReadFile(dst); rErr == nil {
+			if sanitized, sErr := sanitizeCredentialData(data); sErr == nil {
+				_ = os.WriteFile(dst, sanitized, 0o600) //nolint:errcheck // best-effort credential sanitize
+			}
+		}
+	}
 	container := stagingContainerDir + "/" + s.runID + "/" + stagedName
 	return container, flag == "--session", true
 }

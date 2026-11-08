@@ -16,19 +16,49 @@ func HasImmutableFlag() bool {
 	return runtime.GOOS == "darwin" || runtime.GOOS == "linux"
 }
 
+func resolveGitDir(repoDir string) (string, string, error) {
+	dotGit := filepath.Join(repoDir, ".git")
+	info, err := os.Stat(dotGit)
+	if err != nil {
+		return "", "", err
+	}
+	if info.IsDir() {
+		return dotGit, "", nil
+	}
+	// Worktree file pointer (.git file containing "gitdir: <path>")
+	data, err := os.ReadFile(dotGit)
+	if err != nil {
+		return "", "", err
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "gitdir:") {
+			target := strings.TrimSpace(strings.TrimPrefix(line, "gitdir:"))
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(repoDir, target)
+			}
+			return target, dotGit, nil
+		}
+	}
+	return "", "", fmt.Errorf("invalid .git worktree pointer")
+}
+
 // LockRepository applies immutable flags to protect critical git paths.
 func LockRepository(ctx context.Context, repoDir string) error {
 	if !HasImmutableFlag() {
 		return nil
 	}
 
-	gitDir := filepath.Join(repoDir, ".git")
-	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
+	gitDir, pointerFile, err := resolveGitDir(repoDir)
+	if err != nil || gitDir == "" {
 		return nil
 	}
 
 	switch runtime.GOOS {
 	case "darwin":
+		if pointerFile != "" {
+			_ = exec.CommandContext(ctx, "chflags", "uchg", pointerFile).Run() //nolint:errcheck
+		}
 		configPath := filepath.Join(gitDir, "config")
 		if _, err := os.Stat(configPath); err == nil {
 			if err := exec.CommandContext(ctx, "chflags", "uchg", configPath).Run(); err != nil {
@@ -42,13 +72,19 @@ func LockRepository(ctx context.Context, repoDir string) error {
 			}
 		}
 	case "linux":
-		if _, err := exec.LookPath("chattr"); err != nil {
-			return nil
+		if pointerFile != "" {
+			cmd := exec.CommandContext(ctx, "chattr", "+i", pointerFile)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				_ = os.Chmod(pointerFile, 0444) //nolint:errcheck
+				_ = out
+			}
 		}
 		configPath := filepath.Join(gitDir, "config")
 		if _, err := os.Stat(configPath); err == nil {
 			cmd := exec.CommandContext(ctx, "chattr", "+i", configPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				// Fallback to unprivileged readonly mode if CAP_LINUX_IMMUTABLE is unavailable
+				_ = os.Chmod(configPath, 0444) //nolint:errcheck
 				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
 					return nil
 				}
@@ -59,6 +95,7 @@ func LockRepository(ctx context.Context, repoDir string) error {
 		if _, err := os.Stat(hooksPath); err == nil {
 			cmd := exec.CommandContext(ctx, "chattr", "-R", "+i", hooksPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				_ = os.Chmod(hooksPath, 0555) //nolint:errcheck
 				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
 					return nil
 				}
@@ -76,13 +113,16 @@ func UnlockRepository(ctx context.Context, repoDir string) error {
 		return nil
 	}
 
-	gitDir := filepath.Join(repoDir, ".git")
-	if info, err := os.Stat(gitDir); err != nil || !info.IsDir() {
+	gitDir, pointerFile, err := resolveGitDir(repoDir)
+	if err != nil || gitDir == "" {
 		return nil
 	}
 
 	switch runtime.GOOS {
 	case "darwin":
+		if pointerFile != "" {
+			_ = exec.CommandContext(ctx, "chflags", "nouchg", pointerFile).Run() //nolint:errcheck
+		}
 		configPath := filepath.Join(gitDir, "config")
 		if _, err := os.Stat(configPath); err == nil {
 			if err := exec.CommandContext(ctx, "chflags", "nouchg", configPath).Run(); err != nil {
@@ -96,28 +136,33 @@ func UnlockRepository(ctx context.Context, repoDir string) error {
 			}
 		}
 	case "linux":
-		if _, err := exec.LookPath("chattr"); err != nil {
-			return nil
+		if pointerFile != "" {
+			_ = exec.CommandContext(ctx, "chattr", "-i", pointerFile).Run() //nolint:errcheck
+			_ = os.Chmod(pointerFile, 0644)                                 //nolint:errcheck
 		}
 		configPath := filepath.Join(gitDir, "config")
 		if _, err := os.Stat(configPath); err == nil {
 			cmd := exec.CommandContext(ctx, "chattr", "-i", configPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				_ = os.Chmod(configPath, 0644) //nolint:errcheck
 				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
 					return nil
 				}
 				return fmt.Errorf("unlock git config (chattr -i): %w: %s", err, string(out))
 			}
+			_ = os.Chmod(configPath, 0644) //nolint:errcheck
 		}
 		hooksPath := filepath.Join(gitDir, "hooks")
 		if _, err := os.Stat(hooksPath); err == nil {
 			cmd := exec.CommandContext(ctx, "chattr", "-R", "-i", hooksPath)
 			if out, err := cmd.CombinedOutput(); err != nil {
+				_ = os.Chmod(hooksPath, 0755) //nolint:errcheck
 				if os.Geteuid() != 0 || strings.Contains(string(out), "Operation not permitted") || strings.Contains(string(out), "not supported") {
 					return nil
 				}
 				return fmt.Errorf("unlock git hooks (chattr -i): %w: %s", err, string(out))
 			}
+			_ = os.Chmod(hooksPath, 0755) //nolint:errcheck
 		}
 	}
 

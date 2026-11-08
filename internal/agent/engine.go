@@ -330,27 +330,33 @@ func (e *RuntimeEngine) Prepare() error {
 	normMode := proxy.NormalizeTier(e.cfg.Network.Mode)
 	pSrv, err := proxy.NewServer(pCfg)
 	if err != nil {
-		if normMode != proxy.TierNone {
-			return fmt.Errorf("failed to initialize egress proxy: %w", err)
+		return fmt.Errorf("failed to initialize egress proxy: %w", err)
+	}
+	var startErr error
+	if e.msbBackendSelected() {
+		ln, lerr := runtime.ListenInBand("proxy-"+e.cwd, proxyBind, runtime.MsbProxyPortBase, runtime.MsbProxyPortSpan)
+		if lerr != nil {
+			return fmt.Errorf("failed to bind egress proxy in msb port band [%d-%d): %w", runtime.MsbProxyPortBase, runtime.MsbProxyPortBase+runtime.MsbProxyPortSpan, lerr)
 		}
-	} else if err := pSrv.Start(fmt.Sprintf("%s:0", proxyBind)); err != nil {
-		if normMode != proxy.TierNone {
-			return fmt.Errorf("failed to start egress proxy on %s: %w", proxyBind, err)
-		}
+		startErr = pSrv.Serve(ln)
 	} else {
-		e.proxyServer = pSrv
-		pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
-		e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
+		startErr = pSrv.Start(fmt.Sprintf("%s:0", proxyBind))
+	}
+	if startErr != nil {
+		return fmt.Errorf("failed to start egress proxy on %s: %w", proxyBind, startErr)
+	}
+	e.proxyServer = pSrv
+	pHost := bridgeURLHost(e.cfg.Runtime.Backend, clipboardHost)
+	e.proxyURL = fmt.Sprintf("http://construct:%s@%s:%d", pSrv.SessionToken(), pHost, pSrv.Port())
 
-		probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
-		cancel()
-		if pErr != nil || status != ConfinementOK {
-			if normMode == proxy.TierAllowlist {
-				return fmt.Errorf("network confinement probe failed: %w", pErr)
-			}
-			ui.LogDebug("Confinement probe status %s: %v", status, pErr)
+	probeCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	status, pErr := ProbeProxyConfinement(probeCtx, e.proxyURL)
+	cancel()
+	if pErr != nil || status != ConfinementOK {
+		if normMode == proxy.TierAllowlist {
+			return fmt.Errorf("network confinement probe failed: %w", pErr)
 		}
+		ui.LogDebug("Confinement probe status %s: %v", status, pErr)
 	}
 
 	if gitprotect.HasImmutableFlag() {
@@ -373,6 +379,8 @@ func (e *RuntimeEngine) Execute() (int, error) {
 	mergedProviderEnv := collectForwardedEnv(e.cfg, e.providerEnv)
 	if e.proxyServer != nil {
 		mergedProviderEnv = sentinelizeEnv(e.proxyServer, mergedProviderEnv)
+	} else {
+		return 1, fmt.Errorf("egress proxy not initialized; refusing to launch with unsentinelized credentials")
 	}
 
 	// 0. msb backend dispatch (docs/ARCHITECTURE-DESIGN.md §4.1): persistent sandbox
@@ -1167,7 +1175,7 @@ func sentinelizeEnv(pServer *proxy.Server, envs []string) []string {
 			continue
 		}
 		key, val := parts[0], parts[1]
-		if pServer.IsSentinel(val) || strings.HasPrefix(val, "cnstr_") {
+		if pServer.IsSentinel(val) {
 			out = append(out, kv)
 			continue
 		}

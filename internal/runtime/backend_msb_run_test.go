@@ -141,10 +141,10 @@ func TestMsbBaseEnvIncludesNetwork(t *testing.T) {
 		t.Errorf("NETWORK_ALLOWED_DOMAINS = %q", env["NETWORK_ALLOWED_DOMAINS"])
 	}
 
-	def := config.DefaultConfig() // mode defaults to permissive
+	def := config.DefaultConfig() // mode defaults to open
 	envDef := envSliceToMap(msbBaseEnv(&def))
-	if envDef["NETWORK_MODE"] != "permissive" {
-		t.Errorf("default NETWORK_MODE = %q, want permissive", envDef["NETWORK_MODE"])
+	if envDef["NETWORK_MODE"] != "open" && envDef["NETWORK_MODE"] != "permissive" {
+		t.Errorf("default NETWORK_MODE = %q, want open", envDef["NETWORK_MODE"])
 	}
 }
 

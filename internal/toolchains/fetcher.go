@@ -142,8 +142,9 @@ func FetchToolchain(ctx context.Context, id ToolchainID, opts FetchOptions) erro
 
 	prefixToStrip := fmt.Sprintf("opt/toolchains/%s", id)
 
+	var totalExtracted int64
 	for _, layer := range manifest.Layers {
-		if err := downloadAndExtractLayer(ctx, client, host, repo, layer.Digest, token, stageDir, prefixToStrip); err != nil {
+		if err := downloadAndExtractLayer(ctx, client, host, repo, layer.Digest, token, stageDir, prefixToStrip, &totalExtracted); err != nil {
 			return fmt.Errorf("extract layer %s: %w", layer.Digest, err)
 		}
 	}
@@ -255,7 +256,35 @@ func fetchPlatformManifest(ctx context.Context, client *http.Client, host, repo,
 	return digest, body, nil
 }
 
-func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, repo, digest, token, stageDir, prefixToStrip string) error {
+// ensureNoSymlinkAncestors verifies that all existing directory components
+// between stageDir and destPath are genuine directories, not symlinks.
+func ensureNoSymlinkAncestors(stageDir, destPath string) error {
+	rel, err := filepath.Rel(stageDir, destPath)
+	if err != nil || strings.HasPrefix(rel, "..") || rel == "." {
+		return fmt.Errorf("invalid path outside stage: %s", destPath)
+	}
+	parts := strings.Split(filepath.Dir(rel), string(filepath.Separator))
+	curr := stageDir
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		curr = filepath.Join(curr, part)
+		fi, err := os.Lstat(curr)
+		if err != nil {
+			if os.IsNotExist(err) {
+				break
+			}
+			return err
+		}
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component is a symlink: %s", curr)
+		}
+	}
+	return nil
+}
+
+func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, repo, digest, token, stageDir, prefixToStrip string, totalExtracted *int64) error {
 	scheme := "https"
 	if strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost") {
 		scheme = "http"
@@ -285,7 +314,10 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 	const maxExtractedBytes = 4 << 30
 	const maxFileBytes = 1 << 30
 
-	var totalExtracted int64
+	if totalExtracted == nil {
+		var zero int64
+		totalExtracted = &zero
+	}
 	bodyReader := io.LimitReader(resp.Body, maxLayerBytes)
 	hasher := sha256.New()
 	layerStream := io.TeeReader(bodyReader, hasher)
@@ -331,10 +363,19 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 
 		switch header.Typeflag {
 		case tar.TypeDir:
+			if err := ensureNoSymlinkAncestors(stageDir, destPath); err != nil {
+				return err
+			}
+			if fi, err := os.Lstat(destPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+				_ = os.Remove(destPath) //nolint:errcheck
+			}
 			if err := os.MkdirAll(destPath, 0755); err != nil {
 				return err
 			}
 		case tar.TypeReg:
+			if err := ensureNoSymlinkAncestors(stageDir, destPath); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
 				return err
 			}
@@ -351,11 +392,14 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			if err != nil {
 				return err
 			}
-			totalExtracted += n
-			if totalExtracted > maxExtractedBytes {
+			*totalExtracted += n
+			if *totalExtracted > maxExtractedBytes {
 				return fmt.Errorf("toolchain archive exceeded max extraction limit (%d bytes)", maxExtractedBytes)
 			}
 		case tar.TypeSymlink:
+			if err := ensureNoSymlinkAncestors(stageDir, destPath); err != nil {
+				return err
+			}
 			linkTarget := header.Linkname
 			if filepath.IsAbs(linkTarget) {
 				continue // Refuse absolute symlinks
@@ -370,6 +414,32 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 			}
 			_ = os.Remove(destPath) //nolint:errcheck // best-effort cleanup before symlink
 			if err := os.Symlink(linkTarget, destPath); err != nil {
+				return err
+			}
+		case tar.TypeLink:
+			if err := ensureNoSymlinkAncestors(stageDir, destPath); err != nil {
+				return err
+			}
+			linkTarget := header.Linkname
+			cleanTarget := filepath.Clean(linkTarget)
+			cleanTarget = strings.TrimPrefix(cleanTarget, "/")
+			if strings.HasPrefix(cleanTarget, prefixToStrip) {
+				cleanTarget = strings.TrimPrefix(cleanTarget, prefixToStrip)
+				cleanTarget = strings.TrimPrefix(cleanTarget, "/")
+			}
+			oldPath := filepath.Join(stageDir, cleanTarget)
+			relOld, err := filepath.Rel(stageDir, oldPath)
+			if err != nil || strings.HasPrefix(relOld, "..") {
+				continue
+			}
+			if err := ensureNoSymlinkAncestors(stageDir, oldPath); err != nil {
+				return err
+			}
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
+			_ = os.Remove(destPath) //nolint:errcheck
+			if err := os.Link(oldPath, destPath); err != nil {
 				return err
 			}
 		}

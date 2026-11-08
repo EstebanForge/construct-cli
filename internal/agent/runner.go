@@ -91,16 +91,25 @@ func RunWithArgs(args []string, networkFlag string, cloneMode ...bool) {
 
 func applyNetworkFlag(cfg *config.Config, networkFlag string) {
 	if networkFlag != "" {
-		if err := network.ValidateMode(networkFlag); err != nil {
+		norm, err := network.NormalizeMode(networkFlag)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s': %v\n\n", networkFlag, err)
 			os.Exit(1)
 		}
 		if ui.CurrentLogLevel >= ui.LogLevelInfo {
-			ui.InfoF("Network mode: %s (CLI flag override)\n", networkFlag)
+			ui.InfoF("Network mode: %s (CLI flag override)\n", norm)
 		}
-		cfg.Network.Mode = networkFlag
-	} else if ui.CurrentLogLevel >= ui.LogLevelInfo {
-		ui.InfoF("Network mode: %s (from config)\n", cfg.Network.Mode)
+		cfg.Network.Mode = norm
+	} else {
+		norm, err := network.NormalizeMode(cfg.Network.Mode)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: Invalid network mode '%s' in configuration: %v\n\n", cfg.Network.Mode, err)
+			os.Exit(1)
+		}
+		cfg.Network.Mode = norm
+		if ui.CurrentLogLevel >= ui.LogLevelInfo {
+			ui.InfoF("Network mode: %s (from config)\n", cfg.Network.Mode)
+		}
 	}
 }
 

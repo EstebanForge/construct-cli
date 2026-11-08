@@ -20,7 +20,7 @@ var hookEvents = []string{
 }
 
 func hardenedConfig() [][2]string {
-	kv := make([][2]string, 0, 7+len(hookEvents))
+	kv := make([][2]string, 0, 11+len(hookEvents))
 	kv = append(kv,
 		[2]string{"core.fsmonitor", "false"},
 		[2]string{"core.hooksPath", os.DevNull},
@@ -30,6 +30,10 @@ func hardenedConfig() [][2]string {
 		[2]string{"protocol.file.allow", "always"},
 		[2]string{"maintenance.auto", "false"},
 		[2]string{"gc.auto", "0"},
+		[2]string{"commit.gpgsign", "false"},
+		[2]string{"tag.gpgsign", "false"},
+		[2]string{"gpg.program", "true"},
+		[2]string{"gpg.ssh.program", "true"},
 	)
 	for _, h := range hookEvents {
 		kv = append(kv, [2]string{"hook." + h + ".enabled", "false"})
@@ -54,6 +58,8 @@ func Output(ctx context.Context, args ...string) ([]byte, error) {
 func buildCommand(ctx context.Context, kv [][2]string, args []string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	env := append(sanitizeEnv(os.Environ()),
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_NO_LAZY_FETCH=1",
 		"GIT_ALLOW_PROTOCOL=file:ssh",
