@@ -21,7 +21,7 @@ Usage:
 Global Flags:
   -ct-v, --ct-verbose    # Show detailed output (info level)
   -ct-d, --ct-debug      # Show debug output (debug level)
-  -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline)
+  -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline|allowlist)
   --clone, --ct-clone    # Execute in an ephemeral zero-trust git clone
 
 [sys] System Commands:
@@ -64,6 +64,17 @@ Global Flags:
   construct sys check-update       # Check if an update is available for The Construct
   construct sys version            # Show version
 
+[network] Network Commands (alias: net):
+  construct network explain <host> # Explain whether a host is allowed or blocked and why
+  construct network log            # View egress proxy access logs and security events
+                                   # [--tail N] [-f]
+  construct network list           # Show configured rules and allowed TCP ports
+  construct network allow <target> # Add domain or IP to allowlist
+  construct network block <target> # Add domain or IP to blocklist
+  construct network remove <target># Remove rule from allowlist or blocklist
+  construct network status         # Show active network status in the sandbox
+  construct network clear          # Clear all dynamic network rules
+
 Available agents: claude, qwen, agy, opencode, copilot, cline, crush, codex,
                 droid, goose, kilocode, pi, pig, amp
 
@@ -95,6 +106,7 @@ Sandbox (works on the active backend):
                      # [--fix] Append missing defaults to config.toml (backup first)
   shell              # Interactive shell with all agents inside Construct
   exec -- <command>  # Run a single command inside the running Construct sandbox
+  toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
   login-bridge       # Start localhost login callback bridge for headless agents
   clipboard-debug    # Show clipboard bridge logs and patch state for Copilot
 `
