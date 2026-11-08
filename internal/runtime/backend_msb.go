@@ -500,6 +500,60 @@ func abbrevDigest(digest string) string {
 	return digest
 }
 
+// MsbImageDigest returns the manifest digest recorded for ONE ref
+// (parsed from `msb image inspect`), or "" when the ref is not cached or
+// the output cannot be parsed.
+func MsbImageDigest(ref string) string {
+	return msbImageDigestFn(ref)
+}
+
+// CachedRemoteDigest serves the registry digest from a file-backed cache
+// inside remoteDigestCacheTTL.
+func CachedRemoteDigest(ref string) string {
+	return ghcrRemoteDigestFn(ref)
+}
+
+// GhcrRemoteDigest resolves the current registry digest for a ghcr.io ref
+// via an anonymous token plus a GET, without downloading layers.
+// On success, it updates the file-backed cache.
+func GhcrRemoteDigest(ref string) string {
+	digest := ghcrFetchDigest(ref)
+	if digest == "" {
+		return ""
+	}
+	cachePath := filepath.Join(config.GetConfigDir(), "msb-remote-digest.json")
+	if b, err := json.Marshal(remoteDigestCacheEntry{Ref: ref, Digest: digest, Fetched: time.Now().Unix()}); err == nil {
+		//nolint:errcheck // cache write is best-effort; a missing dir means no HOME config yet
+		os.MkdirAll(config.GetConfigDir(), 0o700)
+		tmp := cachePath + ".tmp"
+		if os.WriteFile(tmp, b, 0o600) == nil {
+			//nolint:errcheck // cache write is best-effort; the fetch result is already in hand
+			_ = os.Rename(tmp, cachePath)
+		}
+	}
+	return digest
+}
+
+// MsbImageCached reports whether an image ref is cached locally in msb.
+func MsbImageCached(ref string) bool {
+	return msbImageCachedFn(ref)
+}
+
+// BustRemoteDigestCache clears the file-backed remote digest cache.
+func BustRemoteDigestCache() {
+	bustRemoteDigestCache()
+}
+
+// BustImageInspectMemo clears the memoized msb image inspect digests.
+func BustImageInspectMemo() {
+	bustImageInspectMemo()
+}
+
+// AbbrevDigest shortens a sha256:... digest for one-line notices.
+func AbbrevDigest(digest string) string {
+	return abbrevDigest(digest)
+}
+
 // Exec runs a command inside a running sandbox. Exit-code fidelity: the SDK
 // returns non-zero exit codes in ExecOutput, not as errors.
 func (m *MsbBackend) Exec(ctx context.Context, opts ExecOptions) (string, int, error) {

@@ -76,6 +76,9 @@ var cleanupExitedContainerFn = runtimepkg.CleanupExitedContainer
 var buildComposeCommandFn = runtimepkg.BuildComposeCommand
 var getCheckImageCommandFn = runtimepkg.GetCheckImageCommand
 var runtimeUsesUserNamespaceRemapFn = runtimepkg.UsesUserNamespaceRemap
+var msbImageDigestFn = runtimepkg.MsbImageDigest
+var ghcrRemoteDigestFn = runtimepkg.GhcrRemoteDigest
+var msbImageCachedFn = runtimepkg.MsbImageCached
 
 var runSudoCombinedOutput = func(args ...string) ([]byte, error) {
 	return exec.Command("sudo", args...).CombinedOutput()
@@ -809,8 +812,8 @@ func Run(args ...string) {
 	// them on next init; --fix cleans host-side immediately.
 	checks = append(checks, checkBakedAgentBindCopies(fixRequested))
 
-	// 11d. Baked Image Freshness (msb only): freshness vs GHCR is not
-	// cheaply detectable; --fix runs a bounded best-effort msb pull.
+	// 11d. Baked Image Freshness (msb only): plain doctor checks local presence;
+	// --fix compares local vs GHCR digest and pulls only on drift or missing image.
 	checks = append(checks, checkBakedImageFreshness(msbBackend, fixRequested, jsonRequested))
 
 	// 11e. Host CLI/SDK Skew (msb only): the host msb binary must match
@@ -1368,9 +1371,9 @@ func checkBakedAgentBindCopies(fix bool) CheckResult {
 }
 
 // checkBakedImageFreshness verifies the local construct-box image is present
-// (msb only). Plain runs verify local presence (cheap, no nag: --fix
-// already pulls on demand and self-updates prepull); --fix additionally runs
-// a bounded best-effort msb pull (exit-0 no-op when already current).
+// (msb only). Plain runs verify local presence cheaply; --fix compares the
+// local manifest digest against GHCR and pulls only when a change is detected
+// or the image is missing locally.
 func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 	check := CheckResult{Name: "Baked Image Freshness"}
 	if !msbBackend {
@@ -1399,17 +1402,49 @@ func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 		return check
 	}
 
+	// Deliberate local builds win over GHCR: do not pull or overwrite.
+	if msbImageCachedFn("localhost/construct-box:latest") {
+		check.Status = CheckStatusOK
+		check.Message = "Local build localhost/construct-box:latest present (skipping remote pull)"
+		return check
+	}
+
+	cached := msbImageDigestFn(imageRef)
+	var remote string
+	if cached != "" {
+		remote = ghcrRemoteDigestFn(imageRef)
+		if remote == "" {
+			check.Status = CheckStatusOK
+			check.Message = fmt.Sprintf("Local image %s present (registry unreachable; kept local image)", imageRef)
+			return check
+		}
+		if cached == remote {
+			check.Status = CheckStatusOK
+			check.Message = fmt.Sprintf("Image %s is up to date", imageRef)
+			return check
+		}
+	}
+
+	forcePull := cached != ""
 	if !jsonRequested {
-		fmt.Fprintf(os.Stderr, "  → Pulling image %s (~3 GB; may take 1-3 minutes depending on network speed)...\n", imageRef)
+		if forcePull {
+			fmt.Fprintf(os.Stderr, "  → Image %s changed upstream (%s → %s); pulling update (~3 GB; may take 1-3 minutes depending on network speed)...\n",
+				imageRef, runtimepkg.AbbrevDigest(cached), runtimepkg.AbbrevDigest(remote))
+		} else {
+			fmt.Fprintf(os.Stderr, "  → Pulling image %s (~3 GB; may take 1-3 minutes depending on network speed)...\n", imageRef)
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	// --force: a plain pull no-ops on any cached ref (msb never re-resolves
-	// a cached tag), so the old "up to date (pull completed)" claim was
-	// always true of the cache, never of the registry. Also refused
-	// outright while the daemon pins the ref.
-	cmd := exec.CommandContext(ctx, msbBinPath, "pull", "--force", runtimepkg.PrepullImageRef)
+
+	pullArgs := []string{"pull"}
+	if forcePull {
+		pullArgs = append(pullArgs, "--force")
+	}
+	pullArgs = append(pullArgs, imageRef)
+
+	cmd := exec.CommandContext(ctx, msbBinPath, pullArgs...)
 	cmd.Stdin = nil // msb stdin trap: open pipe hangs
 	out, err := cmd.CombinedOutput()
 	if !jsonRequested && err == nil {
@@ -1426,8 +1461,16 @@ func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 		check.Details = append(check.Details, strings.TrimSpace(string(out)))
 		return check
 	}
+
+	runtimepkg.BustImageInspectMemo()
+	runtimepkg.BustRemoteDigestCache()
+
 	check.Status = CheckStatusOK
-	check.Message = fmt.Sprintf("Image %s force-refreshed from the registry", imageRef)
+	if forcePull {
+		check.Message = fmt.Sprintf("Image %s updated from registry (%s → %s)", imageRef, runtimepkg.AbbrevDigest(cached), runtimepkg.AbbrevDigest(remote))
+	} else {
+		check.Message = fmt.Sprintf("Image %s pulled from registry", imageRef)
+	}
 	return check
 }
 

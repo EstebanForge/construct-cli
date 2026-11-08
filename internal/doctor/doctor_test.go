@@ -1702,6 +1702,203 @@ func TestCheckBakedImageFreshnessPlainRunLocalPresence(t *testing.T) {
 	}
 }
 
+// TestCheckBakedImageFreshnessFixUpToDateSkipsPull: when local and remote
+// digests match, doctor fix must not execute a pull.
+func TestCheckBakedImageFreshnessFixUpToDateSkipsPull(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "msb-calls.log")
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nexit 0\n", logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origDigest := msbImageDigestFn
+	origRemote := ghcrRemoteDigestFn
+	origCached := msbImageCachedFn
+	t.Cleanup(func() {
+		msbImageDigestFn = origDigest
+		ghcrRemoteDigestFn = origRemote
+		msbImageCachedFn = origCached
+	})
+
+	const matchingDigest = "sha256:same1234567890abcdef"
+	msbImageDigestFn = func(string) string { return matchingDigest }
+	ghcrRemoteDigestFn = func(string) string { return matchingDigest }
+	msbImageCachedFn = func(string) bool { return false }
+
+	check := checkBakedImageFreshness(true, true, true)
+	if check.Status != CheckStatusOK {
+		t.Errorf("status = %v, want OK", check.Status)
+	}
+	if !strings.Contains(check.Message, "up to date") {
+		t.Errorf("message %q should report image is up to date", check.Message)
+	}
+
+	if calls, err := os.ReadFile(logPath); err == nil && strings.Contains(string(calls), "pull") {
+		t.Errorf("msb pull was called when image was up to date: %s", string(calls))
+	}
+}
+
+// TestCheckBakedImageFreshnessFixDriftPullsForce: when remote digest differs from
+// local digest, doctor fix must execute msb pull --force.
+func TestCheckBakedImageFreshnessFixDriftPullsForce(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "msb-calls.log")
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nexit 0\n", logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origDigest := msbImageDigestFn
+	origRemote := ghcrRemoteDigestFn
+	origCached := msbImageCachedFn
+	t.Cleanup(func() {
+		msbImageDigestFn = origDigest
+		ghcrRemoteDigestFn = origRemote
+		msbImageCachedFn = origCached
+	})
+
+	msbImageDigestFn = func(string) string { return "sha256:old1234567890abcdef" }
+	ghcrRemoteDigestFn = func(string) string { return "sha256:new1234567890abcdef" }
+	msbImageCachedFn = func(string) bool { return false }
+
+	check := checkBakedImageFreshness(true, true, true)
+	if check.Status != CheckStatusOK {
+		t.Errorf("status = %v, want OK", check.Status)
+	}
+	if !strings.Contains(check.Message, "updated from registry") {
+		t.Errorf("message %q should report image updated from registry", check.Message)
+	}
+
+	calls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read log: %v", err)
+	}
+	if !strings.Contains(string(calls), "pull --force") {
+		t.Errorf("msb pull --force should be called on drift, got %s", string(calls))
+	}
+}
+
+// TestCheckBakedImageFreshnessFixLocalBuildSkipsPull: when localhost/construct-box:latest
+// is cached, doctor fix must not pull.
+func TestCheckBakedImageFreshnessFixLocalBuildSkipsPull(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "msb-calls.log")
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nexit 0\n", logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origCached := msbImageCachedFn
+	t.Cleanup(func() { msbImageCachedFn = origCached })
+	msbImageCachedFn = func(ref string) bool {
+		return ref == "localhost/construct-box:latest"
+	}
+
+	check := checkBakedImageFreshness(true, true, true)
+	if check.Status != CheckStatusOK {
+		t.Errorf("status = %v, want OK", check.Status)
+	}
+	if !strings.Contains(check.Message, "local build") && !strings.Contains(check.Message, "Local build") {
+		t.Errorf("message %q should report local build present", check.Message)
+	}
+	if calls, err := os.ReadFile(logPath); err == nil && strings.Contains(string(calls), "pull") {
+		t.Errorf("msb pull should not be called when local build is present: %s", string(calls))
+	}
+}
+
+// TestCheckBakedImageFreshnessFixRemoteUnreachableKeepsLocal: when the registry
+// is unreachable but a local image is cached, doctor fix keeps the local image.
+func TestCheckBakedImageFreshnessFixRemoteUnreachableKeepsLocal(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "msb-calls.log")
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nexit 0\n", logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origDigest := msbImageDigestFn
+	origRemote := ghcrRemoteDigestFn
+	origCached := msbImageCachedFn
+	t.Cleanup(func() {
+		msbImageDigestFn = origDigest
+		ghcrRemoteDigestFn = origRemote
+		msbImageCachedFn = origCached
+	})
+
+	msbImageDigestFn = func(string) string { return "sha256:local1234567890abcdef" }
+	ghcrRemoteDigestFn = func(string) string { return "" } // unreachable
+	msbImageCachedFn = func(string) bool { return false }
+
+	check := checkBakedImageFreshness(true, true, true)
+	if check.Status != CheckStatusOK {
+		t.Errorf("status = %v, want OK", check.Status)
+	}
+	if !strings.Contains(check.Message, "unreachable") {
+		t.Errorf("message %q should report registry unreachable", check.Message)
+	}
+	if calls, err := os.ReadFile(logPath); err == nil && strings.Contains(string(calls), "pull") {
+		t.Errorf("msb pull should not be called when remote is unreachable and image is cached: %s", string(calls))
+	}
+}
+
+// TestCheckBakedImageFreshnessFixMissingImagePulls: when no local image is cached,
+// doctor fix must pull the image from GHCR.
+func TestCheckBakedImageFreshnessFixMissingImagePulls(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "msb-calls.log")
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	script := fmt.Sprintf("#!/bin/sh\necho \"$*\" >> %s\nexit 0\n", logPath)
+	if err := os.WriteFile(filepath.Join(binDir, "msb"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	origDigest := msbImageDigestFn
+	origCached := msbImageCachedFn
+	t.Cleanup(func() {
+		msbImageDigestFn = origDigest
+		msbImageCachedFn = origCached
+	})
+
+	msbImageDigestFn = func(string) string { return "" } // not cached
+	msbImageCachedFn = func(string) bool { return false }
+
+	check := checkBakedImageFreshness(true, true, true)
+	if check.Status != CheckStatusOK {
+		t.Errorf("status = %v, want OK", check.Status)
+	}
+	if !strings.Contains(check.Message, "pulled") {
+		t.Errorf("message %q should report image pulled", check.Message)
+	}
+
+	calls, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("failed to read log: %v", err)
+	}
+	if !strings.Contains(string(calls), "pull ghcr.io/estebanforge/construct-box:latest") {
+		t.Errorf("msb pull should be called for missing image, got %s", string(calls))
+	}
+}
+
 // TestCheckStalePackagesVolumeNoDaemon: a docker CLI without a running
 // daemon is the normal microvm case. The sweep must skip with a calm
 // message instead of surfacing the raw socket error.
