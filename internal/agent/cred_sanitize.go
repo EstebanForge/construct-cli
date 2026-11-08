@@ -227,15 +227,18 @@ func sanitizeNodeWithReplacements(node any, replacements map[string]any) any {
 
 func isSensitiveKey(key string) bool {
 	lower := strings.ToLower(key)
+	clean := strings.ReplaceAll(strings.ReplaceAll(lower, "_", ""), "-", "")
+
+	// Exact token counter and usage metadata keys (must remain unredacted numbers)
+	switch clean {
+	case "inputtokens", "outputtokens", "prompttokens", "completiontokens",
+		"totaltokens", "maxtokens", "numtokens", "cachedtokens",
+		"cachereadinputtokens", "cachecreationinputtokens",
+		"cachereadtokens", "cachecreationtokens":
+		return false
+	}
+
 	if strings.HasPrefix(lower, "non_") ||
-		strings.HasPrefix(lower, "max_") ||
-		strings.HasPrefix(lower, "num_") ||
-		strings.HasPrefix(lower, "total_") ||
-		strings.HasPrefix(lower, "prompt_") ||
-		strings.HasPrefix(lower, "completion_") ||
-		strings.HasPrefix(lower, "input_") ||
-		strings.HasPrefix(lower, "output_") ||
-		strings.HasPrefix(lower, "cache_") ||
 		strings.HasSuffix(lower, "_mode") ||
 		strings.HasSuffix(lower, "_type") ||
 		strings.HasSuffix(lower, "_id") ||
@@ -245,16 +248,7 @@ func isSensitiveKey(key string) bool {
 		strings.HasSuffix(lower, "_count") ||
 		strings.HasSuffix(lower, "_limit") ||
 		strings.HasSuffix(lower, "_size") ||
-		strings.HasSuffix(lower, "_length") ||
-		lower == "max_tokens" ||
-		lower == "maxtokens" ||
-		lower == "inputtokens" ||
-		lower == "outputtokens" ||
-		lower == "prompttokens" ||
-		lower == "completiontokens" ||
-		lower == "totaltokens" ||
-		strings.HasPrefix(lower, "cacheread") ||
-		strings.HasPrefix(lower, "cachecreation") {
+		strings.HasSuffix(lower, "_length") {
 		return false
 	}
 	for _, sens := range sensitiveCredentialKeys {
@@ -262,7 +256,6 @@ func isSensitiveKey(key string) bool {
 			return true
 		}
 	}
-	clean := strings.ReplaceAll(strings.ReplaceAll(lower, "_", ""), "-", "")
 	return strings.HasSuffix(clean, "token") ||
 		strings.HasSuffix(clean, "tokens") ||
 		strings.HasSuffix(clean, "secret") ||
@@ -274,12 +267,12 @@ func isSensitiveKey(key string) bool {
 		strings.HasSuffix(clean, "cookies") ||
 		clean == "jwt" ||
 		clean == "auth" ||
-		clean == "authorization" ||
-		clean == "credential" ||
-		clean == "credentials" ||
+		strings.HasSuffix(clean, "authorization") ||
+		strings.HasSuffix(clean, "credential") ||
+		strings.HasSuffix(clean, "credentials") ||
 		strings.HasSuffix(clean, "accesskey") ||
 		strings.HasSuffix(clean, "privatekey") ||
-		clean == "bearer"
+		strings.HasSuffix(clean, "bearer")
 }
 
 func mintCredentialSentinel(key, val string, id int) string {

@@ -204,6 +204,43 @@ func TestSanitizePluralTokensAndLLMCounters(t *testing.T) {
 	}
 }
 
+func TestIsSensitiveKeyRedactsKeysWithCommonPrefixes(t *testing.T) {
+	// Regression: cache_api_key, cache_token, input_api_key, output_secret, cache_authorization
+	// must be sanitized as sensitive credentials, even though input_tokens and cache_read_input_tokens are usage counters.
+	for _, key := range []string{
+		"cache_api_key",
+		"cache_token",
+		"input_api_key",
+		"input_secret",
+		"output_secret",
+		"cache_authorization",
+		"api_key",
+		"token",
+		"access_token",
+	} {
+		if !isSensitiveKey(key) {
+			t.Errorf("expected %q to be classified as sensitive key", key)
+		}
+	}
+
+	for _, counterKey := range []string{
+		"input_tokens",
+		"output_tokens",
+		"prompt_tokens",
+		"completion_tokens",
+		"total_tokens",
+		"max_tokens",
+		"cache_read_input_tokens",
+		"cache_creation_input_tokens",
+		"inputTokens",
+		"outputTokens",
+	} {
+		if isSensitiveKey(counterKey) {
+			t.Errorf("expected %q to be classified as non-sensitive counter key", counterKey)
+		}
+	}
+}
+
 func TestSanitizeAndRestoreCredentialRoundTrip(t *testing.T) {
 	// 1. Same-key collision avoidance and distinct sentinels
 	rawJSON := `{

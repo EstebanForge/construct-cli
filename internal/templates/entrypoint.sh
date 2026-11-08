@@ -167,19 +167,40 @@ if [ "$(id -u)" = "0" ]; then
 
             default_gw=$(ip route show default 2>/dev/null | awk '/default/ {print $3}')
 
-            # DNS resolution strictly to default gateway
+            # DNS resolution to configured nameservers and default gateway
+            for ns in $(awk '/^nameserver/ {print $2}' /etc/resolv.conf 2>/dev/null); do
+                iptables -A OUTPUT -d "$ns" -p udp --dport 53 -j ACCEPT
+                iptables -A OUTPUT -d "$ns" -p tcp --dport 53 -j ACCEPT
+            done
             if [ -n "$default_gw" ]; then
                 iptables -A OUTPUT -d "$default_gw" -p udp --dport 53 -j ACCEPT
                 iptables -A OUTPUT -d "$default_gw" -p tcp --dport 53 -j ACCEPT
             fi
 
-            # Allow host egress proxy on default gateway
+            # Allow host egress proxy strictly on proxy port to proxy host and gateway
             proxy_port=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -n 's|.*:\([0-9]\+\).*|\1|p')
-            if [ -n "$default_gw" ] && [ -n "$proxy_port" ]; then
-                iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$proxy_port" -j ACCEPT
-            elif [ -n "$default_gw" ]; then
-                # Range for microsandbox dynamic port binding
-                iptables -A OUTPUT -d "$default_gw" -p tcp --dport 58700:63700 -j ACCEPT
+            proxy_host=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -n 's|.*://\([^:/@]*@\)*\([^:/]*\).*|\2|p')
+            proxy_ips=""
+            if [ -n "$proxy_host" ]; then
+                proxy_ips=$(getent ahostsv4 "$proxy_host" 2>/dev/null | awk '{print $1}' | sort -u)
+            fi
+            if [ -z "$proxy_ips" ] && [ -n "$default_gw" ]; then
+                proxy_ips="$default_gw"
+            fi
+
+            for pip in $proxy_ips; do
+                if [ -n "$proxy_port" ]; then
+                    iptables -A OUTPUT -d "$pip" -p tcp --dport "$proxy_port" -j ACCEPT
+                else
+                    iptables -A OUTPUT -d "$pip" -p tcp --dport 58700:63700 -j ACCEPT
+                fi
+            done
+            if [ -n "$default_gw" ]; then
+                if [ -n "$proxy_port" ]; then
+                    iptables -A OUTPUT -d "$default_gw" -p tcp --dport "$proxy_port" -j ACCEPT
+                else
+                    iptables -A OUTPUT -d "$default_gw" -p tcp --dport 58700:63700 -j ACCEPT
+                fi
             fi
 
             # Allow SSH bridge port to host gateway if configured
