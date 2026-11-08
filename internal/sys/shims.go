@@ -87,7 +87,7 @@ func writeShim(dir, slug, constructPath string, force bool) (string, error) {
 	script := fmt.Sprintf(`#!/bin/sh
 %s (agent: %s). Installed by `+"`construct sys shims`"+`. Do not edit.
 # Routes this command through the Construct sandbox. Remove with:
-#   construct sys shims --uninstall
+#   construct sys shims uninstall
 exec %q %s "$@"
 `, shimMarker, slug, constructPath, slug)
 
@@ -105,7 +105,7 @@ func writeNsShim(dir, slug, realBin string, force bool) (string, error) {
 	script := fmt.Sprintf(`#!/bin/sh
 %s (agent: %s, non-sandboxed). Installed by `+"`construct sys shims`"+`. Do not edit.
 # Runs the host binary directly, outside the Construct sandbox. Remove with:
-#   construct sys shims --uninstall
+#   construct sys shims uninstall
 exec %q "$@"
 `, shimMarker, slug, realBin)
 
@@ -349,13 +349,13 @@ func HandleShimsCommand(args []string) {
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "install", "--install":
+		case "install":
 			install = true
-		case "uninstall", "--uninstall":
+		case "uninstall":
 			uninstall = true
 		case "remove-aliases", "--remove-aliases":
 			removeAliases = true
-		case "fix", "--fix":
+		case "fix":
 			changed, msg, err := FixCtSymlink()
 			if err != nil {
 				ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
@@ -371,8 +371,8 @@ func HandleShimsCommand(args []string) {
 				fmt.Println(msg)
 			}
 			return
-		case "list", "--list":
-			// default action; explicit flag accepted
+		case "list":
+			// default action; explicit verb accepted
 		case "--force":
 			force = true
 		case "--dir":
@@ -409,7 +409,7 @@ func HandleShimsCommand(args []string) {
 	// system who do not want shims: remove the managed rc block and stop.
 	if removeAliases {
 		if install || uninstall {
-			ui.GumError("--remove-aliases cannot be combined with --install or --uninstall")
+			ui.GumError("remove-aliases cannot be combined with install or uninstall")
 			os.Exit(1)
 		}
 		removed, configFile, err := RemoveLegacyAliasBlock()
@@ -427,7 +427,7 @@ func HandleShimsCommand(args []string) {
 
 	switch {
 	case install && uninstall:
-		ui.GumError("--install and --uninstall are mutually exclusive")
+		ui.GumError("install and uninstall are mutually exclusive")
 		os.Exit(1)
 	case install:
 		InstallShims(dir, only, force)

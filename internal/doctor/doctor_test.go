@@ -1524,10 +1524,10 @@ func TestMsbLibkrunfwRepairManualAndWarn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// detection without --fix: warning pointing at doctor --fix
+	// detection without --fix: warning pointing at doctor fix
 	res = msbLibkrunfwRepair(false, msbPath, msbHome)
-	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
-		t.Errorf("status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "doctor fix") {
+		t.Errorf("status = %v, suggestion = %q, want warning suggesting doctor fix", res.Status, res.Suggestion)
 	}
 }
 
@@ -1562,11 +1562,11 @@ func TestCheckMsbHomeHelpers(t *testing.T) {
 		t.Errorf("clean status = %v (%s), want ok", res.Status, res.Message)
 	}
 
-	// stale docker-era content without --fix: warning pointing at --fix.
+	// stale docker-era content without --fix: warning pointing at doctor fix.
 	writeHelper(t, "update-all.sh", "#!/usr/bin/env bash\n/home/linuxbrew/.linuxbrew/bin/brew upgrade\n")
 	res := checkMsbHomeHelpers(true, false)
-	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
-		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "doctor fix") {
+		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting doctor fix", res.Status, res.Suggestion)
 	}
 
 	// --fix refreshes the stale copy to the embedded content.
@@ -1639,11 +1639,11 @@ func TestCheckStaleConfigDefaults(t *testing.T) {
 		t.Errorf("clean status = %v (%s), want ok", res.Status, res.Message)
 	}
 
-	// stale value without --fix: warning pointing at --fix, file untouched.
+	// stale value without --fix: warning pointing at doctor fix, file untouched.
 	writeConfig(t, stale)
 	res = checkStaleConfigDefaults(false)
-	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "--fix") {
-		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting --fix", res.Status, res.Suggestion)
+	if res.Status != CheckStatusWarning || !strings.Contains(res.Suggestion, "doctor fix") {
+		t.Errorf("stale status = %v, suggestion = %q, want warning suggesting doctor fix", res.Status, res.Suggestion)
 	}
 	if got, _ := os.ReadFile(configPath); string(got) != stale {
 		t.Errorf("diagnosis must not write; file changed to %q", got)
@@ -1697,8 +1697,8 @@ func TestCheckBakedImageFreshnessPlainRunLocalPresence(t *testing.T) {
 	if check.Status != CheckStatusSkipped {
 		t.Errorf("status = %v, want skipped (informational)", check.Status)
 	}
-	if check.Suggestion == "" || !strings.Contains(check.Suggestion, "--fix") {
-		t.Errorf("missing local image should suggest --fix, got %q", check.Suggestion)
+	if check.Suggestion == "" || !strings.Contains(check.Suggestion, "doctor fix") {
+		t.Errorf("missing local image should suggest doctor fix, got %q", check.Suggestion)
 	}
 }
 

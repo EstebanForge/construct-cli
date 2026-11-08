@@ -858,7 +858,7 @@ func showStatusMsb() {
 // Explain diagnoses whether an egress destination is allowed or blocked by the proxy policy.
 func Explain(target string) {
 	if target == "" {
-		ui.GumError("Usage: construct network explain <host[:port]>")
+		ui.GumError("Usage: construct sys network explain <host[:port]>")
 		return
 	}
 
@@ -899,7 +899,7 @@ func Explain(target string) {
 		fmt.Println()
 		if decision.Tier == proxy.TierAllowlist {
 			fmt.Println("To allow this host, run:")
-			fmt.Printf("  construct network allow %s\n", decision.TargetHost)
+			fmt.Printf("  construct sys network allow %s\n", decision.TargetHost)
 		}
 	}
 	fmt.Println()

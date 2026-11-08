@@ -527,7 +527,7 @@ func (c *PackagesConfig) GenerateInstallScript() string {
 	b.WriteString("done\n\n")
 	b.WriteString("if [ -n \"$missing_cmds\" ]; then\n")
 	b.WriteString("    echo \"⚠️ Missing commands after setup:$missing_cmds\"\n")
-	b.WriteString("    echo \"   If these agents are expected, re-run: construct sys packages --install\"\n")
+	b.WriteString("    echo \"   If these agents are expected, re-run: construct sys packages install\"\n")
 	b.WriteString("fi\n\n")
 
 	b.WriteString("echo 'User package installation completed successfully.'\n")

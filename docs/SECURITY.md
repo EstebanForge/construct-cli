@@ -43,7 +43,7 @@ apt/chown allowlist. Toggling recreates the daemon once.
 
 **Change password:**
 ```bash
-construct sys set-password
+construct sys auth password
 ```
 
 ### Container Isolation
@@ -355,7 +355,7 @@ sha256sum construct
 
 **Solution:** Change container password
 ```bash
-construct sys set-password
+construct sys auth password
 ```
 
 **"Hide-secrets mode is experimental"**

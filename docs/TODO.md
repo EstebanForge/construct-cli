@@ -215,7 +215,7 @@ Existing home binds carry agent copies installed under the old model — those w
 - REMOVE the `construct-packages` named volume (`internal/templates/docker-compose.yml:27,62` + `internal/runtime/runtime.go:1256,1288`): Docker initializes named volumes from image content ONLY at first creation — an existing volume would shadow the baked Homebrew baseline with stale files forever, and the microvm backend already dropped it (no copy-up in msb). Homebrew moves to the root filesystem on both engines.
   - COMPANION FIX (required, same PR): relocate the installer hash marker out of the home bind. Today `HASH_FILE=/home/construct/.local/.entrypoint_hash` (`entrypoint.sh:423`) lives on the bind, so a recreate with unchanged hash skips the installer entirely — with the volume gone, declared `[brew]`/`[apt]` packages would then be lost on every recreate. Move the marker to the root filesystem (e.g. `/var/lib/construct-cli/.entrypoint_hash`): it then resets per root-disk lifetime, so the installer re-runs exactly once after each recreate. Post-bake that re-run is a near-no-op (existence guards skip everything installed) — seconds, and it re-provisions user-declared packages. Routine stop/start still skips (root persists).
 
-  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`; AUTOMATED by `construct sys doctor --fix` — see the Sys Doctor section — the steps below are the manual fallback):
+  Migration note for existing Docker users (release notes + `docs/CONFIGURATION.md`; AUTOMATED by `construct sys doctor fix` — see the Sys Doctor section — the steps below are the manual fallback):
 
   ```text
   Docker users: one-time cleanup after upgrading
@@ -270,7 +270,7 @@ Existing home binds carry agent copies installed under the old model — those w
 
 ## Post-publish follow-ups
 
-- ~~msb store garbage collection (keep `latest` + active images)~~ DONE: `ScanMsbStoreGC`/`RunMsbStoreGC` (internal/runtime/backend_msb_gc.go) reclaim every cached construct candidate ref except the boot ref, plus construct-owned fork snapshots (dead daemon groups entirely, all but the newest for a live daemon); runs in the idle window and from `construct sys doctor --fix`, whose MSB Store check scans without --fix. User snapshots and foreign images are never touched; snapshot GC fails closed when sandbox liveness is unknown
+- ~~msb store garbage collection (keep `latest` + active images)~~ DONE: `ScanMsbStoreGC`/`RunMsbStoreGC` (internal/runtime/backend_msb_gc.go) reclaim every cached construct candidate ref except the boot ref, plus construct-owned fork snapshots (dead daemon groups entirely, all but the newest for a live daemon); runs in the idle window and from `construct sys doctor fix`, whose MSB Store check scans without fix. User snapshots and foreign images are never touched; snapshot GC fails closed when sandbox liveness is unknown
 - ~~Refresh mechanism for cached images on existing installs~~ DONE 1.17.8/1.17.9: `EnsureImage` compares the cached platform-manifest digest against the registry (linux/<host-arch> resolution) and re-pulls on drift; the `construct.daemon.image_digest` recreate label makes a refreshed image reach the daemon with exactly one recreate
 - ~~Unify `construct sys update` across engines~~ DONE: both backends run the in-guest `update-all.sh` (foreground `sys update` pass and the idle-window pass), covering the optional layer; the baked baseline moves on the image lane
 
@@ -280,15 +280,15 @@ Verdict: adopt-with-changes. 3 blockers, 4 majors, 3 minors, 1 note — all fold
 
 ---
 
-# TODO: Sys Doctor — Automated Migration (`construct sys doctor [--fix]`)
+# TODO: Sys Doctor — Automated Migration (`construct sys doctor [fix]`)
 
-Status: IMPLEMENTED (2026-09-21). Correction to the original design: `construct sys doctor` already existed (health checks + --fix); task 22 EXTENDED it with the migration checks rather than building from scratch. Check 7 (old hash-marker orphan) is SUPERSEDED: task 20 repurposed the bind-side `.entrypoint_hash` as the host mirror, so no orphan exists. Shipped checks: Stale Packages Volume (docker/podman, unreferenced-only rm), Baked Agent Bind Copies (host-side detection via config.StaleBakedCopyPaths, --fix removes host-side), Baked Image Freshness (msb, --fix = bounded 10m msb pull), Host CLI/SDK Skew (msb --version vs constants.MsbSdkPin, report-only). Plus --json (machine-readable, header suppressed) and exit 1 on errors for CI gating. Sequencing rule stands: the volume removal must not ship before the baked image is on GHCR.
+Status: IMPLEMENTED (2026-09-21). Correction to the original design: `construct sys doctor` already existed (health checks + fix); task 22 EXTENDED it with the migration checks rather than building from scratch. Check 7 (old hash-marker orphan) is SUPERSEDED: task 20 repurposed the bind-side `.entrypoint_hash` as the host mirror, so no orphan exists. Shipped checks: Stale Packages Volume (docker/podman, unreferenced-only rm), Baked Agent Bind Copies (host-side detection via config.StaleBakedCopyPaths, fix removes host-side), Baked Image Freshness (msb, fix = bounded 10m msb pull), Host CLI/SDK Skew (msb --version vs constants.MsbSdkPin, report-only). Plus --json (machine-readable, header suppressed) and exit 1 on errors for CI gating. Sequencing rule stands: the volume removal must not ship before the baked image is on GHCR.
 
 ## CLI shape
 
 ```text
 construct sys doctor           # read-only diagnosis: report + exit 0 clean / 1 issues found
-construct sys doctor --fix     # diagnosis + apply the enumerated safe fixes, then re-report
+construct sys doctor fix       # diagnosis + apply the enumerated safe fixes, then re-report
 construct sys doctor --json    # machine-readable report (lab-matrix assertions, CI)
 ```
 
@@ -317,7 +317,7 @@ construct sys doctor --json    # machine-readable report (lab-matrix assertions,
 
 - New `internal/doctor` package; reuses `msbHostVersion` (telemetry helper), the daemon flock, and the generated installer for check 4. Each check = one function returning (status, detail, fix-fn); `--fix` runs the fix-fns of failed checks.
 - `lab-matrix.sh` gains a doctor stage: seed a stale-layout fixture (old volume name + stale bind copies) → `doctor --fix` → assert report clean and volume gone. This becomes part of the Image Layering verification gate.
-- Docs: `docs/CONFIGURATION.md` gains a "Sys Doctor" section (check table + `--fix` semantics); release notes for the layering release lead with `construct sys doctor --fix` as THE upgrade step.
+- Docs: `docs/CONFIGURATION.md` gains a "Sys Doctor" section (check table + fix semantics); release notes for the layering release lead with `construct sys doctor fix` as THE upgrade step.
 
 ---
 

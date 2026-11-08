@@ -14,7 +14,7 @@ Three steps, in order:
 
 ```bash
 # 1. Install PATH shims (sandboxed <slug> + non-sandboxed ns-<slug>)
-construct sys shims --install
+construct sys shims install
 
 # 2. Mount the directories your harness will use as workspaces
 #    (edit ~/.config/construct-cli/config.toml, then restart the daemon)
@@ -30,7 +30,7 @@ Docker (or the microVM backend's `msb` runtime) must be available. Step 3 takes 
 
 ## Why each step matters
 
-**Shims.** Harnesses resolve the agent binary on PATH with a plain execve; shell aliases and functions are invisible to them. `construct sys shims --install` puts a real executable at `~/.local/bin/<slug>` that execs `construct <slug>`, plus `ns-<slug>` for the real host binary when one exists. See [Quick Reference](QUICK-REFERENCE.md) for flags (`--list`, `--uninstall`, `--force`, `--remove-aliases`).
+**Shims.** Harnesses resolve the agent binary on PATH with a plain execve; shell aliases and functions are invisible to them. `construct sys shims install` puts a real executable at `~/.local/bin/<slug>` that execs `construct <slug>`, plus `ns-<slug>` for the real host binary when one exists. See [Quick Reference](QUICK-REFERENCE.md) for actions (`list`, `uninstall`, `fix`) and options (`--force`, `--remove-aliases`).
 
 **Daemon mounts.** The harness spawns agents with `cwd` set to its workspace directory. On the Docker backend, the daemon only exposes directories listed in `mount_paths` (both keys default to off/empty) — without them the agent starts in the container's default directory: wrong repo, wrong context. One entry per project root is enough; subdirectories are covered. On the microVM backend (the default), directories inside your `$HOME` are auto-learned on first use with no configuration; outside `$HOME`, or for declined folders, add the root to `mount_paths`.
 

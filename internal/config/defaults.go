@@ -255,7 +255,7 @@ func parseSectionHeader(line string) (string, bool) {
 
 func buildMissingBlock(keys []string, values map[string]interface{}) ([]string, error) {
 	lines := []string{
-		"# Added by construct sys doctor --fix",
+		"# Added by construct sys doctor fix",
 	}
 	for _, key := range keys {
 		line, err := formatTomlLine(key, values[key])

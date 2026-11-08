@@ -404,15 +404,15 @@ blocked_ips = [
 Inspect why a target is allowed or blocked:
 
 ```bash
-construct network explain api.anthropic.com:443
-construct network explain postgres.internal:5432
+construct sys network explain api.anthropic.com:443
+construct sys network explain postgres.internal:5432
 ```
 
 View live proxy access audit logs:
 
 ```bash
-construct network log
-construct network log --tail 50 -f
+construct sys network log
+construct sys network log --tail 50 -f
 ```
 
 ## Security Settings
@@ -703,7 +703,7 @@ Construct automatically migrates your config when upgrading:
 
 **Manual migration:**
 ```bash
-construct sys config --migrate
+construct sys config migrate
 ```
 
 ## Next Steps

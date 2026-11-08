@@ -15,7 +15,7 @@ You are running inside **The Construct**, a secure, isolated Linux sandbox (Debi
 ## 3. Communication Protocol
 - **External Info**: If you need information that is not available inside the sandbox (e.g., host system configuration, hardware details, or files outside the mounted project), you MUST ask the user to provide it or run a command to fetch it.
 - **Permissions**: You have `sudo` access inside this sandbox, but it does not grant you permissions on the host machine.
-- **Security**: Do not attempt to "break out" of the sandbox. If you encounter network restrictions, explain them to the user so they can adjust the `construct network` settings.
+- **Security**: Do not attempt to "break out" of the sandbox. If you encounter network restrictions, explain them to the user so they can adjust the `construct sys network` settings.
 
 ## 4. Installed Tools
 The environment is pre-loaded with a modern toolchain (Go, Node.js, Python, etc.) via apt and mise (Rust, JVM languages, and more install on demand). If a tool is missing, you can suggest the user add it to their `packages.toml`.

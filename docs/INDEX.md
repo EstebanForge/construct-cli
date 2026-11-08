@@ -14,7 +14,7 @@ Complete documentation for The Construct CLI.
 - [Services & Integrations](SERVICES.md) - Recipes for wiring agentmemory, Slack, Asana, Jira, providers, and more
 - [Brew Exit Analysis](BREW-EXIT.md) - package-by-package Homebrew-to-Debian migration analysis
 - [Sentinel Credential Proxy](TODO-SENTINEL-PROXY.md) - Host-side egress CONNECT proxy with dynamic CA leaf signing, sentinel key substitution, and raw TCP database tunnels
-- [Lessons from v1-v2](LESSONS-TO-V3.md) - What to adopt from v1 and v2: proxy refinements, v3.0 removals, new scope
+- [Lessons from v1 and v2](LESSONS-TO-V3.md) - Architecture lessons from v1 and v2 into Construct v3.0: proxy refinements, v3.0 removals, new scope
 - [TODO](TODO.md) - GA checklist and parked follow-ups
 - [README](../README.md) - Project overview and quick start
 

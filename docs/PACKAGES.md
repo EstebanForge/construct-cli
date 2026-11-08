@@ -21,7 +21,7 @@ Construct supports installing additional packages inside the sandbox environment
 **Key features:**
 - **Multiple package managers**: apt, mise, bun, npm, pip, cargo, gems
 - **Baked baseline + user layer**: common tools ship in the image; `packages.toml` adds what is yours
-- **Applies at guest init**: new installs run when the sandbox boots; `construct sys packages --install` applies them live
+- **Applies at guest init**: new installs run when the sandbox boots; `construct sys packages install` applies them live
 - **Custom toolchains**: Optional development tools (nix, asdf, mise, vmr, etc.)
 
 ## Baked Baseline and the User Layer
@@ -64,7 +64,7 @@ Rules of thumb:
   image updates. Optional agents (`qwen`, `copilot`, `crush`, `cline`, ...) belong
   there; the core five do not.
 - **Changes apply at the next guest init** (fresh sandbox boot) or immediately via
-  `construct sys packages --install` in a running sandbox.
+  `construct sys packages install` in a running sandbox.
 - **Idle-window updates keep your layer current.** With `auto_update_packages = true`
   (default), the daemon runs `update-all.sh` over the user layer right before an
   idle stop.
@@ -323,7 +323,7 @@ packages = [
 Then apply changes:
 
 ```bash
-construct sys packages --install
+construct sys packages install
 ```
 
 ### Package Versions
@@ -372,7 +372,7 @@ packages = [
 After editing `packages.toml`, install packages:
 
 ```bash
-construct sys packages --install
+construct sys packages install
 ```
 
 This will:
@@ -389,13 +389,13 @@ construct sys update
 
 **Update specific packages:**
 1. Edit version in `packages.toml`
-2. Run `construct sys packages --install`
+2. Run `construct sys packages install`
 
 ### Package Removal
 
 **To remove packages:**
 1. Edit `packages.toml`, remove unwanted packages
-2. Run `construct sys packages --install`
+2. Run `construct sys packages install`
 3. Or run `construct sys rebuild` for clean slate
 
 ## Optional Tools

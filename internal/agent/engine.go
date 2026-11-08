@@ -672,7 +672,7 @@ skipPatch:
 	if err == nil && len(args) > 0 && (exitCode == 126 || exitCode == 127) {
 		ui.InfoF("Hint: command '%s' may be missing from daemon PATH.\n", args[0])
 		ui.InfoLn("Run 'construct sys doctor' and review Setup/Update logs for package installation errors.")
-		ui.InfoLn("If needed, run 'construct sys packages --install' to reapply packages.toml.")
+		ui.InfoLn("If needed, run 'construct sys packages install' to reapply packages.toml.")
 	}
 	return true, exitCode, err
 }

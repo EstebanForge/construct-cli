@@ -61,7 +61,7 @@ Schema ping-pong is the remaining hazard when two msb versions share `~/.microsa
 
 ### 5. Fallback policy
 
-No silent fallback to the host msb — that would reintroduce the failure this design removes. Extraction or checksum failure is a clear error suggesting `construct sys doctor --fix` (which re-extracts).
+No silent fallback to the host msb — that would reintroduce the failure this design removes. Extraction or checksum failure is a clear error suggesting `construct sys doctor fix` (which re-extracts).
 
 ## Doctor changes
 

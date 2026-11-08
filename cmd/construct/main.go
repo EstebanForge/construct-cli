@@ -117,8 +117,29 @@ func main() {
 
 	command := args[0]
 
-	// Namespace routing
+	// Top-level shortcuts and namespace routing
 	switch command {
+	case "doctor":
+		cfg = ensureConfigLoaded(cfg)
+		if len(args) > 1 {
+			switch args[1] {
+			case "clipboard":
+				sys.ClipboardDebug(cfg)
+				return
+			case "fix":
+				doctor.Run(append([]string{"fix"}, args[2:]...)...)
+				return
+			}
+		}
+		doctor.Run(args[1:]...)
+		return
+	case "agents":
+		handleAgentsCommand(args[1:])
+		return
+	case "update":
+		cfg = ensureConfigLoaded(cfg)
+		runUpdate(cfg)
+		return
 	case "sys":
 		if len(args) < 2 {
 			sys.EnsureCtSymlink()
@@ -126,12 +147,7 @@ func main() {
 			os.Exit(1)
 		}
 		handleSysCommand(args[1:], cfg)
-	case "network", "net":
-		if len(args) < 2 {
-			ui.PrintNetworkHelp()
-			os.Exit(1)
-		}
-		handleNetworkCommand(args[1:])
+		return
 	case "cc":
 		if len(args) < 2 || args[1] == "--help" || args[1] == "-h" {
 			cfg = ensureConfigLoaded(cfg)
@@ -141,6 +157,7 @@ func main() {
 		providerName := args[1]
 		agentArgs := append([]string{"claude"}, args[2:]...)
 		agent.RunWithProvider(agentArgs, networkFlag, providerName, cloneFlag)
+		return
 	case "claude":
 		if len(args) > 1 && cfg != nil {
 			if _, exists := cfg.Claude.Providers[args[1]]; exists {
@@ -151,6 +168,7 @@ func main() {
 			}
 		}
 		agent.RunWithArgs(args, networkFlag, cloneFlag)
+		return
 	default:
 		// Check if it's a supported agent
 		if !agent.IsSupported(command) {
@@ -248,59 +266,58 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "packages":
 		handlePackagesCommand(args[1:], cfg)
 	case "agents":
-		if len(args) > 1 {
-			switch args[1] {
-			case "push", "--push":
-				if err := agent.SyncAgentConfigs(args[2:]); err != nil {
-					ui.GumError(fmt.Sprintf("Agent configs push failed: %v", err))
-					os.Exit(1)
-				}
-				return
-			case "rules", "rule":
-				sys.ListAgentMemories()
-				return
-			case "list":
-				agent.List()
-				return
-			default:
-				fmt.Fprintf(os.Stderr, "Unknown agents command: %s\n", args[1])
-				fmt.Fprintf(os.Stderr, "Usage: construct sys agents [list|push|rules]\n")
-				os.Exit(1)
-			}
+		handleAgentsCommand(args[1:])
+	case "network", "net":
+		if len(args) < 2 {
+			ui.PrintNetworkHelp()
+			os.Exit(1)
 		}
-		agent.List()
+		handleNetworkCommand(args[1:])
 	case "toolchains", "toolchain":
 		sys.HandleToolchainsCommand(args[1:])
 	case "doctor":
-		if len(args) > 1 && (args[1] == "--clipboard" || args[1] == "-clipboard") {
-			sys.ClipboardDebug(cfg)
-			return
+		if len(args) > 1 {
+			switch args[1] {
+			case "clipboard":
+				sys.ClipboardDebug(cfg)
+				return
+			case "fix":
+				doctor.Run(append([]string{"fix"}, args[2:]...)...)
+				return
+			}
 		}
 		doctor.Run(args[1:]...)
 	case "self-update":
-		if len(args) > 1 && (args[1] == "--check" || args[1] == "-c" || args[1] == "check") {
-			latest, available, err := update.CheckForUpdates(cfg)
-			if err != nil {
-				ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
-				os.Exit(1)
-			}
-			if available {
-				update.DisplayNotification(latest)
-				if ui.GumConfirm("Would you like to update now?") {
-					if err := update.SelfUpdate(cfg); err != nil {
-						ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
-						os.Exit(1)
+		if len(args) > 1 {
+			switch args[1] {
+			case "check":
+				latest, available, err := update.CheckForUpdates(cfg)
+				if err != nil {
+					ui.GumError(fmt.Sprintf("Failed to check for updates: %v", err))
+					os.Exit(1)
+				}
+				if available {
+					update.DisplayNotification(latest)
+					if ui.GumConfirm("Would you like to update now?") {
+						if err := update.SelfUpdate(cfg); err != nil {
+							ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
+							os.Exit(1)
+						}
+					}
+				} else {
+					if ui.GumAvailable() {
+						ui.GumSuccess("You are on the latest version.")
+					} else {
+						fmt.Printf("You are on the latest version (%s)\n", constants.Version)
 					}
 				}
-			} else {
-				if ui.GumAvailable() {
-					ui.GumSuccess("You are on the latest version.")
-				} else {
-					fmt.Printf("You are on the latest version (%s)\n", constants.Version)
-				}
+				update.RecordUpdateCheck()
+				return
+			default:
+				fmt.Fprintf(os.Stderr, "Unknown self-update option: %s\n", args[1])
+				fmt.Fprintf(os.Stderr, "Usage: construct sys self-update [check]\n")
+				os.Exit(1)
 			}
-			update.RecordUpdateCheck()
-			return
 		}
 		if err := update.SelfUpdate(cfg); err != nil {
 			ui.GumError(fmt.Sprintf("Self-update failed: %v", err))
@@ -314,15 +331,19 @@ func handleSysCommand(args []string, cfg *config.Config) {
 		fmt.Fprintf(os.Stderr, "Usage: construct sys ssh import\n")
 		os.Exit(1)
 	case "auth":
-		if len(args) > 1 && args[1] == "bridge" {
-			sys.LoginBridge(args[2:])
-			return
+		if len(args) > 1 {
+			switch args[1] {
+			case "bridge":
+				sys.LoginBridge(args[2:])
+				return
+			case "password":
+				cfg = ensureConfigLoaded(cfg)
+				sys.SetPassword(cfg)
+				return
+			}
 		}
-		fmt.Fprintf(os.Stderr, "Usage: construct sys auth bridge [--ports 1455,8085]\n")
+		fmt.Fprintf(os.Stderr, "Usage: construct sys auth <bridge|password>\n")
 		os.Exit(1)
-	case "set-password":
-		cfg = ensureConfigLoaded(cfg)
-		sys.SetPassword(cfg)
 	case "prepull":
 		runtime.PrepullRun()
 	case "daemon":
@@ -338,6 +359,27 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	}
 }
 
+func handleAgentsCommand(args []string) {
+	if len(args) == 0 || args[0] == "list" {
+		agent.List()
+		return
+	}
+
+	switch args[0] {
+	case "push":
+		if err := agent.SyncAgentConfigs(args[1:]); err != nil {
+			ui.GumError(fmt.Sprintf("Agent configs push failed: %v", err))
+			os.Exit(1)
+		}
+	case "rules", "rule":
+		sys.ListAgentMemories()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown agents command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct agents [list|push|rules]\n")
+		os.Exit(1)
+	}
+}
+
 func handlePackagesCommand(args []string, cfg *config.Config) {
 	// Default behavior remains "open packages.toml".
 	if len(args) == 0 {
@@ -345,53 +387,20 @@ func handlePackagesCommand(args []string, cfg *config.Config) {
 		return
 	}
 
-	var install bool
-	var updateFlag bool
-	var reinstall bool
-
-	for _, arg := range args {
-		switch arg {
-		case "--install":
-			install = true
-		case "--update":
-			updateFlag = true
-		case "--reinstall":
-			reinstall = true
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown packages flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Usage: construct sys packages [--install|--update|--reinstall]\n")
-			os.Exit(1)
-		}
-	}
-
-	selected := 0
-	if install {
-		selected++
-	}
-	if updateFlag {
-		selected++
-	}
-	if reinstall {
-		selected++
-	}
-
-	if selected != 1 {
-		fmt.Fprintf(os.Stderr, "Specify exactly one of: --install, --update, or --reinstall\n")
+	switch args[0] {
+	case "install":
+		cfg = ensureConfigLoaded(cfg)
+		sys.InstallPackages(cfg)
+	case "reinstall":
+		cfg = ensureConfigLoaded(cfg)
+		sys.ReinstallPackages(cfg)
+	case "update":
+		runUpdate(cfg)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown packages command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct sys packages [install|reinstall|update]\n")
 		os.Exit(1)
 	}
-
-	if updateFlag {
-		// Thin wrapper to the canonical global update command.
-		runUpdate(cfg)
-		return
-	}
-
-	cfg = ensureConfigLoaded(cfg)
-	if reinstall {
-		sys.ReinstallPackages(cfg)
-		return
-	}
-	sys.InstallPackages(cfg)
 }
 
 func handleConfigCommand(args []string) {
@@ -400,42 +409,19 @@ func handleConfigCommand(args []string) {
 		return
 	}
 
-	var migrateFlag bool
-	var restoreFlag bool
-	for _, arg := range args {
-		switch arg {
-		case "--migrate":
-			migrateFlag = true
-		case "--restore":
-			restoreFlag = true
-		default:
-			fmt.Fprintf(os.Stderr, "Unknown config flag: %s\n", arg)
-			fmt.Fprintf(os.Stderr, "Usage: construct sys config [--migrate|--restore]\n")
+	switch args[0] {
+	case "migrate":
+		// Force refresh configuration and templates from binary.
+		if err := migration.ForceRefresh(); err != nil {
+			ui.GumError(fmt.Sprintf("Migration failed: %v", err))
+			fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
 			os.Exit(1)
 		}
-	}
-
-	selected := 0
-	if migrateFlag {
-		selected++
-	}
-	if restoreFlag {
-		selected++
-	}
-	if selected != 1 {
-		fmt.Fprintf(os.Stderr, "Specify exactly one of: --migrate or --restore\n")
-		os.Exit(1)
-	}
-
-	if restoreFlag {
+	case "restore":
 		sys.RestoreConfig()
-		return
-	}
-
-	// Force refresh configuration and templates from binary.
-	if err := migration.ForceRefresh(); err != nil {
-		ui.GumError(fmt.Sprintf("Migration failed: %v", err))
-		fmt.Fprintf(os.Stderr, "Please check your configuration files manually.\n")
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown config command: %s\n", args[0])
+		fmt.Fprintf(os.Stderr, "Usage: construct sys config [migrate|restore]\n")
 		os.Exit(1)
 	}
 }
@@ -462,19 +448,19 @@ func handleNetworkCommand(args []string) {
 	switch command {
 	case "allow":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network allow <domain|ip>")
+			ui.GumError("Usage: construct sys network allow <domain|ip>")
 			os.Exit(1)
 		}
 		network.AddRule(args[1], "allow")
 	case "block":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network block <domain|ip>")
+			ui.GumError("Usage: construct sys network block <domain|ip>")
 			os.Exit(1)
 		}
 		network.AddRule(args[1], "block")
 	case "remove":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network remove <domain|ip>")
+			ui.GumError("Usage: construct sys network remove <domain|ip>")
 			os.Exit(1)
 		}
 		network.RemoveRule(args[1])
@@ -486,7 +472,7 @@ func handleNetworkCommand(args []string) {
 		network.ClearRules()
 	case "explain":
 		if len(args) < 2 {
-			ui.GumError("Usage: construct network explain <host[:port]>")
+			ui.GumError("Usage: construct sys network explain <host[:port]>")
 			os.Exit(1)
 		}
 		network.Explain(args[1])
@@ -577,6 +563,8 @@ func shouldRunMigration(args []string) bool {
 	}
 
 	switch args[0] {
+	case "doctor", "agents", "update":
+		return true
 	case "sys":
 		if len(args) < 2 {
 			return false
@@ -584,21 +572,21 @@ func shouldRunMigration(args []string) bool {
 		switch args[1] {
 		case "image", "update", "shell", "exec", "version", "help",
 			"config", "packages", "agents", "toolchains", "toolchain", "doctor",
-			"self-update", "ssh", "shims", "auth", "set-password", "daemon":
+			"self-update", "ssh", "shims", "auth", "daemon":
 			if args[1] == "image" && len(args) > 2 && args[2] == "rebuild" {
 				return false
 			}
 			return args[1] != "self-update"
-		default:
-			return false
-		}
-	case "network", "net":
-		if len(args) < 2 {
-			return false
-		}
-		switch args[1] {
-		case "allow", "block", "remove", "list", "status", "clear", "explain", "log", "logs":
-			return true
+		case "network", "net":
+			if len(args) < 3 {
+				return false
+			}
+			switch args[2] {
+			case "allow", "block", "remove", "list", "status", "clear", "explain", "log", "logs":
+				return true
+			default:
+				return false
+			}
 		default:
 			return false
 		}

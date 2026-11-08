@@ -104,7 +104,7 @@ When migration is needed, `migration.CheckAndMigrate()`:
 Users can manually trigger a migration of configuration and templates using:
 
 ```bash
-construct sys config --migrate
+construct sys config migrate
 ```
 
 This command:

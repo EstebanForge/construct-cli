@@ -89,7 +89,7 @@ The `construct-box` GHCR image is NOT built by the release workflow. The CLI alw
 - Host-side authenticated CONNECT proxy (`internal/proxy`): runs per session on the host with session-token auth (`Proxy-Authorization: Basic`). Real provider keys never cross into the guest; guest gets shape-mimicking sentinels swapped by the proxy on outbound HTTPS CONNECT requests (`swapHeaders`). Outbound requests with unswapped real keys are aborted (`LEAK_DROP`).
 - Domain fronting guard: CONNECT target host == TLS SNI == HTTP Host header. Mismatches abort immediately (`FRONTING_DROP`).
 - Invariant 7 (DNS rebinding guard): The proxy resolves every hostname itself and refuses loopback, private, and CGNAT destinations unless a rule names the target explicitly.
-- Network policy tiers: `allowlist` (default, with built-in ecosystem presets for npm, pypi, crates, go, github, apt), `open`, `internet`, and `none`. Diagnostics: `construct network explain <host[:port]>` and `construct network log`.
+- Network policy tiers: `allowlist` (default, with built-in ecosystem presets for npm, pypi, crates, go, github, apt), `open`, `internet`, and `none`. Diagnostics: `construct sys network explain <host[:port]>` and `construct sys network log`.
 - Non-HTTP TCP egress: `[network] allowed_tcp = []` permits specific `host:port` pairs (databases, caches, queues). Destinations matching `IsRawTCP` bypass TLS MITM and pipe raw TCP bytes (`ALLOW_TCP`).
 
 ## Modular Toolchains & Caching

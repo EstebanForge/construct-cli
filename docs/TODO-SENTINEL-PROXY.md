@@ -6,7 +6,7 @@ Related docs:
 
 - creds-proxy design (older host-side credential proxy, header-injection model, never implemented; design doc removed 2026-11-01, history in git). This doc supersedes its transport model and reuses its keychain storage section.
 - [HIDE-SECRETS-DESIGN.md](HIDE-SECRETS-DESIGN.md) — workspace redaction, implemented.
-- [LESSONS-TO-V3.md](LESSONS-TO-V3.md) — v1-v2 analysis; source of the v3.0 removals and architecture decisions.
+- [LESSONS-TO-V3.md](LESSONS-TO-V3.md) - Lessons from v1 and v2; source of the v3.0 removals and architecture decisions.
 - [ARCHITECTURE-DESIGN.md](ARCHITECTURE-DESIGN.md) §4.1 — msb backend. Network mode enforcement interplay.
 
 Origin: analysis of discobox-ai/discobox (Apache 2.0) sentinel system, 2026-09. Peer review by agy (isolated, high reasoning), verdict ADOPT-WITH-CHANGES. All CRITICAL/HIGH claims verified against source before acceptance.
@@ -42,7 +42,7 @@ Full research trail in agentmemory (decision entries 2026-09, librarian run `01a
 
 Corroborating prior art, 2026-10: [Overalls](https://overalls.dev) (MIT, Geoffrey Huntley) enforces the same invariant at fleet scale — its Ziggy component brokers provider calls through `llm.internal`, keeps provider credentials outside the guest entirely, and meters usage per account at the proxy, while Galileo serves named integrations at `.integration.internal` so a machine uses a secret without being able to read it. Independent convergence on keys-at-the-edge; no change to this design's mechanism, and Ziggy's metering role feeds the usage-accounting TODO in [TODO.md](TODO.md).
 
-Corroborating prior art, 2026-11: [v1-v2](https://github.com/EstebanForge/construct-cli) (cloned to `/tmp/v1-v2`, analysis in LESSONS-TO-V3.md) ships the same invariant with a stdlib-only per-VM proxy on four tiers (`open / internet / allowlist / none`, default allowlist). Secrets live on the host; the guest gets placeholders (`prefix + per-VM salt`), swapped through a MITM with a per-VM CA and a ~1024-leaf LRU cert cache. This design already covers its SNI==CONNECT check (finding #4) and its placeholder-is-not-proxy-credential separation (finding #3). What it adds here: proxy-side DNS resolution with private/CGNAT/loopback refusal (folded into S1), the leaf-cache detail (S2), the tiers model that replaces `NETWORK_MODE` (section 10), and a post-start confinement self-check recorded in sandbox state (S1, S6). v1-v2 also captures agent OAuth logins at the proxy and keeps refresh tokens host-side; that stays a non-goal here for v1 (finding #6 already excludes OAuth bodies), recorded as the natural v2 extension.
+Corroborating prior art and lessons from v1 and v2, 2026-11 (analysis in LESSONS-TO-V3.md): The v3.0 architecture ships the same invariant with a stdlib-only per-VM proxy on four tiers (`open / internet / allowlist / none`, default allowlist). Secrets live on the host; the guest gets placeholders (`prefix + per-VM salt`), swapped through a MITM with a per-VM CA and a ~1024-leaf LRU cert cache. This design already covers its SNI==CONNECT check (finding #4) and its placeholder-is-not-proxy-credential separation (finding #3). What it adds here: proxy-side DNS resolution with private/CGNAT/loopback refusal (folded into S1), the leaf-cache detail (S2), the tiers model that replaces `NETWORK_MODE` (section 10), and a post-start confinement self-check recorded in sandbox state (S1, S6). Capturing agent OAuth logins at the proxy with refresh tokens stored host-side stays a non-goal here for v1 (finding #6 already excludes OAuth bodies), recorded as the natural v2 extension.
 
 ## 3. Design decision
 
@@ -66,8 +66,8 @@ Core invariants (from discobox, keep them all):
 4. Swap only when destination host matches the secret's binding. No match = sentinel passes = upstream 401.
 5. One host-scope matcher function, subdomains yes, parents no.
 6. Resolve cache keyed (var, host), capped by session lifetime; 401 retry chain fresh-then-previous.
-7. The proxy resolves every hostname itself (never trusts guest DNS answers) and refuses loopback, private, and CGNAT destinations unless a rule names the address explicitly. Kills DNS rebinding and the dig-at-boot staleness in one move (v1-v2 refinement).
-8. A sentinel string is never a proxy credential. Proxy auth is the per-session token (finding #3); the two never share bytes (v1-v2 salt/key separation).
+7. The proxy resolves every hostname itself (never trusts guest DNS answers) and refuses loopback, private, and CGNAT destinations unless a rule names the address explicitly. Kills DNS rebinding and the dig-at-boot staleness in one move (lessons from v1 and v2).
+8. A sentinel string is never a proxy credential. Proxy auth is the per-session token (finding #3); the two never share bytes (lessons from v1 and v2).
 
 ## 4. Peer review findings (verified, blocking-level)
 
@@ -99,7 +99,7 @@ Reviewed and rejected: stripping `apt*` from sudoers. Breaks the in-image produc
 - [x] S4: CONNECT MITM inspection & swap layer (`internal/proxy/server.go`). Domain fronting guard (CONNECT == TLS SNI == HTTP Host) and request header sentinel swapping.
 - [x] S5: v3.0 cutover: Egress proxy enabled by default; legacy in-guest UFW removed; `network-filter.sh` deleted from image build and templates.
 - [x] S6: Unit and integration tests covering proxy authentication, destination filtering, CONNECT interception, secret swapping, domain fronting, and confinement checks.
-- [x] S7: Network policy explain diagnostic (`construct network explain <host[:port]>`) and real-time audit logging (`construct network log`).
+- [x] S7: Network policy explain diagnostic (`construct sys network explain <host[:port]>`) and real-time audit logging (`construct sys network log`).
 - [x] S8: Non-HTTP TCP egress tunnels (opt-in `[network] allowed_tcp` host:port rules for databases/queues, bypassing TLS MITM via raw TCP piping and `ALLOW_TCP` logging).
 
 ## 7. Quirks and gotchas
@@ -157,5 +157,5 @@ Notes:
 - creds-proxy design §7 keychain storage, §10 network-mode enforcement, §12 rollout flags (doc removed, history in git)
 - `docs/HIDE-SECRETS-DESIGN.md` — §6 run-only session token (satisfies proxy-auth requirement), V2 deferred proxy contract
 - discobox-ai/discobox — files listed in section 2
-- v1 and v2 — analysis + refinements in LESSONS-TO-V3.md; corroborates findings #3 and #4
+- Lessons from v1 and v2 - refinements in LESSONS-TO-V3.md; corroborates findings #3 and #4
 - agentmemory decision entries (2026-09): analysis + peer review outcome

@@ -261,7 +261,7 @@ func TestGenerateInstallScriptIncludesDiagnosticsAndVerification(t *testing.T) {
 	if !strings.Contains(script, "for cmd in claude amp copilot opencode") {
 		t.Error("Script should verify key agent commands after installation")
 	}
-	if !strings.Contains(script, "If these agents are expected, re-run: construct sys packages --install") {
+	if !strings.Contains(script, "If these agents are expected, re-run: construct sys packages install") {
 		t.Error("Script should include guidance when expected commands are missing")
 	}
 }

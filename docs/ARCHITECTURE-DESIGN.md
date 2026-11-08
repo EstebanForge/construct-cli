@@ -90,8 +90,8 @@ Construct CLI is a single-binary tool that launches an isolated, ephemeral sandb
   - Docker compose startup and daemon runs propagate host `CONSTRUCT_HOST_UID`/`CONSTRUCT_HOST_GID` on Linux to keep mounted home/config ownership aligned.
   - `exec_as_host_user=true` applies at exec-time only; if host UID is missing in container `/etc/passwd`, Construct logs a warning, keeps host UID:GID mapping, and forces `HOME=/home/construct`.
   - Config/migration ownership checks prompt for confirmation before repair; Linux remediation is runtime-aware (`podman unshare chown -R 0:0` in rootless/userns contexts where applicable, then sudo fallback), with explicit manual commands when repair is declined or fails.
-  - `construct sys doctor --fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
-  - `construct sys doctor --fix` compose actions propagate runtime identity context (`CONSTRUCT_USERNS_REMAP`) to avoid immediate post-fix ownership drift on recreated daemon containers.
+  - `construct sys doctor fix` can repair ownership/permissions, rebuild stale/missing images, clean stale session containers, and recreate daemon containers.
+  - `construct sys doctor fix` compose actions propagate runtime identity context (`CONSTRUCT_USERNS_REMAP`) to avoid immediate post-fix ownership drift on recreated daemon containers.
   - SELinux adds `:z` to mounts unless `sandbox.selinux_labels` disables it.
   - Podman rootless runs as the construct user by default.
 - **macOS specifics**: Native `container` runtime supported on macOS 26+; Docker runs as root then drops to construct via gosu in entrypoint.
@@ -222,12 +222,12 @@ API_TIMEOUT_MS = "3000000"
   - pi: dedicated step updates extensions and model catalogs unconditionally, and pi itself when the binary is writable (images since 1.17.17 chown the baked agent tier to the construct user, so agents self-update in place).
   - The baked agent tier is construct-owned and updates in-guest; updates live in the container layer and revert when the daemon is recreated (construct prints this warning after each update; `construct sys update` re-applies them). Dev packages additionally move with image updates.
   - npm: per-package reinstall at `@latest` (after sweeping stale dot-prefixed temp dirs from interrupted npm runs) — `npm update -g` never crosses semver boundaries.
-- **Update Check** (`sys self-update --check` / automatic):
+- **Update Check** (`sys self-update check` / automatic):
   - Passively checks the configured channel marker file on a configurable interval (default 24h): `VERSION` for `runtime.update_channel="stable"` and `VERSION-BETA` for `runtime.update_channel="beta"`.
-  - Actively checks when `construct sys self-update --check` is run.
+  - Actively checks when `construct sys self-update check` is run.
   - If a new version is found, it notifies the user to run the update command.
 - **Reset**: `sys image reset` force-removes the legacy engine volumes (`construct-agents`, `construct-packages`) for a clean reinstall; current state lives in the config dir and the home bind, which it leaves alone. OCI backends only; under msb the equivalent full reset is `construct sys daemon recreate`.
-- **Migrate**: `sys config --migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
+- **Migrate**: `sys config migrate` refreshes templates, merges config, regenerates install scripts/topgrade config, and marks the image for rebuild.
 
 ---
 
@@ -255,16 +255,16 @@ make cross-compile   # all platforms
 - `shims list`: Show state of all agent shims.
 - Run-path status output (daemon banners, proxy notices, image-build progress, migration chatter) goes to stderr via `ui.Info/InfoLn/InfoF`; stdout is reserved for the agent's own output so RPC modes stream clean JSONL. The interactive attach prompt and explicit CLI output (`construct agents`, help) stay on stdout.
 - Harness host path args (`--extension`, `--mcp-config`, `--session`) are staged into the construct home and rewritten to `/home/construct/.construct-staging/...` in `engine.Prepare`, covering daemon exec, compose run, and msb alike ([docs/HARNESS-STAGING.md](HARNESS-STAGING.md)).
-- `sys self-update`: Update the Construct binary itself (`--check` to check for updates).
-- `sys doctor --fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues (`--clipboard` for clipboard diagnostics).
+- `sys self-update`: Update the Construct binary itself (`check` to check for updates).
+- `sys doctor fix`: Apply Linux-focused remediation for ownership/permission and stale runtime/image startup issues (`clipboard` for clipboard diagnostics).
 - `sys packages`: Open `packages.toml` for customization.
-- `sys packages --install`: Regenerate/install user packages into the running container.
+- `sys packages install`: Regenerate/install user packages into the running container.
 - `sys agents rules`: Manage global instruction files (rules) per agent.
-- `sys config --migrate`: Refresh templates/config to match the running binary.
+- `sys config migrate`: Refresh templates/config to match the running binary.
 - `sys exec -- <command>`: Run a single command inside a running Construct container (non-interactive, no TTY). Designed for LLM agents that need to execute commands inside the container without attaching to a shell.
 - `sys auth bridge`: Temporarily forward localhost login callbacks (ports default to 1455/8085).
-- `sys config --restore`: Restore config from backup.
-- `sys set-password`: Change the container user password (default is `construct`).
+- `sys auth password`: Change the container user password (default is `construct`).
+- `sys config restore`: Restore config from backup.
 - `sys ssh import`: Import SSH keys into `~/.config/construct-cli/home/.ssh` when no agent is used.
 - `sys agents push`: One-way push of host agent configs (settings, rules, MCP config, credentials) into the construct home. Interactive runs preview then confirm; scripted runs are fail-closed (`--yes` to apply). See [CONFIGURATION.md](CONFIGURATION.md).
 - `sys image pull`: Pull latest construct-box image from GHCR.
@@ -926,10 +926,10 @@ fi
 
 **Config Modification During Runtime:**
 Config IS modified during runtime via network commands:
-- `construct network allow <domain>` - AddRuleToConfig() → cfg.Save()
-- `construct network block <domain>` - AddRuleToConfig() → cfg.Save()
-- `construct network remove <domain>` - RemoveRuleFromConfig() → cfg.Save()
-- `construct network clear` - ClearRules() → cfg.Save()
+- `construct sys network allow <domain>` - AddRuleToConfig() → cfg.Save()
+- `construct sys network block <domain>` - AddRuleToConfig() → cfg.Save()
+- `construct sys network remove <domain>` - RemoveRuleFromConfig() → cfg.Save()
+- `construct sys network clear` - ClearRules() → cfg.Save()
 
 **Regression Risk with sync.Once Caching:**
 1. **Stale config problem**: If config is cached globally with sync.Once:

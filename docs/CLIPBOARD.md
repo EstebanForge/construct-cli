@@ -174,7 +174,7 @@ Replaces Copilot's native NAPI-RS clipboard addon (`@teddyzhu/clipboard`) with a
 - All read methods use `curl` to fetch from `CONSTRUCT_CLIPBOARD_URL` with the token header.
 - All write methods (`setClipboardText`, `setClipboardImage`, etc.) are no-op stubs.
 - `ClipboardListener` is a stub (no event watching).
-- Logs to `/tmp/construct-copilot-clipboard.log` (visible in `sys doctor --clipboard`).
+- Logs to `/tmp/construct-copilot-clipboard.log` (visible in `sys doctor clipboard`).
 
 **Note:** This patch is still applied and the version string is still checked, but **Copilot no longer uses this bridge for image paste**. Image paste now goes through the PTY wrapper (see below). The JS bridge remains in place as a fallback layer and for text clipboard operations.
 
@@ -386,7 +386,7 @@ The wrapper creates a PTY pair (`pty.openpty()`), spawns the real copilot on the
 
 ## Debugging
 
-Run `construct sys doctor --clipboard` from the host. It executes a diagnostic bash script inside the container and shows:
+Run `construct sys doctor clipboard` from the host. It executes a diagnostic bash script inside the container and shows:
 
 1. **Host server log** (last 50 lines of `~/.config/construct-cli/logs/clipboard_server.log`) — confirms the server started and whether any fetch requests arrived.
 2. **Container env** — `CONSTRUCT_CLIPBOARD_URL`, `CONSTRUCT_CLIPBOARD_TOKEN` (truncated), `CONSTRUCT_FILE_PASTE_AGENTS`, `CONSTRUCT_CLIPBOARD_IMAGE_PATCH`, `XDG_SESSION_TYPE`, etc.

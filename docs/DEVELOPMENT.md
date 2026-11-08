@@ -303,10 +303,10 @@ construct sys doctor
 - For recurring Linux permission/ownership issues, use:
 
 ```bash
-construct sys doctor --fix
+construct sys doctor fix
 ```
 
-- `doctor --fix` can repair config ownership/permissions, recycle stale session/daemon containers, and rebuild stale/missing images required for startup fixes.
+- `doctor fix` can repair config ownership/permissions, recycle stale session/daemon containers, and rebuild stale/missing images required for startup fixes.
 - If automated repair is declined or fails, use:
 
 ```bash

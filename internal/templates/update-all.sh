@@ -208,7 +208,7 @@ for cmd in claude amp copilot opencode qwen cline crush codex goose agy kilocode
 done
 if [ -n "$missing_cmds" ]; then
     echo "⚠️  Missing commands after update:$missing_cmds"
-    echo "    If these agents are expected, run: construct sys packages --install"
+    echo "    If these agents are expected, run: construct sys packages install"
 fi
 
 echo ""

@@ -29,14 +29,14 @@ construct claude --clone "Refactor database migrations"
 construct agy --ct-network none "Explain this code"
 
 # Network diagnostics and policy explanation
-construct network explain api.anthropic.com:443
-construct network explain postgres.internal:5432
-construct network log --tail 20 -f
+construct sys network explain api.anthropic.com:443
+construct sys network explain postgres.internal:5432
+construct sys network log --tail 20 -f
 
 # Allow or block targets
-construct network allow postgres.internal:5432
-construct network allow api.custom.com
-construct network list
+construct sys network allow postgres.internal:5432
+construct sys network allow api.custom.com
+construct sys network list
 
 # Update all agents
 construct sys update
@@ -47,7 +47,7 @@ construct sys daemon status    # Sandbox state + live sessions
 construct sys daemon recreate  # Stop + wipe + cold-create (full reset)
 
 # Install custom packages
-construct sys packages --install
+construct sys packages install
 
 # Edit configuration
 construct sys config
@@ -76,7 +76,7 @@ construct sys image pull        # Pull latest construct-box image from GHCR
 
 # Development
 construct sys image rebuild     # Rebuild the sandbox image
-construct sys config --migrate  # Migrate configuration
+construct sys config migrate    # Migrate configuration
 construct --help                # Show all commands
 ```
 

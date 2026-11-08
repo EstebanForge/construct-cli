@@ -1,6 +1,6 @@
-# Lessons from v1-v2 — What to Adopt in Construct v3.0
+# Lessons from v1 and v2: What to Adopt in Construct v3.0
 
-Analysis of v1-v2 (`v1 and v2`, 2026-11). v1-v2 enforces strict network isolation and secret containment using one microVM per project folder. This document defines the architectural decisions for Construct v3.0 based on v1-v2 analysis, design stress-testing, and peer review.
+Analysis and production lessons from Construct v1 and v2 (2026-11). Construct v3.0 enforces strict network isolation and secret containment using one microVM per project folder. This document defines the architectural decisions for Construct v3.0 based on v1/v2 production experience, design stress-testing, and peer review.
 
 Breaking changes are approved for v3.0. Legacy mechanisms with replacements are deleted in the same release. No fallback compatibility layers.
 
@@ -21,7 +21,7 @@ Related documents:
    - Policy scoping: Network policy is per VM. Daemon carries `construct.daemon.network_hash` label to trigger recreate on policy change.
    - Egress tiers: Default tier is `allowlist` (not open public). Construct ships built-in ecosystem presets (npm, PyPI, crates.io, Go proxy, apt, GitHub release assets).
    - Non-HTTP TCP: Opt-in `[network] allowed_tcp` host:port rules via CONNECT tunnel for databases (`psql`, `redis`).
-   - Diagnostic feedback: Proxy returns HTTP 403 with reason headers on blocked egress. `construct network explain <host[:port]>` and `construct network log` provide debugging visibility.
+   - Diagnostic feedback: Proxy returns HTTP 403 with reason headers on blocked egress. `construct sys network explain <host[:port]>` and `construct sys network log` provide debugging visibility.
 
 3. **Sentinel Credential Proxy**:
    - Runs on the host, bound per session with authentication.

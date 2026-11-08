@@ -14,7 +14,8 @@ func PrintHelp() {
 
 Usage:
   construct <agent> [args...]                # Run AI agent (primary use case)
-  construct <namespace> <command> [options]  # Run namespaced command
+  construct <command> [options]              # Run frequent command (doctor, agents, update)
+  construct sys <command> [options]          # Run system administration command (alias: ct sys)
   construct --help                           # Show this help
   ct <agent> [args...]                       # Alias for construct
 
@@ -24,46 +25,51 @@ Global Flags:
   -ct-n, --ct-network    # Set network isolation mode (permissive|strict|offline|allowlist)
   --clone, --ct-clone    # Execute in an ephemeral zero-trust git clone
 
+Shortcuts:
+  construct doctor [fix|clipboard]           # Diagnose sandbox health (repair, clipboard debug)
+  construct agents [list|push|rules]         # Manage agents (list supported, push configs, rules)
+  construct update                           # Update agents and packages inside Construct
+
 [sys] System Commands:
   construct sys shell              # Interactive shell with all agents inside Construct
   construct sys exec -- <command>  # Run a single command inside the running Construct sandbox
   construct sys update             # Update agents and packages to latest versions inside Construct
   construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|roots)
   construct sys toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
-  construct sys packages           # Package operations (opens packages.toml, apply/reinstall)
+  construct sys packages [action]  # Package operations (opens packages.toml by default)
+                                   # [install] Apply changes from packages.toml to sandbox
+                                   # [reinstall] Recreate package volume and reinstall
+                                   # [update] Update packages to latest versions
   construct sys image <command>    # Image lifecycle (pull, rebuild, reset, init)
   construct sys agents [command]   # Supported agent operations
                                    # [list] List supported agents (default)
                                    # [push] Push host agent configs into Construct
                                    # [rules] Manage global instruction files (AGENTS.md)
+  construct sys network <command>  # Egress proxy and network policy (alias: sys net)
+                                   # [explain] Diagnose host policy (allowed/blocked)
+                                   # [log] View egress proxy audit logs ([--tail N] [-f])
+                                   # [list] Show rules and allowed TCP ports
+                                   # [allow|block|remove] Manage domain or IP rules
+                                   # [status|clear] Check status or clear dynamic rules
   construct sys shims [action]     # PATH shims routing agents and shorthand ct link
                                    # [install] Write shims (default ~/.local/bin)
                                    # [uninstall] Remove installed shims
                                    # [fix] Repair ct shorthand symlink
                                    # [list] Show shim state (default)
-  construct sys auth bridge        # Start localhost OAuth callback bridge ([--ports])
+  construct sys auth <action>      # Authentication operations
+                                   # [bridge] Start localhost OAuth callback bridge ([--ports])
+                                   # [password] Set or change sandbox user password
   construct sys ssh import         # Import SSH keys from host into Construct (no SSH Agent)
-  construct sys config             # Config operations (opens config.toml by default)
-                                   # [--migrate] Re-sync config/templates with current binary
-                                   # [--restore] Restore config.toml from backup
-  construct sys doctor             # System health diagnostics
-                                   # [--fix] Auto-repair missing defaults and symlinks
-                                   # [--clipboard] View clipboard bridge diagnostics
-  construct sys self-update        # Update construct itself to the latest version
-                                   # [--check] Check if an update is available
+  construct sys config [action]    # Config operations (opens config.toml by default)
+                                   # [migrate] Re-sync config/templates with current binary
+                                   # [restore] Restore config.toml from backup
+  construct sys doctor [action]    # System health diagnostics
+                                   # [fix] Auto-repair missing defaults and symlinks
+                                   # [clipboard] View clipboard bridge diagnostics
+  construct sys self-update [act]  # Update construct itself to the latest version
+                                   # [check] Check if an update is available
   construct sys version            # Show version
   construct sys help               # Show sys help
-
-[network] Network Commands (alias: net):
-  construct network explain <host> # Explain whether a host is allowed or blocked and why
-  construct network log            # View egress proxy access logs and security events
-                                   # [--tail N] [-f]
-  construct network list           # Show configured rules and allowed TCP ports
-  construct network allow <target> # Add domain or IP to allowlist
-  construct network block <target> # Add domain or IP to blocklist
-  construct network remove <target># Remove rule from allowlist or blocklist
-  construct network status         # Show active network status in the sandbox
-  construct network clear          # Clear all dynamic network rules
 
 Available agents: claude, qwen, agy, opencode, copilot, cline, crush, codex,
                 droid, goose, kilocode, pi, pig, amp
@@ -95,9 +101,10 @@ Sandbox & Tools:
   exec -- <command>  # Run a single command inside the running Construct sandbox
   update             # Update agents and packages to latest versions inside Construct
   toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
-  packages           # Manage packages.toml and package lifecycle
-                     # [--install] Apply changes from packages.toml to the sandbox
-                     # [--reinstall] Recreate package volume and reinstall packages
+  packages [action]  # Manage packages.toml and package lifecycle
+                     # [install] Apply changes from packages.toml to the sandbox
+                     # [reinstall] Recreate package volume and reinstall packages
+                     # [update] Update packages to latest versions
 `
 	if msbActive {
 		help += `
@@ -123,22 +130,35 @@ Agents & Rules:
                      # [push] Push host agent configs into Construct
                      # [rules] Manage global instruction files (AGENTS.md) for agents
 
+Network & Security (alias: net):
+  network <command>  # Egress network policy and proxy management
+                     # [explain] Diagnose whether host is allowed or blocked
+                     # [log] View proxy audit log ([--tail N] [-f])
+                     # [list] List rules and allowed TCP ports
+                     # [allow] Add domain or IP to allowlist
+                     # [block] Add domain or IP to blocklist
+                     # [remove] Remove rule from allowlist or blocklist
+                     # [status] Show active network status
+                     # [clear] Clear dynamic rules
+  auth <action>      # Authentication helpers
+                     # [bridge] Start localhost OAuth callback bridge ([--ports 1455,8085])
+                     # [password] Set or change sandbox user password
+  ssh import         # Import SSH keys from host into Construct (no SSH Agent)
+
 Host & Integrations:
   shims [action]     # PATH shims routing agents and shorthand ct link
                      # [install] Write shims (default ~/.local/bin)
                      # [uninstall] Remove installed shims
                      # [fix] Repair ct shorthand symlink
                      # [list] Show shim state (default)
-  auth bridge        # Start localhost OAuth callback bridge ([--ports 1455,8085])
-  ssh import         # Import SSH keys from host into Construct (no SSH Agent)
-  config             # Config operations (opens config.toml by default)
-                     # [--migrate] Re-sync config/templates with current binary
-                     # [--restore] Restore config.toml from backup
-  doctor             # System health diagnostics
-                     # [--fix] Auto-repair missing defaults and symlinks
-                     # [--clipboard] View clipboard bridge diagnostics
-  self-update        # Update construct itself to the latest version
-                     # [--check] Check if an update is available
+  config [action]    # Config operations (opens config.toml by default)
+                     # [migrate] Re-sync config/templates with current binary
+                     # [restore] Restore config.toml from backup
+  doctor [action]    # System health diagnostics
+                     # [fix] Auto-repair missing defaults and symlinks
+                     # [clipboard] View clipboard bridge diagnostics
+  self-update [act]  # Update construct itself to the latest version
+                     # [check] Check if an update is available
   version            # Show version
   help               # Show this help
 `
@@ -150,7 +170,7 @@ func PrintNetworkHelp() {
 	help := `Network Management Commands
 
 Usage:
-  construct network <command> [args...] (alias: construct net)
+  construct sys network <command> [args...] (alias: construct sys net)
 
 Commands:
   allow <domain|ip>   # Add domain or IP to allowlist
@@ -163,12 +183,12 @@ Commands:
   log [--tail N] [-f] # View egress proxy access logs and security events
 
 Examples:
-  construct net explain api.anthropic.com
-  construct net log --tail 20
-  construct network allow api.anthropic.com
-  construct network block *.malicious.com
-  construct network remove 1.2.3.4
-  construct network list
+  construct sys net explain api.anthropic.com
+  construct sys net log --tail 20
+  construct sys network allow api.anthropic.com
+  construct sys network block *.malicious.com
+  construct sys network remove 1.2.3.4
+  construct sys network list
 `
 	fmt.Print(help)
 }
