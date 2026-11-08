@@ -178,7 +178,7 @@ if [ "$(id -u)" = "0" ]; then
             fi
 
             # Allow host egress proxy strictly on proxy port to proxy host and gateway
-            proxy_port=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -n 's|.*:\([0-9]\+\).*|\1|p')
+            proxy_port=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -e 's|^.*://||' -e 's|/.*$||' -e 's|^.*@||' | sed -n 's|.*:\([0-9]\+\)$|\1|p')
             proxy_host=$(echo "${HTTPS_PROXY:-${HTTP_PROXY:-}}" | sed -e 's|^.*://||' -e 's|/.*$||' -e 's|^.*@||' -e 's|:.*$||')
             proxy_ips=""
             if [ -n "$proxy_host" ]; then
