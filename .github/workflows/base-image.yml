@@ -1,0 +1,52 @@
+name: Publish Base Layer Image
+
+# Builds and publishes the Tier 1 base image (construct-base) containing
+# Debian system packages, NodeSource Node 24, Mise, Bun, ASDF, Python, and system
+# build runtimes. This tier changes rarely (monthly schedule or manual dispatch).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 1 * *'
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-base-image
+  cancel-in-progress: false
+
+jobs:
+  publish-base:
+    name: Publish Base Image (GHCR)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Construct base image
+        uses: docker/build-push-action@v7
+        with:
+          context: ./internal/templates
+          file: ./internal/templates/Dockerfile
+          target: construct-base
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/estebanforge/construct-base:latest
+          secrets: |
+            github_token=${{ secrets.GITHUB_TOKEN }}
+          cache-from: type=gha,scope=construct-base
+          cache-to: type=gha,mode=max,scope=construct-base

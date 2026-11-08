@@ -83,7 +83,10 @@ The microsandbox SDK's FFI bridge is an untagged cgo file, so plain `GOOS`/`GOAR
 
 ## Image Publish (decoupled from releases)
 
-The `construct-box` GHCR image is NOT built by the release workflow. The CLI always pulls `construct-box:latest` (no version coupling), so image publishes are a separate manual workflow: `.github/workflows/image.yml` (`workflow_dispatch`, optional `version` input pins `ghcr.io/estebanforge/construct-box:<version>` alongside `:latest`). Dispatch it when the image definition changes: `internal/templates/Dockerfile` plus the files it COPYs (`entrypoint.sh`, `update-all.sh`, `clipper`, `clipboard-x11-sync.sh`, `osascript`, `construct-host-exec`). Multi-arch (amd64 + arm64 via QEMU) with GitHub Actions cache; dispatches are serialized by a concurrency group.
+The image pipeline uses a two-tier architecture:
+- **Tier 1 (`construct-base`)**: Debian system packages, dev tools, NodeSource Node 24, Mise, Bun, ASDF, and system libraries. Built and published to `ghcr.io/estebanforge/construct-base:latest` via `.github/workflows/base-image.yml` (monthly schedule or manual dispatch).
+- **Tier 2 (`construct-box`)**: Derived from `construct-base`, baking agent binaries (Claude Code, AgY, OpenCode, Codex, Pi, PiG, Amp, Goose, Droid, Obscura), default npm tools (Copilot, agent-browser, etc.), and entrypoint scripts. Built and published to `ghcr.io/estebanforge/construct-box:latest` via `.github/workflows/image.yml` (`workflow_dispatch`, optional `version` input pins `ghcr.io/estebanforge/construct-box:<version>` alongside `:latest`).
+The CLI always pulls `construct-box:latest` (no version coupling). Multi-arch (amd64 + arm64 via QEMU) with GitHub Actions cache scoped per tier (`scope=construct-base` and `scope=construct-box`). Dispatches are serialized by concurrency groups.
 
 ## Egress Sentinel Proxy & Network Policy
 - Host-side authenticated CONNECT proxy (`internal/proxy`): runs per session on the host with session-token auth (`Proxy-Authorization: Basic`). Real provider keys never cross into the guest; guest gets shape-mimicking sentinels swapped by the proxy on outbound HTTPS CONNECT requests (`swapHeaders`). Outbound requests with unswapped real keys are aborted (`LEAK_DROP`).

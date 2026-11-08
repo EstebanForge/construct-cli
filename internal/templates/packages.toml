@@ -38,21 +38,15 @@ packages = [
 packages = []
 
 # Global Node.js packages
-# Baked core agents live at /usr/local/bin (claude, codex, agy, pi, pig,
-# opencode) — listing them here would shadow them with bind copies.
-# Optional agents only:
+# Baked tools live at /usr/local (core agents, copilot, agent-browser,
+# url-to-markdown, sass, hunkdiff, prettier, typescript, vite, webpack).
+# Optional tools and agents (uncomment or add to enable):
+#   "@qwen-code/qwen-code@latest",
+#   "@charmland/crush",
+#   "cline",
+#   "@kilocode/cli",
 [npm]
-packages = [
-  "@qwen-code/qwen-code@latest",
-  "@github/copilot",
-  "@charmland/crush",
-  "cline",
-  "@kilocode/cli",
-  "agent-browser",
-  "url-to-markdown-cli-tool",
-  "sass",
-  "hunkdiff",
-]
+packages = []
 
 # Pi extension packages (installed via `pi install`, NOT global npm).
 # Sources use pi's syntax: npm:name, git:github.com/user/repo, url, or local path.
@@ -84,16 +78,8 @@ phpbrew = false
 vmr = false
 volta = false
 
-# Commands to run after all package managers finish
+# Commands to run after all package managers finish.
+# Baseline tools (amp, goose, droid, obscura, agent-browser) are baked into
+# the base image. Add custom user setup commands here:
 [post_install]
-commands = [
-  "if [ -x \"$HOME/.local/bin/amp\" ] || [ -x \"$HOME/.amp/bin/amp\" ]; then echo \"Amp already installed\"; else curl -fsSL https://ampcode.com/install.sh | bash; fi",
-  "if [ \"$(uname -m)\" = \"aarch64\" ] || [ \"$(uname -m)\" = \"arm64\" ]; then echo \"ℹ️ ARM64 detected: Configuring agent-browser to use system Chromium\"; mkdir -p ~/.local/bin; printf '#!/bin/bash\\nexec \"'\"$(npm config get prefix)\"'\"/bin/agent-browser --executable-path /usr/bin/chromium \"$@\"' > ~/.local/bin/agent-browser && chmod +x ~/.local/bin/agent-browser; else agent-browser install --with-deps; fi",
-  "if command -v goose &>/dev/null; then echo \"Goose already installed\"; else curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash; fi",
-  "if [ -x \"$HOME/.local/bin/droid\" ]; then echo \"Droid already installed\"; else curl -fsSL https://app.factory.ai/cli | sh; fi",
-  "if [ -x \"$HOME/.phpvm/bin/phpvm\" ]; then echo \"phpvm already installed\"; else curl -o- https://raw.githubusercontent.com/Thavarshan/phpvm/main/install.sh | bash; fi",
-  # Obscura: Rust headless browser engine for AI agents (V8 + CDP, Puppeteer/Playwright/MCP).
-  # Binary on PATH only, NOT an agent (no agent.go/memories.go registration). Keep worker next to binary.
-  # Linux-only tarball (Construct sandboxes are Debian). Pinned to v0.1.9; bump deliberately when a new release is vetted.
-  "if [ -x \"$HOME/.local/bin/obscura\" ]; then echo \"Obscura already installed\"; else case \"$(uname -m)\" in aarch64|arm64) ARCH=aarch64;; *) ARCH=x86_64;; esac; curl -fsSL -o /tmp/obscura.tar.gz \"https://github.com/h4ckf0r0day/obscura/releases/download/v0.1.9/obscura-${ARCH}-linux.tar.gz\" && mkdir -p \"$HOME/.local/bin\" && tar xzf /tmp/obscura.tar.gz -C \"$HOME/.local/bin\" obscura obscura-worker && chmod +x \"$HOME/.local/bin/obscura\" \"$HOME/.local/bin/obscura-worker\" && rm -f /tmp/obscura.tar.gz && echo \"Obscura installed\"; fi",
-]
+commands = []

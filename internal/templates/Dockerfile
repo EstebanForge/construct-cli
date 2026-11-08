@@ -1,4 +1,11 @@
-FROM debian:trixie-slim
+# syntax=docker/dockerfile:1
+ARG BASE_IMAGE=construct-base
+
+# ==============================================================================
+# TIER 1: Base image (system packages, dev tools, runtimes, managers)
+# Published to ghcr.io/estebanforge/construct-base:latest via base-image.yml
+# ==============================================================================
+FROM debian:trixie-slim AS construct-base
 
 # Keep downloaded .debs in the apt cache: the guest /var/cache/apt/archives
 # is a persistent host bind, so recreated sandboxes re-provision
@@ -155,6 +162,12 @@ RUN gem install jekyll -v 4.4.1 && \
     tar -C /usr/local/bin -xzf /tmp/asdf.tgz && rm -f /tmp/asdf.tgz && \
     asdf --version && litellm --version | head -1 && jekyll --version
 
+# ==============================================================================
+# TIER 2: Construct Box (agents, tools, wrappers, permissions)
+# Published to ghcr.io/estebanforge/construct-box:latest via image.yml
+# ==============================================================================
+FROM ${BASE_IMAGE} AS construct-box
+
 # Copy entrypoint scripts (still USER root from step 3b)
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY update-all.sh /usr/local/bin/update-all.sh
@@ -179,29 +192,15 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
     ln -sf /usr/local/bin/clipper /usr/bin/xsel && \
     if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -sf /usr/local/bin/clipper /usr/bin/wl-paste; fi
 
-# 6. Bake core agents (LAST: most frequently updated layer)
-# Each installs via its official installer into a throwaway HOME, then the
-# binary is placed at /usr/local/bin — OUTSIDE the home bind, so bind-tier
-# copies shadow it by PATH (the override contract). The chown layer below
-# hands the installed tier to the construct user so in-guest self-updates
-# write in place.
-# pig is the exception: its installer accepts PIG_INSTALL_DIR, so it lands
-# straight in /usr/local/bin without the find/install dance. Fetch the
-# script from its source in the PiG repo: pi-in-go.dev (site + version
-# API) 403s GitHub Actions runner egress. PIG_VERSION is pinned because
-# the installer's own latest-version lookup hits the same blocked domain;
-# bump the pin on new pig releases.
-# pi is the second exception: its official managed installer (PI_CODING_AGENT_DIR
-# steers placement) writes a launcher that derives its install root from its
-# own path, so /usr/local/bin/pi is a symlink into /usr/local/lib/pi-agent,
-# never a copy. Installer needs node >= 22.19 (NodeSource tier provides it)
-# and detects no tty in the build, so it runs unattended.
-# antigravity is the third exception: antigravity.google serves install.sh
-# through a cache that sometimes returns the gzip variant of the script with
-# NO Content-Encoding header (no Vary: Accept-Encoding, same ETag for both
-# variants), so pipe-to-bash fed gzip bytes to bash and killed the image
-# build. curl --compressed cannot help (no header to react to); download to
-# a file, detect the gzip magic bytes, decompress when present, then execute.
+# Bake default npm tools: copilot, agent-browser, url-to-markdown, sass, hunkdiff
+RUN npm install -g --prefix /usr/local \
+    @github/copilot agent-browser url-to-markdown-cli-tool sass hunkdiff
+
+# Wrap agent-browser to use Debian's system Chromium (no Playwright download needed)
+RUN printf '#!/bin/bash\nexec /usr/local/bin/node /usr/local/lib/node_modules/agent-browser/bin/agent-browser.js --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser && \
+    chmod +x /usr/local/bin/agent-browser
+
+# 6. Bake core agents and secondary tools (amp, goose, droid, obscura, claude, agy, opencode, codex, pi, pig)
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
@@ -217,31 +216,28 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://pi.dev/install.sh | PI_CODING_AGENT_DIR=/usr/local/lib/pi-agent sh && \
     ln -sf /usr/local/lib/pi-agent/bin/pi /usr/local/bin/pi && \
     curl -fsSL https://raw.githubusercontent.com/MichaelKinsy/PiG/main/docs/site/public/install.sh | PIG_VERSION=0.2.0 PIG_INSTALL_DIR=/usr/local/bin sh && \
-    rm -rf "$HOME" && \
+    curl -fsSL https://ampcode.com/install.sh | bash && \
+    if [ -f "$HOME/.local/bin/amp" ]; then install -m0755 "$HOME/.local/bin/amp" /usr/local/bin/amp; \
+    elif [ -f "$HOME/.amp/bin/amp" ]; then install -m0755 "$HOME/.amp/bin/amp" /usr/local/bin/amp; fi && \
+    curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash && \
+    if [ -f "$HOME/.local/bin/goose" ]; then install -m0755 "$HOME/.local/bin/goose" /usr/local/bin/goose; fi && \
+    curl -fsSL https://app.factory.ai/cli | sh && \
+    if [ -f "$HOME/.local/bin/droid" ]; then install -m0755 "$HOME/.local/bin/droid" /usr/local/bin/droid; fi && \
+    case "$(dpkg --print-architecture)" in amd64) OBS_ARCH=x86_64;; arm64) OBS_ARCH=aarch64;; esac && \
+    curl -fsSL -o /tmp/obscura.tar.gz "https://github.com/h4ckf0r0day/obscura/releases/download/v0.1.9/obscura-${OBS_ARCH}-linux.tar.gz" && \
+    tar -xzf /tmp/obscura.tar.gz -C /usr/local/bin obscura obscura-worker && \
+    chmod +x /usr/local/bin/obscura /usr/local/bin/obscura-worker && \
+    rm -rf /tmp/obscura.tar.gz "$HOME" && \
     for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
 
-# Agent tier is user-writable: in-guest agent self-updates (pi update --all,
-# claude update, codex update, ...) run as `construct` and write their own
-# install prefix in place. The image lane stays authoritative (root fs is
-# replaced on image pull) and home-tier shadow copies stay banned; the
-# entrypoint never re-chowns /usr/local. The bin DIR is chowned
-# non-recursively so npm can add/remove agent symlinks while the system
-# toolchain (node, npm, bun, litellm, entrypoint scripts) stays image-owned.
-# In-guest updates live in the container layer: a daemon recreate reverts
-# them to the image version until the next update-all.sh pass re-applies
-# them.
+# Agent tier is user-writable
 RUN chown -R construct:construct /usr/local/lib/node_modules /usr/local/lib/pi-agent && \
     chown construct:construct /usr/local/bin && \
     chown -h construct:construct /usr/local/bin/claude /usr/local/bin/agy \
         /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
-        /usr/local/bin/pig && \
+        /usr/local/bin/pig 2>/dev/null || true && \
     chmod +t /usr/local/bin
 
-# Switch back to construct user
-# USER construct -> Commented out to allow entrypoint to run as root first (for permission fixing)
-
-# 5. Environment Setup
-# Set default working directory
 WORKDIR /projects
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["/bin/bash"]
