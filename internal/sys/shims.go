@@ -345,7 +345,7 @@ func warnIfShadowed(agents []agent.Agent, dir string) {
 func HandleShimsCommand(args []string) {
 	var dir string
 	var only []string
-	var install, uninstall, force, removeAliases bool
+	var install, uninstall, fix, force, removeAliases bool
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -356,21 +356,7 @@ func HandleShimsCommand(args []string) {
 		case "remove-aliases", "--remove-aliases":
 			removeAliases = true
 		case "fix":
-			changed, msg, err := FixCtSymlink()
-			if err != nil {
-				ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
-				os.Exit(1)
-			}
-			if ui.GumAvailable() {
-				if changed {
-					ui.GumSuccess(msg)
-				} else {
-					ui.GumInfo(msg)
-				}
-			} else {
-				fmt.Println(msg)
-			}
-			return
+			fix = true
 		case "list":
 			// default action; explicit verb accepted
 		case "--force":
@@ -394,6 +380,28 @@ func HandleShimsCommand(args []string) {
 			printShimsUsage()
 			os.Exit(1)
 		}
+	}
+
+	if fix {
+		if install || uninstall || removeAliases {
+			ui.GumError("fix cannot be combined with install, uninstall, or remove-aliases")
+			os.Exit(1)
+		}
+		changed, msg, err := FixCtSymlink()
+		if err != nil {
+			ui.GumError(fmt.Sprintf("ct symlink fix failed: %v", err))
+			os.Exit(1)
+		}
+		if ui.GumAvailable() {
+			if changed {
+				ui.GumSuccess(msg)
+			} else {
+				ui.GumInfo(msg)
+			}
+		} else {
+			fmt.Println(msg)
+		}
+		return
 	}
 
 	if dir == "" {

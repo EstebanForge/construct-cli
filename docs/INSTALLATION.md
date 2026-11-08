@@ -34,7 +34,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 This will:
 1. Download the latest binary for your platform
 2. Install to `/usr/local/bin`
-3. Print the `construct sys init` follow-up command
+3. Print the `construct sys image init` follow-up command
 
 ### Alternative: Homebrew
 
@@ -242,7 +242,7 @@ sudo mv construct-linux-amd64 /usr/local/bin/construct
 After installation, run the first-time setup:
 
 ```bash
-construct sys init
+construct sys image init
 ```
 
 This will:

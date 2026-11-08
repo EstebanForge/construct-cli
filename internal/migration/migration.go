@@ -888,11 +888,11 @@ var isMicrovmBackendFn = isMicrovmBackend
 
 // imageRebuildNote returns the post-migration note for an image-tier
 // template change. Both engines pull from GHCR on the next run; a local
-// build happens only via an explicit `construct sys rebuild` (container
+// build happens only via an explicit `construct sys image rebuild` (container
 // backends) or as the pull-failure fallback (both).
 func imageRebuildNote() string {
 	if isMicrovmBackendFn() {
-		return "Note: microVM image will be re-pulled from GHCR on next agent run; run 'construct sys rebuild' to build locally instead"
+		return "Note: microVM image will be re-pulled from GHCR on next agent run; run 'construct sys image rebuild' to build locally instead"
 	}
 	return "Note: container image will be re-pulled from GHCR on next agent run (local build only if the pull fails)"
 }

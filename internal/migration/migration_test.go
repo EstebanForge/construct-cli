@@ -40,7 +40,7 @@ func TestRemoveMsbImageCacheRemovesAllRefs(t *testing.T) {
 
 // TestRebuildNotesEngineAware: the migration completion notes must speak
 // the engine's language — the microvm backend re-pulls a microVM image
-// from GHCR (local build only via an explicit `sys rebuild`), while the
+// from GHCR (local build only via an explicit `sys image rebuild`), while the
 // container backends re-pull a container image.
 func TestRebuildNotesEngineAware(t *testing.T) {
 	orig := isMicrovmBackendFn

@@ -62,7 +62,7 @@ if [[ -n "$codex_bin" ]] && grep -q "construct-codex-wrapper-v1" "$codex_bin" 2>
   real_line=$(grep "_REAL" "$codex_bin" 2>/dev/null | head -1)
   echo "  _REAL: $real_line"
 else
-  echo "PTY wrapper: NOT installed at active codex path (run 'construct sys rebuild' then restart agent)"
+  echo "PTY wrapper: NOT installed at active codex path (run 'construct sys image rebuild' then restart agent)"
 fi
 codex_wrapper_log="$HOME/.config/construct-cli/logs/construct-codex-wrapper.log"
 echo "Wrapper log: $codex_wrapper_log"
@@ -87,7 +87,7 @@ if [[ -n "$copilot_bin" ]] && grep -q "construct-copilot-wrapper-v9" "$copilot_b
   real_line=$(grep "_REAL" "$copilot_bin" 2>/dev/null | head -1)
   echo "  _REAL: $real_line"
 else
-  echo "PTY wrapper: NOT installed at active copilot path (run 'construct sys rebuild' then restart agent)"
+  echo "PTY wrapper: NOT installed at active copilot path (run 'construct sys image rebuild' then restart agent)"
 fi
 wrapper_log="$HOME/.config/construct-cli/logs/construct-copilot-wrapper.log"
 echo "Wrapper log: $wrapper_log"
@@ -109,7 +109,7 @@ else
     if grep -q "construct-copilot-clipboard-bridge-v3" "$file"; then
       echo "  patched: yes"
     else
-      echo "  patched: NO (run 'construct sys rebuild' then restart agent)"
+      echo "  patched: NO (run 'construct sys image rebuild' then restart agent)"
     fi
   done <<< "$matches"
 fi

@@ -143,14 +143,22 @@ func constructHomeDir() string {
 
 // Run performs system health checks and prints a report.
 func Run(args ...string) {
-	// Parse flags first: --json suppresses the human header/banner.
+	// Parse and validate arguments first before any output.
 	jsonRequested := false
+	fixRequested := false
 	for _, arg := range args {
-		if arg == "--json" {
+		switch arg {
+		case "fix":
+			fixRequested = true
+		case "--json":
 			jsonRequested = true
-			break
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown doctor argument: %s\n", arg)
+			fmt.Fprintf(os.Stderr, "Usage: construct doctor [fix|clipboard] [--json]\n")
+			os.Exit(1)
 		}
 	}
+
 	if !jsonRequested {
 		fmt.Println()
 		if ui.GumAvailable() {
@@ -166,21 +174,6 @@ func Run(args ...string) {
 	}
 
 	checks := make([]CheckResult, 0, 15)
-	fixRequested := false
-	for _, arg := range args {
-		switch arg {
-		case "fix":
-			fixRequested = true
-		case "--json":
-			jsonRequested = true
-		default:
-			if strings.HasPrefix(arg, "-") {
-				fmt.Fprintf(os.Stderr, "Unknown doctor option: %s\n", arg)
-				fmt.Fprintf(os.Stderr, "Usage: construct doctor [fix|clipboard] [--json]\n")
-				os.Exit(1)
-			}
-		}
-	}
 
 	// 0. Version Check
 	versionCheck := CheckResult{
@@ -520,7 +513,7 @@ func Run(args ...string) {
 			imageFixCheck.Message = "Failed to rebuild image for startup fix"
 			imageFixCheck.Details = append(imageFixCheck.Details, rebuildDetails...)
 			imageFixCheck.Details = append(imageFixCheck.Details, err.Error())
-			imageFixCheck.Suggestion = "Run: construct sys rebuild"
+			imageFixCheck.Suggestion = "Run: construct sys image rebuild"
 		} else if rebuilt {
 			imageFixCheck.Status = CheckStatusOK
 			imageFixCheck.Message = "Image rebuilt for startup ownership fix"
@@ -621,7 +614,7 @@ func Run(args ...string) {
 	} else {
 		configCheck.Status = CheckStatusError
 		configCheck.Message = "Config file missing"
-		configCheck.Suggestion = "Run 'construct sys init'"
+		configCheck.Suggestion = "Run 'construct sys image init'"
 	}
 	checks = append(checks, configCheck)
 
@@ -858,7 +851,7 @@ func Run(args ...string) {
 		} else {
 			imageCheck.Status = CheckStatusWarning
 			imageCheck.Message = "Image missing"
-			imageCheck.Suggestion = "Run 'construct sys init' or run any agent to build"
+			imageCheck.Suggestion = "Run 'construct sys image init' or run any agent to build"
 		}
 	}
 	checks = append(checks, imageCheck)

@@ -222,7 +222,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			} else {
 				ui.InfoLn("⚠️  Rebuild required.")
 			}
-			ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
+			ui.InfoLn("Run 'construct sys image rebuild' to refresh the container image.")
 			return fmt.Errorf("rebuild required")
 		}
 	}
@@ -240,7 +240,7 @@ func ensureSetupComplete(cfg *config.Config, containerRuntime, configPath string
 			fmt.Fprintf(os.Stderr, "Warning: Failed to mark rebuild required: %v\n", err)
 		}
 		ui.InfoLn("⚠️  Container image entrypoint is stale.")
-		ui.InfoLn("Run 'construct sys rebuild' to refresh the container image.")
+		ui.InfoLn("Run 'construct sys image rebuild' to refresh the container image.")
 		return fmt.Errorf("rebuild required")
 	}
 

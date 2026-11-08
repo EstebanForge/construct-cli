@@ -396,7 +396,7 @@ construct sys update
 **To remove packages:**
 1. Edit `packages.toml`, remove unwanted packages
 2. Run `construct sys packages install`
-3. Or run `construct sys rebuild` for clean slate
+3. Or run `construct sys image rebuild` for clean slate
 
 ## Optional Tools
 
@@ -479,7 +479,7 @@ volta = false         # Disabled
 
 3. **Use container rebuild**
    ```bash
-   construct sys rebuild
+   construct sys image rebuild
    ```
 
 ### State Not Persisting
@@ -496,7 +496,7 @@ volta = false         # Disabled
 
 2. **Reset the sandbox**
    ```bash
-   construct sys reset
+   construct sys image reset
    ```
 
 3. **Verify packages.toml is in config**

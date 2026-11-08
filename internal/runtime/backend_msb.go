@@ -59,7 +59,7 @@ func (m *MsbBackend) Available(_ context.Context) (bool, error) {
 // full registry ref, `msb load -i` imports archives as localhost/<name>.
 // localhost/ FIRST: it exists only after a deliberate local build
 // (TransitionLocalConstructImageToMsb), which must beat a concurrently
-// cached — possibly stale — GHCR ref when both exist (e.g. `sys init`
+// cached — possibly stale — GHCR ref when both exist (e.g. `sys image init`
 // after prior GHCR pulls). The bare name stays ahead of the registry ref
 // for msb builds that resolve short names.
 var constructImageRefCandidates = []string{
@@ -217,7 +217,7 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 	ui.InfoLn("Preparing microVM image (construct-box:latest)...")
 
 	// Deliberate local builds win over GHCR: a localhost/ ref only lands
-	// via docker save + msb load (`construct sys rebuild` on this
+	// via docker save + msb load (`construct sys image rebuild` on this
 	// backend), so adopt it as-is. The digest drift check below can never
 	// bless it — a local build's manifest digest never matches the
 	// CI-published image, even at identical content — so letting the flow
@@ -292,12 +292,12 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 		return ref, nil
 	}
 
-	return "", fmt.Errorf("construct-box image not found locally and pull failed; check your network or run 'construct sys pull'")
+	return "", fmt.Errorf("construct-box image not found locally and pull failed; check your network or run 'construct sys image pull'")
 }
 
 // TransitionLocalConstructImageToMsb moves a locally built construct-box
 // docker/podman image into the msb image cache (docker save + msb load).
-// The msb backend never compose-builds, so `construct sys rebuild`
+// The msb backend never compose-builds, so `construct sys image rebuild`
 // calls this after BuildImage to land the fresh build where the guest
 // actually boots from. No local docker image: no-op success — the GHCR
 // pull remains the acquisition path.

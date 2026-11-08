@@ -120,18 +120,7 @@ func main() {
 	// Top-level shortcuts and namespace routing
 	switch command {
 	case "doctor":
-		cfg = ensureConfigLoaded(cfg)
-		if len(args) > 1 {
-			switch args[1] {
-			case "clipboard":
-				sys.ClipboardDebug(cfg)
-				return
-			case "fix":
-				doctor.Run(append([]string{"fix"}, args[2:]...)...)
-				return
-			}
-		}
-		doctor.Run(args[1:]...)
+		handleDoctorCommand(args[1:], cfg)
 		return
 	case "agents":
 		handleAgentsCommand(args[1:])
@@ -179,6 +168,21 @@ func main() {
 		// Everything else is an agent invocation
 		agent.RunWithArgs(args, networkFlag, cloneFlag)
 	}
+}
+
+func handleDoctorCommand(args []string, cfg *config.Config) {
+	if len(args) > 0 {
+		switch args[0] {
+		case "clipboard":
+			cfg = ensureConfigLoaded(cfg)
+			sys.ClipboardDebug(cfg)
+			return
+		case "fix":
+			doctor.Run(append([]string{"fix"}, args[1:]...)...)
+			return
+		}
+	}
+	doctor.Run(args...)
 }
 
 func handleImageCommand(args []string, cfg *config.Config) {
@@ -276,17 +280,7 @@ func handleSysCommand(args []string, cfg *config.Config) {
 	case "toolchains", "toolchain":
 		sys.HandleToolchainsCommand(args[1:])
 	case "doctor":
-		if len(args) > 1 {
-			switch args[1] {
-			case "clipboard":
-				sys.ClipboardDebug(cfg)
-				return
-			case "fix":
-				doctor.Run(append([]string{"fix"}, args[2:]...)...)
-				return
-			}
-		}
-		doctor.Run(args[1:]...)
+		handleDoctorCommand(args[1:], cfg)
 	case "self-update":
 		if len(args) > 1 {
 			switch args[1] {
@@ -570,13 +564,32 @@ func shouldRunMigration(args []string) bool {
 			return false
 		}
 		switch args[1] {
-		case "image", "update", "shell", "exec", "version", "help",
-			"config", "packages", "agents", "toolchains", "toolchain", "doctor",
-			"self-update", "ssh", "shims", "auth", "daemon":
-			if args[1] == "image" && len(args) > 2 && args[2] == "rebuild" {
+		case "image":
+			if len(args) < 3 {
 				return false
 			}
-			return args[1] != "self-update"
+			switch args[2] {
+			case "pull", "init", "reset":
+				return true
+			default:
+				return false
+			}
+		case "shims":
+			if len(args) < 3 {
+				return false
+			}
+			switch args[2] {
+			case "install", "uninstall":
+				return true
+			default:
+				return false
+			}
+		case "update", "shell", "exec", "version", "help",
+			"config", "packages", "agents", "toolchains", "toolchain", "doctor",
+			"ssh", "auth", "daemon":
+			return true
+		case "self-update":
+			return false
 		case "network", "net":
 			if len(args) < 3 {
 				return false

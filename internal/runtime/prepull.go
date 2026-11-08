@@ -69,7 +69,7 @@ func MaybePrepullImage(cfg *config.Config, exe string) {
 }
 
 // PullImage runs a foreground pull of the published construct-box image from GHCR.
-// Used by `construct sys pull`.
+// Used by `construct sys image pull`.
 func PullImage(cfg *config.Config) error {
 	backend := config.BackendMsb
 	if cfg != nil && cfg.Runtime.Backend != "" {

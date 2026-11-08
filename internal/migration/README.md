@@ -24,7 +24,7 @@ On first run after installation or init, this file is created with the current v
 
 ### Migration Detection
 
-During startup for recognized commands/subcommands, `main.go` checks `migration.NeedsMigration()` (invalid/unknown commands and selected self-managed paths such as `sys self-update` and `sys rebuild` are excluded) which:
+During startup for recognized commands/subcommands, `main.go` checks `migration.NeedsMigration()` (invalid/unknown commands and selected self-managed paths such as `sys self-update` and `sys image rebuild` are excluded) which:
 1. Reads the installed version from `.version` file
 2. If no `.version` file exists:
    - Checks if `config.toml` exists

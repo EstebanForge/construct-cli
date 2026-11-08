@@ -247,7 +247,7 @@ curl -fsSL https://raw.githubusercontent.com/EstebanForge/construct-cli/main/scr
 
 **First run:**
 ```bash
-construct sys init
+construct sys image init
 ```
 
 **Run agent:**

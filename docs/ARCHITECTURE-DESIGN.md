@@ -209,7 +209,7 @@ API_TIMEOUT_MS = "3000000"
 ---
 
 ## 6. Install / Update Behavior
-- **First run** (`construct sys init`):
+- **First run** (`construct sys image init`):
   - Writes embedded templates to `~/.config/construct-cli/`.
   - Builds `construct-box` image.
   - Generates `container/install_user_packages.sh` from `packages.toml` and installs tools on first container start (including post-install hooks).

@@ -304,7 +304,7 @@ func InstallPackages(cfg *config.Config) {
 
 // ReinstallPackages reapplies packages.toml inside the sandbox. The former
 // construct-packages volume is gone (the toolchain is baked into the image); a
-// full guest reset is `construct sys reset`.
+// full guest reset is `construct sys image reset`.
 func ReinstallPackages(cfg *config.Config) {
 	InstallPackages(cfg)
 }

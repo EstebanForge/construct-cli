@@ -347,7 +347,7 @@ run: build ## Build and run
 
 dev: ## Development mode - build and init
 	@$(MAKE) build
-	@./$(BINARY_PATH) sys init
+	@./$(BINARY_PATH) sys image init
 	@echo "✓ Development environment ready"
 
 dev-check: fmt vet test-unit ## Quick development check (fmt, vet, test-unit)

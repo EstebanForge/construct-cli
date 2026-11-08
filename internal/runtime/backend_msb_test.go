@@ -90,7 +90,7 @@ func TestManifestDigestForHost(t *testing.T) {
 }
 
 // TestEnsureImagePrefersLocalBuild: a localhost/ ref only lands via an
-// explicit local build + transition (`construct sys rebuild` / `sys init`
+// explicit local build + transition (`construct sys image rebuild` / `sys image init`
 // on this backend), so EnsureImage must adopt it WITHOUT consulting GHCR —
 // even when a stale GHCR ref is ALSO cached (the normal state after any
 // prior run pulled from the registry). The digest drift check would see a
@@ -523,7 +523,7 @@ func TestMsbConstructImageRefPrefersLocalBuildOverGhcr(t *testing.T) {
 
 // TestTransitionLocalConstructImageToMsbNoLocalImage: without a locally
 // built docker image the transition is a no-op success — the GHCR pull
-// remains the acquisition path and `sys rebuild` must not fail on a
+// remains the acquisition path and `sys image rebuild` must not fail on a
 // machine whose docker store has no construct-box image.
 func TestTransitionLocalConstructImageToMsbNoLocalImage(t *testing.T) {
 	orig := localConstructImageExistsFn

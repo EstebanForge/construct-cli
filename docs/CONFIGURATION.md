@@ -106,7 +106,7 @@ One key selects both the isolation technology and, for the container path, the O
 - `podman`: pin Podman
 - `docker`: pin Docker (OrbStack on macOS, then Docker Desktop). Pinning sets the priority order, not a hard requirement: if the pinned binary is unavailable, detection falls through to the others.
 
-**Image acquisition (all backends):** every backend resolves the `construct-box` image through the same three steps. First, the local store (docker/podman image, or the microVM image store) is used when the image already exists. Next, the published image is pulled from `ghcr.io/estebanforge/construct-box:latest`; the Docker and Podman backends alias it to the local `construct-box:latest` name, while the microVM image store caches it under the full registry ref and resolves candidates automatically. Only when neither is available does Construct offer a local build: it asks for confirmation first, because a from-scratch build takes about 15 minutes on modern hardware. Non-interactive sessions never start a build on their own; they stop with instructions to run `construct sys rebuild` (or `docker pull ghcr.io/estebanforge/construct-box:latest`) from a terminal. Set `CONSTRUCT_SKIP_IMAGE_BUILD=1` to declare that an externally provisioned image will be provided (CI, lab fixtures) and skip both the prompt and the build.
+**Image acquisition (all backends):** every backend resolves the `construct-box` image through the same three steps. First, the local store (docker/podman image, or the microVM image store) is used when the image already exists. Next, the published image is pulled from `ghcr.io/estebanforge/construct-box:latest`; the Docker and Podman backends alias it to the local `construct-box:latest` name, while the microVM image store caches it under the full registry ref and resolves candidates automatically. Only when neither is available does Construct offer a local build: it asks for confirmation first, because a from-scratch build takes about 15 minutes on modern hardware. Non-interactive sessions never start a build on their own; they stop with instructions to run `construct sys image rebuild` (or `docker pull ghcr.io/estebanforge/construct-box:latest`) from a terminal. Set `CONSTRUCT_SKIP_IMAGE_BUILD=1` to declare that an externally provisioned image will be provided (CI, lab fixtures) and skip both the prompt and the build.
 
 ### Update Management
 
@@ -290,7 +290,7 @@ host_binaries = ["wicket"]
 **⚠ Security**: each listed binary runs on the host with **full container-controlled argv**. Only list binaries you trust with that. Declaring `docker` grants effective host root to the agent; `aws`/`kubectl` likewise. The bridge is token-gated and allowlist-pinned, but argv is not filtered.
 
 - **Off when empty** (default). No bridge starts, zero attack surface.
-- Requires `construct sys rebuild` after first enabling, so the container shim is baked into the image.
+- Requires `construct sys image rebuild` after first enabling, so the container shim is baked into the image.
 - Non-interactive only: no controlling terminal/PTY. Pipe stdin (one-shot) works; interactive prompts do not. Pass `--no-interactive`/`--json`/`--yes` flags where available.
 - A startup banner (`⚠ host exec enabled: ...`) confirms when active.
 - Full details: [Host Exec Bridge](HOST-EXEC.md).
