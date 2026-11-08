@@ -35,7 +35,7 @@ Shortcuts:
   construct sys exec -- <command>  # Run a single command inside the running Construct sandbox
   construct sys update             # Update agents and packages to latest versions inside Construct
   construct sys daemon             # Manage background daemon (start|stop|restart|recreate|attach|status|roots)
-  construct sys toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
+  construct sys toolchains         # Manage modular toolchains (list, fetch, configure always)
   construct sys packages [action]  # Package operations (opens packages.toml by default)
                                    # [install] Apply changes from packages.toml to sandbox
                                    # [reinstall] Recreate package volume and reinstall
@@ -100,7 +100,7 @@ Sandbox & Tools:
   shell              # Interactive shell with all agents inside Construct
   exec -- <command>  # Run a single command inside the running Construct sandbox
   update             # Update agents and packages to latest versions inside Construct
-  toolchains         # Manage modular toolchains (list detected/cached, fetch from GHCR)
+  toolchains         # Manage modular toolchains (list, fetch, configure always)
   packages [action]  # Manage packages.toml and package lifecycle
                      # [install] Apply changes from packages.toml to the sandbox
                      # [reinstall] Recreate package volume and reinstall packages

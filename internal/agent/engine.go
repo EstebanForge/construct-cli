@@ -216,7 +216,11 @@ func (e *RuntimeEngine) Prepare() error {
 	e.osEnv = runtime.AppendProjectPathEnv(e.osEnv)
 	e.osEnv = network.InjectEnv(e.osEnv, e.cfg)
 	e.osEnv = runtime.AppendRuntimeIdentityEnv(e.osEnv, e.containerRuntime)
-	e.toolchains = toolchains.DetectToolchains(e.cwd)
+	var alwaysToolchains []string
+	if e.cfg != nil {
+		alwaysToolchains = e.cfg.Toolchains.Always
+	}
+	e.toolchains = toolchains.ResolveActiveToolchains(toolchains.DetectToolchains(e.cwd), alwaysToolchains)
 	if e.cfg != nil && e.cfg.Toolchains.AutoFetch && len(e.toolchains) > 0 {
 		_ = toolchains.EnsureToolchains(context.Background(), e.toolchains) //nolint:errcheck // best-effort toolchain pre-fetch
 	}

@@ -190,7 +190,8 @@ type SecurityConfig struct {
 
 // ToolchainsConfig holds modular toolchain settings.
 type ToolchainsConfig struct {
-	AutoFetch bool `toml:"auto_fetch"` // Auto-fetch detected project toolchains when missing from cache (default: true)
+	AutoFetch bool     `toml:"auto_fetch"` // Auto-fetch detected project toolchains when missing from cache (default: true)
+	Always    []string `toml:"always"`     // Toolchains to always load into PATH and guest mounts regardless of project markers
 }
 
 // MsbPlatformSupported reports whether this host can run the msb microVM
@@ -305,7 +306,7 @@ func DefaultConfig() Config {
 			AutoUpdatePackages: true,
 		},
 		Security: SecurityConfig{
-			HideSecrets:                false,
+			HideSecrets:                true,
 			HideSecretsMaskStyle:       "hash",
 			HideSecretsDenyPaths:       []string{},
 			HideSecretsAllowPaths:      []string{},
@@ -315,6 +316,7 @@ func DefaultConfig() Config {
 		},
 		Toolchains: ToolchainsConfig{
 			AutoFetch: true,
+			Always:    []string{},
 		},
 	}
 }
@@ -805,4 +807,89 @@ func SetInitialTemplateHashes() {
 // GetDefaultPackages returns the default packages.toml template content
 func GetDefaultPackages() string {
 	return templates.Packages
+}
+
+// FormatTomlStringSlice formats a slice of strings as a single-line TOML array.
+func FormatTomlStringSlice(items []string) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	quoted := make([]string, len(items))
+	for i, s := range items {
+		quoted[i] = fmt.Sprintf("%q", s)
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// SetToolchainsAlways updates the `always = [...]` entry under `[toolchains]` in configPath,
+// preserving all surrounding comments and formatting.
+func SetToolchainsAlways(configPath string, always []string) error {
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			content := fmt.Sprintf("[toolchains]\nalways = %s\n", FormatTomlStringSlice(always))
+			return writeFileAtomic(configPath, []byte(content), 0644)
+		}
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	section := ""
+	toolchainSectionIdx := -1
+	alwaysStartIdx := -1
+	alwaysEndIdx := -1
+
+	for i := 0; i < len(lines); i++ {
+		raw := lines[i]
+		cleanHeader := strings.TrimSpace(strings.Split(raw, "#")[0])
+		if strings.HasPrefix(cleanHeader, "[") && strings.HasSuffix(cleanHeader, "]") {
+			section = cleanHeader
+			if section == "[toolchains]" {
+				toolchainSectionIdx = i
+			}
+			continue
+		}
+		if section == "[toolchains]" && alwaysStartIdx == -1 {
+			trimmed := strings.TrimSpace(raw)
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) == 2 && strings.TrimSpace(parts[0]) == "always" {
+				alwaysStartIdx = i
+				alwaysEndIdx = i
+				val := strings.TrimSpace(strings.Split(parts[1], "#")[0])
+				bracketCount := strings.Count(val, "[") - strings.Count(val, "]")
+				for j := i + 1; bracketCount > 0 && j < len(lines); j++ {
+					lineContent := strings.TrimSpace(strings.Split(lines[j], "#")[0])
+					bracketCount += strings.Count(lineContent, "[") - strings.Count(lineContent, "]")
+					alwaysEndIdx = j
+				}
+				i = alwaysEndIdx
+			}
+		}
+	}
+
+	newLine := fmt.Sprintf("always = %s", FormatTomlStringSlice(always))
+
+	if alwaysStartIdx != -1 {
+		newLines := make([]string, 0, len(lines)-(alwaysEndIdx-alwaysStartIdx))
+		newLines = append(newLines, lines[:alwaysStartIdx]...)
+		newLines = append(newLines, newLine)
+		newLines = append(newLines, lines[alwaysEndIdx+1:]...)
+		lines = newLines
+	} else if toolchainSectionIdx != -1 {
+		insertIdx := toolchainSectionIdx + 1
+		newLines := make([]string, 0, len(lines)+1)
+		newLines = append(newLines, lines[:insertIdx]...)
+		newLines = append(newLines, newLine)
+		newLines = append(newLines, lines[insertIdx:]...)
+		lines = newLines
+	} else {
+		lines = append(lines, "", "[toolchains]", newLine)
+	}
+
+	result := strings.Join(lines, "\n")
+	return writeFileAtomic(configPath, []byte(result), 0644)
 }

@@ -12,6 +12,7 @@ Complete reference for configuring The Construct CLI via `config.toml`.
 - [Security Settings](#security-settings)
 - [Agent Settings](#agent-settings)
 - [Daemon Settings](#daemon-settings)
+- [Toolchains Settings](#toolchains-settings)
 - [Provider Configuration](#provider-configuration)
 - [Package Management](#package-management)
 - [Environment Variables](#environment-variables)
@@ -63,25 +64,30 @@ allowed_tcp = []             # Raw TCP service tunnels (host:port, e.g. ["postgr
 
 # Security Configuration
 [security]
-hide_secrets = "mask"        # Workspace secret redaction: mask|redact|off
+hide_secrets = true              # Master switch for workspace secret redaction (default: true)
 hide_secrets_mask_style = "hash" # Mask style: hash|fixed
-hide_secrets_deny_paths = [] # Force-scan these files
-hide_secrets_allow_paths = [] # Never redact these files (dangerous!)
+hide_secrets_deny_paths = []     # Force-scan these files
+hide_secrets_allow_paths = []    # Never redact these files (dangerous!)
 hide_secrets_passthrough_vars = [] # Never mask these env vars
-hide_secrets_report = true   # Show scan report
-hide_git_dir = true          # Hide and mask .git directory
+hide_secrets_report = true       # Show scan report
+hide_git_dir = true              # Hide and mask .git directory
 
 # Agent Configuration
 [agents]
-yolo_all = false             # Enable all agents without confirmation
-yolo_agents = []             # Enable specific agents without confirmation
-clipboard_image_patch = true # Patch clipboard for image support
+yolo_all = false                 # Enable all agents without confirmation
+yolo_agents = []                 # Enable specific agents without confirmation
+clipboard_image_patch = true     # Patch clipboard for image support
 
 # Daemon Configuration
 [daemon]
-auto_start = true            # Auto-start daemon on agent run
-multi_paths_enabled = false  # Enable multi-root daemon mounts
-mount_paths = []             # Additional mount roots for daemon
+auto_start = true                # Auto-start daemon on agent run
+multi_paths_enabled = false      # Enable multi-root daemon mounts
+mount_paths = []                 # Additional mount roots for daemon
+
+# Modular Toolchains Configuration
+[toolchains]
+auto_fetch = true                # Auto-fetch detected toolchains when missing from cache (default: true)
+always = []                      # Toolchains to always load into PATH and guest mounts (e.g. ["go", "rust"])
 
 # Provider Configuration
 [claude.cc.provider]
@@ -421,8 +427,8 @@ construct sys network log --tail 50 -f
 
 ```toml
 [security]
-hide_secrets = "mask"            # Options: mask, redact, off
-hide_secrets_mask_style = "hash" # Options: hash, fixed
+hide_secrets = true              # Master switch (default: true). Set false to opt out
+hide_secrets_mask_style = "hash" # Options: hash (default), fixed
 hide_secrets_deny_paths = ["**/secrets.yml"]
 hide_secrets_allow_paths = ["~/.aws/credentials"]
 hide_secrets_passthrough_vars = ["PUBLIC_API_URL"]
@@ -430,9 +436,10 @@ hide_secrets_report = true
 hide_git_dir = true
 ```
 
-- **mask**: Redacts secrets from disk files before mounting into the sandbox and masks matching tokens in stream output
-- **redact**: Replaces secret values with zeroed tokens
-- **off**: Disables workspace redaction
+- **hide_secrets**: Master switch enabled by default (`true`). When active, redacts raw secrets from mounted project files and masks matching values in environment variables and stream output. Set to `false` in `config.toml` to opt out.
+- **hide_secrets_mask_style**:
+  - `hash`: Generates unique deterministic placeholders per secret (e.g., `CONSTRUCT_REDACTED_<H8>`), ideal for debugging without exposing secrets.
+  - `fixed`: Replaces secret values with static tokens (`CONSTRUCT_REDACTED`).
 
 ### Host Git Repository Protection
 
@@ -549,6 +556,56 @@ mount_paths = [
     "~/Dev/Projects",
     "/work/client-repos"
 ]
+```
+
+## Toolchains Settings
+
+Construct v3.0 uses modular, read-only OCI toolchains cached at `~/.cache/construct/toolchains/` and mounted into `/opt/toolchains/<id>`.
+
+```toml
+[toolchains]
+# Automatically fetch detected project toolchains when missing from cache (default: true)
+auto_fetch = true
+
+# Toolchains to always load into PATH and guest mounts regardless of project markers
+# Example: always = ["go", "rust"]
+always = []
+```
+
+### Supported Toolchains
+
+| Toolchain ID | Runtime & Tools Included |
+|---|---|
+| `go` | Go compiler and tools (`go`, `gofmt`) |
+| `rust` | Rust compiler and toolchain (`rustc`, `cargo`) |
+| `node` | Node.js runtime, `npm`, `npx`, `corepack` |
+| `python` | Python runtime, `pip`, `venv` |
+| `ruby` | Ruby runtime and `gem` |
+| `php` | PHP CLI runtime |
+| `java` | OpenJDK JDK |
+| `kotlin` | Kotlin compiler and runtime |
+| `dart` | Dart SDK |
+| `swift` | Swift toolchain |
+
+### CLI Management
+
+Manage modular toolchains using `construct sys toolchains`:
+
+```bash
+# List detected, configured always-loaded, and cached toolchains
+construct sys toolchains list
+
+# Download and cache a toolchain on demand
+construct sys toolchains fetch go
+construct sys toolchains fetch all
+
+# Download and configure to load always
+construct sys toolchains fetch --always go
+
+# Configure toolchains to always load (updates config.toml)
+construct sys toolchains always add go rust
+construct sys toolchains always remove rust
+construct sys toolchains always list
 ```
 
 ## Provider Configuration

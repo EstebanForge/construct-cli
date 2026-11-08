@@ -432,7 +432,8 @@ func downloadAndExtractLayer(ctx context.Context, client *http.Client, host, rep
 				return err
 			}
 			if evalTarget, err := filepath.EvalSymlinks(destPath); err == nil {
-				if rel, err := filepath.Rel(stageDir, evalTarget); err != nil || strings.HasPrefix(rel, "..") {
+				evalStage := evalPathPreservingTrailing(stageDir)
+				if rel, err := filepath.Rel(evalStage, evalTarget); err != nil || isPathEscaping(rel) {
 					_ = os.Remove(destPath) //nolint:errcheck
 					continue
 				}
@@ -505,12 +506,45 @@ func EnsureToolchains(ctx context.Context, ids []ToolchainID) error {
 	return nil
 }
 
+// isPathEscaping reports whether rel escapes its parent root.
+func isPathEscaping(rel string) bool {
+	return rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// evalPathPreservingTrailing resolves symlinks on the nearest existing ancestor of path
+// and appends any non-existent trailing components.
+func evalPathPreservingTrailing(p string) string {
+	if p == "" {
+		return ""
+	}
+	clean := filepath.Clean(p)
+	if eval, err := filepath.EvalSymlinks(clean); err == nil {
+		return eval
+	}
+	dir := clean
+	var suffix []string
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir || parent == "." || parent == "/" {
+			break
+		}
+		suffix = append([]string{filepath.Base(dir)}, suffix...)
+		if eval, err := filepath.EvalSymlinks(parent); err == nil {
+			return filepath.Join(append([]string{eval}, suffix...)...)
+		}
+		dir = parent
+	}
+	return clean
+}
+
 // resolvesWithinRoot resolves path components following any existing intermediate symlinks
 // and verifies that the resolution remains strictly within root.
 func resolvesWithinRoot(root, baseDir, target string) bool {
 	if filepath.IsAbs(target) {
 		return false
 	}
+	root = evalPathPreservingTrailing(root)
+	baseDir = evalPathPreservingTrailing(baseDir)
 	curr := baseDir
 	components := strings.Split(filepath.Clean(target), string(filepath.Separator))
 	for _, comp := range components {
@@ -518,9 +552,7 @@ func resolvesWithinRoot(root, baseDir, target string) bool {
 			continue
 		}
 		if comp == ".." {
-			if eval, err := filepath.EvalSymlinks(curr); err == nil {
-				curr = eval
-			}
+			curr = evalPathPreservingTrailing(curr)
 			curr = filepath.Dir(curr)
 		} else {
 			curr = filepath.Join(curr, comp)
@@ -533,10 +565,10 @@ func resolvesWithinRoot(root, baseDir, target string) bool {
 			}
 		}
 		rel, err := filepath.Rel(root, curr)
-		if err != nil || strings.HasPrefix(rel, "..") {
+		if err != nil || isPathEscaping(rel) {
 			return false
 		}
 	}
 	rel, err := filepath.Rel(root, curr)
-	return err == nil && !strings.HasPrefix(rel, "..")
+	return err == nil && !isPathEscaping(rel)
 }

@@ -14,7 +14,7 @@
 - **Daemon mode**: reuse one sandbox across projects; `$HOME` directories are auto-learned, elsewhere add roots via `[daemon] mount_paths` or `construct sys daemon roots add`
 - **Sentinel Credential Proxy**: host-side authenticated egress proxy keeping real API keys on the host while minting shape-mimicking sentinels, inspecting HTTPS CONNECT requests with dynamic leaf CA certificates, enforcing domain fronting guards, dropping outbound leaks, and supporting opt-in raw TCP database tunnels (`[network] allowed_tcp`)
 - **Network Policy Tiers**: `allowlist` (with built-in ecosystem presets for npm, PyPI, crates, Go, GitHub, apt), `open`, `internet`, or `none`, with diagnostic inspection (`construct sys network explain`) and real-time audit logging (`construct sys network log`)
-- **Modular Toolchains**: auto-detects project languages from markers and lazily fetches lightweight multi-arch OCI toolchains (Go, Rust, Python, Node, PHP, Ruby, Zig, Dart, Kotlin, Java, Swift) cached at `~/.cache/construct/toolchains`
+- **Modular Toolchains**: auto-detects project languages from markers or loads them unconditionally (`always`), lazily fetching lightweight multi-arch OCI toolchains (Go, Rust, Python, Node, PHP, Ruby, Java, Kotlin, Dart, Swift) cached at `~/.cache/construct/toolchains`
 - **Host Git & Workspace Protection**: locks host `.git` repositories using OS immutable attributes (`chattr +i` / `chflags uchg`), masks `.git` in guest mounts, and supports disposable execution via `--clone` with automatic git bundle patch export
 - **SSH agent forwarding and a full clipboard bridge**: text and image pasting for Claude, Copilot, Antigravity, Qwen, and Pi
 - **Host loopback browsing**: headless browser agents reach host dev sites on `localhost`/`*.localhost`
@@ -82,7 +82,7 @@ More examples and the full command list: [Quick Reference](docs/QUICK-REFERENCE.
 | [**Sentinel Proxy & Network**](docs/TODO-SENTINEL-PROXY.md) | Host-side egress proxy, sentinel key substitution, network policy tiers |
 | [**Hide Secrets Mode**](docs/HIDE-SECRETS.md) | Prevent agents from seeing raw secrets in files or env |
 | [**VM Backend**](docs/ARCHITECTURE-DESIGN.md#41-microvm-isolation-engine-microsandbox-backend) | Default microVM isolation via microsandbox |
-| [**Modular Toolchains**](docs/ARCHITECTURE-DESIGN.md) | On-demand multi-arch OCI toolchain fetching and caching |
+| [**Modular Toolchains**](docs/CONFIGURATION.md#toolchains-settings) | On-demand multi-arch OCI toolchain fetching, caching, and always-loading |
 | [**Providers**](docs/PROVIDERS.md) | Configure custom Claude API endpoints |
 | [**Packages**](docs/PACKAGES.md) | User-defined package management |
 | [**Architecture**](docs/ARCHITECTURE-DESIGN.md) | Technical design and internals |

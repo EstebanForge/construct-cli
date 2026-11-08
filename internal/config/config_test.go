@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/constants"
@@ -660,6 +661,32 @@ func TestDefaultConfigAutoUpdatePackages(t *testing.T) {
 	}
 }
 
+// TestDefaultConfigHideSecretsEnabled pins the hide-secrets default:
+// on unless the user sets [security] hide_secrets = false, and the
+// default survives unmarshaling existing config.toml files that predate
+// the key (zero-value TOML decoding must not silently disable it).
+func TestDefaultConfigHideSecretsEnabled(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.Security.HideSecrets {
+		t.Error("Expected default hide_secrets to be true")
+	}
+
+	if err := toml.Unmarshal([]byte(""), &cfg); err != nil {
+		t.Fatalf("unmarshal empty config: %v", err)
+	}
+	if !cfg.Security.HideSecrets {
+		t.Error("Expected hide_secrets to remain true after unmarshaling missing key")
+	}
+
+	// Explicit false must stick (opt-out works).
+	if err := toml.Unmarshal([]byte("[security]\nhide_secrets = false\n"), &cfg); err != nil {
+		t.Fatalf("unmarshal opt-out config: %v", err)
+	}
+	if cfg.Security.HideSecrets {
+		t.Error("Expected explicit hide_secrets = false to be honored")
+	}
+}
+
 func TestDefaultConfigPasswordlessSudoEnabled(t *testing.T) {
 	cfg := DefaultConfig()
 	if !cfg.Sandbox.PasswordlessSudo {
@@ -702,5 +729,94 @@ func TestNormalizeNetworkMode(t *testing.T) {
 				t.Errorf("NormalizeNetworkMode(%q) = %q; want %q", c.input, got, c.expected)
 			}
 		}
+	}
+}
+
+func TestSetToolchainsAlways(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfgPath := filepath.Join(tmpDir, "config.toml")
+
+	initial := `# Top comment
+[runtime]
+backend = "msb"
+
+# Modular Toolchains
+[toolchains]
+auto_fetch = true
+always = []
+`
+	if err := os.WriteFile(cfgPath, []byte(initial), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Update existing always
+	if err := SetToolchainsAlways(cfgPath, []string{"go", "rust"}); err != nil {
+		t.Fatalf("SetToolchainsAlways failed: %v", err)
+	}
+
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, `always = ["go", "rust"]`) {
+		t.Errorf("expected updated always line, got:\n%s", content)
+	}
+	if !strings.Contains(content, "# Top comment") {
+		t.Errorf("expected comments preserved, got:\n%s", content)
+	}
+
+	// Empty list
+	if err := SetToolchainsAlways(cfgPath, []string{}); err != nil {
+		t.Fatalf("SetToolchainsAlways empty failed: %v", err)
+	}
+	data, _ = os.ReadFile(cfgPath)
+	if !strings.Contains(string(data), `always = []`) {
+		t.Errorf("expected empty array, got:\n%s", string(data))
+	}
+
+	// Non-existent file in non-existent directory
+	newPath := filepath.Join(tmpDir, "sub", "new_config.toml")
+	if err := SetToolchainsAlways(newPath, []string{"python"}); err != nil {
+		t.Fatalf("SetToolchainsAlways on new file failed: %v", err)
+	}
+	newData, _ := os.ReadFile(newPath)
+	if !strings.Contains(string(newData), `always = ["python"]`) {
+		t.Errorf("expected new file with python, got:\n%s", string(newData))
+	}
+
+	// Multi-line always array and header with inline comment
+	multilineConfig := `# Config with inline comment and multiline array
+[toolchains] # toolchain settings
+auto_fetch = true
+always = [
+    "go",
+    "rust",
+]
+
+[sandbox]
+allow_home_workspace = false
+`
+	multiPath := filepath.Join(tmpDir, "multiline_config.toml")
+	if err := os.WriteFile(multiPath, []byte(multilineConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := SetToolchainsAlways(multiPath, []string{"node"}); err != nil {
+		t.Fatalf("SetToolchainsAlways on multiline failed: %v", err)
+	}
+	mdata, _ := os.ReadFile(multiPath)
+	mcontent := string(mdata)
+	if !strings.Contains(mcontent, `always = ["node"]`) {
+		t.Errorf("expected always = [\"node\"], got:\n%s", mcontent)
+	}
+	if strings.Contains(mcontent, `"go"`) || strings.Contains(mcontent, `"rust"`) {
+		t.Errorf("expected multiline entries removed, got:\n%s", mcontent)
+	}
+	if !strings.Contains(mcontent, "[toolchains] # toolchain settings") {
+		t.Errorf("expected header with comment preserved, got:\n%s", mcontent)
+	}
+	if !strings.Contains(mcontent, "[sandbox]") {
+		t.Errorf("expected sandbox section preserved, got:\n%s", mcontent)
 	}
 }

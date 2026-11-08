@@ -429,3 +429,16 @@ func TestCumulativeExtractionCap(t *testing.T) {
 		t.Fatalf("expected size cap error message, got: %v", err)
 	}
 }
+
+func TestResolvesWithinRootNonExistentBaseDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	nestedNonExistent := filepath.Join(tmpDir, "newdir", "sub")
+
+	if !resolvesWithinRoot(tmpDir, nestedNonExistent, "sibling") {
+		t.Errorf("expected intra-dir relative link to be allowed even when baseDir does not exist yet")
+	}
+
+	if resolvesWithinRoot(tmpDir, nestedNonExistent, "../../../etc/passwd") {
+		t.Errorf("expected escaping link to be rejected")
+	}
+}

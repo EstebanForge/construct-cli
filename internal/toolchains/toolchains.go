@@ -166,3 +166,36 @@ func BuildToolchainPath(basePath string, toolchains []ToolchainID) string {
 
 	return strings.Join(append(prefixes, basePath), ":")
 }
+
+// IsValidToolchain reports whether id is a recognized supported ToolchainID.
+func IsValidToolchain(id ToolchainID) bool {
+	for _, tc := range AllToolchains {
+		if tc == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ResolveActiveToolchains combines detected project toolchains with configured always-loaded
+// toolchains, deduplicating entries while preserving order.
+func ResolveActiveToolchains(detected []ToolchainID, always []string) []ToolchainID {
+	seen := make(map[ToolchainID]bool, len(detected)+len(always))
+	out := make([]ToolchainID, 0, len(detected)+len(always))
+
+	for _, id := range detected {
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+
+	for _, raw := range always {
+		id := ToolchainID(strings.ToLower(strings.TrimSpace(raw)))
+		if IsValidToolchain(id) && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}

@@ -135,3 +135,37 @@ func TestBuildToolchainPath(t *testing.T) {
 		t.Errorf("expected unaltered basePath for empty toolchains")
 	}
 }
+
+func TestIsValidToolchain(t *testing.T) {
+	if !IsValidToolchain(ToolchainGo) {
+		t.Errorf("expected go to be valid")
+	}
+	if !IsValidToolchain(ToolchainRust) {
+		t.Errorf("expected rust to be valid")
+	}
+	if IsValidToolchain(ToolchainID("nonexistent")) {
+		t.Errorf("expected nonexistent to be invalid")
+	}
+}
+
+func TestResolveActiveToolchains(t *testing.T) {
+	detected := []ToolchainID{ToolchainGo}
+	always := []string{"rust", "go", "node", "invalid", "RUST"}
+
+	resolved := ResolveActiveToolchains(detected, always)
+	expected := []ToolchainID{ToolchainGo, ToolchainRust, ToolchainNode}
+
+	if len(resolved) != len(expected) {
+		t.Fatalf("expected %d toolchains, got %d: %v", len(expected), len(resolved), resolved)
+	}
+	for i, tc := range expected {
+		if resolved[i] != tc {
+			t.Errorf("at index %d: expected %s, got %s", i, tc, resolved[i])
+		}
+	}
+
+	// Empty both
+	if len(ResolveActiveToolchains(nil, nil)) != 0 {
+		t.Errorf("expected empty slice for nil inputs")
+	}
+}

@@ -24,10 +24,12 @@ This protects against:
 
 ### 1. Configure in `config.toml`
 
+Hide Secrets mode is **enabled by default** in Construct v3.0:
+
 ```toml
 [security]
-hide_secrets = "mask"            # Options: mask, redact, off
-hide_secrets_mask_style = "hash" # Options: hash, fixed
+hide_secrets = true              # Master switch (default: true). Set false to opt out
+hide_secrets_mask_style = "hash" # Options: hash (default), fixed
 ```
 
 ### 2. Run Construct Normally
@@ -44,8 +46,8 @@ The agent will now see redacted secrets instead of real values.
 
 ```toml
 [security]
-# Mode: "mask" (default), "redact", or "off"
-hide_secrets = "mask"
+# Master switch (enabled by default; set false to opt out)
+hide_secrets = true
 
 # Mask style: "hash" (default) or "fixed"
 hide_secrets_mask_style = "hash"

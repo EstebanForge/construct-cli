@@ -42,6 +42,13 @@ construct sys network list
 construct sys update
 construct sys self-update      # Update the construct binary itself
 
+# Modular toolchains
+construct sys toolchains list             # List detected, always-loaded, and cached toolchains
+construct sys toolchains fetch go         # Download toolchain from GHCR into cache
+construct sys toolchains fetch --always go # Download and configure to load always
+construct sys toolchains always add rust  # Always load toolchain regardless of project markers
+construct sys toolchains always remove go # Remove toolchain from always-loaded list
+
 # Daemon sandbox (microVM backend)
 construct sys daemon status    # Sandbox state + live sessions
 construct sys daemon recreate  # Stop + wipe + cold-create (full reset)
@@ -64,6 +71,7 @@ construct sys image init        # First-time setup
 construct sys doctor            # Health check
 construct sys config            # Edit configuration
 construct sys update            # Update agents
+construct sys toolchains        # Manage modular toolchains (list, fetch, always)
 construct sys exec -- <cmd>     # Run command inside the running sandbox
 construct sys image reset       # Reset everything (OCI backends; under msb: sys daemon recreate)
 

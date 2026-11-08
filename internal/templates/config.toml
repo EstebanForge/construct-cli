@@ -412,3 +412,18 @@ hide_git_dir = true
 # Automatically fetch detected project toolchains (e.g. node, rust, go, python, dart, swift)
 # from GHCR when missing from host cache ~/.cache/construct/toolchains. (default: true)
 auto_fetch = true
+# Toolchains to always load into PATH and guest mounts, regardless of project markers.
+# Supported toolchain IDs:
+#   - "go"      (Go toolchain and binaries)
+#   - "rust"    (Rust cargo and rustc)
+#   - "node"    (Node.js, npm, npx, corepack)
+#   - "python"  (Python runtime and virtualenv)
+#   - "ruby"    (Ruby and gem)
+#   - "php"     (PHP CLI)
+#   - "java"    (OpenJDK JDK)
+#   - "kotlin"  (Kotlin compiler and runtime)
+#   - "dart"    (Dart SDK)
+#   - "swift"   (Swift toolchain)
+# Example: always = ["go", "rust"]
+always = []
+
