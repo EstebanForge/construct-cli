@@ -1,5 +1,6 @@
-# pi agent runtime
+# Agent local runtime directories
 .pi/
+.claude/
 
 # Binaries
 cx
