@@ -2,6 +2,32 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 3.0.0 -->
+## [3.0.0] - 2026-11-08
+
+### Added
+
+- **Two-tier image architecture**: Separated container builds into Tier 1 (`construct-base`, system packages, Node 24, Bun, Mise, dev libraries) and Tier 2 (`construct-box`, agent binaries, wrappers, entrypoint scripts). Built and cached remotely with GitHub Actions BuildKit cache (`type=gha`).
+- **Zero-install cold boot**: Baked default agents and baseline developer tools (`copilot`, `agent-browser`, `amp`, `goose`, `droid`, `obscura`, `sass`, `hunkdiff`, `url-to-markdown-cli-tool`) directly into the image. Guest init never touches the network on cold boot.
+- **On-demand modular toolchains**: Language toolchains (Go, Rust, Node, Python, PHP, Ruby) are decoupled from the base image and fetched dynamically as signed multi-arch OCI artifacts from GHCR on demand. Added support for `always_loaded` toolchains in configuration.
+
+### Changed
+
+- **Default secret redaction**: Enabled `security.hide_secrets = true` by default to safeguard sensitive host API keys and tokens during guest sessions.
+- **Bake migration version 3**: Automatic migration removes legacy duplicate binaries from `~/.local/bin` in existing construct homes to ensure newly baked image tools in `/usr/local/bin` take precedence.
+
+### Fixed
+
+- **Ephemeral security session prompt and recreate loop**: Security redaction session paths (`~/.config/construct-cli/security/sessions/<session-id>/merged`) are collapsed to the static security sessions base directory in learned roots. Eliminates repetitive interactive prompts, prevents unnecessary microVM daemon sandbox recreations, and resolves virtiofs deleted passthrough inode errors.
+- **NPM install guard bash syntax error**: Fixed trailing bracket syntax in generated install script that previously caused false reinstall passes on cold boots.
+- **Darwin filesystem path validation**: Safefs directory component traversal permits macOS root-level OS symlinks (`/var`, `/tmp`, `/etc`), ensuring files located under system temporary directories pass regular directory assertions.
+
+### Removed
+
+- **Default package trimming**: Removed `qwen`, `crush`, `cline`, and `kilocode` from default `packages.toml`. Existing CLI runners and adapters remain available for manual opt-in.
+
+<!-- RELEASE:END 3.0.0 -->
+
 <!-- RELEASE:START 2.1.0 -->
 ## [2.1.0] - 2026-11-08
 

@@ -11,7 +11,10 @@ import (
 // under t.TempDir(), with an in-memory copy recorder.
 func newTestStager(t *testing.T, slug string) *argStager {
 	t.Helper()
-	tmp := t.TempDir()
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatalf("eval symlinks tmpdir: %v", err)
+	}
 	s := newArgStager(slug, filepath.Join(tmp, "config"), filepath.Join(tmp, "cwd"))
 	if s == nil {
 		t.Fatalf("nil stager for %q", slug)

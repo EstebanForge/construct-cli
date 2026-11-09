@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -83,7 +84,13 @@ func checkDirComponents(path string) error {
 			}
 			return err
 		}
-		if fi.Mode()&os.ModeSymlink != 0 || !fi.IsDir() {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			if runtime.GOOS == "darwin" && (prefix == "/var" || prefix == "/tmp" || prefix == "/etc") {
+				continue
+			}
+			return fmt.Errorf("%s: %s is not a real directory", path, prefix)
+		}
+		if !fi.IsDir() {
 			return fmt.Errorf("%s: %s is not a real directory", path, prefix)
 		}
 	}

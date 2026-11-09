@@ -184,7 +184,7 @@ func TestResolveAgentSocket(t *testing.T) {
 // desktop Flatpak exports its socket path globally, dead when the app is
 // closed), the bridge relays through ~/.ssh/agent.sock instead.
 func TestStartSSHBridgeRelayFallsBackToBridgeSocket(t *testing.T) {
-	home := t.TempDir()
+	home := shortTempDir(t)
 	fb := filepath.Join(home, ".ssh", "agent.sock")
 	if err := os.MkdirAll(filepath.Dir(fb), 0o700); err != nil {
 		t.Fatalf("MkdirAll: %v", err)

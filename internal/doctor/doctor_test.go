@@ -1402,7 +1402,10 @@ func TestIsStalePackagesVolumeName(t *testing.T) {
 // a real binary elsewhere, mirroring the official installer layout.
 func msbLibkrunfwFixture(t *testing.T) (msbPath, msbHome string) {
 	t.Helper()
-	root := t.TempDir()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	binDir := filepath.Join(root, "local", "bin")
 	msbHome = filepath.Join(root, "msbhome")
 	for _, dir := range []string{binDir, filepath.Join(msbHome, "bin"), filepath.Join(msbHome, "lib")} {

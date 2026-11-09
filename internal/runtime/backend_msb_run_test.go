@@ -413,12 +413,12 @@ func TestMsbDaemonNeedsRecreate(t *testing.T) {
 	// The single-path recreate check loads the learned-roots store; isolate
 	// HOME so machine state cannot leak into the hash computation.
 	t.Setenv("HOME", t.TempDir())
-	root := t.TempDir()
+	root := cleanProjectDir(t.TempDir())
 	sub := filepath.Join(root, "sub")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatalf("mkdir sub: %v", err)
 	}
-	other := t.TempDir()
+	other := cleanProjectDir(t.TempDir())
 
 	dest := GetMsbWorkspaceMountDest(root)
 	cfgJSON := fmt.Sprintf(`{"mounts":[{"type":"Bind","host":%q,"guest":%q}]}`, root, dest)
@@ -543,7 +543,7 @@ func TestMsbDaemonNeedsRecreateSkillsHash(t *testing.T) {
 
 	// Valid workspace state for single-path mode (avoid masking recreate
 	// triggers from the unrelated workspace check).
-	workspaceRoot := t.TempDir()
+	workspaceRoot := cleanProjectDir(t.TempDir())
 	cfgJSON := fmt.Sprintf(`{"mounts":[{"type":"Bind","host":%q,"guest":%q}]}`, workspaceRoot, GetMsbWorkspaceMountDest(workspaceRoot))
 	workspaceLabels := map[string]string{"construct.project_dir": workspaceRoot}
 
