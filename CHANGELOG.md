@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 3.0.1 -->
+## [3.0.1] - 2026-11-09
+
+### Fixed
+
+- **Embedded gum confirm flag parsing**: Added support for `--default=` prefix flag notation and standard boolean aliases (`yes`/`no`, `y`/`n`) in embedded gum prompts, allowing non-interactive confirm invocations with `--default=false` or `--default=no`.
+- **Image pull size notice**: Corrected the static download size estimate in `construct doctor` and the microVM daemon runtime to reflect the 1.3 GiB baseline image size.
+- **Image build sass binstub collision**: Added force overwrite to Tier 2 image npm global installs to resolve binstub conflict with Ruby embedded sass in base tier.
+
+<!-- RELEASE:END 3.0.1 -->
+
 <!-- RELEASE:START 3.0.0 -->
 ## [3.0.0] - 2026-11-08
 
