@@ -196,11 +196,16 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
 RUN npm install -g --prefix /usr/local \
     @github/copilot agent-browser url-to-markdown-cli-tool sass hunkdiff
 
-# Wrap agent-browser to use Debian's system Chromium (no Playwright download needed)
-RUN printf '#!/bin/bash\nexec /usr/local/bin/node /usr/local/lib/node_modules/agent-browser/bin/agent-browser.js --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser && \
+# Wrap agent-browser to use Debian's system Chromium (no Playwright download needed).
+# Remove npm's symlink first so printf does not follow it and overwrite agent-browser.js.
+RUN rm -f /usr/local/bin/agent-browser && \
+    printf '#!/bin/bash\nexec /usr/bin/node /usr/local/lib/node_modules/agent-browser/bin/agent-browser.js --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser && \
     chmod +x /usr/local/bin/agent-browser
 
 # 6. Bake core agents and secondary tools (amp, goose, droid, obscura, claude, agy, opencode, codex, pi, pig)
+# - pig: pi-in-go.dev 403s GHA egress; fetched from MichaelKinsy/PiG raw repo with PIG_VERSION pinned
+# - agy: antigravity.google sometimes returns gzip without Content-Encoding header; detect magic bytes and gunzip
+# - pi: managed installer needs PI_CODING_AGENT_DIR so launcher stays inside /usr/local/lib/pi-agent
 RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash && \
     install -m0755 "$(find "$HOME" \( -type f -o -type l \) -name claude | sort | head -1)" /usr/local/bin/claude && \
@@ -217,25 +222,31 @@ RUN HOME=/tmp/agent-install && mkdir -p "$HOME" && \
     ln -sf /usr/local/lib/pi-agent/bin/pi /usr/local/bin/pi && \
     curl -fsSL https://raw.githubusercontent.com/MichaelKinsy/PiG/main/docs/site/public/install.sh | PIG_VERSION=0.2.0 PIG_INSTALL_DIR=/usr/local/bin sh && \
     curl -fsSL https://ampcode.com/install.sh | bash && \
-    if [ -f "$HOME/.local/bin/amp" ]; then install -m0755 "$HOME/.local/bin/amp" /usr/local/bin/amp; \
-    elif [ -f "$HOME/.amp/bin/amp" ]; then install -m0755 "$HOME/.amp/bin/amp" /usr/local/bin/amp; fi && \
+    amp_bin="$(find "$HOME" -name amp -type f -perm -0100 2>/dev/null | head -1)" && \
+    [ -n "$amp_bin" ] && install -m0755 "$amp_bin" /usr/local/bin/amp && \
     curl -fsSL https://github.com/aaif-goose/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash && \
-    if [ -f "$HOME/.local/bin/goose" ]; then install -m0755 "$HOME/.local/bin/goose" /usr/local/bin/goose; fi && \
+    goose_bin="$(find "$HOME" -name goose -type f -perm -0100 2>/dev/null | head -1)" && \
+    [ -n "$goose_bin" ] && install -m0755 "$goose_bin" /usr/local/bin/goose && \
     curl -fsSL https://app.factory.ai/cli | sh && \
-    if [ -f "$HOME/.local/bin/droid" ]; then install -m0755 "$HOME/.local/bin/droid" /usr/local/bin/droid; fi && \
+    droid_bin="$(find "$HOME" -name droid -type f -perm -0100 2>/dev/null | head -1)" && \
+    [ -n "$droid_bin" ] && install -m0755 "$droid_bin" /usr/local/bin/droid && \
     case "$(dpkg --print-architecture)" in amd64) OBS_ARCH=x86_64;; arm64) OBS_ARCH=aarch64;; esac && \
     curl -fsSL -o /tmp/obscura.tar.gz "https://github.com/h4ckf0r0day/obscura/releases/download/v0.1.9/obscura-${OBS_ARCH}-linux.tar.gz" && \
     tar -xzf /tmp/obscura.tar.gz -C /usr/local/bin obscura obscura-worker && \
     chmod +x /usr/local/bin/obscura /usr/local/bin/obscura-worker && \
     rm -rf /tmp/obscura.tar.gz "$HOME" && \
-    for c in claude agy opencode codex pi pig; do "$c" --version >/dev/null 2>&1 || { echo "agent failed execution: $c" >&2; exit 1; }; done
+    for c in claude agy opencode codex pi pig amp goose droid obscura copilot agent-browser; do \
+      "$c" --version >/dev/null 2>&1 || { echo "FATAL: baked tool failed execution: $c" >&2; exit 1; }; \
+    done
 
 # Agent tier is user-writable
 RUN chown -R construct:construct /usr/local/lib/node_modules /usr/local/lib/pi-agent && \
     chown construct:construct /usr/local/bin && \
     chown -h construct:construct /usr/local/bin/claude /usr/local/bin/agy \
         /usr/local/bin/opencode /usr/local/bin/codex /usr/local/bin/pi \
-        /usr/local/bin/pig 2>/dev/null || true && \
+        /usr/local/bin/pig /usr/local/bin/amp /usr/local/bin/goose \
+        /usr/local/bin/droid /usr/local/bin/obscura /usr/local/bin/copilot \
+        /usr/local/bin/agent-browser && \
     chmod +t /usr/local/bin
 
 WORKDIR /projects

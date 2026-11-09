@@ -126,7 +126,7 @@ func (c *PackagesConfig) SavePackages() error {
 // bakeMigrationVersion identifies the baked-tool set this CLI ships. Bump
 // when the image's baked set grows so existing homes sweep once more (the
 // marker filename embeds it).
-const bakeMigrationVersion = 2
+const bakeMigrationVersion = 3
 
 // bakedCopy describes one baked agent's stale pre-bake bind copies.
 type bakedCopy struct {
@@ -154,6 +154,18 @@ func bakedMigrationTable() []bakedCopy {
 			}},
 		{binName: "opencode", paths: []string{".opencode/bin/opencode"},
 			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "opencode.ai/install") }},
+		{binName: "amp", paths: []string{".local/bin/amp", ".amp/bin/amp"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "ampcode.com/install.sh") }},
+		{binName: "goose", paths: []string{".local/bin/goose"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "download_cli.sh") }},
+		{binName: "droid", paths: []string{".local/bin/droid"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "factory.ai/cli") }},
+		{binName: "obscura", paths: []string{".local/bin/obscura", ".local/bin/obscura-worker"},
+			keepWhen: func(c *PackagesConfig) bool { return containsSubstr(c.PostInstall.Commands, "obscura") }},
+		{binName: "copilot", paths: []string{".npm-global/bin/copilot", ".npm-global/lib/node_modules/@github/copilot"},
+			keepWhen: func(c *PackagesConfig) bool { return containsNpmPackage(c.Npm.Packages, "@github/copilot") }},
+		{binName: "agent-browser", paths: []string{".local/bin/agent-browser", ".npm-global/bin/agent-browser", ".npm-global/lib/node_modules/agent-browser"},
+			keepWhen: func(c *PackagesConfig) bool { return containsNpmPackage(c.Npm.Packages, "agent-browser") }},
 	}
 }
 

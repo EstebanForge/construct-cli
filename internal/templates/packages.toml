@@ -82,4 +82,6 @@ volta = false
 # Baseline tools (amp, goose, droid, obscura, agent-browser) are baked into
 # the base image. Add custom user setup commands here:
 [post_install]
-commands = []
+commands = [
+  # "if [ -x \"$HOME/.phpvm/bin/phpvm\" ]; then echo \"phpvm already installed\"; else curl -o- https://raw.githubusercontent.com/Thavarshan/phpvm/main/install.sh | bash; fi",
+]

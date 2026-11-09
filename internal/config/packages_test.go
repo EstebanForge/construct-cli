@@ -62,11 +62,11 @@ mise = false
 }
 
 func TestGenerateInstallScriptBakeMigration(t *testing.T) {
-	// Default config sweeps all five baked tools' stale bind copies.
+	// Default config sweeps baked tools' stale bind copies.
 	script := (&PackagesConfig{}).GenerateInstallScript()
 
-	if !strings.Contains(script, ".construct_bake_migration_v2") {
-		t.Error("Script should be gated by the v2 bake-migration marker")
+	if !strings.Contains(script, ".construct_bake_migration_v3") {
+		t.Error("Script should be gated by the v3 bake-migration marker")
 	}
 	for _, want := range []string{
 		`remove_baked_copy "$HOME/.local/bin/claude"`,
@@ -76,6 +76,12 @@ func TestGenerateInstallScriptBakeMigration(t *testing.T) {
 		`remove_baked_copy "$HOME/.npm-global/bin/pi"`,
 		`remove_baked_copy "$HOME/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent"`,
 		`remove_baked_copy "$HOME/.opencode/bin/opencode"`,
+		`remove_baked_copy "$HOME/.local/bin/amp"`,
+		`remove_baked_copy "$HOME/.local/bin/goose"`,
+		`remove_baked_copy "$HOME/.local/bin/droid"`,
+		`remove_baked_copy "$HOME/.local/bin/obscura"`,
+		`remove_baked_copy "$HOME/.npm-global/bin/copilot"`,
+		`remove_baked_copy "$HOME/.local/bin/agent-browser"`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("Script should sweep stale copy: %s", want)

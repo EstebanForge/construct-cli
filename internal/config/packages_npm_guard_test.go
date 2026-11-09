@@ -2,9 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+var defaultExecCommand = exec.Command
 
 func TestGenerateInstallScriptSkipsInstalledNpm(t *testing.T) {
 	cfg := &PackagesConfig{
@@ -53,3 +56,33 @@ func TestGenerateInstallScriptComparesPinnedVersions(t *testing.T) {
 		t.Errorf("missing install command for the pinned package")
 	}
 }
+
+// TestGenerateInstallScriptBashSyntaxValid runs bash -n on generated install scripts
+// to ensure syntax correctness for both unpinned and pinned packages.
+func TestGenerateInstallScriptBashSyntaxValid(t *testing.T) {
+	for name, cfg := range map[string]*PackagesConfig{
+		"default_empty": {},
+		"unpinned": {
+			Npm: NpmConfig{Packages: []string{"typescript", "@github/copilot"}},
+		},
+		"pinned": {
+			Npm: NpmConfig{Packages: []string{"@openai/codex@2.0.0", "typescript@5.4.2"}},
+		},
+		"mixed": {
+			Npm: NpmConfig{Packages: []string{"typescript", "@openai/codex@2.0.0", "sass"}},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			script := cfg.GenerateInstallScript()
+			cmd := strings.NewReader(script)
+			bash := execCommand("bash", "-n")
+			bash.Stdin = cmd
+			out, err := bash.CombinedOutput()
+			if err != nil {
+				t.Fatalf("bash -n failed on generated script (%v): %s\nScript:\n%s", err, string(out), script)
+			}
+		})
+	}
+}
+
+var execCommand = defaultExecCommand

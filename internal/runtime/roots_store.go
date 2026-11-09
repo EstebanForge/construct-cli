@@ -338,7 +338,17 @@ func IsSecuritySessionPath(path string) bool {
 		return false
 	}
 	cleaned := filepath.Clean(path)
-	return cleaned == base || containsPath(base, cleaned)
+	if cleaned == base || containsPath(base, cleaned) {
+		return true
+	}
+	// Check against symlink-resolved base/path (e.g. /var vs /private/var on macOS).
+	if resolvedBase, err := filepath.EvalSymlinks(base); err == nil && resolvedBase != base {
+		if resolvedPath, err := filepath.EvalSymlinks(cleaned); err == nil {
+			return resolvedPath == resolvedBase || containsPath(resolvedBase, resolvedPath)
+		}
+		return containsPath(resolvedBase, cleaned)
+	}
+	return false
 }
 
 // effectiveWorkspaceRoots returns the single-path mount set for this run:
