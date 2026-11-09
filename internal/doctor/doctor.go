@@ -1428,10 +1428,10 @@ func checkBakedImageFreshness(msbBackend, fix, jsonRequested bool) CheckResult {
 	forcePull := cached != ""
 	if !jsonRequested {
 		if forcePull {
-			fmt.Fprintf(os.Stderr, "  → Image %s changed upstream (%s → %s); pulling update (~3 GB; may take 1-3 minutes depending on network speed)...\n",
+			fmt.Fprintf(os.Stderr, "  → Image %s changed upstream (%s → %s); pulling update (~1.3 GiB; may take 1-3 minutes depending on network speed)...\n",
 				imageRef, runtimepkg.AbbrevDigest(cached), runtimepkg.AbbrevDigest(remote))
 		} else {
-			fmt.Fprintf(os.Stderr, "  → Pulling image %s (~3 GB; may take 1-3 minutes depending on network speed)...\n", imageRef)
+			fmt.Fprintf(os.Stderr, "  → Pulling image %s (~1.3 GiB; may take 1-3 minutes depending on network speed)...\n", imageRef)
 		}
 	}
 

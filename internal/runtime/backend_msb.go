@@ -247,7 +247,7 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 	forcePull := false
 	switch {
 	case cached != "" && remote != "" && cached != remote:
-		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~2 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
+		ui.InfoF("→ construct-box image changed upstream (%s → %s); pulling update (~1.3 GiB)...\n", abbrevDigest(cached), abbrevDigest(remote))
 		// An unforced `image rm` is refused while any sandbox (the stopped
 		// daemon, always) pins the ref, and the error is not actionable:
 		// the plain pull below would no-op on the still-cached ref and the
@@ -260,7 +260,7 @@ func (m *MsbBackend) EnsureImage(_ *config.Config) (string, error) {
 		ui.InfoLn("✓ MicroVM image ready (from GHCR)")
 		return PrepullImageRef, nil
 	default:
-		ui.InfoLn("→ Pulling construct-box image from GHCR (~2 GiB download)...")
+		ui.InfoLn("→ Pulling construct-box image from GHCR (~1.3 GiB download)...")
 	}
 	pullArgs := []string{"pull"}
 	if forcePull {
