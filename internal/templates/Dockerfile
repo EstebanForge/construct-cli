@@ -193,8 +193,9 @@ RUN if [ -f /usr/bin/xclip ]; then mv /usr/bin/xclip /usr/bin/xclip-real; fi && 
     if [ -f /usr/bin/wl-paste ]; then mv /usr/bin/wl-paste /usr/bin/wl-paste-real && ln -sf /usr/local/bin/clipper /usr/bin/wl-paste; fi
 
 # Bake default npm tools: copilot, agent-browser, url-to-markdown, sass, hunkdiff
-RUN npm install -g --prefix /usr/local \
-    @github/copilot agent-browser url-to-markdown-cli-tool sass hunkdiff
+RUN rm -f /usr/local/bin/sass && \
+    npm install -g --force --prefix /usr/local \
+        @github/copilot agent-browser url-to-markdown-cli-tool sass hunkdiff
 
 # Wrap agent-browser to use Debian's system Chromium (no Playwright download needed).
 # Remove npm's symlink first so printf does not follow it and overwrite agent-browser.js.
