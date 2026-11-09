@@ -219,7 +219,7 @@ func GumConfirmNoDefault(prompt string) bool {
 		return plainConfirm(prompt, false)
 	}
 
-	cmd := GetGumCommand("confirm", prompt, "--default=no")
+	cmd := GetGumCommand("confirm", prompt, "--default=false")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

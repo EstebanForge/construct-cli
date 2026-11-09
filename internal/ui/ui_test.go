@@ -119,6 +119,36 @@ func TestDefaultEmbeddedConfirmOptionsIncludeStyles(t *testing.T) {
 	}
 }
 
+func TestRunEmbeddedGumConfirmDefaultFlagForms(t *testing.T) {
+	flags := [][]string{
+		{"confirm", "Proceed?", "--default=false"},
+		{"confirm", "Proceed?", "--default=no"},
+		{"confirm", "Proceed?", "--default", "false"},
+		{"confirm", "Proceed?", "--default", "no"},
+	}
+
+	for _, args := range flags {
+		stdinReader, stdinWriter, err := os.Pipe()
+		if err != nil {
+			t.Fatalf("failed to create stdin pipe: %v", err)
+		}
+		stderrFile := mustTempFile(t)
+
+		if _, err := stdinWriter.WriteString("y\n"); err != nil {
+			t.Fatalf("failed writing confirmation input: %v", err)
+		}
+		closeQuietly(stdinWriter)
+
+		output, code := captureEmbeddedRun(t, stdinReader, stderrFile, args)
+		closeQuietly(stdinReader)
+		closeQuietly(stderrFile)
+
+		if code != 0 {
+			t.Errorf("args %v failed with code %d, output: %q", args, code, output)
+		}
+	}
+}
+
 func TestRunEmbeddedGumUnsupportedCommand(t *testing.T) {
 	stdinFile := mustTempFile(t)
 	stderrFile := mustTempFile(t)

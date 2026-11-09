@@ -453,7 +453,7 @@ func runEmbeddedConfirm(args []string) error {
 			if err != nil {
 				return err
 			}
-			parsed, err := strconv.ParseBool(value)
+			parsed, err := parseConfirmBool(value)
 			if err != nil {
 				return fmt.Errorf("invalid --default value: %w", err)
 			}
@@ -480,6 +480,27 @@ func runEmbeddedConfirm(args []string) error {
 			promptParts = append(promptParts, args[i+1:]...)
 			i = len(args)
 		default:
+			if strings.HasPrefix(args[i], "--default=") {
+				value := strings.TrimPrefix(args[i], "--default=")
+				parsed, err := parseConfirmBool(value)
+				if err != nil {
+					return fmt.Errorf("invalid --default value: %w", err)
+				}
+				opts.Default = parsed
+				continue
+			}
+			if strings.HasPrefix(args[i], "--affirmative=") {
+				opts.Affirmative = strings.TrimPrefix(args[i], "--affirmative=")
+				continue
+			}
+			if strings.HasPrefix(args[i], "--negative=") {
+				opts.Negative = strings.TrimPrefix(args[i], "--negative=")
+				continue
+			}
+			if strings.HasPrefix(args[i], "--prompt=") {
+				opts.Prompt = strings.TrimPrefix(args[i], "--prompt=")
+				continue
+			}
 			if strings.HasPrefix(args[i], "--") || strings.HasPrefix(args[i], "-") {
 				return fmt.Errorf("unsupported confirm flag: %s", args[i])
 			}
@@ -491,6 +512,17 @@ func runEmbeddedConfirm(args []string) error {
 	}
 
 	return opts.Run()
+}
+
+func parseConfirmBool(v string) (bool, error) {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "true", "1", "t", "yes", "y":
+		return true, nil
+	case "false", "0", "f", "no", "n":
+		return false, nil
+	default:
+		return strconv.ParseBool(v)
+	}
 }
 
 func defaultEmbeddedConfirmOptions() gumconfirm.Options {
