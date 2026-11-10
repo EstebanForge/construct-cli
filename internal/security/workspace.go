@@ -131,44 +131,23 @@ func (wm *WorkspaceManager) createOverlayFS(lower, upper, work, merged string) (
 
 // createAPFSClone creates an APFS clone-based workspace on macOS.
 func (wm *WorkspaceManager) createAPFSClone(projectRoot, _ /* upper */, merged string) (string, error) {
-	// On macOS, we'll use cp -c for copy-on-write clones
-	// This creates a session directory with cloned files
+	src := filepath.Clean(projectRoot) + string(filepath.Separator) + "."
+	dst := filepath.Clean(merged) + string(filepath.Separator)
 
-	// Walk the project directory and clone files
-	err := filepath.Walk(projectRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Compute relative path
-		relPath, err := filepath.Rel(projectRoot, path)
-		if err != nil {
-			return err
-		}
-
-		targetPath := filepath.Join(merged, relPath)
-
-		if info.IsDir() {
-			// Create directory
-			return os.MkdirAll(targetPath, info.Mode().Perm())
-		}
-
-		// Clone file using cp -c (APFS clone)
-		// If cp -c fails (non-APFS volume), fall back to regular copy
-		cmd := exec.Command("cp", "-c", path, targetPath)
-		if err := cmd.Run(); err != nil {
-			// Fall back to regular copy
-			return copyFile(path, targetPath, info.Mode().Perm())
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		return "", fmt.Errorf("failed to clone project: %w", err)
+	// clonefile-backed recursive copy preserves attributes and symlinks without dereferencing
+	cmdClone := exec.Command("cp", "-c", "-p", "-R", src, dst)
+	cloneOut, cloneErr := cmdClone.CombinedOutput()
+	if cloneErr == nil {
+		return merged, nil
 	}
 
-	return merged, nil
+	cmdFallback := exec.Command("cp", "-p", "-R", src, dst)
+	fallbackOut, fallbackErr := cmdFallback.CombinedOutput()
+	if fallbackErr == nil {
+		return merged, nil
+	}
+
+	return "", fmt.Errorf("failed to clone project: %w (output: %s; clone error: %s)", fallbackErr, string(fallbackOut), string(cloneOut))
 }
 
 // Cleanup removes the workspace and unmounts if necessary.
@@ -231,22 +210,6 @@ func (ws *SessionWorkspace) GetChanges() ([]string, error) {
 	}
 
 	return changes, nil
-}
-
-// copyFile copies a file with mode preservation.
-func copyFile(src, dst string, mode os.FileMode) error {
-	// Read source
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-
-	// Write destination
-	if err := os.WriteFile(dst, data, mode); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // IsOverlayFSSupported checks if overlayfs is available.

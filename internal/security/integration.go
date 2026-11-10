@@ -3,6 +3,7 @@ package security
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
 	"github.com/EstebanForge/construct-cli/internal/ui"
@@ -72,6 +73,9 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 		return fmt.Errorf("failed to create workspace: %w", err)
 	}
 	sm.workspace = workspace
+	if sm.config.Security.HideGitDir && workspace.Type == WorkspaceTypeAPFSClone {
+		_ = os.RemoveAll(filepath.Join(workspace.MergedDir, ".git")) //nolint:errcheck // best-effort removal of git metadata
+	}
 
 	// Create and run secret shield
 	sm.shield = NewSecretShield(sm.config, projectRoot, sm.sessionManager)

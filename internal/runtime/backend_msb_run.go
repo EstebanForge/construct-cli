@@ -480,8 +480,12 @@ func BuildMsbRunSpec(cfg *config.Config, name, projectDir string, bridgePorts []
 	for k, v := range envSliceToMap(msbBaseEnv(cfg)) {
 		env[k] = v
 	}
+	cleanedProject := cleanProjectDir(projectDir)
+	if IsSecuritySessionPath(cleanedProject) {
+		cleanedProject = SecuritySessionsBaseDir()
+	}
 	labels := map[string]string{
-		"construct.project_dir": cleanProjectDir(projectDir),
+		"construct.project_dir": cleanedProject,
 		DaemonEnvHashLabelKey:   msbEnvHash(cfg),
 	}
 	// Mount-set hash, stamped in BOTH layouts so the daemon reuse check
@@ -835,6 +839,9 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 		store = RootsStore{Version: rootsStoreVersion}
 	}
 	currentProjectDir, hasProjectLabel := sandboxLabels["construct.project_dir"]
+	if IsSecuritySessionPath(currentProjectDir) {
+		currentProjectDir = SecuritySessionsBaseDir()
+	}
 	mounts := parseMsbConfigMounts(configJSON)
 
 	// Rebuild the effective root set as the RUNNING daemon sees it: the
@@ -845,6 +852,9 @@ func msbDaemonNeedsRecreate(dm DaemonMounts, sandboxLabels map[string]string, co
 	// before this decision, so this guard is hash-consistency defense).
 	roots := store.Paths()
 	if cleaned := cleanProjectDir(projectDir); cleaned != "" {
+		if IsSecuritySessionPath(cleaned) {
+			cleaned = SecuritySessionsBaseDir()
+		}
 		covered := currentProjectDir != "" && containsPath(currentProjectDir, cleaned)
 		if !covered {
 			for _, r := range roots {

@@ -174,6 +174,16 @@ func (s *Scanner) scanFile(fullPath, relPath string, sessionID SessionID, result
 		if err := os.WriteFile(upperPath, redacted, 0644); err != nil {
 			return fmt.Errorf("failed to write redacted file: %w", err)
 		}
+
+		// Non-overlay workspace modes (APFS clone) require writing redacted content to merged.
+		// Unlink mergedPath first so a symlink is replaced rather than followed to the host file.
+		mergedPath := filepath.Join(sessionDir, "merged", relPath)
+		if _, err := os.Stat(filepath.Dir(mergedPath)); err == nil {
+			_ = os.Remove(mergedPath) //nolint:errcheck // best-effort unlinking of symlink before write
+			if err := os.WriteFile(mergedPath, redacted, 0644); err != nil {
+				return fmt.Errorf("failed to write redacted file to merged: %w", err)
+			}
+		}
 	}
 
 	return nil
