@@ -2,6 +2,21 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 3.0.3 -->
+## [3.0.3] - 2026-11-10
+
+### Changed
+
+- **Secret redaction default opt-in**: Reverted `security.hide_secrets` default to `false` in configuration templates and migration defaults so multi-gigabyte workspace copies never run unexpectedly.
+
+### Added
+
+- **Umbrella workspace detection**: Added detection in `EvaluateWorkspace` for umbrella directories containing two or more nested git repositories, evaluating immediately as `WorkspaceRiskLarge`.
+- **Preflight workspace guard for secret redaction**: Intercepts large, umbrella, system, and home directory workspaces before session cloning begins, prompting for confirmation using embedded gum and failing closed in non-interactive sessions.
+- **Security workspace progress indicators**: Added stderr progress notices during workspace preparation and secret scanning so runs never appear stalled.
+
+<!-- RELEASE:END 3.0.3 -->
+
 <!-- RELEASE:START 3.0.2 -->
 ## [3.0.2] - 2026-11-10
 
