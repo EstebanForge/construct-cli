@@ -3,6 +3,7 @@ package runtime
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
@@ -123,5 +124,46 @@ func TestEvaluateWorkspaceBudgetExceeded(t *testing.T) {
 	})
 	if err != nil {
 		t.Errorf("unexpected error with confirmation: %v", err)
+	}
+}
+
+func TestEvaluateWorkspaceUmbrellaDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	repo1 := filepath.Join(tempDir, "repo-one")
+	repo2 := filepath.Join(tempDir, "repo-two")
+	if err := os.MkdirAll(filepath.Join(repo1, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo2, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Umbrella directory containing 2 git repos must be flagged WorkspaceRiskLarge
+	v := EvaluateWorkspace(tempDir, 1000)
+	if v.Risk != WorkspaceRiskLarge {
+		t.Fatalf("expected umbrella directory to be WorkspaceRiskLarge, got %v", v.Risk)
+	}
+	if v.Reason == "" {
+		t.Error("expected non-empty reason for umbrella directory risk")
+	}
+
+	// Single nested repo must not trigger umbrella guard on its own
+	tempSingle := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tempSingle, "repo-alone", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	vSingle := EvaluateWorkspace(tempSingle, 1000)
+	if vSingle.Risk == WorkspaceRiskLarge && vSingle.Reason != "" && strings.Contains(vSingle.Reason, "umbrella") {
+		t.Errorf("expected single nested repo not to trigger umbrella guard, got %s", vSingle.Reason)
+	}
+
+	// If root itself is a git repository, nested repos do not trigger umbrella guard
+	if err := os.Mkdir(filepath.Join(tempDir, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	vRootGit := EvaluateWorkspace(tempDir, 1000)
+	if vRootGit.Risk != WorkspaceRiskOK {
+		t.Errorf("expected git repo root to be WorkspaceRiskOK even with submodules, got %v", vRootGit.Risk)
 	}
 }

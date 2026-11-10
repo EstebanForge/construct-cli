@@ -179,7 +179,7 @@ type ClaudeConfig struct {
 
 // SecurityConfig holds secret redaction and security settings.
 type SecurityConfig struct {
-	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets workspace redaction mode (default: true)
+	HideSecrets                bool     `toml:"hide_secrets"`                  // Master switch for hide-secrets workspace redaction mode (default: false)
 	HideSecretsMaskStyle       string   `toml:"hide_secrets_mask_style"`       // Mask style: "hash" (default) or "fixed"
 	HideSecretsDenyPaths       []string `toml:"hide_secrets_deny_paths"`       // Globs always scanned regardless of heuristics
 	HideSecretsAllowPaths      []string `toml:"hide_secrets_allow_paths"`      // Files to NEVER redact (use sparingly! breaks security model)
@@ -306,7 +306,7 @@ func DefaultConfig() Config {
 			AutoUpdatePackages: true,
 		},
 		Security: SecurityConfig{
-			HideSecrets:                true,
+			HideSecrets:                false,
 			HideSecretsMaskStyle:       "hash",
 			HideSecretsDenyPaths:       []string{},
 			HideSecretsAllowPaths:      []string{},
@@ -488,8 +488,17 @@ var staleSandboxDefaults = []struct {
 	{"workspace_max_entries", 60000, DefaultWorkspaceMaxEntries},
 }
 
+var staleSecurityDefaults = []struct {
+	key      string
+	from, to bool
+}{
+	// hide_secrets = true was briefly enabled by default in 3.0.0-3.0.2;
+	// reset back to false so large/umbrella clones never surprise users.
+	{"hide_secrets", true, false},
+}
+
 // ResetStaleDefaults rewrites config.toml values that exactly match a stale
-// shipped default (see staleSandboxDefaults) and returns one formatted
+// shipped default (see staleSandboxDefaults and staleSecurityDefaults) and returns one formatted
 // finding per fixed line ("key from → to"). No printing: callers own the
 // output shape (migration banner, doctor table row). Best-effort: callers
 // may continue on error — the stale value keeps working until the next
@@ -535,11 +544,11 @@ func formatStaleFixes(fixes []staleFix) []string {
 // staleFix describes one rewritten stale-default line, for reporting.
 type staleFix struct {
 	key      string
-	from, to int
+	from, to string
 }
 
 func (f staleFix) String() string {
-	return fmt.Sprintf("%s %d → %d", f.key, f.from, f.to)
+	return fmt.Sprintf("%s %s → %s", f.key, f.from, f.to)
 }
 
 // migrateStaleDefaults rewrites config lines whose value is an exact stale
@@ -551,8 +560,12 @@ func migrateStaleDefaults(data string) (string, []staleFix) {
 	lines := strings.Split(data, "\n")
 	section := ""
 	type hit struct {
-		idx int
-		fix staleFix
+		idx    int
+		fix    staleFix
+		isInt  bool
+		intTo  int
+		isBool bool
+		boolTo bool
 	}
 	var hits []hit
 	for i, raw := range lines {
@@ -561,12 +574,28 @@ func migrateStaleDefaults(data string) (string, []staleFix) {
 			section = t
 			continue
 		}
-		if section != "[sandbox]" {
-			continue
-		}
-		for _, sd := range staleSandboxDefaults {
-			if k, v, ok := tomlIntKV(t); ok && k == sd.key && v == sd.from {
-				hits = append(hits, hit{idx: i, fix: staleFix{key: sd.key, from: sd.from, to: sd.to}})
+		switch section {
+		case "[sandbox]":
+			for _, sd := range staleSandboxDefaults {
+				if k, v, ok := tomlIntKV(t); ok && k == sd.key && v == sd.from {
+					hits = append(hits, hit{
+						idx:   i,
+						fix:   staleFix{key: sd.key, from: strconv.Itoa(sd.from), to: strconv.Itoa(sd.to)},
+						isInt: true,
+						intTo: sd.to,
+					})
+				}
+			}
+		case "[security]":
+			for _, sd := range staleSecurityDefaults {
+				if k, v, ok := tomlBoolKV(t); ok && k == sd.key && v == sd.from {
+					hits = append(hits, hit{
+						idx:    i,
+						fix:    staleFix{key: sd.key, from: strconv.FormatBool(sd.from), to: strconv.FormatBool(sd.to)},
+						isBool: true,
+						boolTo: sd.to,
+					})
+				}
 			}
 		}
 	}
@@ -574,7 +603,11 @@ func migrateStaleDefaults(data string) (string, []staleFix) {
 		return data, nil
 	}
 	for _, h := range hits {
-		lines[h.idx] = rewriteIntValue(lines[h.idx], h.fix.to)
+		if h.isInt {
+			lines[h.idx] = rewriteIntValue(lines[h.idx], h.intTo)
+		} else if h.isBool {
+			lines[h.idx] = rewriteBoolValue(lines[h.idx], h.boolTo)
+		}
 	}
 	fixes := make([]staleFix, 0, len(hits))
 	for _, h := range hits {
@@ -606,6 +639,46 @@ func rewriteIntValue(raw string, to int) string {
 		end++
 	}
 	return raw[:eq+1] + rest[:start] + strconv.Itoa(to) + rest[end:]
+}
+
+// rewriteBoolValue replaces the first boolean token after the `=` in a TOML
+// line, preserving key spacing and any inline comment.
+func rewriteBoolValue(raw string, to bool) string {
+	eq := strings.Index(raw, "=")
+	if eq < 0 {
+		return raw
+	}
+	rest := raw[eq+1:]
+	toStr := strconv.FormatBool(to)
+	for _, target := range []string{"true", "false"} {
+		if idx := strings.Index(rest, target); idx >= 0 {
+			return raw[:eq+1] + rest[:idx] + toStr + rest[idx+len(target):]
+		}
+	}
+	return raw
+}
+
+// tomlBoolKV parses a `key = true/false` line with optional trailing comment.
+func tomlBoolKV(trimmed string) (key string, value bool, ok bool) {
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", false, false
+	}
+	eq := strings.Index(trimmed, "=")
+	if eq < 0 {
+		return "", false, false
+	}
+	key = strings.TrimSpace(trimmed[:eq])
+	rest := strings.TrimSpace(trimmed[eq+1:])
+	if commentIdx := strings.Index(rest, "#"); commentIdx >= 0 {
+		rest = strings.TrimSpace(rest[:commentIdx])
+	}
+	if rest == "true" {
+		return key, true, true
+	}
+	if rest == "false" {
+		return key, false, true
+	}
+	return "", false, false
 }
 
 // tomlIntKV parses a `key = 123` line with optional trailing comment.

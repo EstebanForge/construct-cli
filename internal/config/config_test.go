@@ -602,6 +602,30 @@ func TestMigrateStaleDefaults(t *testing.T) {
 			want:    "# top comment\n[runtime]\nbackend = \"microvm\"\n\n[sandbox]\nallow_home_workspace = false\nworkspace_max_entries = 500000 # File count before the large-workspace warning\n",
 			changed: 1,
 		},
+		{
+			name:    "stale hide_secrets rewritten to false",
+			in:      "[security]\nhide_secrets = true\n",
+			want:    "[security]\nhide_secrets = false\n",
+			changed: 1,
+		},
+		{
+			name:    "hide_secrets inline comment preserved",
+			in:      "[security]\nhide_secrets = true # master switch\n",
+			want:    "[security]\nhide_secrets = false # master switch\n",
+			changed: 1,
+		},
+		{
+			name:    "already false hide_secrets is no-op",
+			in:      "[security]\nhide_secrets = false\n",
+			want:    "[security]\nhide_secrets = false\n",
+			changed: 0,
+		},
+		{
+			name:    "hide_secrets in wrong section ignored",
+			in:      "[sandbox]\nhide_secrets = true\n",
+			want:    "[sandbox]\nhide_secrets = true\n",
+			changed: 0,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -661,29 +685,27 @@ func TestDefaultConfigAutoUpdatePackages(t *testing.T) {
 	}
 }
 
-// TestDefaultConfigHideSecretsEnabled pins the hide-secrets default:
-// on unless the user sets [security] hide_secrets = false, and the
-// default survives unmarshaling existing config.toml files that predate
-// the key (zero-value TOML decoding must not silently disable it).
-func TestDefaultConfigHideSecretsEnabled(t *testing.T) {
+// TestDefaultConfigHideSecretsDisabled pins the hide-secrets default:
+// off by default unless the user sets [security] hide_secrets = true.
+func TestDefaultConfigHideSecretsDisabled(t *testing.T) {
 	cfg := DefaultConfig()
-	if !cfg.Security.HideSecrets {
-		t.Error("Expected default hide_secrets to be true")
+	if cfg.Security.HideSecrets {
+		t.Error("Expected default hide_secrets to be false")
 	}
 
 	if err := toml.Unmarshal([]byte(""), &cfg); err != nil {
 		t.Fatalf("unmarshal empty config: %v", err)
 	}
-	if !cfg.Security.HideSecrets {
-		t.Error("Expected hide_secrets to remain true after unmarshaling missing key")
+	if cfg.Security.HideSecrets {
+		t.Error("Expected hide_secrets to remain false after unmarshaling missing key")
 	}
 
-	// Explicit false must stick (opt-out works).
-	if err := toml.Unmarshal([]byte("[security]\nhide_secrets = false\n"), &cfg); err != nil {
-		t.Fatalf("unmarshal opt-out config: %v", err)
+	// Explicit true must stick (opt-in works).
+	if err := toml.Unmarshal([]byte("[security]\nhide_secrets = true\n"), &cfg); err != nil {
+		t.Fatalf("unmarshal opt-in config: %v", err)
 	}
-	if cfg.Security.HideSecrets {
-		t.Error("Expected explicit hide_secrets = false to be honored")
+	if !cfg.Security.HideSecrets {
+		t.Error("Expected explicit hide_secrets = true to be honored")
 	}
 }
 

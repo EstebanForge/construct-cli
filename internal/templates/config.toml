@@ -332,8 +332,8 @@ log_retention_days = 15
 [security]
 # When enabled, prevents LLM agents from seeing raw secrets in mounted project files and environment variables.
 # Files containing detected secrets are shadowed with clean redacts in-container.
-# Default: true
-hide_secrets = true
+# Default: false
+hide_secrets = false
 
 # Mask style for redacted secrets: "hash" (default) or "fixed"
 # - "hash": Shows unique placeholder per secret (CONSTRUCT_REDACTED_<H8>) - better for debugging

@@ -103,6 +103,12 @@ func EvaluateWorkspace(dir string, budget int) WorkspaceVerdict {
 		return v
 	}
 
+	if nested := countTopLevelGitRoots(clean); nested >= 2 {
+		v.Risk = WorkspaceRiskLarge
+		v.Reason = fmt.Sprintf("%s is an umbrella directory containing %d git repositories", clean, nested)
+		return v
+	}
+
 	if hot := topLevelHotSubtrees(clean); len(hot) >= 2 {
 		v.Risk = WorkspaceRiskLarge
 		v.Hot = hot
@@ -291,6 +297,26 @@ func topLevelHotSubtrees(dir string) []string {
 func isGitRoot(dir string) bool {
 	info, err := os.Stat(filepath.Join(dir, ".git"))
 	return err == nil && (info.IsDir() || info.Mode().IsRegular())
+}
+
+func countTopLevelGitRoots(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		isDir := e.IsDir()
+		if !isDir && (e.Type()&os.ModeSymlink != 0) {
+			if fi, serr := os.Stat(filepath.Join(dir, e.Name())); serr == nil && fi.IsDir() {
+				isDir = true
+			}
+		}
+		if isDir && isGitRoot(filepath.Join(dir, e.Name())) {
+			count++
+		}
+	}
+	return count
 }
 
 func hostHomeDir() string {

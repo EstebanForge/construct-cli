@@ -6,7 +6,14 @@ import (
 	"path/filepath"
 
 	"github.com/EstebanForge/construct-cli/internal/config"
+	"github.com/EstebanForge/construct-cli/internal/runtime"
 	"github.com/EstebanForge/construct-cli/internal/ui"
+)
+
+// securityConfirm and securityInteractive are seams for tests.
+var (
+	securityConfirm     = ui.GumConfirmNoDefault
+	securityInteractive = ui.StdinIsTerminal
 )
 
 // SessionManager manages the hide-secrets mode session lifecycle.
@@ -47,6 +54,11 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 		return fmt.Errorf("hide-secrets mode validation failed: %w", err)
 	}
 
+	// Preflight check project root before cloning
+	if err := sm.preflightWorkspace(projectRoot); err != nil {
+		return err
+	}
+
 	// Force mount_home off as per proposal
 	if sm.config.Sandbox.MountHome {
 		ui.GumWarning("hide_secrets mode forces mount_home=false for security")
@@ -67,6 +79,9 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 		return fmt.Errorf("failed to generate session ID: %w", err)
 	}
 
+	wsType := DetectWorkspaceType()
+	ui.InfoF("🛡️  Creating isolated security workspace (%s)...\n", wsType)
+
 	// Create workspace
 	workspace, err := sm.wsManager.CreateSessionWorkspace(sessionID, projectRoot, sm.config.Security.HideSecretsMaskStyle)
 	if err != nil {
@@ -78,6 +93,7 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 	}
 
 	// Create and run secret shield
+	ui.InfoLn("🔍 Scanning workspace for secrets...")
 	sm.shield = NewSecretShield(sm.config, projectRoot, sm.sessionManager)
 	scanResult, err := sm.shield.Protect(sessionID, sm.config.Security.HideGitDir)
 	if err != nil {
@@ -88,6 +104,7 @@ func (sm *SessionManager) Initialize(projectRoot string) error {
 		return fmt.Errorf("failed to redact secrets: %w", err)
 	}
 	sm.scanResult = scanResult
+	ui.InfoF("✓ Security workspace prepared (%d files scanned, %d redacted)\n", scanResult.FilesScanned, scanResult.FilesRedacted)
 
 	// Check for blocked symlinks
 	blockedSymlinks, err := sm.shield.scanner.CheckSymlinks(projectRoot)
@@ -139,6 +156,51 @@ func (sm *SessionManager) validatePrerequisites() error {
 	case WorkspaceTypeAPFSClone:
 		if !IsAPFSCloneSupported() {
 			return fmt.Errorf("APFS clones not available on this system")
+		}
+	}
+
+	return nil
+}
+
+func (sm *SessionManager) preflightWorkspace(projectRoot string) error {
+	maxEntries := config.DefaultWorkspaceMaxEntries
+	allowHome := false
+	if sm.config != nil {
+		if sm.config.Sandbox.WorkspaceMaxEntries > 0 {
+			maxEntries = sm.config.Sandbox.WorkspaceMaxEntries
+		}
+		allowHome = sm.config.Sandbox.AllowHomeWorkspace
+	}
+
+	verdict := runtime.EvaluateWorkspace(projectRoot, maxEntries)
+	switch verdict.Risk {
+	case runtime.WorkspaceRiskOK:
+		return nil
+
+	case runtime.WorkspaceRiskSystem:
+		return fmt.Errorf("refusing to isolate system directory in hide-secrets mode: %s", verdict.Reason)
+
+	case runtime.WorkspaceRiskHome:
+		if !allowHome {
+			return fmt.Errorf("refusing to isolate host home directory in hide-secrets mode (set allow_home_workspace = true in [sandbox] to override)")
+		}
+		ui.GumWarning(fmt.Sprintf("Risky hide_secrets workspace: %s", verdict.Reason))
+		if !securityInteractive() {
+			return fmt.Errorf("hide-secrets refused home workspace in non-interactive session: %s", verdict.Reason)
+		}
+		if !securityConfirm("Isolate host home directory in hide-secrets mode anyway?") {
+			return fmt.Errorf("hide-secrets canceled by user")
+		}
+
+	case runtime.WorkspaceRiskLarge:
+		ui.GumWarning(fmt.Sprintf("Large workspace detected: %s", verdict.Reason))
+		ui.InfoLn("   Cloning this directory for hide_secrets may duplicate gigabytes and take several minutes.")
+		ui.InfoLn("   Tip: cd into a specific project repository, or run with CONSTRUCT_SECURITY_HIDE_SECRETS=off.")
+		if !securityInteractive() {
+			return fmt.Errorf("hide-secrets refused large workspace in non-interactive session: %s", verdict.Reason)
+		}
+		if !securityConfirm("Clone this large directory into a temporary security workspace anyway?") {
+			return fmt.Errorf("hide-secrets canceled by user")
 		}
 	}
 

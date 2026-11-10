@@ -177,3 +177,68 @@ func TestAPFSCloneSymlinkSecretDoesNotOverwriteHost(t *testing.T) {
 		t.Fatalf("host secret file was overwritten! got %q, want %q", string(currentHostContent), hostSecretContent)
 	}
 }
+
+func TestPreflightWorkspaceUmbrellaDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+	configDir := filepath.Join(tempDir, "config")
+
+	// Create umbrella structure with 2 nested git repositories
+	umbrellaDir := filepath.Join(tempDir, "umbrella")
+	repo1 := filepath.Join(umbrellaDir, "repo-one")
+	repo2 := filepath.Join(umbrellaDir, "repo-two")
+	if err := os.MkdirAll(filepath.Join(repo1, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo2, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		Security: config.SecurityConfig{
+			HideSecrets: true,
+		},
+	}
+
+	origConfirm := securityConfirm
+	origInteractive := securityInteractive
+	defer func() {
+		securityConfirm = origConfirm
+		securityInteractive = origInteractive
+	}()
+
+	// 1. Non-interactive session must fail closed
+	securityInteractive = func() bool { return false }
+	smNonInteractive := NewSessionManager(cfg, configDir)
+	if err := smNonInteractive.Initialize(umbrellaDir); err == nil || !strings.Contains(err.Error(), "non-interactive session") {
+		t.Fatalf("expected non-interactive error, got: %v", err)
+	}
+
+	securityInteractive = func() bool { return true }
+
+	// 2. When user cancels (securityConfirm returns false), Initialize must fail
+	confirmed := false
+	securityConfirm = func(_ string) bool {
+		return false
+	}
+
+	sm := NewSessionManager(cfg, configDir)
+	err := sm.Initialize(umbrellaDir)
+	if err == nil || !strings.Contains(err.Error(), "canceled by user") {
+		t.Fatalf("expected cancel error when confirm=false, got: %v", err)
+	}
+
+	// 3. When user accepts (securityConfirm returns true), Initialize proceeds
+	securityConfirm = func(_ string) bool {
+		confirmed = true
+		return true
+	}
+
+	sm2 := NewSessionManager(cfg, configDir)
+	if err := sm2.Initialize(umbrellaDir); err != nil {
+		t.Fatalf("expected Initialize to succeed when confirm=true, got: %v", err)
+	}
+	if !confirmed {
+		t.Fatal("expected securityConfirm to be called")
+	}
+	defer func() { _ = sm2.Cleanup() }()
+}

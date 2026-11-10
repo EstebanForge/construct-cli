@@ -64,7 +64,7 @@ allowed_tcp = []             # Raw TCP service tunnels (host:port, e.g. ["postgr
 
 # Security Configuration
 [security]
-hide_secrets = true              # Master switch for workspace secret redaction (default: true)
+hide_secrets = false             # Master switch for workspace secret redaction (default: false)
 hide_secrets_mask_style = "hash" # Mask style: hash|fixed
 hide_secrets_deny_paths = []     # Force-scan these files
 hide_secrets_allow_paths = []    # Never redact these files (dangerous!)
@@ -427,7 +427,7 @@ construct sys network log --tail 50 -f
 
 ```toml
 [security]
-hide_secrets = true              # Master switch (default: true). Set false to opt out
+hide_secrets = false             # Master switch (default: false). Set true to opt in
 hide_secrets_mask_style = "hash" # Options: hash (default), fixed
 hide_secrets_deny_paths = ["**/secrets.yml"]
 hide_secrets_allow_paths = ["~/.aws/credentials"]
@@ -436,7 +436,7 @@ hide_secrets_report = true
 hide_git_dir = true
 ```
 
-- **hide_secrets**: Master switch enabled by default (`true`). When active, redacts raw secrets from mounted project files and masks matching values in environment variables and stream output. Set to `false` in `config.toml` to opt out.
+- **hide_secrets**: Master switch disabled by default (`false`). When enabled (`true`), redacts raw secrets from mounted project files and masks matching values in environment variables and stream output.
 - **hide_secrets_mask_style**:
   - `hash`: Generates unique deterministic placeholders per secret (e.g., `CONSTRUCT_REDACTED_<H8>`), ideal for debugging without exposing secrets.
   - `fixed`: Replaces secret values with static tokens (`CONSTRUCT_REDACTED`).

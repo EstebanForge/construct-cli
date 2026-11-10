@@ -24,11 +24,11 @@ This protects against:
 
 ### 1. Configure in `config.toml`
 
-Hide Secrets mode is **enabled by default** in Construct v3.0:
+Hide Secrets mode is **disabled by default**:
 
 ```toml
 [security]
-hide_secrets = true              # Master switch (default: true). Set false to opt out
+hide_secrets = true              # Master switch (default: false). Set true to opt in
 hide_secrets_mask_style = "hash" # Options: hash (default), fixed
 ```
 
