@@ -2,6 +2,17 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 3.0.2 -->
+## [3.0.2] - 2026-11-10
+
+### Fixed
+
+- **APFS workspace clone broken symlink failure**: Replaced per-file directory traversal in APFS workspace clone with native recursive copy (`cp -c -p -R`), preventing crash loops on broken or guest-targeted symlinks (`.antigravitycli/*.json`).
+- **MicroVM daemon recreation loop on ephemeral security sessions**: Collapsed `construct.project_dir` labels and decision paths in `BuildMsbRunSpec` and `msbDaemonNeedsRecreate` to the static security sessions base directory, avoiding unnecessary daemon teardowns and multi-minute cold reinstall passes across runs.
+- **Secret redaction in APFS cloned workspace**: Mirrored redacted content to the session `merged` directory in non-overlay workspace isolation modes and unlinked symlink targets before writing to prevent host file overwrite. Masked `.git` directory in merged view when `hide_git_dir` is enabled.
+
+<!-- RELEASE:END 3.0.2 -->
+
 <!-- RELEASE:START 3.0.1 -->
 ## [3.0.1] - 2026-11-09
 
