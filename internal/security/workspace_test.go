@@ -179,6 +179,7 @@ func TestAPFSCloneSymlinkSecretDoesNotOverwriteHost(t *testing.T) {
 }
 
 func TestPreflightWorkspaceUmbrellaDirectory(t *testing.T) {
+	t.Setenv("CONSTRUCT_SECURITY_WORKSPACE_TYPE", "none")
 	tempDir := t.TempDir()
 	configDir := filepath.Join(tempDir, "config")
 
