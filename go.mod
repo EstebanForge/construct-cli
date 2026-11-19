@@ -7,7 +7,7 @@ require (
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/rogpeppe/go-internal v1.16.0
 	github.com/superradcompany/microsandbox/sdk/go v0.7.14
-	golang.org/x/term v0.47.0
+	golang.org/x/term v0.48.0
 	pgregory.net/rapid v1.3.0
 )
 
@@ -45,7 +45,7 @@ require (
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
 	golang.org/x/net v0.42.0 // indirect
 	golang.org/x/sync v0.16.0 // indirect
-	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/sys v0.50.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	golang.org/x/tools v0.35.0 // indirect
 )
