@@ -2,6 +2,16 @@
 
 All notable changes to Construct CLI will be documented in this file.
 
+<!-- RELEASE:START 3.1.0 -->
+## [3.1.0] - 2026-11-26
+
+### Changed
+
+- **Embedded microsandbox runtime updated to 0.8.3**: Upgraded the embedded `msb` binary, `libkrunfw`, and Go SDK to `0.8.3`, and updated runtime callers to the new `Checkpoint` and `Sandbox` APIs.
+- **Node toolchain upgraded to 24.22.2**: Updated the modular Node toolchain definition to `24.22.2`.
+
+<!-- RELEASE:END 3.1.0 -->
+
 <!-- RELEASE:START 3.0.3 -->
 ## [3.0.3] - 2026-11-10
 

@@ -7,7 +7,7 @@ const (
 	ConfigDir        = ".config/construct-cli"
 	ImageName        = "construct-box"
 	DaemonName       = "construct-cli-daemon"
-	Version          = "3.0.3"
+	Version          = "3.1.0"
 	GithubAPIURL     = "https://api.github.com/repos/EstebanForge/construct-cli/releases/latest"
 	GithubRawURL     = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION"
 	GithubRawBetaURL = "https://raw.githubusercontent.com/EstebanForge/construct-cli/main/VERSION-BETA"
