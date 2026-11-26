@@ -78,11 +78,11 @@ var (
 		if err != nil {
 			return false
 		}
-		fresh, ferr := h.Refresh(ctx)
+		st, ferr := h.Status(ctx)
 		if ferr != nil {
 			return false
 		}
-		return fresh.Status() == msb.SandboxStatusRunning
+		return st == msb.SandboxStatusRunning
 	}
 	updateDaemonSessions = LiveSessionCount
 	updateDaemonStop     = StopMsbDaemonBestEffort
@@ -105,7 +105,7 @@ func stopDaemonForDestroy() (found bool, err error) {
 	if err != nil {
 		return false, nil // no sandbox record: nothing to destroy
 	}
-	if h.Status() == msb.SandboxStatusRunning {
+	if st, ferr := h.Status(ctx); ferr == nil && st == msb.SandboxStatusRunning {
 		if err := h.Stop(ctx); err != nil {
 			return true, fmt.Errorf("failed to stop msb daemon: %w", err)
 		}
@@ -113,8 +113,8 @@ func stopDaemonForDestroy() (found bool, err error) {
 		// passes through "draining" where Remove refuses, so wait it out
 		// here rather than failing the remove below.
 		for i := 0; i < 60; i++ {
-			fresh, ferr := h.Refresh(ctx)
-			if ferr != nil || fresh.Status() == msb.SandboxStatusStopped {
+			st, ferr := h.Status(ctx)
+			if ferr != nil || st == msb.SandboxStatusStopped {
 				break
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -132,7 +132,7 @@ func removeDaemonSandbox() error {
 	if err != nil {
 		return nil // record vanished between stop and remove: done
 	}
-	if err := h.Remove(ctx); err != nil {
+	if err := h.Destroy(ctx); err != nil {
 		return fmt.Errorf("failed to remove msb daemon sandbox: %w", err)
 	}
 	return nil
@@ -357,8 +357,8 @@ func StopMsbDaemonBestEffort() error {
 		return fmt.Errorf("failed to stop msb daemon: %w", err)
 	}
 	for i := 0; i < 30; i++ {
-		fresh, ferr := h.Refresh(ctx)
-		if ferr != nil || fresh.Status() == msb.SandboxStatusStopped {
+		st, ferr := h.Status(ctx)
+		if ferr != nil || st == msb.SandboxStatusStopped {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)

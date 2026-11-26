@@ -1034,15 +1034,19 @@ func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir s
 	}
 
 	if h, err := msb.GetSandbox(ctx, msbDaemonName); err == nil {
-		if sbc, cerr := h.Config(); cerr == nil && sbc != nil {
-			needRecreate := sbc.MemoryMiB < 2048
+		if sbc, cerr := h.Config(ctx); cerr == nil && sbc != nil {
+			needRecreate := sbc.Spec.Resources.MemoryMiB < 2048
 			reason := "memory below minimum"
 			if !needRecreate {
 				allowHome := cfg != nil && cfg.Sandbox.AllowHomeWorkspace
+				cfgJSON, cfgErr := h.ConfigJSON(ctx)
+				if cfgErr != nil {
+					cfgJSON = ""
+				}
 				// Decision inputs prefer the construct-owned spec file: a forked
 				// daemon's msb record carries no labels (restore drops them), and
 				// a stale record would read as total drift and recreate forever.
-				needRecreate, reason = msbDaemonNeedsRecreate(dm, msbDaemonDecisionLabels(sbc.Labels), h.ConfigJSON(), projectDir, allowHome, cfg, msbCachedImageDigest())
+				needRecreate, reason = msbDaemonNeedsRecreate(dm, msbDaemonDecisionLabels(sbc.Spec.Labels), cfgJSON, projectDir, allowHome, cfg, msbCachedImageDigest())
 			}
 			if needRecreate {
 				if deferred, busyErr := msbRecreateGate(reason, learnedRoot, LiveSessionCount()); busyErr != nil {
@@ -1096,8 +1100,8 @@ func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir s
 			ui.InfoF("⚠️  Cannot read the daemon sandbox config (%s); skipping recreate checks this run. If the daemon behaves stale, run 'construct sys daemon recreate'.\n", detail)
 		}
 
-		if h.Status() == msb.SandboxStatusRunning {
-			sb, cerr := h.Connect(ctx)
+		if st, serr := h.Status(ctx); serr == nil && st == msb.SandboxStatusRunning {
+			sb, cerr := msb.GetRunningSandbox(ctx, msbDaemonName)
 			if cerr == nil {
 				// The default workload (entrypoint) does not survive reboots or
 				// relaunch on its own: re-invoke it when the sleep-infinity
@@ -1124,11 +1128,11 @@ func ensureMsbDaemonLocked(ctx context.Context, cfg *config.Config, projectDir s
 			return nil, fmt.Errorf("connect daemon sandbox: %w", cerr)
 		}
 		ui.InfoLn("🚀 Starting microVM daemon sandbox...")
-		sb, serr := h.StartDetached(ctx)
+		sb, serr := msb.StartSandboxDetached(ctx, msbDaemonName)
 		if serr != nil {
 			// Draining (stop in flight): wait it out, then boot.
 			if werr := h.Stop(ctx); werr == nil {
-				sb, serr = h.StartDetached(ctx)
+				sb, serr = msb.StartSandboxDetached(ctx, msbDaemonName)
 			}
 		}
 		if serr != nil {
@@ -1343,11 +1347,11 @@ func GetMsbDaemonProjectDir(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	sbc, err := h.Config()
+	sbc, err := h.Config(ctx)
 	if err != nil || sbc == nil {
 		return ""
 	}
-	return sbc.Labels["construct.project_dir"]
+	return sbc.Spec.Labels["construct.project_dir"]
 }
 
 // msb-boot: telemetry for EnsureMsbDaemon. One outcome tag per return path:
@@ -1383,9 +1387,9 @@ const msbForkSnapshotPrefix = "construct-daemon-fork-"
 
 // captureForkSnapshot runs the fork capture ladder (see
 // captureForkSnapshotLadder) against the live SDK.
-func captureForkSnapshot(ctx context.Context, snapName string) (*msb.SnapshotArtifact, error) {
-	return captureForkSnapshotLadder(func(opts msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
-		return msb.Snapshot.Create(ctx, opts)
+func captureForkSnapshot(ctx context.Context, snapName string) (*msb.Checkpoint, error) {
+	return captureForkSnapshotLadder(func(opts msb.SnapshotCreateOptions) (*msb.Checkpoint, error) {
+		return msb.CreateSnapshot(ctx, opts)
 	}, snapName)
 }
 
@@ -1399,7 +1403,7 @@ func captureForkSnapshot(ctx context.Context, snapName string) (*msb.SnapshotArt
 // state — and SnapshotDiskOnly restore consumes nothing else. The SDK
 // flushes live disk captures by default, so its disk is at least as
 // consistent as the Auto rung's.
-func captureForkSnapshotLadder(create func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error), snapName string) (*msb.SnapshotArtifact, error) {
+func captureForkSnapshotLadder(create func(msb.SnapshotCreateOptions) (*msb.Checkpoint, error), snapName string) (*msb.Checkpoint, error) {
 	ladder := []msb.SnapshotCreateOptions{
 		{FromSandbox: msbDaemonName, Name: snapName, Full: true, GuestFlush: msb.GuestFlushRequired},
 		{FromSandbox: msbDaemonName, Name: snapName, Full: true, GuestFlush: msb.GuestFlushAuto},
@@ -1424,11 +1428,11 @@ func captureForkSnapshotLadder(create func(msb.SnapshotCreateOptions) (*msb.Snap
 // recycleDaemonForCapture re-spawns the daemon's VMM through a stop +
 // detached boot so it accepts capture ops from this process (see the
 // retry at the call site). Restores the readiness state before returning.
-func recycleDaemonForCapture(ctx context.Context, h *msb.SandboxHandle) error {
+func recycleDaemonForCapture(ctx context.Context, h *msb.Sandbox) error {
 	if err := h.Stop(ctx, msb.WithStopTimeout(30*time.Second)); err != nil {
 		return fmt.Errorf("recycle stop: %w", err)
 	}
-	sb, err := h.StartDetached(ctx)
+	sb, err := msb.StartSandboxDetached(ctx, h.Name())
 	if err != nil {
 		return fmt.Errorf("recycle boot: %w", err)
 	}
@@ -1505,8 +1509,8 @@ func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.C
 	// decision also fires on boot-after-stop (e.g. roots add + daemon
 	// restart), so boot the stopped daemon first; its gate usually matches
 	// and this is seconds. A failure here falls back to the cold path.
-	if h.Status() != msb.SandboxStatusRunning {
-		sbBoot, berr := h.StartDetached(ctx)
+	if st, stErr := h.Status(ctx); stErr != nil || st != msb.SandboxStatusRunning {
+		sbBoot, berr := msb.StartSandboxDetached(ctx, msbDaemonName)
 		if berr != nil {
 			return nil, fmt.Errorf("pre-fork boot: %w", berr)
 		}
@@ -1551,8 +1555,9 @@ func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.C
 	// also feed the construct-owned daemon spec (below) because the msb
 	// record loses its labels across a restore.
 	spec := BuildMsbRunSpec(cfg, msbDaemonName, projectDir, nil, bootRef)
+	snapScope, scopeErr := snap.Scope(ctx)
 	restoreCfg := msb.RestoreConfig{
-		SnapshotDiskOnly: snap.Scope() == msb.SnapshotScopeFull,
+		SnapshotDiskOnly: scopeErr == nil && snapScope == msb.SnapshotScopeFull,
 		Volumes:          spec.Mounts,
 		NetworkPolicy:    spec.Network,
 	}
@@ -1601,7 +1606,7 @@ func forkMsbDaemonFromSnapshot(ctx context.Context, m *MsbBackend, cfg *config.C
 // (the freshest capture). Best-effort throughout; snapshot hygiene must
 // never fail a run.
 func msbPruneForkSnapshots(ctx context.Context, keep string) {
-	listed, err := msb.Snapshot.List(ctx)
+	listed, err := msb.ListSnapshots(ctx)
 	if err != nil {
 		return
 	}
@@ -1614,7 +1619,7 @@ func msbPruneForkSnapshots(ctx context.Context, keep string) {
 		if strings.TrimPrefix(*name, msbDaemonName+":") == keep {
 			continue
 		}
-		_ = msb.Snapshot.Remove(ctx, *name, true) //nolint:errcheck // best-effort prune
+		_ = msb.RemoveSnapshot(ctx, *name, true) //nolint:errcheck // best-effort prune
 	}
 }
 

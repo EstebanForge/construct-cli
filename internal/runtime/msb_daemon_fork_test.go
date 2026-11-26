@@ -43,10 +43,10 @@ func TestMsbRecreateForkableReasons(t *testing.T) {
 // capture (device-state serialization), while disk capture never touches
 // device state and is all the SnapshotDiskOnly restore consumes.
 func TestCaptureForkSnapshotLadderRungOrder(t *testing.T) {
-	art := &msb.SnapshotArtifact{}
+	art := &msb.Checkpoint{}
 	attempts := 0
 	var seen []msb.SnapshotCreateOptions
-	create := func(opts msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+	create := func(opts msb.SnapshotCreateOptions) (*msb.Checkpoint, error) {
 		seen = append(seen, opts)
 		attempts++
 		if attempts < 3 {
@@ -79,9 +79,9 @@ func TestCaptureForkSnapshotLadderRungOrder(t *testing.T) {
 // TestCaptureForkSnapshotLadderFirstRungWins: a healthy daemon captures on
 // the first rung; no fallback attempt may fire.
 func TestCaptureForkSnapshotLadderFirstRungWins(t *testing.T) {
-	art := &msb.SnapshotArtifact{}
+	art := &msb.Checkpoint{}
 	attempts := 0
-	snap, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+	snap, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.Checkpoint, error) {
 		attempts++
 		return art, nil
 	}, "snap-b")
@@ -97,7 +97,7 @@ func TestCaptureForkSnapshotLadderFirstRungWins(t *testing.T) {
 // last error so the caller's recycle-and-retry path still sees it.
 func TestCaptureForkSnapshotLadderAllRungsFail(t *testing.T) {
 	wantErr := errors.New("rejected")
-	_, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.SnapshotArtifact, error) {
+	_, err := captureForkSnapshotLadder(func(msb.SnapshotCreateOptions) (*msb.Checkpoint, error) {
 		return nil, wantErr
 	}, "snap-c")
 	if !errors.Is(err, wantErr) {

@@ -61,7 +61,7 @@ func TestMsbLiveSnapshotFork(t *testing.T) {
 			}
 			_ = NewMsbBackend().Cleanup(dctx, name)
 		}
-		_ = msb.Snapshot.Remove(dctx, srcName+":"+snapName, true)
+		_ = msb.RemoveSnapshot(dctx, srcName+":"+snapName, true)
 	})
 
 	// Source sandbox: trivial workload that marks each boot on the root disk,
@@ -94,7 +94,7 @@ func TestMsbLiveSnapshotFork(t *testing.T) {
 	// RUNNING source. disk_only restore requires checkpoint state; a stopped
 	// capture (disk scope) is rejected at restore time.
 	snapStart := time.Now()
-	snap, err := msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+	snap, err := msb.CreateSnapshot(ctx, msb.SnapshotCreateOptions{
 		FromSandbox: srcName,
 		Name:        snapName,
 		Full:        true,
@@ -185,10 +185,11 @@ func TestMsbLiveSnapshotFork(t *testing.T) {
 	// immediately. Restored labels/config decide whether construct-side
 	// spec persistence is needed (production decision below depends on it).
 	if fh, err := msb.GetSandbox(ctx, forkName); err == nil {
-		if cfg2, cerr := fh.Config(); cerr == nil && cfg2 != nil {
-			t.Logf("restored record: memory=%d labels=%v volumes=%d", cfg2.MemoryMiB, cfg2.Labels, len(cfg2.Volumes))
+		if cfg2, cerr := fh.Config(ctx); cerr == nil && cfg2 != nil {
+			t.Logf("restored record: memory=%d labels=%v mounts=%d", cfg2.Spec.Resources.MemoryMiB, cfg2.Spec.Labels, len(cfg2.Spec.Mounts))
 		}
-		t.Logf("restored config json: %s", fh.ConfigJSON())
+		cfgJSON, _ := fh.ConfigJSON(ctx)
+		t.Logf("restored config json: %s", cfgJSON)
 	}
 }
 

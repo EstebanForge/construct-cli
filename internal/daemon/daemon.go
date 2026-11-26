@@ -160,7 +160,7 @@ func stopMsb() error {
 	if err != nil {
 		return fmt.Errorf("daemon is not running: %w", err)
 	}
-	if h.Status() == msb.SandboxStatusStopped {
+	if st, err := h.Status(ctx); err == nil && st == msb.SandboxStatusStopped {
 		ui.GumInfo("Daemon is already stopped")
 		return nil
 	}
@@ -169,8 +169,8 @@ func stopMsb() error {
 		return fmt.Errorf("failed to stop msb daemon: %w", err)
 	}
 	for i := 0; i < 30; i++ {
-		fresh, err := h.Refresh(ctx)
-		if err != nil || fresh.Status() == msb.SandboxStatusStopped {
+		st, err := h.Status(ctx)
+		if err != nil || st == msb.SandboxStatusStopped {
 			break
 		}
 		time.Sleep(200 * time.Millisecond)

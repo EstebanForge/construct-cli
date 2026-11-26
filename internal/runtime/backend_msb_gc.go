@@ -73,7 +73,7 @@ func defaultGcRemoveImage(ctx context.Context, ref string) error {
 }
 
 func defaultGcListSnapshots(ctx context.Context) ([]msbGCSnapshot, error) {
-	handles, err := msb.Snapshot.List(ctx)
+	handles, err := msb.ListSnapshots(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("msb snapshot list: %w", err)
 	}
@@ -84,7 +84,7 @@ func defaultGcListSnapshots(ctx context.Context) ([]msbGCSnapshot, error) {
 			continue
 		}
 		sn := msbGCSnapshot{name: *name}
-		if b := h.SizeBytes(); b != nil {
+		if b, berr := h.SizeBytes(ctx); berr == nil && b != nil {
 			sn.sizeBytes = *b
 		}
 		out = append(out, sn)
@@ -93,7 +93,7 @@ func defaultGcListSnapshots(ctx context.Context) ([]msbGCSnapshot, error) {
 }
 
 func defaultGcRemoveSnapshot(ctx context.Context, scoped string) error {
-	if err := msb.Snapshot.Remove(ctx, scoped, true); err != nil {
+	if err := msb.RemoveSnapshot(ctx, scoped, true); err != nil {
 		return fmt.Errorf("msb snapshot rm %s: %w", scoped, err)
 	}
 	return nil

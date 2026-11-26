@@ -592,7 +592,11 @@ func (m *MsbBackend) State(ctx context.Context, name string) (ContainerState, er
 	if err != nil {
 		return ContainerStateMissing, nil // not found == missing (probe contract)
 	}
-	switch h.Status() {
+	st, err := h.Status(ctx)
+	if err != nil {
+		return ContainerStateMissing, nil
+	}
+	switch st {
 	case msb.SandboxStatusRunning:
 		return ContainerStateRunning, nil
 	case msb.SandboxStatusStopped:
@@ -621,12 +625,11 @@ func (m *MsbBackend) forceRemoveMsbDaemon(ctx context.Context, name string) erro
 	if err != nil {
 		return nil // already gone
 	}
-	fresh, err := h.Refresh(ctx)
+	st, err := h.Status(ctx)
 	if err != nil {
 		return nil // gone
 	}
-	h = fresh
-	switch h.Status() {
+	switch st {
 	case msb.SandboxStatusStopped:
 		// Nothing to tear down.
 	case msb.SandboxStatusRunning:
@@ -644,18 +647,17 @@ func (m *MsbBackend) forceRemoveMsbDaemon(ctx context.Context, name string) erro
 		// straight to kill. Missing this state left a draining sandbox
 		// immune to teardown and blocked the recreate with "already exists".
 		if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
-			return fmt.Errorf("kill sandbox %s (status %s): %w", name, h.Status(), killErr)
+			return fmt.Errorf("kill sandbox %s (status %s): %w", name, st, killErr)
 		}
 	}
 	// Re-resolve until fully stopped: the handle's status is a snapshot and
 	// passes through "draining" before "stopped"; Remove refuses earlier.
 	for i := 0; i < 60; i++ {
-		fresh, err := h.Refresh(ctx)
+		st, err = h.Status(ctx)
 		if err != nil {
 			return nil // gone
 		}
-		h = fresh
-		if h.Status() == msb.SandboxStatusStopped {
+		if st == msb.SandboxStatusStopped {
 			break
 		}
 		select {
@@ -664,14 +666,14 @@ func (m *MsbBackend) forceRemoveMsbDaemon(ctx context.Context, name string) erro
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	if h.Status() != msb.SandboxStatusStopped {
+	if st != msb.SandboxStatusStopped {
 		// The wait expired mid-shutdown; Remove would refuse. Kill settles
 		// it, and its own expiry surfaces as the returned error.
 		if killErr := h.Kill(ctx, msb.WithKillTimeout(10*time.Second)); killErr != nil {
-			return fmt.Errorf("sandbox %s never reached stopped (status %s; kill: %v)", name, h.Status(), killErr)
+			return fmt.Errorf("sandbox %s never reached stopped (status %s; kill: %v)", name, st, killErr)
 		}
 	}
-	if err := h.Remove(ctx); err != nil {
+	if err := h.Destroy(ctx); err != nil {
 		return fmt.Errorf("remove sandbox %s: %w", name, err)
 	}
 	return nil
@@ -726,11 +728,7 @@ func (m *MsbBackend) CheckImageCommand() []string {
 
 // connect attaches to a running sandbox by name.
 func (m *MsbBackend) connect(ctx context.Context, name string) (*msb.Sandbox, error) {
-	h, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("sandbox %s not found: %w", name, err)
-	}
-	return h.Connect(ctx)
+	return msb.GetRunningSandbox(ctx, name)
 }
 
 // envSliceToMap converts ordered KEY=VALUE env slices into the map the SDK

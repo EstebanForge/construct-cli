@@ -41,7 +41,7 @@ func TestMsbLiveSnapshotForkBisect(t *testing.T) {
 			_ = h.Stop(dctx, msb.WithStopTimeout(15*time.Second))
 			_ = NewMsbBackend().Cleanup(dctx, name)
 		}
-		_ = msb.Snapshot.Remove(dctx, name+":"+snapName, true)
+		_ = msb.RemoveSnapshot(dctx, name+":"+snapName, true)
 	})
 
 	opts := []msb.SandboxOption{
@@ -74,11 +74,7 @@ func TestMsbLiveSnapshotForkBisect(t *testing.T) {
 	if _, err := msb.CreateSandbox(ctx, name, opts...); err != nil {
 		t.Fatalf("create bisect sandbox: %v", err)
 	}
-	h, err := msb.GetSandbox(ctx, name)
-	if err != nil {
-		t.Fatalf("get handle: %v", err)
-	}
-	sb, err := h.Connect(ctx)
+	sb, err := msb.GetRunningSandbox(ctx, name)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
@@ -86,7 +82,7 @@ func TestMsbLiveSnapshotForkBisect(t *testing.T) {
 	time.Sleep(3 * time.Second) // let the workload start
 
 	captureStart := time.Now()
-	_, err = msb.Snapshot.Create(ctx, msb.SnapshotCreateOptions{
+	_, err = msb.CreateSnapshot(ctx, msb.SnapshotCreateOptions{
 		FromSandbox: name,
 		Name:        snapName,
 		Full:        true,
