@@ -6,7 +6,7 @@ require (
 	github.com/charmbracelet/gum v0.17.0
 	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/rogpeppe/go-internal v1.16.0
-	github.com/superradcompany/microsandbox/sdk/go v0.7.14
+	github.com/superradcompany/microsandbox/sdk/go v0.8.1
 	golang.org/x/term v0.47.0
 	pgregory.net/rapid v1.3.0
 )
@@ -40,6 +40,7 @@ require (
 	github.com/muesli/reflow v0.3.0 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/superradcompany/microsandbox/sdk/go/core v0.8.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yuin/goldmark v1.7.8 // indirect
 	github.com/yuin/goldmark-emoji v1.0.5 // indirect
